@@ -1,0 +1,79 @@
+version: "2"
+
+linters:
+  default: all
+  disable:
+    - depguard
+    - exhaustruct
+    - varnamelen
+    - wrapcheck
+    - wsl
+    - wsl_v5
+    - tagliatelle
+    - testpackage
+    - ireturn
+    - containedctx
+    - gochecknoglobals
+    - paralleltest
+    - tparallel
+    - revive
+    - mnd
+
+  settings:
+    govet:
+      enable-all: true
+    gocyclo:
+      min-complexity: 10
+    funlen:
+      lines: 60
+      statements: 30
+  exclusions:
+    rules:
+      # TeamSpeak protocol uses SHA-1 for identity/handshake compatibility.
+      - path: crypto/crypt.go
+        linters:
+          - gosec
+        text: "G401|G505"
+      # Test code with bounded tiny literals can trigger noisy int-conversion warnings.
+      - path: ".*_test\\.go"
+        linters:
+          - gosec
+        text: "G115"
+      # ASN.1 field order is protocol-defined; fieldalignment suggestions are not applicable.
+      - path: crypto/crypt.go
+        linters:
+          - govet
+        text: "fieldalignment"
+      # License block field layout is protocol-focused; padding optimization is non-functional.
+      - path: handshake/license.go
+        linters:
+          - govet
+        text: "fieldalignment"
+      # Nickname lookup endpoint is fixed; user input is only query value.
+      - path: discovery/resolver.go
+        linters:
+          - gosec
+        text: "G704"
+      # Handshake timestamp is explicitly clamped to uint32 range before encoding.
+      - path: handshake/crypt_handshake.go
+        linters:
+          - gosec
+        text: "G115"
+      # Keep PacketHandler method flow grouped by runtime pipeline readability.
+      - path: transport/handler.go
+        linters:
+          - funcorder
+      # Transport hot-path keeps branching explicit to match protocol handling flow.
+      - path: transport/handler.go
+        linters:
+          - nestif
+      # QuickLZ decoder relies on tightly nested branch structure from reference algorithm.
+      - path: transport/quicklz.go
+        linters:
+          - nestif
+      # Protocol orchestration functions are intentionally long to preserve wire-flow readability.
+
+run:
+  timeout: 10m
+  go: '1.26'
+  tests: true
