@@ -59,6 +59,7 @@ type Client struct {
 	clientMoveHandlers   []func(ClientMovedEvent)
 	connectedHandlers    []func()
 	disconnectedHandlers []func(error)
+	pokedHandlers        []func(PokeEvent)
 	kickedHandlers       []func(string)
 	status               ClientStatus
 	mu                   sync.Mutex

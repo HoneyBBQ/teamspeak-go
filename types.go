@@ -21,6 +21,14 @@ type ClientMovedEvent struct {
 	InvokerID       uint16
 }
 
+// PokeEvent is emitted when this client is poked (notifyclientpoke).
+type PokeEvent struct {
+	InvokerName string
+	InvokerUID  string
+	Message     string
+	InvokerID   uint16
+}
+
 // ClientLeftViewEvent is emitted when a client leaves view (notifyclientleftview).
 type ClientLeftViewEvent struct {
 	ReasonMsg string

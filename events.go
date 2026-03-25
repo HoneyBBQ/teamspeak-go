@@ -21,6 +21,13 @@ func (c *Client) OnClientLeave(handler func(ClientLeftViewEvent)) {
 	c.clientLeaveHandlers = append(c.clientLeaveHandlers, handler)
 }
 
+// OnPoked registers a handler for when this client is poked by another user.
+func (c *Client) OnPoked(handler func(PokeEvent)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pokedHandlers = append(c.pokedHandlers, handler)
+}
+
 // OnKicked registers a handler when this client is kicked (channel or server).
 func (c *Client) OnKicked(handler func(string)) {
 	c.mu.Lock()
@@ -91,6 +98,10 @@ func (c *Client) dispatchEvent(evt any) {
 		}
 	case ClientMovedEvent:
 		for _, h := range c.clientMoveHandlers {
+			go h(e)
+		}
+	case PokeEvent:
+		for _, h := range c.pokedHandlers {
 			go h(e)
 		}
 	}

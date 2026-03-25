@@ -265,6 +265,81 @@ func TestHandleTextMessage_MissingInvoker_NoUID(t *testing.T) {
 	}
 }
 
+func TestHandleClientPoke_TriggersCallback(t *testing.T) {
+	c := newTestClient(t)
+
+	poked := make(chan PokeEvent, 1)
+	c.OnPoked(func(e PokeEvent) { poked <- e })
+	c.rebuildMiddlewareChains()
+
+	cmd := commands.ParseCommand(
+		"notifyclientpoke invokerid=5 invokername=Alice invokeruid=uid123 msg=hello",
+	)
+	c.handleClientPoke(cmd)
+
+	select {
+	case e := <-poked:
+		if e.InvokerID != 5 {
+			t.Errorf("expected InvokerID 5, got %d", e.InvokerID)
+		}
+		if e.InvokerName != "Alice" {
+			t.Errorf("expected InvokerName 'Alice', got %q", e.InvokerName)
+		}
+		if e.InvokerUID != "uid123" {
+			t.Errorf("expected InvokerUID 'uid123', got %q", e.InvokerUID)
+		}
+		if e.Message != "hello" {
+			t.Errorf("expected Message 'hello', got %q", e.Message)
+		}
+	case <-time.After(time.Second):
+		t.Error("OnPoked callback not called")
+	}
+}
+
+func TestHandleClientPoke_EmptyMessage(t *testing.T) {
+	c := newTestClient(t)
+
+	poked := make(chan PokeEvent, 1)
+	c.OnPoked(func(e PokeEvent) { poked <- e })
+	c.rebuildMiddlewareChains()
+
+	cmd := commands.ParseCommand(
+		"notifyclientpoke invokerid=3 invokername=Bob invokeruid=uid456 msg=",
+	)
+	c.handleClientPoke(cmd)
+
+	select {
+	case e := <-poked:
+		if e.Message != "" {
+			t.Errorf("expected empty message, got %q", e.Message)
+		}
+	case <-time.After(time.Second):
+		t.Error("OnPoked callback not called")
+	}
+}
+
+func TestHandleNotification_DispatchesPoke(t *testing.T) {
+	c := newTestClient(t)
+
+	poked := make(chan PokeEvent, 1)
+	c.OnPoked(func(e PokeEvent) { poked <- e })
+	c.rebuildMiddlewareChains()
+
+	cmd := commands.ParseCommand(
+		"notifyclientpoke invokerid=5 invokername=Alice invokeruid=uid123 msg=hey",
+	)
+	c.handleNotification(cmd)
+
+	select {
+	case e := <-poked:
+		if e.Message != "hey" {
+			t.Errorf("expected 'hey', got %q", e.Message)
+		}
+	case <-time.After(time.Second):
+		t.Error("poke not dispatched through handleNotification")
+	}
+}
+
 func TestHandleNotification_UnknownNotification_NoError(t *testing.T) {
 	c := newTestClient(t)
 	cmd := commands.ParseCommand("notifyunknowncommand foo=bar")

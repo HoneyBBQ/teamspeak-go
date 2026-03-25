@@ -17,6 +17,8 @@ func (c *Client) handleNotification(cmd *commands.Command) {
 		c.handleClientMoved(cmd)
 	case "notifytextmessage":
 		c.handleTextMessage(cmd)
+	case "notifyclientpoke":
+		c.handleClientPoke(cmd)
 	case "notifyclientneededpermissions":
 		c.logger.Debug("insufficient permissions",
 			slog.String("permid", cmd.Params["permid"]),
@@ -155,6 +157,23 @@ func (c *Client) handleTextMessage(cmd *commands.Command) {
 		slog.String("message", cmd.Params["msg"]))
 
 	c.finalEvtHandler(msg)
+}
+
+func (c *Client) handleClientPoke(cmd *commands.Command) {
+	invokerID, _ := parseUint16Value(cmd.Params["invokerid"])
+	evt := PokeEvent{
+		InvokerID:   invokerID,
+		InvokerName: commands.Unescape(cmd.Params["invokername"]),
+		InvokerUID:  cmd.Params["invokeruid"],
+		Message:     commands.Unescape(cmd.Params["msg"]),
+	}
+
+	c.logger.Debug("client poked",
+		slog.String("invoker_name", evt.InvokerName),
+		slog.String("invoker_uid", evt.InvokerUID),
+		slog.String("message", evt.Message))
+
+	c.finalEvtHandler(evt)
 }
 
 func (c *Client) handleStartUpload(cmd *commands.Command) {
