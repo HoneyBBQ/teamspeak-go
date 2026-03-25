@@ -22,8 +22,12 @@ package teamspeak_test
 //     skip automatically instead of failing hard.
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -33,7 +37,9 @@ import (
 	"github.com/honeybbq/teamspeak-go/crypto"
 )
 
-// sharedClient is one connection for the whole integration test binary.
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 var (
 	sharedClient *teamspeak.Client
@@ -41,7 +47,6 @@ var (
 	sharedErr    error
 )
 
-// requireTeamSpeakAddr skips unless TEAMSPEAK_ADDR is set (opt-in integration runs).
 func requireTeamSpeakAddr(t *testing.T) string {
 	t.Helper()
 	addr := os.Getenv("TEAMSPEAK_ADDR")
@@ -51,9 +56,6 @@ func requireTeamSpeakAddr(t *testing.T) string {
 	return addr
 }
 
-// requireSharedClient returns a connected client, establishing the connection
-// exactly once for the entire test binary. If the connection fails the calling
-// test is Fatal'd.
 func requireSharedClient(t *testing.T) *teamspeak.Client {
 	t.Helper()
 	addr := requireTeamSpeakAddr(t)
@@ -84,9 +86,6 @@ func requireSharedClient(t *testing.T) *teamspeak.Client {
 	return sharedClient
 }
 
-// skipOnPermErr skips on TS3 "insufficient permissions"
-// error (id=2568). These occur on servers where the Guest group is restricted
-// to the vanilla defaults.
 func skipOnPermErr(t *testing.T, err error) {
 	t.Helper()
 	if err != nil && strings.Contains(err.Error(), "insufficient") {
@@ -94,8 +93,57 @@ func skipOnPermErr(t *testing.T, err error) {
 	}
 }
 
-// TestIntegration_Connect verifies the full handshake succeeds and the client
-// receives a valid server-assigned client ID.
+func newConnectedIntegrationClient(t *testing.T, addr string, nicknamePrefix string, logger *slog.Logger) *teamspeak.Client {
+	t.Helper()
+
+	id, err := crypto.GenerateIdentity(8)
+	if err != nil {
+		t.Fatalf("GenerateIdentity: %v", err)
+	}
+
+	nickname := nicknamePrefix + strconv.FormatInt(time.Now().UTC().UnixNano()%1_000_000, 10)
+	client := teamspeak.NewClient(id, addr, nickname, teamspeak.WithLogger(logger))
+	if err := client.Connect(); err != nil {
+		t.Fatalf("Connect(%s): %v", nickname, err)
+	}
+
+	t.Cleanup(func() {
+		_ = client.Disconnect()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := client.WaitConnected(ctx); err != nil {
+		t.Fatalf("WaitConnected(%s): %v", nickname, err)
+	}
+	return client
+}
+
+func mapKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func extractJSONField(s string, needle string) string {
+	idx := strings.Index(s, needle)
+	if idx < 0 {
+		return ""
+	}
+	start := idx + len(needle)
+	end := strings.Index(s[start:], "\"")
+	if end < 0 {
+		return ""
+	}
+	return s[start : start+end]
+}
+
+// ---------------------------------------------------------------------------
+// Connection
+// ---------------------------------------------------------------------------
+
 func TestIntegration_Connect(t *testing.T) {
 	c := requireSharedClient(t)
 
@@ -106,73 +154,6 @@ func TestIntegration_Connect(t *testing.T) {
 	t.Logf("connected: clid=%d", clid)
 }
 
-// TestIntegration_ListClients verifies the clientlist command.
-// Skipped automatically if the server denies permission.
-func TestIntegration_ListClients(t *testing.T) {
-	c := requireSharedClient(t)
-
-	clients, err := c.ListClients()
-	skipOnPermErr(t, err)
-	if err != nil {
-		t.Fatalf("ListClients: %v", err)
-	}
-	if len(clients) == 0 {
-		t.Fatal("expected at least one client (ourselves)")
-	}
-
-	ownID := c.ClientID()
-	found := false
-	for _, cl := range clients {
-		if cl.ID == ownID {
-			found = true
-			t.Logf("self: clid=%d nick=%q cid=%d", cl.ID, cl.Nickname, cl.ChannelID)
-			break
-		}
-	}
-	if !found {
-		t.Errorf("own clid=%d not found in clientlist", ownID)
-	}
-}
-
-// TestIntegration_ListChannels verifies the channellist command.
-// Skipped automatically if the server denies permission.
-func TestIntegration_ListChannels(t *testing.T) {
-	c := requireSharedClient(t)
-
-	channels, err := c.ListChannels()
-	skipOnPermErr(t, err)
-	if err != nil {
-		t.Fatalf("ListChannels: %v", err)
-	}
-	if len(channels) == 0 {
-		t.Fatal("expected at least one channel (default channel)")
-	}
-	t.Logf("channels: %d found, first=%q", len(channels), channels[0].Name)
-}
-
-// TestIntegration_GetClientInfo verifies that fetching our own client info
-// returns a non-empty response. Some fields may be absent due to server
-// permission restrictions.
-func TestIntegration_GetClientInfo(t *testing.T) {
-	c := requireSharedClient(t)
-
-	info, err := c.GetClientInfo(c.ClientID())
-	skipOnPermErr(t, err)
-	if err != nil {
-		t.Fatalf("GetClientInfo: %v", err)
-	}
-	if len(info) == 0 {
-		t.Fatal("expected non-empty client info map")
-	}
-	// client_nickname is always present (it is the client's own info).
-	if info["client_nickname"] == "" {
-		t.Errorf("expected client_nickname in clientinfo response; got keys: %v", mapKeys(info))
-	}
-	t.Logf("clientinfo keys: %v", mapKeys(info))
-}
-
-// TestIntegration_Disconnect verifies that OnDisconnected fires after an
-// explicit Disconnect() call. Uses a separate dedicated client.
 func TestIntegration_Disconnect(t *testing.T) {
 	addr := requireTeamSpeakAddr(t)
 
@@ -206,10 +187,216 @@ func TestIntegration_Disconnect(t *testing.T) {
 	}
 }
 
-func mapKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
+// ---------------------------------------------------------------------------
+// Server queries
+// ---------------------------------------------------------------------------
+
+func TestIntegration_ListClients(t *testing.T) {
+	c := requireSharedClient(t)
+
+	clients, err := c.ListClients()
+	skipOnPermErr(t, err)
+	if err != nil {
+		t.Fatalf("ListClients: %v", err)
 	}
-	return keys
+	if len(clients) == 0 {
+		t.Fatal("expected at least one client (ourselves)")
+	}
+
+	ownID := c.ClientID()
+	found := false
+	for _, cl := range clients {
+		if cl.ID == ownID {
+			found = true
+			t.Logf("self: clid=%d nick=%q cid=%d", cl.ID, cl.Nickname, cl.ChannelID)
+			break
+		}
+	}
+	if !found {
+		t.Errorf("own clid=%d not found in clientlist", ownID)
+	}
+}
+
+func TestIntegration_ListChannels(t *testing.T) {
+	c := requireSharedClient(t)
+
+	channels, err := c.ListChannels()
+	skipOnPermErr(t, err)
+	if err != nil {
+		t.Fatalf("ListChannels: %v", err)
+	}
+	if len(channels) == 0 {
+		t.Fatal("expected at least one channel (default channel)")
+	}
+	t.Logf("channels: %d found, first=%q", len(channels), channels[0].Name)
+}
+
+func TestIntegration_GetClientInfo(t *testing.T) {
+	c := requireSharedClient(t)
+
+	info, err := c.GetClientInfo(c.ClientID())
+	skipOnPermErr(t, err)
+	if err != nil {
+		t.Fatalf("GetClientInfo: %v", err)
+	}
+	if len(info) == 0 {
+		t.Fatal("expected non-empty client info map")
+	}
+	if info["client_nickname"] == "" {
+		t.Errorf("expected client_nickname in clientinfo response; got keys: %v", mapKeys(info))
+	}
+	t.Logf("clientinfo keys: %v", mapKeys(info))
+}
+
+// ---------------------------------------------------------------------------
+// Text messages
+// ---------------------------------------------------------------------------
+
+func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
+	addr := requireTeamSpeakAddr(t)
+
+	var logBuf bytes.Buffer
+	debugLogger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	receiver := newConnectedIntegrationClient(t, addr, "rx", debugLogger)
+
+	sender := newConnectedIntegrationClient(t, addr, "tx", slog.Default())
+	senderInfo, err := sender.GetClientInfo(sender.ClientID())
+	if err != nil {
+		t.Fatalf("sender GetClientInfo: %v", err)
+	}
+	senderUID := strings.TrimSpace(senderInfo["client_unique_identifier"])
+	t.Logf("sender clientinfo keys: %v", mapKeys(senderInfo))
+
+	received := make(chan teamspeak.TextMessage, 1)
+	receiver.OnTextMessage(func(msg teamspeak.TextMessage) {
+		select {
+		case received <- msg:
+		default:
+		}
+	})
+
+	time.Sleep(500 * time.Millisecond)
+
+	probeText := fmt.Sprintf("cursor-probe-%d", time.Now().UTC().UnixNano())
+	if err := sender.SendTextMessage(1, uint64(receiver.ClientID()), probeText); err != nil {
+		t.Fatalf("sender SendTextMessage private: %v", err)
+	}
+
+	var msg teamspeak.TextMessage
+	select {
+	case msg = <-received:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timeout waiting for private text notification; logs=%s", logBuf.String())
+	}
+
+	if msg.Message != probeText {
+		t.Fatalf("unexpected message text: got %q want %q", msg.Message, probeText)
+	}
+
+	logs := logBuf.String()
+	t.Logf("receiver logs: %s", logs)
+
+	if !strings.Contains(logs, "\"name\":\"notifytextmessage\"") {
+		t.Fatalf("expected notifytextmessage in logs, got: %s", logs)
+	}
+
+	targetNeedle := fmt.Sprintf("\"target\":\"%d\"", receiver.ClientID())
+	if !strings.Contains(logs, targetNeedle) {
+		t.Fatalf("expected raw notify target %s in logs, got: %s", targetNeedle, logs)
+	}
+
+	rawInvokerUID := extractJSONField(logs, "\"invokeruid\":\"")
+	if rawInvokerUID == "" {
+		t.Fatalf("expected raw notify invokeruid in logs, got: %s", logs)
+	}
+
+	if msg.TargetMode != 1 {
+		t.Fatalf("unexpected target mode: got %d want 1", msg.TargetMode)
+	}
+
+	if msg.TargetID != uint64(receiver.ClientID()) {
+		t.Fatalf("parsed TargetID mismatch: got %d want %d", msg.TargetID, receiver.ClientID())
+	}
+
+	expectedInvokerUID := rawInvokerUID
+	if senderUID != "" {
+		expectedInvokerUID = senderUID
+	}
+	if strings.TrimSpace(msg.InvokerUID) != expectedInvokerUID {
+		t.Fatalf("parsed InvokerUID mismatch: got %q want %q", msg.InvokerUID, expectedInvokerUID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Poke
+// ---------------------------------------------------------------------------
+
+func TestIntegration_PokeSendAndReceive(t *testing.T) {
+	addr := requireTeamSpeakAddr(t)
+
+	sender := newConnectedIntegrationClient(t, addr, "poke-tx", slog.Default())
+	receiver := newConnectedIntegrationClient(t, addr, "poke-rx", slog.Default())
+
+	pokeMsg := fmt.Sprintf("poke-test-%d", time.Now().UTC().UnixNano())
+
+	poked := make(chan teamspeak.PokeEvent, 1)
+	receiver.OnPoked(func(e teamspeak.PokeEvent) {
+		select {
+		case poked <- e:
+		default:
+		}
+	})
+
+	time.Sleep(500 * time.Millisecond)
+
+	if err := sender.Poke(receiver.ClientID(), pokeMsg); err != nil {
+		t.Fatalf("Poke: %v", err)
+	}
+	t.Logf("sent poke from clid=%d to clid=%d msg=%q", sender.ClientID(), receiver.ClientID(), pokeMsg)
+
+	select {
+	case evt := <-poked:
+		t.Logf("poke received: invoker=%q uid=%q msg=%q", evt.InvokerName, evt.InvokerUID, evt.Message)
+		if evt.InvokerID != sender.ClientID() {
+			t.Errorf("InvokerID mismatch: got %d want %d", evt.InvokerID, sender.ClientID())
+		}
+		if evt.Message != pokeMsg {
+			t.Errorf("Message mismatch: got %q want %q", evt.Message, pokeMsg)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for poke notification")
+	}
+}
+
+func TestIntegration_PokeEmptyMessage(t *testing.T) {
+	addr := requireTeamSpeakAddr(t)
+
+	sender := newConnectedIntegrationClient(t, addr, "poke-tx2", slog.Default())
+	receiver := newConnectedIntegrationClient(t, addr, "poke-rx2", slog.Default())
+
+	poked := make(chan teamspeak.PokeEvent, 1)
+	receiver.OnPoked(func(e teamspeak.PokeEvent) {
+		select {
+		case poked <- e:
+		default:
+		}
+	})
+
+	time.Sleep(500 * time.Millisecond)
+
+	if err := sender.Poke(receiver.ClientID(), ""); err != nil {
+		t.Fatalf("Poke (empty): %v", err)
+	}
+	t.Logf("sent empty poke from clid=%d to clid=%d", sender.ClientID(), receiver.ClientID())
+
+	select {
+	case evt := <-poked:
+		t.Logf("empty poke received: invoker=%q msg=%q", evt.InvokerName, evt.Message)
+		if evt.Message != "" {
+			t.Errorf("expected empty message, got %q", evt.Message)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for empty poke notification")
+	}
 }
