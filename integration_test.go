@@ -102,20 +102,35 @@ func newConnectedIntegrationClient(t *testing.T, addr string, nicknamePrefix str
 	}
 
 	nickname := nicknamePrefix + strconv.FormatInt(time.Now().UTC().UnixNano()%1_000_000, 10)
-	client := teamspeak.NewClient(id, addr, nickname, teamspeak.WithLogger(logger))
-	if err := client.Connect(); err != nil {
-		t.Fatalf("Connect(%s): %v", nickname, err)
+
+	// TS3 anti-flood may temporarily ban IPs that connect too frequently.
+	// Retry with backoff to handle transient bans in CI.
+	var client *teamspeak.Client
+	for attempt := range 3 {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt*5) * time.Second)
+		}
+		client = teamspeak.NewClient(id, addr, nickname, teamspeak.WithLogger(logger))
+		if err = client.Connect(); err != nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err = client.WaitConnected(ctx)
+		cancel()
+		if err == nil {
+			break
+		}
+		_ = client.Disconnect()
+	}
+
+	if err != nil {
+		t.Fatalf("WaitConnected(%s) after retries: %v", nickname, err)
 	}
 
 	t.Cleanup(func() {
 		_ = client.Disconnect()
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := client.WaitConnected(ctx); err != nil {
-		t.Fatalf("WaitConnected(%s): %v", nickname, err)
-	}
 	return client
 }
 
