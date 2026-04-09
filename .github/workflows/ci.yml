@@ -4,6 +4,7 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  workflow_call:
 
 permissions:
   contents: read
@@ -43,3 +44,30 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: ./coverage.txt
           fail_ci_if_error: false
+
+  integration:
+    name: Integration (TS3)
+    runs-on: ubuntu-latest
+    services:
+      teamspeak:
+        image: teamspeak:latest
+        env:
+          TS3SERVER_LICENSE: accept
+        ports:
+          - 9987:9987/udp
+          - 10011:10011
+        options: >-
+          --health-cmd "nc -z -u localhost 9987 || exit 1"
+          --health-interval 3s
+          --health-timeout 2s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: true
+      - name: Run integration tests
+        env:
+          TEAMSPEAK_ADDR: 127.0.0.1:9987
+        run: go test -v -tags integration -timeout 120s ./...
