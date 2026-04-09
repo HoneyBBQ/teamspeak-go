@@ -1,7 +1,7 @@
 package teamspeak
 
 import (
-	"crypto/sha256"
+	"crypto/sha1" //nolint:gosec // SHA-1 used for TS3 HWID/UID format, not security
 	"encoding/base64"
 	"log/slog"
 	"strconv"
@@ -146,12 +146,13 @@ func (c *Client) handleInitServer(cmd *commands.Command) {
 
 func (c *Client) sendClientInit() {
 	pubKeyBase64 := c.crypt.Identity.PublicKeyBase64()
-	hash := sha256.Sum256([]byte(pubKeyBase64))
-	hwid := base64.StdEncoding.EncodeToString(hash[:16])
+	// HWID matches TS3 client UID format: base64(SHA1(publicKeyBase64))
+	hwidSum := sha1.Sum([]byte(pubKeyBase64)) //nolint:gosec
+	hwid := base64.StdEncoding.EncodeToString(hwidSum[:])
 
 	cmd := commands.BuildCommandOrdered("clientinit", [][2]string{
 		{"client_nickname", c.nickname},
-		{"client_version", "3.5.3 [Build: 1587971024]"},
+		{"client_version", "3.?.? [Build: 5680278000]"},
 		{"client_platform", "Windows"},
 		{"client_input_hardware", "1"},
 		{"client_output_hardware", "1"},
@@ -159,7 +160,7 @@ func (c *Client) sendClientInit() {
 		{"client_default_channel_password", ""},
 		{"client_server_password", ""},
 		{"client_meta_data", ""},
-		{"client_version_sign", "Kvmj7qX6wJCPI5GVT71samfmhz/bvs7M+OTXWB/JWxdQbxDe17xda7dzUWLX7pjvdJTqZmbse1HBmTxThPKvAg=="},
+		{"client_version_sign", "DX5NIYLvfJEUjuIbCidnoeozxIDRRkpq3I9vVMBmE9L2qnekOoBzSenkzsg2lC9CMv8K5hkEzhr2TYUYSwUXCg=="},
 		{"client_key_offset", strconv.FormatUint(c.crypt.Identity.Offset, 10)},
 		{"client_nickname_phonetic", ""},
 		{"client_default_token", ""},
