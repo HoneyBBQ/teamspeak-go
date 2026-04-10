@@ -216,9 +216,9 @@ func TestBuildClientInitCommand_PreservesCredentialFieldOrder(t *testing.T) {
 	)
 	metaDataIndex := indexOfOrFail(t, raw, "client_meta_data=")
 
-	if !(defaultChannelIndex < defaultChannelPasswordIndex &&
-		defaultChannelPasswordIndex < serverPasswordIndex &&
-		serverPasswordIndex < metaDataIndex) {
+	if defaultChannelIndex >= defaultChannelPasswordIndex ||
+		defaultChannelPasswordIndex >= serverPasswordIndex ||
+		serverPasswordIndex >= metaDataIndex {
 		t.Fatalf("unexpected credential field order in %q", raw)
 	}
 }
