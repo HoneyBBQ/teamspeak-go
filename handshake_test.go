@@ -2,9 +2,12 @@ package teamspeak
 
 import (
 	"encoding/binary"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/honeybbq/teamspeak-go/commands"
+	"github.com/honeybbq/teamspeak-go/crypto"
 	"github.com/honeybbq/teamspeak-go/transport"
 )
 
@@ -130,6 +133,96 @@ func TestHandleHandshakeExpand2_InvalidBeta_NoSendClientInit(t *testing.T) {
 	c.handleCommand("initivexpand2 l= omega= proof= beta=!!!")
 }
 
+func TestBuildClientInitCommand_DefaultAuthFieldsAreEmpty(t *testing.T) {
+	c := newTestClient(t)
+
+	cmd := commands.ParseCommand(c.buildClientInitCommand())
+	if cmd == nil {
+		t.Fatal("expected clientinit command")
+	}
+
+	if got := cmd.Params["client_default_channel"]; got != "" {
+		t.Errorf("expected empty client_default_channel, got %q", got)
+	}
+	if got := cmd.Params["client_default_channel_password"]; got != "" {
+		t.Errorf("expected empty client_default_channel_password, got %q", got)
+	}
+	if got := cmd.Params["client_server_password"]; got != "" {
+		t.Errorf("expected empty client_server_password, got %q", got)
+	}
+}
+
+func TestBuildClientInitCommand_IncludesConfiguredHandshakeCredentials(t *testing.T) {
+	id, err := crypto.IdentityFromString(testClientIdentity)
+	if err != nil {
+		t.Fatalf("IdentityFromString: %v", err)
+	}
+
+	c := NewClient(
+		id,
+		"127.0.0.1:9987",
+		"Test Bot",
+		WithServerPassword("server secret"),
+		WithDefaultChannel("Lobby Alpha"),
+		WithDefaultChannelPassword("channel secret"),
+	)
+
+	cmd := commands.ParseCommand(c.buildClientInitCommand())
+	if cmd == nil {
+		t.Fatal("expected clientinit command")
+	}
+
+	if got := cmd.Params["client_server_password"]; got != prepareClientPassword("server secret") {
+		t.Errorf("expected client_server_password to be %q, got %q", prepareClientPassword("server secret"), got)
+	}
+	if got := cmd.Params["client_default_channel"]; got != "Lobby Alpha" {
+		t.Errorf("expected client_default_channel to be %q, got %q", "Lobby Alpha", got)
+	}
+	if got := cmd.Params["client_default_channel_password"]; got != prepareClientPassword("channel secret") {
+		t.Errorf(
+			"expected client_default_channel_password to be %q, got %q",
+			prepareClientPassword("channel secret"),
+			got,
+		)
+	}
+}
+
+func TestBuildClientInitCommand_PreservesCredentialFieldOrder(t *testing.T) {
+	id, err := crypto.IdentityFromString(testClientIdentity)
+	if err != nil {
+		t.Fatalf("IdentityFromString: %v", err)
+	}
+
+	c := NewClient(
+		id,
+		"127.0.0.1:9987",
+		"Test Bot",
+		WithServerPassword("server secret"),
+		WithDefaultChannel("Lobby Alpha"),
+		WithDefaultChannelPassword("channel secret"),
+	)
+
+	raw := c.buildClientInitCommand()
+	defaultChannelIndex := indexOfOrFail(t, raw, "client_default_channel=Lobby\\sAlpha")
+	defaultChannelPasswordIndex := indexOfOrFail(
+		t,
+		raw,
+		"client_default_channel_password="+commands.Escape(prepareClientPassword("channel secret")),
+	)
+	serverPasswordIndex := indexOfOrFail(
+		t,
+		raw,
+		"client_server_password="+commands.Escape(prepareClientPassword("server secret")),
+	)
+	metaDataIndex := indexOfOrFail(t, raw, "client_meta_data=")
+
+	if !(defaultChannelIndex < defaultChannelPasswordIndex &&
+		defaultChannelPasswordIndex < serverPasswordIndex &&
+		serverPasswordIndex < metaDataIndex) {
+		t.Fatalf("unexpected credential field order in %q", raw)
+	}
+}
+
 func TestHandlePacket_Init1_Step0_SendsStep1(t *testing.T) {
 	c, serverConn := newTestClientWithPipe(t)
 	c.handler.OnPacket = c.handlePacket
@@ -212,4 +305,15 @@ func readFromPipe(t *testing.T, server *pipePair) []byte {
 
 		return nil
 	}
+}
+
+func indexOfOrFail(t *testing.T, s string, needle string) int {
+	t.Helper()
+
+	idx := strings.Index(s, needle)
+	if idx < 0 {
+		t.Fatalf("expected %q to contain %q", s, needle)
+	}
+
+	return idx
 }

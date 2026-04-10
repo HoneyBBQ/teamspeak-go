@@ -145,20 +145,30 @@ func (c *Client) handleInitServer(cmd *commands.Command) {
 }
 
 func (c *Client) sendClientInit() {
+	cmd := c.buildClientInitCommand()
+	err := c.handler.SendPacket(byte(transport.PacketTypeCommand), []byte(cmd), 0)
+	if err != nil {
+		c.logger.Warn("failed to send clientinit", slog.Any("error", err))
+	}
+}
+
+func (c *Client) buildClientInitCommand() string {
 	pubKeyBase64 := c.crypt.Identity.PublicKeyBase64()
 	// HWID matches TS3 client UID format: base64(SHA1(publicKeyBase64))
 	hwidSum := sha1.Sum([]byte(pubKeyBase64)) //nolint:gosec
 	hwid := base64.StdEncoding.EncodeToString(hwidSum[:])
+	defaultChannelPassword := prepareClientPassword(c.clientInitOptions.defaultChannelPassword)
+	serverPassword := prepareClientPassword(c.clientInitOptions.serverPassword)
 
-	cmd := commands.BuildCommandOrdered("clientinit", [][2]string{
+	return commands.BuildCommandOrdered("clientinit", [][2]string{
 		{"client_nickname", c.nickname},
 		{"client_version", "3.?.? [Build: 5680278000]"},
 		{"client_platform", "Windows"},
 		{"client_input_hardware", "1"},
 		{"client_output_hardware", "1"},
-		{"client_default_channel", ""},
-		{"client_default_channel_password", ""},
-		{"client_server_password", ""},
+		{"client_default_channel", c.clientInitOptions.defaultChannel},
+		{"client_default_channel_password", defaultChannelPassword},
+		{"client_server_password", serverPassword},
 		{"client_meta_data", ""},
 		{"client_version_sign", "DX5NIYLvfJEUjuIbCidnoeozxIDRRkpq3I9vVMBmE9L2qnekOoBzSenkzsg2lC9CMv8K5hkEzhr2TYUYSwUXCg=="},
 		{"client_key_offset", strconv.FormatUint(c.crypt.Identity.Offset, 10)},
@@ -166,8 +176,14 @@ func (c *Client) sendClientInit() {
 		{"client_default_token", ""},
 		{"hwid", hwid},
 	})
-	err := c.handler.SendPacket(byte(transport.PacketTypeCommand), []byte(cmd), 0)
-	if err != nil {
-		c.logger.Warn("failed to send clientinit", slog.Any("error", err))
+}
+
+func prepareClientPassword(password string) string {
+	if password == "" {
+		return ""
 	}
+
+	sum := sha1.Sum([]byte(password)) //nolint:gosec // TeamSpeak protocol requires base64(sha1(password))
+
+	return base64.StdEncoding.EncodeToString(sum[:])
 }

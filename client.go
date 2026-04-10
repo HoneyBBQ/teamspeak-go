@@ -36,6 +36,12 @@ type CommandMiddleware func(next func(string) error) func(string) error
 // EventMiddleware wraps event dispatch; it may observe or replace notifications.
 type EventMiddleware func(next func(any)) func(any)
 
+type clientInitOptions struct {
+	serverPassword         string
+	defaultChannel         string
+	defaultChannelPassword string
+}
+
 // Client is the TeamSpeak 3 client.
 type Client struct {
 	resolver             AddrResolver
@@ -51,6 +57,7 @@ type Client struct {
 	finalEvtHandler      func(any)
 	addr                 string
 	nickname             string
+	clientInitOptions    clientInitOptions
 	textMsgHandlers      []func(TextMessage)
 	cmdMiddlewares       []CommandMiddleware
 	eventMiddlewares     []EventMiddleware
@@ -125,6 +132,27 @@ func WithCommandMiddleware(mw ...CommandMiddleware) ClientOption {
 func WithEventMiddleware(mw ...EventMiddleware) ClientOption {
 	return func(c *Client) {
 		c.eventMiddlewares = append(c.eventMiddlewares, mw...)
+	}
+}
+
+// WithServerPassword configures the server password sent during clientinit.
+func WithServerPassword(password string) ClientOption {
+	return func(c *Client) {
+		c.clientInitOptions.serverPassword = password
+	}
+}
+
+// WithDefaultChannel configures the default channel requested during clientinit.
+func WithDefaultChannel(channel string) ClientOption {
+	return func(c *Client) {
+		c.clientInitOptions.defaultChannel = channel
+	}
+}
+
+// WithDefaultChannelPassword configures the password for the default channel.
+func WithDefaultChannelPassword(password string) ClientOption {
+	return func(c *Client) {
+		c.clientInitOptions.defaultChannelPassword = password
 	}
 }
 

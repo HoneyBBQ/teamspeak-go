@@ -67,4 +67,7 @@ jobs:
       - name: Run integration tests
         env:
           TEAMSPEAK_ADDR: 127.0.0.1:9987
+          TEAMSPEAK_SERVER_PASSWORD: ${{ secrets.TEAMSPEAK_SERVER_PASSWORD }}
+          TEAMSPEAK_DEFAULT_CHANNEL: ${{ secrets.TEAMSPEAK_DEFAULT_CHANNEL }}
+          TEAMSPEAK_DEFAULT_CHANNEL_PASSWORD: ${{ secrets.TEAMSPEAK_DEFAULT_CHANNEL_PASSWORD }}
         run: go test -v -tags integration -timeout 120s ./...

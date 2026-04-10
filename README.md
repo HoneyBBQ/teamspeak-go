@@ -62,7 +62,14 @@ func main() {
 	}
 
 	// Create the client
-	client := teamspeak.NewClient(identity, "localhost", "GoBot")
+	client := teamspeak.NewClient(
+		identity,
+		"localhost",
+		"GoBot",
+		teamspeak.WithServerPassword(os.Getenv("TEAMSPEAK_SERVER_PASSWORD")),
+		teamspeak.WithDefaultChannel("Lobby"),
+		teamspeak.WithDefaultChannelPassword(os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL_PASSWORD")),
+	)
 
 	// Register event handlers
 	client.OnConnected(func() {
@@ -171,8 +178,17 @@ client := teamspeak.NewClient(identity, "ts.example.com", "Bot",
 	teamspeak.WithResolver(customResolver),
 	teamspeak.WithCommandMiddleware(loggingMiddleware),
 	teamspeak.WithEventMiddleware(filterMiddleware),
+	teamspeak.WithServerPassword(os.Getenv("TEAMSPEAK_SERVER_PASSWORD")),
+	teamspeak.WithDefaultChannel("Lobby"),
+	teamspeak.WithDefaultChannelPassword(os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL_PASSWORD")),
 )
 ```
+
+Connection auth options:
+
+- `WithServerPassword(password)` accepts the plain-text server password and sends the TeamSpeak protocol hash during `clientinit`
+- `WithDefaultChannel(channel)` requests a default channel during `clientinit`
+- `WithDefaultChannelPassword(password)` accepts the plain-text channel password and sends the TeamSpeak protocol hash for the configured default channel
 
 ## Architecture
 

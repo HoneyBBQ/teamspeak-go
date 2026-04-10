@@ -47,6 +47,30 @@ var (
 	sharedErr    error
 )
 
+var (
+	integrationServerPassword         = os.Getenv("TEAMSPEAK_SERVER_PASSWORD")
+	integrationDefaultChannel         = os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL")
+	integrationDefaultChannelPassword = os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL_PASSWORD")
+)
+
+func integrationClientOptions(logger *slog.Logger) []teamspeak.ClientOption {
+	opts := make([]teamspeak.ClientOption, 0, 4)
+	if logger != nil {
+		opts = append(opts, teamspeak.WithLogger(logger))
+	}
+	if integrationServerPassword != "" {
+		opts = append(opts, teamspeak.WithServerPassword(integrationServerPassword))
+	}
+	if integrationDefaultChannel != "" {
+		opts = append(opts, teamspeak.WithDefaultChannel(integrationDefaultChannel))
+	}
+	if integrationDefaultChannelPassword != "" {
+		opts = append(opts, teamspeak.WithDefaultChannelPassword(integrationDefaultChannelPassword))
+	}
+
+	return opts
+}
+
 func requireTeamSpeakAddr(t *testing.T) string {
 	t.Helper()
 	addr := os.Getenv("TEAMSPEAK_ADDR")
@@ -66,7 +90,7 @@ func requireSharedClient(t *testing.T) *teamspeak.Client {
 			sharedErr = err
 			return
 		}
-		c := teamspeak.NewClient(id, addr, "teamspeak-go-integ")
+		c := teamspeak.NewClient(id, addr, "teamspeak-go-integ", integrationClientOptions(nil)...)
 		if err = c.Connect(); err != nil {
 			sharedErr = err
 			return
@@ -110,7 +134,7 @@ func newConnectedIntegrationClient(t *testing.T, addr string, nicknamePrefix str
 		if attempt > 0 {
 			time.Sleep(time.Duration(attempt*5) * time.Second)
 		}
-		client = teamspeak.NewClient(id, addr, nickname, teamspeak.WithLogger(logger))
+		client = teamspeak.NewClient(id, addr, nickname, integrationClientOptions(logger)...)
 		if err = client.Connect(); err != nil {
 			continue
 		}
@@ -169,6 +193,20 @@ func TestIntegration_Connect(t *testing.T) {
 	t.Logf("connected: clid=%d", clid)
 }
 
+func TestIntegration_ConnectWithOptionalHandshakeAuth(t *testing.T) {
+	c := requireSharedClient(t)
+
+	t.Logf(
+		"connect auth enabled: serverPassword=%t defaultChannel=%t defaultChannelPassword=%t",
+		integrationServerPassword != "",
+		integrationDefaultChannel != "",
+		integrationDefaultChannelPassword != "",
+	)
+	if c.ClientID() == 0 {
+		t.Error("expected non-zero client ID after connect")
+	}
+}
+
 func TestIntegration_Disconnect(t *testing.T) {
 	addr := requireTeamSpeakAddr(t)
 
@@ -176,7 +214,7 @@ func TestIntegration_Disconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
-	c := teamspeak.NewClient(id, addr, "teamspeak-go-integ-disc")
+	c := teamspeak.NewClient(id, addr, "teamspeak-go-integ-disc", integrationClientOptions(nil)...)
 
 	if err = c.Connect(); err != nil {
 		t.Fatalf("Connect: %v", err)
@@ -244,6 +282,51 @@ func TestIntegration_ListChannels(t *testing.T) {
 		t.Fatal("expected at least one channel (default channel)")
 	}
 	t.Logf("channels: %d found, first=%q", len(channels), channels[0].Name)
+}
+
+func TestIntegration_JoinsConfiguredDefaultChannel(t *testing.T) {
+	if integrationDefaultChannel == "" {
+		t.Skip("TEAMSPEAK_DEFAULT_CHANNEL not set")
+	}
+
+	c := requireSharedClient(t)
+
+	channels, err := c.ListChannels()
+	skipOnPermErr(t, err)
+	if err != nil {
+		t.Fatalf("ListChannels: %v", err)
+	}
+
+	clients, err := c.ListClients()
+	skipOnPermErr(t, err)
+	if err != nil {
+		t.Fatalf("ListClients: %v", err)
+	}
+
+	var self *teamspeak.ClientInfo
+	for i := range clients {
+		if clients[i].ID == c.ClientID() {
+			self = &clients[i]
+			break
+		}
+	}
+	if self == nil {
+		t.Fatal("expected to find ourselves in client list")
+	}
+
+	var currentChannel *teamspeak.ChannelInfo
+	for i := range channels {
+		if channels[i].ID == self.ChannelID {
+			currentChannel = &channels[i]
+			break
+		}
+	}
+	if currentChannel == nil {
+		t.Fatalf("expected to resolve current channel for cid=%d", self.ChannelID)
+	}
+	if currentChannel.Name != integrationDefaultChannel {
+		t.Fatalf("expected current channel %q, got %q", integrationDefaultChannel, currentChannel.Name)
+	}
 }
 
 func TestIntegration_GetClientInfo(t *testing.T) {
