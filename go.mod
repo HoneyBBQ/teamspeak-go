@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/oasisprotocol/curve25519-voi v0.0.0-20251114093237-2ab5a27a1729
-	github.com/tink-crypto/tink-go/v2 v2.6.0
+	github.com/tink-crypto/tink-go/v2 v2.7.0
 )
 
 require (
