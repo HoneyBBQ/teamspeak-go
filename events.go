@@ -1,5 +1,7 @@
 package teamspeak
 
+import "slices"
+
 // OnTextMessage registers a handler for incoming text messages.
 func (c *Client) OnTextMessage(handler func(TextMessage)) {
 	c.mu.Lock()
@@ -70,15 +72,15 @@ func (c *Client) rebuildMiddlewareChains() {
 	c.finalCmdHandler = func(cmd string) error {
 		return c.handler.SendPacket(2, []byte(cmd), 0)
 	}
-	for i := len(c.cmdMiddlewares) - 1; i >= 0; i-- {
-		c.finalCmdHandler = c.cmdMiddlewares[i](c.finalCmdHandler)
+	for _, middleware := range slices.Backward(c.cmdMiddlewares) {
+		c.finalCmdHandler = middleware(c.finalCmdHandler)
 	}
 
 	c.finalEvtHandler = func(evt any) {
 		c.dispatchEvent(evt)
 	}
-	for i := len(c.eventMiddlewares) - 1; i >= 0; i-- {
-		c.finalEvtHandler = c.eventMiddlewares[i](c.finalEvtHandler)
+	for _, middleware := range slices.Backward(c.eventMiddlewares) {
+		c.finalEvtHandler = middleware(c.finalEvtHandler)
 	}
 }
 
