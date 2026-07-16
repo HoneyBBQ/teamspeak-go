@@ -23,9 +23,9 @@ func TestHandleCommandLines_NewlineSeparated(t *testing.T) {
 	c.rebuildMiddlewareChains()
 
 	line1 := "notifycliententerview clid=1 client_nickname=A" +
-		" cid=1 client_type=0 client_servergroups= client_unique_identifier=x"
+		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
 	line2 := "notifycliententerview clid=2 client_nickname=B" +
-		" cid=1 client_type=0 client_servergroups= client_unique_identifier=y"
+		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=y"
 	c.handleCommandLines(line1 + "\n" + line2)
 
 	for i := range 2 {
@@ -44,7 +44,7 @@ func TestHandleCommandLines_NullByteSeparated(t *testing.T) {
 	c.rebuildMiddlewareChains()
 
 	line := "notifycliententerview clid=3 client_nickname=C" +
-		" cid=1 client_type=0 client_servergroups= client_unique_identifier=z"
+		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=z"
 	c.handleCommandLines(line + "\x00")
 
 	select {
@@ -61,7 +61,7 @@ func TestHandleCommand_Notify_Routed(t *testing.T) {
 	c.rebuildMiddlewareChains()
 
 	line := "notifycliententerview clid=4 client_nickname=D" +
-		" cid=1 client_type=0 client_servergroups= client_unique_identifier=d"
+		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=d"
 	c.handleCommand(line)
 
 	select {

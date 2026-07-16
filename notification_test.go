@@ -11,7 +11,7 @@ func TestHandleClientEnterView_AddsToClients(t *testing.T) {
 	c := newTestClient(t)
 
 	const enterCmd = "notifycliententerview clid=5 client_nickname=Alice" +
-		" cid=10 client_type=0 client_servergroups= client_unique_identifier=uid123"
+		" ctid=10 client_type=0 client_servergroups= client_unique_identifier=uid123"
 	c.handleClientEnterView(commands.ParseCommand(enterCmd))
 
 	c.mu.Lock()
@@ -40,7 +40,7 @@ func TestHandleClientEnterView_TriggersCallback(t *testing.T) {
 	c.rebuildMiddlewareChains()
 
 	const enterCmd2 = "notifycliententerview clid=5 client_nickname=Alice" +
-		" cid=10 client_type=0 client_servergroups= client_unique_identifier=uid123"
+		" ctid=10 client_type=0 client_servergroups= client_unique_identifier=uid123"
 	c.handleClientEnterView(commands.ParseCommand(enterCmd2))
 
 	select {
@@ -57,7 +57,7 @@ func TestHandleClientEnterView_SetsOwnClidOnNicknameMatch(t *testing.T) {
 	c := newTestClient(t)
 
 	const enterSelf = "notifycliententerview clid=7 client_nickname=TestBot" +
-		" cid=1 client_type=0 client_servergroups= client_unique_identifier=x"
+		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
 	c.handleClientEnterView(commands.ParseCommand(enterSelf))
 
 	c.mu.Lock()
@@ -72,7 +72,7 @@ func TestHandleClientEnterView_SetsOwnClidOnNicknameMatch(t *testing.T) {
 func TestHandleClientEnterView_InvalidClidIgnored(t *testing.T) {
 	c := newTestClient(t)
 	const enterZero = "notifycliententerview clid=0 client_nickname=X" +
-		" cid=1 client_type=0 client_servergroups= client_unique_identifier=x"
+		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
 	c.handleClientEnterView(commands.ParseCommand(enterZero))
 
 	c.mu.Lock()

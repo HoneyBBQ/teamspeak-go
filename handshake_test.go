@@ -267,7 +267,7 @@ func TestHandlePacket_CommandType_RoutedToHandleCommandLines(t *testing.T) {
 	c.rebuildMiddlewareChains()
 
 	enterLine := "notifycliententerview clid=9 client_nickname=G" +
-		" cid=1 client_type=0 client_servergroups= client_unique_identifier=g"
+		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=g"
 	p := &transport.Packet{
 		TypeFlagged: 0x02, // PacketTypeCommand
 		Data:        []byte(enterLine),

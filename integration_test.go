@@ -42,9 +42,10 @@ import (
 // ---------------------------------------------------------------------------
 
 var (
-	sharedClient *teamspeak.Client
-	sharedOnce   sync.Once
-	sharedErr    error
+	sharedClient      *teamspeak.Client
+	sharedClientEnter chan teamspeak.ClientInfo
+	sharedOnce        sync.Once
+	sharedErr         error
 )
 
 var (
@@ -90,7 +91,17 @@ func requireSharedClient(t *testing.T) *teamspeak.Client {
 			sharedErr = err
 			return
 		}
+		selfUID := crypto.GetUidFromPublicKey(id.PublicKeyBase64())
 		c := teamspeak.NewClient(id, addr, "teamspeak-go-integ", integrationClientOptions(nil)...)
+		sharedClientEnter = make(chan teamspeak.ClientInfo, 1)
+		c.OnClientEnter(func(info teamspeak.ClientInfo) {
+			if info.UID == selfUID {
+				select {
+				case sharedClientEnter <- info:
+				default:
+				}
+			}
+		})
 		if err = c.Connect(); err != nil {
 			sharedErr = err
 			return
@@ -204,6 +215,20 @@ func TestIntegration_ConnectWithOptionalHandshakeAuth(t *testing.T) {
 	)
 	if c.ClientID() == 0 {
 		t.Error("expected non-zero client ID after connect")
+	}
+}
+
+func TestIntegration_ClientEnterChannelID(t *testing.T) {
+	requireSharedClient(t)
+
+	select {
+	case info := <-sharedClientEnter:
+		t.Logf("clientEnter: clid=%d cid=%d", info.ID, info.ChannelID)
+		if info.ChannelID == 0 {
+			t.Error("expected clientEnter to report a non-zero channel ID")
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("timed out waiting for clientEnter")
 	}
 }
 
