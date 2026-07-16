@@ -18,6 +18,8 @@ linters:
     - tparallel
     - revive
     - mnd
+    - goconst
+    - gomodguard
 
   settings:
     govet:
