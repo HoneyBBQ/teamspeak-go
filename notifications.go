@@ -40,7 +40,7 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 	groupsStr := cmd.Params["client_servergroups"]
 
 	clid, _ := parseUint16Value(cmd.Params["clid"])
-	cid, _ := parseUint64Value(cmd.Params["cid"])
+	ctid, _ := parseUint64Value(cmd.Params["ctid"])
 	clientType, _ := parseIntValue(cmd.Params["client_type"])
 
 	groups := make([]string, 0)
@@ -53,7 +53,7 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 			ID:           clid,
 			Nickname:     nick,
 			UID:          uid,
-			ChannelID:    cid,
+			ChannelID:    ctid,
 			Type:         clientType,
 			ServerGroups: groups,
 		}
