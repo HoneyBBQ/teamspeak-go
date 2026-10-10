@@ -1,7 +1,9 @@
 package transport
 
 import (
+	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -479,6 +481,56 @@ func TestHandlerSendVoicePacket_SequenceIncreases(t *testing.T) {
 	seq1 := binary.BigEndian.Uint16(pkt1[13:15])
 	if seq1 != seq0+1 {
 		t.Errorf("expected seq1 = seq0+1 = %d, got %d", seq0+1, seq1)
+	}
+}
+
+func TestHandlerSendWhisperPacket_Format(t *testing.T) {
+	h, serverConn := newTestHandler(t)
+	defer func() { _ = h.Close() }()
+	_ = readPacket(t, serverConn)
+
+	audio := []byte{0xaa, 0xbb, 0xcc}
+	err := h.SendWhisperPacket(audio, []uint16{0x0102, 0x0304}, 5)
+	if err != nil {
+		t.Fatalf("SendWhisperPacket: %v", err)
+	}
+
+	pkt := readPacket(t, serverConn)
+	if pkt[12]&0x0F != byte(PacketTypeVoiceWhisper) {
+		t.Errorf("expected PacketTypeVoiceWhisper (1), got %d", pkt[12]&0x0F)
+	}
+	if pkt[12]&byte(PacketFlagUnencrypted) == 0 {
+		t.Error("whisper packet should have Unencrypted flag")
+	}
+
+	// Payload: [2 voiceID][1 codec][1 channel count][1 client count][2*N client IDs][data]
+	payload := pkt[13:]
+	if payload[2] != 5 || payload[3] != 0 || payload[4] != 2 {
+		t.Errorf("header codec/channels/clients = %d/%d/%d, want 5/0/2", payload[2], payload[3], payload[4])
+	}
+	if got := binary.BigEndian.Uint16(payload[5:7]); got != 0x0102 {
+		t.Errorf("target[0] = %#04x, want 0x0102", got)
+	}
+	if got := binary.BigEndian.Uint16(payload[7:9]); got != 0x0304 {
+		t.Errorf("target[1] = %#04x, want 0x0304", got)
+	}
+	if !bytes.Equal(payload[9:], audio) {
+		t.Errorf("audio = %x, want %x", payload[9:], audio)
+	}
+}
+
+func TestHandlerSendWhisperPacket_RejectsUnencodableTargets(t *testing.T) {
+	h, serverConn := newTestHandler(t)
+	defer func() { _ = h.Close() }()
+	_ = readPacket(t, serverConn)
+
+	err := h.SendWhisperPacket([]byte{1}, nil, 5)
+	if !errors.Is(err, ErrNoWhisperTargets) {
+		t.Errorf("no targets: got %v, want ErrNoWhisperTargets", err)
+	}
+	err = h.SendWhisperPacket([]byte{1}, make([]uint16, 33), 5)
+	if !errors.Is(err, ErrTooManyWhisperTargets) {
+		t.Errorf("33 targets: got %v, want ErrTooManyWhisperTargets", err)
 	}
 }
 

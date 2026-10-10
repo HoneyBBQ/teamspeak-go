@@ -117,6 +117,39 @@ func TestResolveIPv6Direct(t *testing.T) {
 	}
 }
 
+func TestResolveIPv6WithoutPort(t *testing.T) {
+	// A bracketed literal without a port used to fall through to nickname and
+	// SRV lookups and come out as "[[::1]]:9987".
+	for _, input := range []string{"[::1]", "::1"} {
+		r := newTestResolver()
+		addrs, err := r.Resolve(context.Background(), input)
+		if err != nil {
+			t.Fatalf("Resolve(%q) failed: %v", input, err)
+		}
+		if addrs[0].Addr != "[::1]:9987" || addrs[0].Source != "Direct" {
+			t.Errorf("Resolve(%q) = %q via %s, want [::1]:9987 via Direct", input, addrs[0].Addr, addrs[0].Source)
+		}
+	}
+}
+
+func TestSplitHostPortOrDefault(t *testing.T) {
+	cases := []struct{ in, host, port string }{
+		{"example.com", "example.com", "9987"},
+		{"example.com:1234", "example.com", "1234"},
+		{"10.0.0.1", "10.0.0.1", "9987"},
+		{"[::1]:1234", "::1", "1234"},
+		{"[::1]", "::1", "9987"},
+		{"::1", "::1", "9987"},
+		{"2001:db8::1", "2001:db8::1", "9987"},
+	}
+	for _, tc := range cases {
+		host, port := SplitHostPortOrDefault(tc.in, "9987")
+		if host != tc.host || port != tc.port {
+			t.Errorf("SplitHostPortOrDefault(%q) = %q, %q; want %q, %q", tc.in, host, port, tc.host, tc.port)
+		}
+	}
+}
+
 func TestResolveIPNotCached(t *testing.T) {
 	// IP addresses bypass cache entirely: Expiry is zero-value
 	r := newTestResolver()

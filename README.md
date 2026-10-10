@@ -136,7 +136,8 @@ func main() {
 | `ClientMove(clid, channelID, password)` | Move a client to a channel |
 | `Poke(clid, message)` | Poke a client |
 | `SendVoice(data, codec)` | Send Opus voice data |
-| `ListChannels()` | List all channels |
+| `SendWhisper(data, clientIDs, codec)` | Send Opus voice to selected clients |
+| `ListChannels()` | List all channels, including sibling ordering in `ChannelInfo.Order` |
 | `ListClients()` | List all connected clients |
 | `GetClientInfo(clid)` | Get detailed client information |
 | `ExecCommand(cmd, timeout)` | Execute a raw command |

@@ -29,7 +29,16 @@ const (
 	headerSize              = 5
 	tagSize                 = 8
 	voiceHeaderSize         = 3
+	whisperHeaderSize       = 5
+	maxWhisperTargets       = 32
 	ackDataSize             = 2
+)
+
+var (
+	// ErrNoWhisperTargets is returned when a whisper is sent to no clients.
+	ErrNoWhisperTargets = errors.New("whisper requires at least one target client")
+	// ErrTooManyWhisperTargets is returned when a whisper names more than 32 clients.
+	ErrTooManyWhisperTargets = errors.New("whisper supports at most 32 target clients")
 )
 
 var bufPool = sync.Pool{
@@ -911,6 +920,60 @@ func (h *PacketHandler) SendVoicePacket(data []byte, codec byte) error {
 
 	putPooledBytes(&bufPool, final)
 	putPooledBytes(&voicePayloadPool, voicePayload)
+
+	return err
+}
+
+// SendWhisperPacket sends an unencrypted VoiceWhisper packet to up to 32 clients,
+// regardless of which channel they are in.
+//
+// Payload layout: u16 voice packet ID, u8 codec, u8 channel target count (always
+// 0 here), u8 client target count, one u16 per client ID, then the Opus frame.
+func (h *PacketHandler) SendWhisperPacket(data []byte, targetClientIDs []uint16, codec byte) error {
+	if len(targetClientIDs) == 0 {
+		return ErrNoWhisperTargets
+	}
+	if len(targetClientIDs) > maxWhisperTargets {
+		return ErrTooManyWhisperTargets
+	}
+
+	h.mu.Lock()
+	pID := h.packetCounter[PacketTypeVoiceWhisper]
+	pGen := h.generationCounter[PacketTypeVoiceWhisper]
+	h.packetCounter[PacketTypeVoiceWhisper]++
+	if h.packetCounter[PacketTypeVoiceWhisper] == 0 {
+		h.generationCounter[PacketTypeVoiceWhisper]++
+	}
+	clid := h.clientID
+	h.mu.Unlock()
+
+	targetsLen := len(targetClientIDs) * 2
+	payloadLen := whisperHeaderSize + targetsLen + len(data)
+
+	payload := make([]byte, payloadLen)
+	binary.BigEndian.PutUint16(payload[0:2], pID)
+	payload[2] = codec
+	payload[3] = 0
+	payload[4] = byte(len(targetClientIDs)) //nolint:gosec // bounded by maxWhisperTargets above
+	for i, id := range targetClientIDs {
+		binary.BigEndian.PutUint16(payload[whisperHeaderSize+i*2:], id)
+	}
+	copy(payload[whisperHeaderSize+targetsLen:], data)
+
+	p := &Packet{
+		TypeFlagged:  byte(PacketTypeVoiceWhisper) | byte(PacketFlagUnencrypted),
+		ID:           pID,
+		GenerationID: pGen,
+		Data:         payload,
+		ClientID:     clid,
+	}
+
+	final := make([]byte, tagSize+headerSize+payloadLen)
+	copy(final[0:8], h.TsCrypt.FakeSignature)
+	copy(final[8:13], p.BuildC2SHeader())
+	copy(final[13:], payload)
+
+	_, err := h.conn.Write(final)
 
 	return err
 }

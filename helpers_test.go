@@ -38,6 +38,45 @@ func TestSplitCommandRows_PipeSplitsToPrefixedRows(t *testing.T) {
 	}
 }
 
+func TestSplitCommandRows_InheritsFieldsOmittedFromLaterRows(t *testing.T) {
+	// Shape captured from a live TS3 server: the second row of a batched
+	// notifycliententerview carries no cfid/ctid/reasonid at all.
+	rows := splitCommandRows(
+		"notifycliententerview cfid=0 ctid=2 reasonid=2 clid=10 client_nickname=a|clid=13 client_nickname=b",
+	)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d: %v", len(rows), rows)
+	}
+	want := "notifycliententerview cfid=0 ctid=2 reasonid=2 clid=13 client_nickname=b"
+	if rows[1] != want {
+		t.Errorf("row[1] = %q, want %q", rows[1], want)
+	}
+}
+
+func TestSplitCommandRows_LaterRowOverridesInheritedField(t *testing.T) {
+	rows := splitCommandRows("notifychannelsubscribed cid=5 es=177|cid=4|cid=1 es=0")
+	want := []string{
+		"notifychannelsubscribed cid=5 es=177",
+		"notifychannelsubscribed es=177 cid=4",
+		"notifychannelsubscribed cid=1 es=0",
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("expected %d rows, got %d: %v", len(want), len(rows), rows)
+	}
+	for i := range want {
+		if rows[i] != want[i] {
+			t.Errorf("row[%d] = %q, want %q", i, rows[i], want[i])
+		}
+	}
+}
+
+func TestSplitCommandRows_KeepsValuesEscaped(t *testing.T) {
+	rows := splitCommandRows(`x a=hello\sworld|b=1`)
+	if rows[1] != `x a=hello\sworld b=1` {
+		t.Errorf("row[1] = %q", rows[1])
+	}
+}
+
 func TestSplitCommandRows_EmptyPartSkipped(t *testing.T) {
 	// Leading/trailing | in "rest" produces empty parts, which are skipped.
 	rows := splitCommandRows("cmd a=1||b=2")

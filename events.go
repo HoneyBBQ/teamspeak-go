@@ -44,6 +44,13 @@ func (c *Client) OnClientMoved(handler func(ClientMovedEvent)) {
 	c.clientMoveHandlers = append(c.clientMoveHandlers, handler)
 }
 
+// OnVoiceData registers a handler for incoming voice or whisper audio.
+func (c *Client) OnVoiceData(handler func(VoiceData)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.voiceDataHandlers = append(c.voiceDataHandlers, handler)
+}
+
 // OnConnected registers a handler for when the client is fully connected.
 func (c *Client) OnConnected(handler func()) {
 	c.mu.Lock()
@@ -104,6 +111,10 @@ func (c *Client) dispatchEvent(evt any) {
 		}
 	case PokeEvent:
 		for _, h := range c.pokedHandlers {
+			go h(e)
+		}
+	case VoiceData:
+		for _, h := range c.voiceDataHandlers {
 			go h(e)
 		}
 	}

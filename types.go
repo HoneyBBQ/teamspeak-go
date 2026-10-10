@@ -37,6 +37,13 @@ type ClientLeftViewEvent struct {
 	TargetID  uint16
 }
 
+// VoiceData is voice or whisper audio received from another client.
+type VoiceData struct {
+	Data     []byte
+	ClientID uint16
+	Codec    byte
+}
+
 // ClientInfo holds fields from clientlist / notifycliententerview.
 type ClientInfo struct {
 	Nickname     string
@@ -53,6 +60,8 @@ type ChannelInfo struct {
 	Description string
 	ID          uint64
 	ParentID    uint64
+	// Order is the ID of the sibling channel this one is sorted after; 0 means first.
+	Order uint64
 }
 
 // FileUploadInfo represents the information received when an upload is initialized.

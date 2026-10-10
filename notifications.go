@@ -60,10 +60,21 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 
 		c.mu.Lock()
 		c.clients[clid] = info
-		unescapedNick := commands.Unescape(nick)
-		if isAutoNicknameMatch(c.nickname, unescapedNick) {
+		// Identify self by the clid initserver assigned, never by nickname alone:
+		// another client whose nickname is "<our nick><digits>" (the server's
+		// rename for a taken nickname) would otherwise be mistaken for us,
+		// poisoning every outgoing packet header with a foreign clientID until
+		// the server drops the connection for command-resend timeout.
+		switch {
+		case clid == c.clid:
+			// Carries the rename the server applied if our nickname was taken.
+			c.nickname = nick
+		case c.clid == 0 && isAutoNicknameMatch(c.nickname, nick):
+			// initserver carried no aclid, so the welcome enter is the only way
+			// to learn our clid. Once known, a later lookalike cannot take over.
 			c.clid = clid
 			c.handler.SetClientID(clid)
+			c.nickname = nick
 		}
 		c.mu.Unlock()
 

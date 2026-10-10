@@ -69,6 +69,45 @@ func TestHandleClientEnterView_SetsOwnClidOnNicknameMatch(t *testing.T) {
 	}
 }
 
+func TestHandleClientEnterView_LookalikeDoesNotHijackClid(t *testing.T) {
+	// The server renames a client whose nickname is taken to "<nick><digits>",
+	// so a lookalike is indistinguishable from us by nickname. Adopting its
+	// clid would put a foreign clientID on every outgoing packet.
+	c := newTestClient(t)
+	c.mu.Lock()
+	c.clid = 5 // assigned by initserver's aclid
+	c.mu.Unlock()
+
+	const lookalike = "notifycliententerview clid=9 client_nickname=TestBot2" +
+		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
+	c.handleClientEnterView(commands.ParseCommand(lookalike))
+
+	c.mu.Lock()
+	clid, nick := c.clid, c.nickname
+	c.mu.Unlock()
+	if clid != 5 || nick != "TestBot" {
+		t.Errorf("after lookalike enter: clid=%d nickname=%q, want 5 and TestBot", clid, nick)
+	}
+}
+
+func TestHandleClientEnterView_OwnEnterTracksServerRename(t *testing.T) {
+	c := newTestClient(t)
+	c.mu.Lock()
+	c.clid = 5
+	c.mu.Unlock()
+
+	const ownRenamed = "notifycliententerview clid=5 client_nickname=TestBot2" +
+		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
+	c.handleClientEnterView(commands.ParseCommand(ownRenamed))
+
+	c.mu.Lock()
+	clid, nick := c.clid, c.nickname
+	c.mu.Unlock()
+	if clid != 5 || nick != "TestBot2" {
+		t.Errorf("after own enter: clid=%d nickname=%q, want 5 and TestBot2", clid, nick)
+	}
+}
+
 func TestHandleClientEnterView_InvalidClidIgnored(t *testing.T) {
 	c := newTestClient(t)
 	const enterZero = "notifycliententerview clid=0 client_nickname=X" +

@@ -117,13 +117,26 @@ func (r *Resolver) getValidCache(inputAddr string) ([]ResolvedAddr, bool) {
 	return cached, true
 }
 
-func splitHostPortOrDefault(inputAddr string) (string, string) {
+// SplitHostPortOrDefault splits a TeamSpeak address into host and port,
+// falling back to defaultPort when the address has none. Unlike
+// net.SplitHostPort it accepts a bracketed IPv6 literal without a port
+// ("[::1]") and a bare IPv6 literal ("::1"), returning the host unbracketed.
+func SplitHostPortOrDefault(inputAddr, defaultPort string) (string, string) {
 	host, port, err := net.SplitHostPort(inputAddr)
-	if err != nil {
-		return inputAddr, "9987"
+	if err == nil {
+		return host, port
+	}
+	if inner, ok := strings.CutPrefix(inputAddr, "["); ok {
+		if inner, ok = strings.CutSuffix(inner, "]"); ok {
+			return inner, defaultPort
+		}
 	}
 
-	return host, port
+	return inputAddr, defaultPort
+}
+
+func splitHostPortOrDefault(inputAddr string) (string, string) {
+	return SplitHostPortOrDefault(inputAddr, "9987")
 }
 
 func (r *Resolver) resolveNicknameAddr(ctx context.Context, host string) (string, bool) {

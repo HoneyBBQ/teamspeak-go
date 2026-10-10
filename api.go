@@ -31,7 +31,9 @@ func (c *Client) ClientMove(clid uint16, channelID uint64, password string) erro
 		{"cid", strconv.FormatUint(channelID, 10)},
 	}
 	if password != "" {
-		params = append(params, [2]string{"cpw", password})
+		// Channel passwords travel as base64(sha1(password)), the same encoding
+		// clientinit uses; a plain password is rejected with error 781.
+		params = append(params, [2]string{"cpw", prepareClientPassword(password)})
 	}
 	cmd := commands.BuildCommandOrdered("clientmove", params)
 
@@ -53,12 +55,31 @@ func (c *Client) SendVoice(data []byte, codec byte) error {
 	return c.handler.SendVoicePacket(data, codec)
 }
 
+// SendWhisper sends Opus voice directly to up to 32 clients, regardless of which
+// channel they are in. The bot's server group needs i_client_whisper_power.
+func (c *Client) SendWhisper(data []byte, targetClientIDs []uint16, codec byte) error {
+	return c.handler.SendWhisperPacket(data, targetClientIDs, codec)
+}
+
 // ClientID returns the client's own ID assigned by the server.
 func (c *Client) ClientID() uint16 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	return c.clid
+}
+
+// ChannelID returns the channel the client is currently in, or 0 if that is not
+// known yet, for example before the first notifycliententerview.
+func (c *Client) ChannelID() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if info, ok := c.clients[c.clid]; ok {
+		return info.ChannelID
+	}
+
+	return 0
 }
 
 // GetClientInfo fetches detailed information about a client.
@@ -86,11 +107,13 @@ func (c *Client) ListChannels() ([]ChannelInfo, error) {
 	for _, item := range data {
 		cid, _ := parseUint64Value(item["cid"])
 		pid, _ := parseUint64Value(item["pid"])
+		order, _ := parseUint64Value(item["channel_order"])
 		name := item["channel_name"]
 
 		channels = append(channels, ChannelInfo{
 			ID:       cid,
 			ParentID: pid,
+			Order:    order,
 			Name:     commands.Unescape(name),
 		})
 	}
@@ -133,10 +156,18 @@ func (c *Client) ListClients() ([]ClientInfo, error) {
 }
 
 // WaitConnected waits for the connection handshake to be completed.
+//
+// It returns nil once the handshake completes. If the attempt fails, it returns
+// the cause, such as the server's error for a rejected password, rather than
+// waiting for ctx to expire. It may be called before or after Connect.
 func (c *Client) WaitConnected(ctx context.Context) error {
+	c.mu.Lock()
+	attempt := c.attempt
+	c.mu.Unlock()
+
 	select {
-	case <-c.connectedChan:
-		return nil
+	case <-attempt.done:
+		return attempt.err
 	case <-ctx.Done():
 		return ctx.Err()
 	}

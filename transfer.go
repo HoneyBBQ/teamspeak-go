@@ -88,7 +88,7 @@ func (c *Client) FileTransferInitUpload(
 	cmd := commands.BuildCommand("ftinitupload", map[string]string{
 		"cid":         strconv.FormatUint(channelID, 10),
 		"name":        targetPath,
-		"cpw":         password,
+		"cpw":         prepareClientPassword(password),
 		"size":        strconv.FormatUint(size, 10),
 		"clientftfid": strconv.Itoa(int(cftid)),
 		"overwrite":   overwriteVal,
@@ -129,7 +129,7 @@ func (c *Client) FileTransferInitDownload(channelID uint64, path string, passwor
 	cmd := commands.BuildCommand("ftinitdownload", map[string]string{
 		"cid":         strconv.FormatUint(channelID, 10),
 		"name":        targetPath,
-		"cpw":         password,
+		"cpw":         prepareClientPassword(password),
 		"clientftfid": strconv.Itoa(int(cftid)),
 		"seekpos":     "0",
 	})

@@ -2,6 +2,7 @@ package teamspeak
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -109,8 +110,9 @@ func (c *Client) handlePacket(p *transport.Packet) {
 		dataStr := string(p.Data)
 		c.logger.Debug("received command data", slog.String("data", dataStr))
 		c.handleCommandLines(dataStr)
-	case transport.PacketTypeVoice, transport.PacketTypeVoiceWhisper, transport.PacketTypePing,
-		transport.PacketTypePong, transport.PacketTypeAck, transport.PacketTypeAckLow:
+	case transport.PacketTypeVoice, transport.PacketTypeVoiceWhisper:
+		c.handleVoicePacket(p)
+	case transport.PacketTypePing, transport.PacketTypePong, transport.PacketTypeAck, transport.PacketTypeAckLow:
 		return
 	}
 }
@@ -190,6 +192,13 @@ func (c *Client) handleError(cmd *commands.Command) {
 			c.cmdTrack.resolve(uint32(rc), err)
 		}
 	}
+
+	// A server error before the handshake completed is the connection failure
+	// itself: a rejected password, or an invalid clientinit parameter.
+	// failConnection is a no-op once connected.
+	if err != nil {
+		c.failConnection(err)
+	}
 }
 
 // SendCommandNoWait sends a command without waiting for return_code.
@@ -238,4 +247,39 @@ func (c *Client) ExecCommandWithResponse(cmd string, timeout time.Duration) ([]m
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("%w: %s", errCommandTimed, cmd)
 	}
+}
+
+// handleVoicePacket parses an incoming voice or whisper packet and dispatches a
+// VoiceData event.
+//
+// Server-to-client layout differs from what the client sends: the server
+// prepends the speaker's client ID, so the payload is
+// [voiceID: u16][speakerID: u16][codec: u8][audio...]. Whisper target lists are
+// not echoed back.
+func (c *Client) handleVoicePacket(p *transport.Packet) {
+	if len(p.Data) < 6 {
+		return
+	}
+
+	c.mu.Lock()
+	handlers := c.voiceDataHandlers
+	selfID := c.clid
+	c.mu.Unlock()
+
+	if len(handlers) == 0 {
+		return
+	}
+
+	speakerID := binary.BigEndian.Uint16(p.Data[2:4])
+	if speakerID == selfID {
+		return
+	}
+
+	vd := VoiceData{
+		ClientID: speakerID,
+		Codec:    p.Data[4],
+		Data:     append([]byte(nil), p.Data[5:]...),
+	}
+
+	c.finalEvtHandler(vd)
 }

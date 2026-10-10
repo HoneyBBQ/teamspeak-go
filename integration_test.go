@@ -27,7 +27,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -45,7 +44,7 @@ var (
 	sharedClient      *teamspeak.Client
 	sharedClientEnter chan teamspeak.ClientInfo
 	sharedOnce        sync.Once
-	sharedErr         error
+	errSharedClient   error
 )
 
 var (
@@ -78,6 +77,7 @@ func requireTeamSpeakAddr(t *testing.T) string {
 	if addr == "" {
 		t.Skip("TEAMSPEAK_ADDR not set — skip integration test (set TEAMSPEAK_ADDR=host:port to enable)")
 	}
+
 	return addr
 }
 
@@ -88,7 +88,8 @@ func requireSharedClient(t *testing.T) *teamspeak.Client {
 	sharedOnce.Do(func() {
 		id, err := crypto.GenerateIdentity(8)
 		if err != nil {
-			sharedErr = err
+			errSharedClient = err
+
 			return
 		}
 		selfUID := crypto.GetUidFromPublicKey(id.PublicKeyBase64())
@@ -102,22 +103,27 @@ func requireSharedClient(t *testing.T) *teamspeak.Client {
 				}
 			}
 		})
-		if err = c.Connect(); err != nil {
-			sharedErr = err
+		err = c.Connect()
+		if err != nil {
+			errSharedClient = err
+
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err = c.WaitConnected(ctx); err != nil {
-			sharedErr = err
+		err = c.WaitConnected(ctx)
+		if err != nil {
+			errSharedClient = err
+
 			return
 		}
 		sharedClient = c
 	})
 
-	if sharedErr != nil {
-		t.Fatalf("shared client setup failed: %v", sharedErr)
+	if errSharedClient != nil {
+		t.Fatalf("shared client setup failed: %v", errSharedClient)
 	}
+
 	return sharedClient
 }
 
@@ -128,45 +134,69 @@ func skipOnPermErr(t *testing.T, err error) {
 	}
 }
 
-func newConnectedIntegrationClient(t *testing.T, addr string, nicknamePrefix string, logger *slog.Logger) *teamspeak.Client {
+// Tests share one peer in addition to the primary client and the short-lived
+// disconnect-test client: at most three rapid connections from the same IP.
+var (
+	peerOnce   sync.Once
+	peerClient *teamspeak.Client
+	errPeer    error
+	peerLogs   lockedBuffer
+)
+
+type lockedBuffer struct {
+	buf bytes.Buffer
+	mu  sync.Mutex
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
+}
+
+func requireIntegrationPeer(t *testing.T, addr string) *teamspeak.Client {
 	t.Helper()
+	peerOnce.Do(func() {
+		id, err := crypto.GenerateIdentity(8)
+		if err != nil {
+			errPeer = err
 
-	id, err := crypto.GenerateIdentity(8)
-	if err != nil {
-		t.Fatalf("GenerateIdentity: %v", err)
-	}
-
-	nickname := nicknamePrefix + strconv.FormatInt(time.Now().UTC().UnixNano()%1_000_000, 10)
-
-	// TS3 anti-flood may temporarily ban IPs that connect too frequently.
-	// Retry with backoff to handle transient bans in CI.
-	var client *teamspeak.Client
-	for attempt := range 3 {
-		if attempt > 0 {
-			time.Sleep(time.Duration(attempt*5) * time.Second)
+			return
 		}
-		client = teamspeak.NewClient(id, addr, nickname, integrationClientOptions(logger)...)
-		if err = client.Connect(); err != nil {
-			continue
+		logger := slog.New(slog.NewJSONHandler(&peerLogs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		peerClient = teamspeak.NewClient(id, addr, "teamspeak-go-peer", integrationClientOptions(logger)...)
+		errPeer = peerClient.Connect()
+		if errPeer != nil {
+			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		err = client.WaitConnected(ctx)
-		cancel()
-		if err == nil {
-			break
-		}
-		_ = client.Disconnect()
-	}
-
-	if err != nil {
-		t.Fatalf("WaitConnected(%s) after retries: %v", nickname, err)
-	}
-
-	t.Cleanup(func() {
-		_ = client.Disconnect()
+		defer cancel()
+		errPeer = peerClient.WaitConnected(ctx)
 	})
+	if errPeer != nil {
+		t.Fatalf("peer connection: %v", errPeer)
+	}
 
-	return client
+	return peerClient
+}
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if peerClient != nil {
+		_ = peerClient.Disconnect()
+	}
+	if sharedClient != nil {
+		_ = sharedClient.Disconnect()
+	}
+	os.Exit(code)
 }
 
 func mapKeys(m map[string]string) []string {
@@ -174,6 +204,7 @@ func mapKeys(m map[string]string) []string {
 	for k := range m {
 		keys = append(keys, k)
 	}
+
 	return keys
 }
 
@@ -187,6 +218,7 @@ func extractJSONField(s string, needle string) string {
 	if end < 0 {
 		return ""
 	}
+
 	return s[start : start+end]
 }
 
@@ -241,20 +273,23 @@ func TestIntegration_Disconnect(t *testing.T) {
 	}
 	c := teamspeak.NewClient(id, addr, "teamspeak-go-integ-disc", integrationClientOptions(nil)...)
 
-	if err = c.Connect(); err != nil {
+	err = c.Connect()
+	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err = c.WaitConnected(ctx); err != nil {
+	err = c.WaitConnected(ctx)
+	if err != nil {
 		t.Fatalf("WaitConnected: %v", err)
 	}
 
 	disconnected := make(chan error, 1)
 	c.OnDisconnected(func(e error) { disconnected <- e })
 
-	if err = c.Disconnect(); err != nil {
+	err = c.Disconnect()
+	if err != nil {
 		t.Logf("Disconnect returned (non-fatal): %v", err)
 	}
 
@@ -287,6 +322,7 @@ func TestIntegration_ListClients(t *testing.T) {
 		if cl.ID == ownID {
 			found = true
 			t.Logf("self: clid=%d nick=%q cid=%d", cl.ID, cl.Nickname, cl.ChannelID)
+
 			break
 		}
 	}
@@ -332,6 +368,7 @@ func TestIntegration_JoinsConfiguredDefaultChannel(t *testing.T) {
 	for i := range clients {
 		if clients[i].ID == c.ClientID() {
 			self = &clients[i]
+
 			break
 		}
 	}
@@ -343,6 +380,7 @@ func TestIntegration_JoinsConfiguredDefaultChannel(t *testing.T) {
 	for i := range channels {
 		if channels[i].ID == self.ChannelID {
 			currentChannel = &channels[i]
+
 			break
 		}
 	}
@@ -378,12 +416,12 @@ func TestIntegration_GetClientInfo(t *testing.T) {
 func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 	addr := requireTeamSpeakAddr(t)
 
-	var logBuf bytes.Buffer
-	debugLogger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	receiver := requireIntegrationPeer(t, addr)
 
-	receiver := newConnectedIntegrationClient(t, addr, "rx", debugLogger)
-
-	sender := newConnectedIntegrationClient(t, addr, "tx", slog.Default())
+	// Reuse the shared connection as sender to stay within TS3's anti-flood
+	// connection budget. The receiver still gets a separate session so the
+	// notification crosses the wire between two clients.
+	sender := requireSharedClient(t)
 	senderInfo, err := sender.GetClientInfo(sender.ClientID())
 	if err != nil {
 		t.Fatalf("sender GetClientInfo: %v", err)
@@ -402,7 +440,8 @@ func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	probeText := fmt.Sprintf("cursor-probe-%d", time.Now().UTC().UnixNano())
-	if err := sender.SendTextMessage(1, uint64(receiver.ClientID()), probeText); err != nil {
+	err = sender.SendTextMessage(1, uint64(receiver.ClientID()), probeText)
+	if err != nil {
 		t.Fatalf("sender SendTextMessage private: %v", err)
 	}
 
@@ -410,14 +449,14 @@ func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 	select {
 	case msg = <-received:
 	case <-time.After(10 * time.Second):
-		t.Fatalf("timeout waiting for private text notification; logs=%s", logBuf.String())
+		t.Fatalf("timeout waiting for private text notification; logs=%s", peerLogs.String())
 	}
 
 	if msg.Message != probeText {
 		t.Fatalf("unexpected message text: got %q want %q", msg.Message, probeText)
 	}
 
-	logs := logBuf.String()
+	logs := peerLogs.String()
 	t.Logf("receiver logs: %s", logs)
 
 	if !strings.Contains(logs, "\"name\":\"notifytextmessage\"") {
@@ -458,8 +497,8 @@ func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 func TestIntegration_PokeSendAndReceive(t *testing.T) {
 	addr := requireTeamSpeakAddr(t)
 
-	sender := newConnectedIntegrationClient(t, addr, "poke-tx", slog.Default())
-	receiver := newConnectedIntegrationClient(t, addr, "poke-rx", slog.Default())
+	sender := requireSharedClient(t)
+	receiver := requireIntegrationPeer(t, addr)
 
 	pokeMsg := fmt.Sprintf("poke-test-%d", time.Now().UTC().UnixNano())
 
@@ -473,7 +512,8 @@ func TestIntegration_PokeSendAndReceive(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	if err := sender.Poke(receiver.ClientID(), pokeMsg); err != nil {
+	err := sender.Poke(receiver.ClientID(), pokeMsg)
+	if err != nil {
 		t.Fatalf("Poke: %v", err)
 	}
 	t.Logf("sent poke from clid=%d to clid=%d msg=%q", sender.ClientID(), receiver.ClientID(), pokeMsg)
@@ -495,8 +535,8 @@ func TestIntegration_PokeSendAndReceive(t *testing.T) {
 func TestIntegration_PokeEmptyMessage(t *testing.T) {
 	addr := requireTeamSpeakAddr(t)
 
-	sender := newConnectedIntegrationClient(t, addr, "poke-tx2", slog.Default())
-	receiver := newConnectedIntegrationClient(t, addr, "poke-rx2", slog.Default())
+	sender := requireSharedClient(t)
+	receiver := requireIntegrationPeer(t, addr)
 
 	poked := make(chan teamspeak.PokeEvent, 1)
 	receiver.OnPoked(func(e teamspeak.PokeEvent) {
@@ -508,7 +548,8 @@ func TestIntegration_PokeEmptyMessage(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	if err := sender.Poke(receiver.ClientID(), ""); err != nil {
+	err := sender.Poke(receiver.ClientID(), "")
+	if err != nil {
 		t.Fatalf("Poke (empty): %v", err)
 	}
 	t.Logf("sent empty poke from clid=%d to clid=%d", sender.ClientID(), receiver.ClientID())

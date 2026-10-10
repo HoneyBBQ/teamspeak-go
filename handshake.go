@@ -121,15 +121,10 @@ func (c *Client) handleInitServer(cmd *commands.Command) {
 		}
 	}
 	handlers := c.connectedHandlers
+	c.attempt.finish(nil)
 	c.mu.Unlock()
 
 	c.logger.Info("connected to server", slog.Uint64("self_id", uint64(c.clid)))
-
-	select {
-	case <-c.connectedChan:
-	default:
-		close(c.connectedChan)
-	}
 
 	go func() {
 		updateCmd := commands.BuildCommand("clientupdate", map[string]string{

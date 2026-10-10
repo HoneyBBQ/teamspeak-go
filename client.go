@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
+	"net"
 	"sync"
 	"time"
 
@@ -13,7 +13,10 @@ import (
 	"github.com/honeybbq/teamspeak-go/transport"
 )
 
-var errAlreadyConnectingOrConnected = errors.New("already connecting or connected")
+var (
+	errAlreadyConnectingOrConnected = errors.New("already connecting or connected")
+	errClosedDuringHandshake        = errors.New("connection closed before the TeamSpeak handshake completed")
+)
 
 // ClientStatus represents the current connection state of the client.
 type ClientStatus int
@@ -47,7 +50,7 @@ type Client struct {
 	resolver             AddrResolver
 	finalCmdHandler      func(string) error
 	crypt                *crypto.Crypt
-	connectedChan        chan struct{}
+	attempt              *connectAttempt
 	ftTrack              *fileTransferTracker
 	logger               *slog.Logger
 	handler              *transport.PacketHandler
@@ -68,6 +71,7 @@ type Client struct {
 	disconnectedHandlers []func(error)
 	pokedHandlers        []func(PokeEvent)
 	kickedHandlers       []func(string)
+	voiceDataHandlers    []func(VoiceData)
 	status               ClientStatus
 	mu                   sync.Mutex
 	clid                 uint16
@@ -78,28 +82,26 @@ func NewClient(identity *crypto.Identity, addr string, nickname string, options 
 	crypt := crypto.NewCrypt(identity)
 
 	c := &Client{
-		crypt:         crypt,
-		status:        StatusDisconnected,
-		logger:        slog.Default(),
-		addr:          addr,
-		nickname:      nickname,
-		clients:       make(map[uint16]ClientInfo),
-		throttle:      newCommandThrottle(),
-		cmdTrack:      newCommandTracker(),
-		ftTrack:       newFileTransferTracker(),
-		connectedChan: make(chan struct{}),
+		crypt:    crypt,
+		status:   StatusDisconnected,
+		logger:   slog.Default(),
+		addr:     addr,
+		nickname: nickname,
+		clients:  make(map[uint16]ClientInfo),
+		throttle: newCommandThrottle(),
+		cmdTrack: newCommandTracker(),
+		ftTrack:  newFileTransferTracker(),
+		attempt:  newConnectAttempt(),
 	}
 
 	for _, opt := range options {
 		opt(c)
 	}
 
-	c.handler = transport.NewPacketHandler(c.crypt, c.logger)
+	c.handler = c.newHandler()
 	if c.resolver == nil {
 		c.resolver = discovery.NewResolver(c.logger)
 	}
-	c.handler.OnPacket = c.handlePacket
-	c.handler.OnClosed = c.handleConnectionClosed
 
 	c.rebuildMiddlewareChains()
 
@@ -173,7 +175,14 @@ func (c *Client) Connect() error {
 	targetAddr, source := c.resolveConnectTarget(finalAddr)
 	c.logger.Info("connecting to server", slog.String("address", targetAddr), slog.String("source", source))
 
-	return c.handler.Connect(targetAddr)
+	err := c.handler.Connect(targetAddr)
+	if err != nil {
+		// Without this the client stays in StatusConnecting and every later
+		// Connect fails with errAlreadyConnectingOrConnected.
+		c.failConnection(err)
+	}
+
+	return err
 }
 
 // Disconnect gracefully closes the connection.
@@ -211,22 +220,23 @@ func (c *Client) resetForConnectLocked() string {
 	}
 	identity := c.crypt.Identity
 	c.crypt = crypto.NewCrypt(identity)
-	c.handler = transport.NewPacketHandler(c.crypt, c.logger)
-	c.handler.OnPacket = c.handlePacket
-	c.handler.OnClosed = c.handleConnectionClosed
-	c.connectedChan = make(chan struct{})
+	c.handler = c.newHandler()
+	// Keep an attempt nobody has resolved yet: a caller that started
+	// WaitConnected before calling Connect is waiting on it, and must be
+	// released by this connection's handshake.
+	if c.attempt.finished() {
+		c.attempt = newConnectAttempt()
+	}
 	c.cmdTrack.reset()
 	c.ftTrack.reset()
 	c.clients = make(map[uint16]ClientInfo)
 	c.clid = 0
 
-	finalAddr := c.addr
-	if !strings.Contains(finalAddr, ":") {
-		c.logger.Debug("no port specified, using default port 9987")
-		finalAddr += ":9987"
-	}
+	// Fallback used only if resolution fails. A colon check would misread any
+	// IPv6 literal as already carrying a port.
+	host, port := discovery.SplitHostPortOrDefault(c.addr, "9987")
 
-	return finalAddr
+	return net.JoinHostPort(host, port)
 }
 
 func (c *Client) resolveConnectTarget(fallbackAddr string) (string, string) {
@@ -243,10 +253,72 @@ func (c *Client) resolveConnectTarget(fallbackAddr string) (string, string) {
 	return resolved[0].Addr, resolved[0].Source
 }
 
+// newHandler creates a packet handler wired to this client. Its OnClosed is
+// bound to the handler instance, so a close reported late by a handler that a
+// later Connect already replaced cannot tear down the new connection.
+func (c *Client) newHandler() *transport.PacketHandler {
+	h := transport.NewPacketHandler(c.crypt, c.logger)
+	h.OnPacket = c.handlePacket
+	h.OnClosed = func(err error) {
+		c.mu.Lock()
+		current := c.handler == h
+		c.mu.Unlock()
+		if current {
+			c.handleConnectionClosed(err)
+		}
+	}
+
+	return h
+}
+
+// failConnection ends a connection attempt that can no longer succeed: it
+// records the cause for WaitConnected, closes the transport, and reports the
+// cause to disconnected handlers. It does nothing once the handshake has
+// completed, so it cannot tear down a live session.
+//
+// Without it, a handshake the server rejects (a wrong password, say, which the
+// server answers with an error instead of closing the socket) surfaced only as
+// the caller's own WaitConnected timeout, and the client stayed in
+// StatusConnecting forever without emitting disconnected.
+func (c *Client) failConnection(err error) {
+	c.mu.Lock()
+	if c.status == StatusConnected {
+		c.mu.Unlock()
+
+		return
+	}
+	c.attempt.finish(err)
+	if c.status == StatusDisconnected {
+		c.mu.Unlock()
+
+		return
+	}
+	c.status = StatusDisconnected
+	handler := c.handler
+	handlers := c.disconnectedHandlers
+	c.mu.Unlock()
+
+	_ = handler.Close()
+	for _, h := range handlers {
+		go h(err)
+	}
+}
+
 func (c *Client) handleConnectionClosed(err error) {
 	c.mu.Lock()
 	if c.status == StatusDisconnected {
 		c.mu.Unlock()
+
+		return
+	}
+	if c.status == StatusConnecting {
+		// The socket closed before the handshake finished: a failed attempt,
+		// not the end of a live session.
+		c.mu.Unlock()
+		if err == nil {
+			err = errClosedDuringHandshake
+		}
+		c.failConnection(err)
 
 		return
 	}

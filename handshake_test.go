@@ -1,6 +1,7 @@
 package teamspeak
 
 import (
+	"context"
 	"encoding/binary"
 	"strings"
 	"testing"
@@ -43,15 +44,16 @@ func TestHandleInitServer_FallsBackToClid(t *testing.T) {
 	}
 }
 
-func TestHandleInitServer_ClosesConnectedChan(t *testing.T) {
+func TestHandleInitServer_ReleasesWaitConnected(t *testing.T) {
 	c := newTestClient(t)
 
 	c.handleCommand("initserver aclid=3 virtualserver_name=X")
 
-	select {
-	case <-c.connectedChan:
-	case <-time.After(time.Second):
-		t.Error("connectedChan was not closed after initserver")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err := c.WaitConnected(ctx)
+	if err != nil {
+		t.Errorf("WaitConnected after initserver: %v", err)
 	}
 }
 
