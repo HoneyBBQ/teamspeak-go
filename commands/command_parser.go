@@ -14,11 +14,13 @@ func ParseCommand(s string) *Command {
 		return nil
 	}
 
-	// TeamSpeak leaves the command name off response rows. A clientlist reply is
-	// "clid=6 cid=2 ..." and a rejection is "-1 id=2 ...", so the first token is
-	// a name only when it is neither a key=value pair nor a leading-'-' flag.
-	// Deciding that here keeps every consumer from having to re-inspect Name for
-	// an '=' it was never told about.
+	// A command name is a run of alphanumerics followed by a space — the rule
+	// tsproto-packets uses (CommandParser::new). Anything else means the line is
+	// not a command at all: response rows carry no name ("clid=6 cid=2 ..."),
+	// and negative feedback is "-1 id=2 ...", naming the *rejected* command id
+	// rather than a command of its own. Returning those as a nameless row keeps
+	// the data intact instead of folding the first field into a name, which is
+	// how every clientlist row used to lose its clid.
 	first := parts[0]
 
 	cmd := &Command{
@@ -28,18 +30,11 @@ func ParseCommand(s string) *Command {
 
 	var rest []string
 
-	switch {
-	case strings.HasPrefix(first, "-"):
-		// Negative feedback: "-<cmdId> <error>". The id is the command being
-		// rejected, so the rest of the line carries the error, not this one.
-		cmd.Params["flag"] = first[1:]
-		rest = parts[1:]
-	case strings.Contains(first, "="):
-		// A response row — the whole line is data, so take it from the first token.
-		rest = parts
-	default:
+	if isCommandName(first) {
 		cmd.Name = first
 		rest = parts[1:]
+	} else {
+		rest = parts
 	}
 
 	for _, p := range rest {
@@ -55,6 +50,22 @@ func ParseCommand(s string) *Command {
 	}
 
 	return cmd
+}
+
+// isCommandName reports whether a line's first token is a command name rather
+// than one of a response row's key=value pairs.
+func isCommandName(token string) bool {
+	if token == "" {
+		return false
+	}
+	for i := range len(token) {
+		c := token[i]
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+
+	return true
 }
 
 // stripLeadingNonPrintable drops control bytes some servers prefix a command

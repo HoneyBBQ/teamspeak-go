@@ -147,7 +147,9 @@ func (c *Client) handleCommand(s string) {
 	// An empty name means a response row: the server sends data without echoing
 	// the command, so the row belongs to whichever command awaits a result.
 	if cmd.Name == "" {
-		c.cmdTrack.collect(cmd.Params)
+		if len(cmd.Params) > 0 {
+			c.cmdTrack.collect(cmd.Params)
+		}
 
 		return
 	}

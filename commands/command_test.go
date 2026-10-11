@@ -273,6 +273,8 @@ func TestParseCommand_ResponseRowHasNoName(t *testing.T) {
 	}
 }
 
+// "-<cmdId> <error>" names the command that was rejected; the line itself is
+// not a command, so it must not become one called "-1".
 func TestParseCommand_NegativeFeedbackIsNotAName(t *testing.T) {
 	cmd := commands.ParseCommand("-1 id=2 msg=bad\\scommand")
 	if cmd == nil {
@@ -281,11 +283,28 @@ func TestParseCommand_NegativeFeedbackIsNotAName(t *testing.T) {
 	if cmd.Name != "" {
 		t.Errorf("Name = %q, want empty for negative feedback", cmd.Name)
 	}
-	if got := cmd.Params["flag"]; got != "1" {
-		t.Errorf("Params[flag] = %q, want %q", got, "1")
+	if got := cmd.Params["id"]; got != "2" {
+		t.Errorf("Params[id] = %q, want %q", got, "2")
 	}
 	if got := cmd.Params["msg"]; got != "bad command" {
 		t.Errorf("Params[msg] = %q, want %q", got, "bad command")
+	}
+}
+
+func TestParseCommand_KeepsARowThatLooksLikeABareName(t *testing.T) {
+	// A trailing marker like "clientlistfinished" carries no '=' but is still a
+	// command; an "error" line keeps its parameters.
+	done := commands.ParseCommand("clientlistfinished")
+	if done == nil || done.Name != "clientlistfinished" {
+		t.Errorf("Name = %+v, want %q", done, "clientlistfinished")
+	}
+
+	errCmd := commands.ParseCommand("error id=0 msg=ok")
+	if errCmd == nil || errCmd.Name != "error" {
+		t.Fatalf("Name = %+v, want %q", errCmd, "error")
+	}
+	if got := errCmd.Params["id"]; got != "0" {
+		t.Errorf("Params[id] = %q, want %q", got, "0")
 	}
 }
 
