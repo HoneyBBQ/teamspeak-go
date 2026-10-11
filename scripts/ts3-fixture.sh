@@ -228,10 +228,26 @@ query() {
 # later as some unrelated complaint.
 command_output=""
 run_commands() {
-  local output code
-  output="$(query)" || output="error id=0 msg=query_transport_failed"
+  local output code attempt
+  attempt=1
+  while :; do
+    output="$(query)" || output="error id=0 msg=query_transport_failed"
 
-  code="$(printf '%s' "$output" | grep -o 'error id=[0-9]*' | grep -o '[0-9]*' | grep -v '^0$' | head -1 || true)"
+    code="$(printf '%s' "$output" | grep -o 'error id=[0-9]*' | grep -o '[0-9]*' | grep -v '^0$' | head -1 || true)"
+
+    # 524 is "client is flooding", which the server clears on its own. Retrying
+    # is what makes this script survive being run from an address that is not
+    # in query_ip_allowlist — in CI the fixture arrives over a published port,
+    # so it is subject to the flood limit and cannot whitelist itself out of it.
+    if [ "$code" = "524" ] && [ "$attempt" -lt 6 ]; then
+      attempt=$((attempt + 1))
+      sleep 3
+      continue
+    fi
+
+    break
+  done
+
   if [ -n "$code" ]; then
     echo "the server refused the fixture commands:" >&2
     printf '%s\n' "$output" >&2
@@ -240,6 +256,19 @@ run_commands() {
 
   command_output="$output"
 }
+
+# Relax the ServerQuery flood limit before anything else.
+#
+# This has to be the first command: the default is 10 commands in 3 seconds and
+# provisioning sends more than that, so if it were set after the commands it
+# protects, the server would refuse them (error 524) instead.
+#
+# Note this is a *different* limit from the virtual-server antiflood set further
+# down: that one rate-limits the voice clients the tests connect as, this one
+# rate-limits this script.
+run_commands <<'PROBE'
+instanceedit serverinstance_serverquery_flood_commands=1000 serverinstance_serverquery_flood_time=1 serverinstance_serverquery_flood_ban_time=0
+PROBE
 
 channel_list() {
   run_commands <<'PROBE'
@@ -278,16 +307,10 @@ COMMANDS
 create_missing "$DEFAULT_CHANNEL"
 create_missing "$PASSWORD_CHANNEL" "channel_password=$PASSWORD_CHANNEL_PASSWORD"
 
-# Two separate flood protections, and the fixture trips the second one.
-#
-# serveredit sets the *virtual server* antiflood, which rate-limits the voice
-# clients the tests connect as. instanceedit sets the *ServerQuery* flood limit,
-# which rate-limits this script: the default is 10 commands in 3 seconds, and
-# provisioning sends more than that, so the server answers error 524 "client is
-# flooding" and bans the source for serverinstance_serverquery_flood_ban_time.
-# That is the same class of trap as the antiflood above, one layer out.
+# The virtual-server antiflood, which is a separate limit from the ServerQuery
+# flood relaxed above: this one rate-limits the voice clients the tests connect
+# as, that one rate-limits this script.
 run_commands <<COMMANDS
-instanceedit serverinstance_serverquery_flood_commands=1000 serverinstance_serverquery_flood_time=1 serverinstance_serverquery_flood_ban_time=0
 serveredit virtualserver_antiflood_points_needed_command_block=65000 virtualserver_antiflood_points_needed_ip_block=65000 virtualserver_antiflood_points_tick_reduce=65000
 servergroupaddperm sgid=$DEFAULT_GROUP permsid=b_virtualserver_channel_list permvalue=1 permnegated=0 permskip=0
 servergroupaddperm sgid=$DEFAULT_GROUP permsid=b_virtualserver_client_list permvalue=1 permnegated=0 permskip=0
