@@ -54,16 +54,6 @@ type ClientInfo struct {
 	ID           uint16
 }
 
-// ChannelInfo is one row from channellist.
-type ChannelInfo struct {
-	Name        string
-	Description string
-	ID          uint64
-	ParentID    uint64
-	// Order is the ID of the sibling channel this one is sorted after; 0 means first.
-	Order uint64
-}
-
 // FileUploadInfo represents the information received when an upload is initialized.
 type FileUploadInfo struct {
 	FileTransferKey      string

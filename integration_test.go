@@ -385,7 +385,7 @@ func TestIntegration_JoinsConfiguredDefaultChannel(t *testing.T) {
 		t.Fatal("expected to find ourselves in client list")
 	}
 
-	var currentChannel *teamspeak.ChannelInfo
+	var currentChannel *teamspeak.Channel
 	for i := range channels {
 		if channels[i].ID == self.ChannelID {
 			currentChannel = &channels[i]

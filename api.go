@@ -12,7 +12,10 @@ import (
 	"github.com/honeybbq/teamspeak-go/crypto"
 )
 
-var errNoDataReturnedForClient = errors.New("no data returned for client")
+var (
+	errNoDataReturnedForClient = errors.New("no data returned for client")
+	errNoDataReturned          = errors.New("no data returned")
+)
 
 // SendTextMessage sends a text message to a client, channel or server.
 func (c *Client) SendTextMessage(targetMode int, targetID uint64, message string) error {
@@ -126,31 +129,6 @@ func (c *Client) GetClientInfo(clid uint16) (map[string]string, error) {
 	}
 
 	return data[0], nil
-}
-
-// ListChannels returns a list of all channels on the server.
-func (c *Client) ListChannels() ([]ChannelInfo, error) {
-	data, err := c.ExecCommandWithResponse("channellist", 5*time.Second)
-	if err != nil {
-		return nil, err
-	}
-
-	channels := make([]ChannelInfo, 0, len(data))
-	for _, item := range data {
-		cid, _ := parseUint64Value(item["cid"])
-		pid, _ := parseUint64Value(item["pid"])
-		order, _ := parseUint64Value(item["channel_order"])
-		name := item["channel_name"]
-
-		channels = append(channels, ChannelInfo{
-			ID:       cid,
-			ParentID: pid,
-			Order:    order,
-			Name:     commands.Unescape(name),
-		})
-	}
-
-	return channels, nil
 }
 
 // ListClients returns a list of all clients currently connected to the server.
