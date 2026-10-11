@@ -69,6 +69,14 @@ func (c *Client) ClientID() uint16 {
 	return c.clid
 }
 
+// Status reports the current connection state.
+func (c *Client) Status() ClientStatus {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.status
+}
+
 // ChannelID returns the channel the client is currently in, or 0 if that is not
 // known yet, for example before the first notifycliententerview.
 func (c *Client) ChannelID() uint64 {

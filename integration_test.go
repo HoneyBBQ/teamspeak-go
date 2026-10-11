@@ -253,14 +253,21 @@ func TestIntegration_ConnectWithOptionalHandshakeAuth(t *testing.T) {
 func TestIntegration_ClientEnterChannelID(t *testing.T) {
 	requireSharedClient(t)
 
+	// The welcome-sequence clientEnter may already have been consumed by an
+	// earlier test, so fall back to the channel the client reports now rather
+	// than depending on test order.
 	select {
 	case info := <-sharedClientEnter:
 		t.Logf("clientEnter: clid=%d cid=%d", info.ID, info.ChannelID)
 		if info.ChannelID == 0 {
 			t.Error("expected clientEnter to report a non-zero channel ID")
 		}
-	case <-time.After(8 * time.Second):
-		t.Fatal("timed out waiting for clientEnter")
+	case <-time.After(2 * time.Second):
+		c := requireSharedClient(t)
+		t.Logf("clientEnter already consumed; ChannelID()=%d", c.ChannelID())
+		if c.ChannelID() == 0 {
+			t.Error("expected a non-zero channel ID once connected")
+		}
 	}
 }
 

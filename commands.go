@@ -138,11 +138,19 @@ func (c *Client) handleCommandLines(s string) {
 
 func (c *Client) handleCommand(s string) {
 	cmd := commands.ParseCommand(s)
-	if cmd == nil || cmd.Name == "" {
+	if cmd == nil {
 		return
 	}
 
 	c.logger.Debug("processing command", slog.String("name", cmd.Name), slog.Any("params", cmd.Params))
+
+	// An empty name means a response row: the server sends data without echoing
+	// the command, so the row belongs to whichever command awaits a result.
+	if cmd.Name == "" {
+		c.cmdTrack.collect(cmd.Params)
+
+		return
+	}
 
 	if strings.HasPrefix(cmd.Name, "notify") {
 		c.handleNotification(cmd)
@@ -160,6 +168,7 @@ func (c *Client) handleCommand(s string) {
 	case "error":
 		c.handleError(cmd)
 	default:
+		// A command the SDK does not model, carrying its own data rows.
 		c.cmdTrack.collect(cmd.Params)
 		c.logger.Debug("unhandled or data command", slog.String("name", cmd.Name), slog.Any("params", cmd.Params))
 	}

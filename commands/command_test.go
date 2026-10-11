@@ -249,3 +249,55 @@ func TestParseBuildRoundtrip(t *testing.T) {
 		t.Errorf("key4 = %q", cmd.Params["key4"])
 	}
 }
+
+// The server never echoes the command name on a response row, so a data line
+// has no name at all. Getting this wrong silently dropped the row's first field
+// — every clientlist row was stored under the wrong columns.
+func TestParseCommand_ResponseRowHasNoName(t *testing.T) {
+	cmd := commands.ParseCommand("clid=10 cid=2 client_database_id=10 client_nickname=raw-probe1")
+	if cmd == nil {
+		t.Fatal("ParseCommand returned nil")
+	}
+	if cmd.Name != "" {
+		t.Errorf("Name = %q, want empty for a nameless data row", cmd.Name)
+	}
+	for key, want := range map[string]string{
+		"clid":               "10",
+		"cid":                "2",
+		"client_database_id": "10",
+		"client_nickname":    "raw-probe1",
+	} {
+		if got := cmd.Params[key]; got != want {
+			t.Errorf("Params[%q] = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestParseCommand_NegativeFeedbackIsNotAName(t *testing.T) {
+	cmd := commands.ParseCommand("-1 id=2 msg=bad\\scommand")
+	if cmd == nil {
+		t.Fatal("ParseCommand returned nil")
+	}
+	if cmd.Name != "" {
+		t.Errorf("Name = %q, want empty for negative feedback", cmd.Name)
+	}
+	if got := cmd.Params["flag"]; got != "1" {
+		t.Errorf("Params[flag] = %q, want %q", got, "1")
+	}
+	if got := cmd.Params["msg"]; got != "bad command" {
+		t.Errorf("Params[msg] = %q, want %q", got, "bad command")
+	}
+}
+
+func TestParseCommand_StillReadsARealName(t *testing.T) {
+	cmd := commands.ParseCommand("clientlist -uid -away")
+	if cmd == nil {
+		t.Fatal("ParseCommand returned nil")
+	}
+	if cmd.Name != cmdClientlist {
+		t.Errorf("Name = %q, want %q", cmd.Name, cmdClientlist)
+	}
+	if _, ok := cmd.Params["-uid"]; !ok {
+		t.Errorf("Params = %v, want a -uid entry", cmd.Params)
+	}
+}
