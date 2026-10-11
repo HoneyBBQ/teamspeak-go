@@ -120,6 +120,14 @@ func (c *Client) handleInitServer(cmd *commands.Command) {
 			c.handler.SetClientID(c.clid)
 		}
 	}
+
+	// initserver is the only place the server names itself, and it determines
+	// how the server hashes our public key into client_unique_identifier:
+	// SHA-1 on TS3, SHA-256 on TS6.
+	if version := cmd.Params["virtualserver_version"]; version != "" {
+		c.uidAlgorithm = crypto.UidAlgorithmForVersion(version)
+	}
+
 	handlers := c.connectedHandlers
 	c.attempt.finish(nil)
 	c.mu.Unlock()

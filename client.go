@@ -47,19 +47,23 @@ type clientInitOptions struct {
 
 // Client is the TeamSpeak 3 client.
 type Client struct {
-	resolver             AddrResolver
-	finalCmdHandler      func(string) error
-	crypt                *crypto.Crypt
-	attempt              *connectAttempt
-	ftTrack              *fileTransferTracker
-	logger               *slog.Logger
-	handler              *transport.PacketHandler
-	cmdTrack             *commandTracker
-	throttle             *commandThrottle
-	clients              map[uint16]ClientInfo
-	finalEvtHandler      func(any)
-	addr                 string
-	nickname             string
+	resolver        AddrResolver
+	finalCmdHandler func(string) error
+	crypt           *crypto.Crypt
+	attempt         *connectAttempt
+	ftTrack         *fileTransferTracker
+	logger          *slog.Logger
+	handler         *transport.PacketHandler
+	cmdTrack        *commandTracker
+	throttle        *commandThrottle
+	clients         map[uint16]ClientInfo
+	finalEvtHandler func(any)
+	addr            string
+	nickname        string
+	// uidAlgorithm is the hash the connected server uses for
+	// client_unique_identifier, learned from virtualserver_version during
+	// initserver: SHA-1 on TS3, SHA-256 on TS6.
+	uidAlgorithm         crypto.UidAlgorithm
 	clientInitOptions    clientInitOptions
 	textMsgHandlers      []func(TextMessage)
 	cmdMiddlewares       []CommandMiddleware
@@ -231,6 +235,8 @@ func (c *Client) resetForConnectLocked() string {
 	c.ftTrack.reset()
 	c.clients = make(map[uint16]ClientInfo)
 	c.clid = 0
+	// Reset to the TS3 default; initserver sets it from the server's version.
+	c.uidAlgorithm = crypto.UidSha1
 
 	// Fallback used only if resolution fails. A colon check would misread any
 	// IPv6 literal as already carrying a port.

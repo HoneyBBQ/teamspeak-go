@@ -92,11 +92,13 @@ func requireSharedClient(t *testing.T) *teamspeak.Client {
 
 			return
 		}
-		selfUID := crypto.GetUidFromPublicKey(id.PublicKeyBase64())
 		c := teamspeak.NewClient(id, addr, "teamspeak-go-integ", integrationClientOptions(nil)...)
 		sharedClientEnter = make(chan teamspeak.ClientInfo, 1)
 		c.OnClientEnter(func(info teamspeak.ClientInfo) {
-			if info.UID == selfUID {
+			// Compare via the client rather than a precomputed UID: the hash
+			// depends on the server version (TS3 SHA-1, TS6 SHA-256), which is
+			// only known once the handshake has read initserver.
+			if info.UID != "" && info.UID == c.UniqueIdentifier() {
 				select {
 				case sharedClientEnter <- info:
 				default:

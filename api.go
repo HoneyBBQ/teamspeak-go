@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/commands"
+	"github.com/honeybbq/teamspeak-go/crypto"
 )
 
 var errNoDataReturnedForClient = errors.New("no data returned for client")
@@ -59,6 +60,19 @@ func (c *Client) SendVoice(data []byte, codec byte) error {
 // channel they are in. The bot's server group needs i_client_whisper_power.
 func (c *Client) SendWhisper(data []byte, targetClientIDs []uint16, codec byte) error {
 	return c.handler.SendWhisperPacket(data, targetClientIDs, codec)
+}
+
+// UniqueIdentifier returns our own client_unique_identifier, hashed with the
+// algorithm the connected server uses.
+//
+// TS3 uses SHA-1 and TS6 SHA-256, so this reads the algorithm learned during
+// initserver rather than assuming one: comparing a hard-coded SHA-1 UID to a
+// TS6 server silently never matches.
+func (c *Client) UniqueIdentifier() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return crypto.GetUidFromPublicKey(c.crypt.Identity.PublicKeyBase64(), c.uidAlgorithm)
 }
 
 // ClientID returns the client's own ID assigned by the server.

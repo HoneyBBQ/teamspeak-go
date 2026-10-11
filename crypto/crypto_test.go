@@ -638,3 +638,47 @@ func TestInitCrypto_InvalidOmegaKey(t *testing.T) {
 		t.Error("expected error for invalid omega key bytes")
 	}
 }
+
+// The UID hash is not negotiable on the wire: TS3 hashes with SHA-1 and TS6 with
+// SHA-256, so a client that assumes one silently computes a UID the other
+// server never sends.
+func TestUidAlgorithmForVersion(t *testing.T) {
+	tests := []struct {
+		version string
+		want    crypto.UidAlgorithm
+	}{
+		{"3.13.8 [Build: 1779874471]", crypto.UidSha1},
+		{"3.0.11 [Build: 1374563791]", crypto.UidSha1},
+		{"6.0.0-beta13.1 [Build: 1790080330]", crypto.UidSha256},
+		{"6.1.0", crypto.UidSha256},
+		{"", crypto.UidSha1},
+		{"unknown", crypto.UidSha1},
+	}
+	for _, tt := range tests {
+		if got := crypto.UidAlgorithmForVersion(tt.version); got != tt.want {
+			t.Errorf("UidAlgorithmForVersion(%q) = %q, want %q", tt.version, got, tt.want)
+		}
+	}
+}
+
+func TestGetUidFromPublicKey_UsesTheRequestedAlgorithm(t *testing.T) {
+	pub := "AAAA"
+
+	// SHA-1 is 20 bytes and SHA-256 32, so the base64 lengths differ and the
+	// digests cannot be confused for one another.
+	sha1UID := crypto.GetUidFromPublicKey(pub, crypto.UidSha1)
+	sha256UID := crypto.GetUidFromPublicKey(pub, crypto.UidSha256)
+	if len(sha1UID) != 28 {
+		t.Errorf("SHA-1 UID length = %d, want 28 (20 bytes base64)", len(sha1UID))
+	}
+	if len(sha256UID) != 44 {
+		t.Errorf("SHA-256 UID length = %d, want 44 (32 bytes base64)", len(sha256UID))
+	}
+	if sha1UID == sha256UID {
+		t.Error("SHA-1 and SHA-256 UIDs must differ")
+	}
+	// The no-argument form stays TS3-compatible for existing callers.
+	if got := crypto.GetUidFromPublicKey(pub); got != sha1UID {
+		t.Errorf("default UID = %q, want the SHA-1 one %q", got, sha1UID)
+	}
+}

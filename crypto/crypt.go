@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/asn1"
 	"encoding/base64"
@@ -116,7 +117,44 @@ func IdentityFromString(s string) (*Identity, error) {
 	return &Identity{PrivateKey: priv, Offset: offset}, nil
 }
 
-func GetUidFromPublicKey(publicKey string) string {
+// UidAlgorithm names the hash a server uses for client_unique_identifier.
+//
+// TeamSpeak 3 hashes the canonical public key with SHA-1 (20 bytes); TeamSpeak
+// 6 switched to SHA-256 (32 bytes). The algorithm is not negotiable on the
+// wire, so a client that guesses wrong computes a UID that matches nothing the
+// server ever sends — self-identification by UID silently fails.
+type UidAlgorithm string
+
+const (
+	UidSha1   UidAlgorithm = "sha1"
+	UidSha256 UidAlgorithm = "sha256"
+)
+
+// UidAlgorithmForVersion picks the UID hash from a virtualserver_version string,
+// for example "6.0.0-beta13.1".
+func UidAlgorithmForVersion(version string) UidAlgorithm {
+	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
+	if err != nil || major < 6 {
+		return UidSha1
+	}
+
+	return UidSha256
+}
+
+// GetUidFromPublicKey returns the UID under the given algorithm, defaulting to
+// SHA-1 (TeamSpeak 3) when none is passed.
+func GetUidFromPublicKey(publicKey string, algorithms ...UidAlgorithm) string {
+	algorithm := UidSha1
+	if len(algorithms) > 0 {
+		algorithm = algorithms[0]
+	}
+
+	if algorithm == UidSha256 {
+		sum := sha256.Sum256([]byte(publicKey))
+
+		return base64.StdEncoding.EncodeToString(sum[:])
+	}
+
 	sum := sha1.Sum([]byte(publicKey))
 
 	return base64.StdEncoding.EncodeToString(sum[:])
