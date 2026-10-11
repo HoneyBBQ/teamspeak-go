@@ -18,8 +18,7 @@ import (
 )
 
 var (
-	errTeamSpeakCommand = errors.New("TeamSpeak server error")
-	errCommandTimed     = errors.New("command timeout")
+	errCommandTimed = errors.New("command timeout")
 )
 
 type commandResult struct {
@@ -225,7 +224,12 @@ func (c *Client) handleError(cmd *commands.Command) {
 
 	var err error
 	if id != "0" {
-		err = fmt.Errorf("%w: %s (id=%s)", errTeamSpeakCommand, msg, id)
+		// The id is carried as a typed field, not only formatted into the
+		// message: callers act on it — a reconnect policy has to tell a
+		// transient refusal from a permanent one, and a ban from a password
+		// rejection — and parsing it back out of an error string would be a
+		// guess.
+		err = &ServerError{ID: id, Message: msg}
 		c.logger.Error("server returned error", slog.String("id", id), slog.String("message", msg))
 
 		if id == "3329" {

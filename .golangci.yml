@@ -61,6 +61,14 @@ linters:
       - path: 'types\.go'
         linters: [govet]
         text: "fieldalignment"
+      - path: 'reconnect\.go'
+        linters: [govet]
+        text: "fieldalignment"
+      # The Client struct carries a dozen unrelated pieces of session state and
+      # is allocated once per connection, not per packet.
+      - path: 'client\.go'
+        linters: [govet]
+        text: "fieldalignment"
       - path: handshake/crypt_handshake.go
         linters: [gosec]
         text: "G115"

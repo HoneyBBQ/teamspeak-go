@@ -68,8 +68,15 @@ type Client struct {
 	capabilities ServerCapabilities
 	// packetConn, when set, replaces the UDP socket the transport would
 	// otherwise dial. It is the seam for proxies, tunnels and tests.
-	packetConn           net.PacketConn
-	clientInitOptions    clientInitOptions
+	packetConn        net.PacketConn
+	clientInitOptions clientInitOptions
+	reconnectOptions  ReconnectOptions
+	// reconnecting guards against competing retry loops after two failures in
+	// quick succession.
+	reconnecting bool
+	// stopped is set by an explicit Disconnect, which must never be undone by a
+	// retry.
+	stopped              bool
 	textMsgHandlers      []func(TextMessage)
 	cmdMiddlewares       []CommandMiddleware
 	eventMiddlewares     []EventMiddleware
@@ -138,6 +145,16 @@ func WithPacketConn(pc net.PacketConn) ClientOption {
 	}
 }
 
+// WithReconnect reconnects after a dropped connection.
+//
+// Off unless this is set. A deliberate Disconnect never reconnects, whatever
+// the policy says: retrying would keep a process alive that asked to stop.
+func WithReconnect(options ReconnectOptions) ClientOption {
+	return func(c *Client) {
+		c.reconnectOptions = options.withDefaults()
+	}
+}
+
 // WithResolver sets a custom address resolver used by Connect.
 func WithResolver(r AddrResolver) ClientOption {
 	return func(c *Client) {
@@ -181,6 +198,7 @@ func WithDefaultChannelPassword(password string) ClientOption {
 // Connect starts the UDP session and handshake to the server.
 func (c *Client) Connect() error {
 	c.mu.Lock()
+	c.stopped = false
 	if c.status != StatusDisconnected {
 		c.mu.Unlock()
 
@@ -225,6 +243,9 @@ func (c *Client) Connect() error {
 // Disconnect gracefully closes the connection.
 func (c *Client) Disconnect() error {
 	c.mu.Lock()
+	// Recorded before anything else: a dropped socket during the shutdown
+	// command below must not be mistaken for an outage worth retrying.
+	c.stopped = true
 	oldStatus := c.status
 	if oldStatus == StatusDisconnected {
 		c.mu.Unlock()
@@ -367,7 +388,126 @@ func (c *Client) handleConnectionClosed(err error) {
 	handlers := c.disconnectedHandlers
 	c.mu.Unlock()
 
+	// Announced first, then retried: a caller watching OnDisconnected should
+	// hear about the drop even when a reconnect is already on its way, because
+	// a silent recovery hides an outage.
 	for _, h := range handlers {
 		go h(err)
 	}
+
+	go c.scheduleReconnect(err)
+}
+
+// scheduleReconnect retries a dropped connection according to the policy.
+//
+// Never runs after an explicit Disconnect, and never more than one at a time:
+// two failures in quick succession would otherwise start competing loops, and a
+// loop shorter than the server's antiflood window bans the IP rather than
+// reconnecting it.
+func (c *Client) scheduleReconnect(connErr error) {
+	options, ok := c.beginReconnect()
+	if !ok {
+		return
+	}
+
+	defer c.endReconnect()
+
+	shouldRetry := options.ShouldRetry
+	if shouldRetry == nil {
+		shouldRetry = DefaultShouldRetry
+	}
+
+	for attempt := 1; options.Backoff.MaxAttempts == 0 || attempt <= options.Backoff.MaxAttempts; attempt++ {
+		if c.isStopped() {
+			return
+		}
+		if !shouldRetry(connErr, attempt) {
+			c.logger.Info("not retrying", slog.Int("attempt", attempt), slog.Any("error", connErr))
+
+			return
+		}
+
+		delay := BackoffDelay(options.Backoff, attempt, nil)
+		c.logger.Info("reconnecting", slog.Int("attempt", attempt), slog.Duration("delay", delay))
+
+		if !c.sleepWhileRunning(delay) {
+			return
+		}
+
+		retryErr := c.runConnect()
+		if retryErr == nil {
+			c.logger.Info("reconnected", slog.Int("attempt", attempt))
+
+			return
+		}
+
+		connErr = retryErr
+		if options.ShouldRetry == nil && !DefaultShouldRetry(retryErr, attempt) {
+			c.logger.Info("reconnect refused", slog.Int("attempt", attempt), slog.Any("error", retryErr))
+
+			return
+		}
+	}
+
+	c.logger.Warn("reconnect attempts exhausted", slog.Int("attempts", options.Backoff.MaxAttempts))
+}
+
+// runConnect connects and waits for the handshake, returning the failure of
+// whichever step did not complete.
+func (c *Client) runConnect() error {
+	connectErr := c.Connect()
+	if connectErr != nil {
+		return connectErr
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	return c.WaitConnected(ctx)
+}
+
+// beginReconnect claims the reconnect slot, reporting false when reconnection
+// is off, already running, or the client has been stopped deliberately.
+func (c *Client) beginReconnect() (ReconnectOptions, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.reconnectOptions.Enabled || c.reconnecting || c.stopped {
+		return ReconnectOptions{}, false
+	}
+	c.reconnecting = true
+
+	return c.reconnectOptions, true
+}
+
+// endReconnect releases the slot so a later drop can be retried.
+func (c *Client) endReconnect() {
+	c.mu.Lock()
+	c.reconnecting = false
+	c.mu.Unlock()
+}
+
+// isStopped reports whether an explicit Disconnect has happened.
+func (c *Client) isStopped() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.stopped
+}
+
+// sleepWhileRunning waits for d, returning false if the client was stopped
+// meanwhile so the retry loop can end promptly rather than finishing its delay.
+func (c *Client) sleepWhileRunning(d time.Duration) bool {
+	const step = 50 * time.Millisecond
+
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if c.isStopped() {
+			return false
+		}
+
+		time.Sleep(min(time.Until(deadline), step))
+	}
+
+	return !c.isStopped()
 }
