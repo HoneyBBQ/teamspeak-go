@@ -124,7 +124,7 @@ func TestIntegration_ClientMoveIntoPasswordProtectedChannel(t *testing.T) {
 	}
 
 	// A plain-text password is rejected with error 781; the digest is required.
-	hideErr := c.ClientMove(c.ClientID(), target, password)
+	hideErr := c.MoveClient(c.ClientID(), target, password)
 	if hideErr != nil {
 		t.Fatalf("ClientMove into %q with the channel password: %v", channel, hideErr)
 	}
@@ -132,7 +132,7 @@ func TestIntegration_ClientMoveIntoPasswordProtectedChannel(t *testing.T) {
 	// Cleanup runs in LIFO order at the end of this test, so the client is back
 	// in its original channel before the next test starts.
 	t.Cleanup(func() {
-		if moveErr := c.ClientMove(c.ClientID(), origin, ""); moveErr != nil {
+		if moveErr := c.MoveClient(c.ClientID(), origin, ""); moveErr != nil {
 			t.Errorf("moving back to channel %d: %v", origin, moveErr)
 		}
 	})

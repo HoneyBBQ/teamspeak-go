@@ -222,3 +222,53 @@ func firstOrEmpty(rows []map[string]string, key string) uint64 {
 
 	return fieldUint(rows[0], key)
 }
+
+// fieldUintList reads a comma-separated list of ids, as client_servergroups
+// arrives.
+func fieldUintList(row map[string]string, key string) []uint64 {
+	return parseUint64List(row[key])
+}
+
+// fieldUint16 reads a field the protocol defines as a 16-bit id, clamping rather
+// than wrapping if the server ever sends something wider.
+func fieldUint16(row map[string]string, key string) uint16 {
+	value := fieldUint(row, key)
+	if value > math.MaxUint16 {
+		return math.MaxUint16
+	}
+
+	return uint16(value)
+}
+
+// splitLines splits a multi-line field, tolerating both separators the server
+// uses.
+func splitLines(text string) []string {
+	normalized := strings.ReplaceAll(text, "\r\n", "\n")
+
+	return strings.Split(normalized, "\n")
+}
+
+// commandsBuild renders a command without going through the client, for the
+// fire-and-forget paths.
+func commandsBuild(command string, params []param) string {
+	return commands.BuildCommandOrdered(command, buildParams(params))
+}
+
+// parseUint64List reads a comma-separated list of ids. An unparseable entry is
+// skipped rather than failing the whole list.
+func parseUint64List(raw string) []uint64 {
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, ",")
+	out := make([]uint64, 0, len(parts))
+	for _, part := range parts {
+		value, err := strconv.ParseUint(strings.TrimSpace(part), 10, 64)
+		if err == nil {
+			out = append(out, value)
+		}
+	}
+
+	return out
+}

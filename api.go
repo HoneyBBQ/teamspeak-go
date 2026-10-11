@@ -3,56 +3,11 @@ package teamspeak
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strconv"
-	"strings"
-	"time"
 
-	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/crypto"
 )
 
-var (
-	errNoDataReturnedForClient = errors.New("no data returned for client")
-	errNoDataReturned          = errors.New("no data returned")
-)
-
-// SendTextMessage sends a text message to a client, channel or server.
-func (c *Client) SendTextMessage(targetMode int, targetID uint64, message string) error {
-	cmd := commands.BuildCommandOrdered("sendtextmessage", [][2]string{
-		{"targetmode", strconv.Itoa(targetMode)},
-		{"target", strconv.FormatUint(targetID, 10)},
-		{"msg", message},
-	})
-
-	return c.SendCommandNoWait(cmd)
-}
-
-// ClientMove moves a client to a different channel.
-func (c *Client) ClientMove(clid uint16, channelID uint64, password string) error {
-	params := [][2]string{
-		{"clid", strconv.Itoa(int(clid))},
-		{"cid", strconv.FormatUint(channelID, 10)},
-	}
-	if password != "" {
-		// Channel passwords travel as base64(sha1(password)), the same encoding
-		// clientinit uses; a plain password is rejected with error 781.
-		params = append(params, [2]string{"cpw", prepareClientPassword(password)})
-	}
-	cmd := commands.BuildCommandOrdered("clientmove", params)
-
-	return c.ExecCommand(cmd, 10*time.Second)
-}
-
-// Poke sends a poke message to a client.
-func (c *Client) Poke(clid uint16, message string) error {
-	cmd := commands.BuildCommandOrdered("clientpoke", [][2]string{
-		{"clid", strconv.Itoa(int(clid))},
-		{"msg", message},
-	})
-
-	return c.ExecCommand(cmd, 10*time.Second)
-}
+var errNoDataReturned = errors.New("no data returned")
 
 // SendVoice sends a raw Opus frame. Codec values: 4 = Opus voice, 5 = Opus music.
 func (c *Client) SendVoice(data []byte, codec byte) error {
@@ -102,67 +57,6 @@ func (c *Client) Status() ClientStatus {
 	defer c.mu.Unlock()
 
 	return c.status
-}
-
-// ChannelID returns the channel the client is currently in, or 0 if that is not
-// known yet, for example before the first notifycliententerview.
-func (c *Client) ChannelID() uint64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if info, ok := c.clients[c.clid]; ok {
-		return info.ChannelID
-	}
-
-	return 0
-}
-
-// GetClientInfo fetches detailed information about a client.
-func (c *Client) GetClientInfo(clid uint16) (map[string]string, error) {
-	cmd := fmt.Sprintf("clientinfo clid=%d", clid)
-	data, err := c.ExecCommandWithResponse(cmd, 5*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	if len(data) == 0 {
-		return nil, fmt.Errorf("%w: %d", errNoDataReturnedForClient, clid)
-	}
-
-	return data[0], nil
-}
-
-// ListClients returns a list of all clients currently connected to the server.
-func (c *Client) ListClients() ([]ClientInfo, error) {
-	data, err := c.ExecCommandWithResponse("clientlist -uid -away -voice -groups", 5*time.Second)
-	if err != nil {
-		return nil, err
-	}
-
-	clients := make([]ClientInfo, 0, len(data))
-	for _, item := range data {
-		clid, _ := parseUint16Value(item["clid"])
-		nick := item["client_nickname"]
-		cid, _ := parseUint64Value(item["cid"])
-		uid := item["client_unique_identifier"]
-		clientType, _ := strconv.Atoi(item["client_type"])
-		groupsStr := item["client_servergroups"]
-
-		groups := make([]string, 0)
-		if groupsStr != "" {
-			groups = strings.Split(groupsStr, ",")
-		}
-
-		clients = append(clients, ClientInfo{
-			ID:           clid,
-			Nickname:     commands.Unescape(nick),
-			ChannelID:    cid,
-			UID:          uid,
-			Type:         clientType,
-			ServerGroups: groups,
-		})
-	}
-
-	return clients, nil
 }
 
 // WaitConnected waits for the connection handshake to be completed.

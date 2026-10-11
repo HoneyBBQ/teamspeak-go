@@ -521,7 +521,7 @@ func TestIntegration_PokeSendAndReceive(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	err := sender.Poke(receiver.ClientID(), pokeMsg)
+	err := sender.PokeClient(receiver.ClientID(), pokeMsg)
 	if err != nil {
 		t.Fatalf("Poke: %v", err)
 	}
@@ -557,7 +557,7 @@ func TestIntegration_PokeEmptyMessage(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	err := sender.Poke(receiver.ClientID(), "")
+	err := sender.PokeClient(receiver.ClientID(), "")
 	if err != nil {
 		t.Fatalf("Poke (empty): %v", err)
 	}

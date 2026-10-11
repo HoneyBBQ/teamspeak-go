@@ -2,7 +2,6 @@ package teamspeak
 
 import (
 	"log/slog"
-	"strings"
 
 	"github.com/honeybbq/teamspeak-go/commands"
 )
@@ -43,11 +42,6 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 	ctid, _ := parseUint64Value(cmd.Params["ctid"])
 	clientType, _ := parseIntValue(cmd.Params["client_type"])
 
-	groups := make([]string, 0)
-	if groupsStr != "" {
-		groups = strings.Split(groupsStr, ",")
-	}
-
 	if clid != 0 {
 		info := ClientInfo{
 			ID:           clid,
@@ -55,7 +49,7 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 			UID:          uid,
 			ChannelID:    ctid,
 			Type:         clientType,
-			ServerGroups: groups,
+			ServerGroups: parseUint64List(groupsStr),
 		}
 
 		c.mu.Lock()
