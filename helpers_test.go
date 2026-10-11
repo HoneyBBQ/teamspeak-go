@@ -128,7 +128,7 @@ func TestIsAutoNicknameMatch_NoPrefixMatch(t *testing.T) {
 }
 
 func TestCommandTracker_RegisterAndResolve(t *testing.T) {
-	tr := newCommandTracker()
+	tr := newReadyCommandTracker()
 
 	rc, ch := tr.register()
 	if rc == 0 {
@@ -151,7 +151,7 @@ func TestCommandTracker_RegisterAndResolve(t *testing.T) {
 }
 
 func TestCommandTracker_CollectAndResolveWithData(t *testing.T) {
-	tr := newCommandTracker()
+	tr := newReadyCommandTracker()
 	rc, ch := tr.register()
 
 	tr.collect(map[string]string{"k": "v"})
@@ -164,7 +164,7 @@ func TestCommandTracker_CollectAndResolveWithData(t *testing.T) {
 }
 
 func TestCommandTracker_UnregisterPreventsFire(t *testing.T) {
-	tr := newCommandTracker()
+	tr := newReadyCommandTracker()
 	rc, ch := tr.register()
 	tr.unregister(rc)
 	// Resolving after unregister should be a no-op.
@@ -178,7 +178,7 @@ func TestCommandTracker_UnregisterPreventsFire(t *testing.T) {
 }
 
 func TestCommandTracker_Reset(t *testing.T) {
-	tr := newCommandTracker()
+	tr := newReadyCommandTracker()
 	_, _ = tr.register()
 	_, _ = tr.register()
 	tr.reset()
@@ -189,7 +189,7 @@ func TestCommandTracker_Reset(t *testing.T) {
 }
 
 func TestCommandTracker_RCMonotoneIncreasing(t *testing.T) {
-	tr := newCommandTracker()
+	tr := newReadyCommandTracker()
 	rc1, _ := tr.register()
 	rc2, _ := tr.register()
 	if rc2 <= rc1 {

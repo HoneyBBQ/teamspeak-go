@@ -58,6 +58,10 @@ func newTestClient(t *testing.T) *Client {
 		t.Fatalf("IdentityFromString: %v", err)
 	}
 	c := NewClient(id, "127.0.0.1:9987", "TestBot")
+	// Command responses are only collected once the welcome sequence has
+	// finished; these tests never run a handshake, so mark it complete rather
+	// than making every one of them replay a channellistfinished first.
+	c.cmdTrack.signalWelcomeComplete()
 	tc := newTestConn()
 	startErr := c.handler.Start(tc)
 	if startErr != nil {

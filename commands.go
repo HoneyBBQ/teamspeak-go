@@ -33,6 +33,10 @@ type commandTracker struct {
 	collecting map[uint32][]map[string]string
 	mu         sync.Mutex
 	nextRC     uint32
+	// welcomeComplete is set by channellistfinished, which ends the server's
+	// unprompted welcome sequence. It is NOT set by our own
+	// notifycliententerview: the server sends more welcome data after that.
+	welcomeComplete bool
 }
 
 func newCommandTracker() *commandTracker {
@@ -40,6 +44,15 @@ func newCommandTracker() *commandTracker {
 		pending:    make(map[uint32]chan commandResult),
 		collecting: make(map[uint32][]map[string]string),
 	}
+}
+
+// newReadyCommandTracker returns a tracker past the welcome sequence, for tests
+// that exercise collection without a handshake.
+func newReadyCommandTracker() *commandTracker {
+	t := newCommandTracker()
+	t.welcomeComplete = true
+
+	return t
 }
 
 func (t *commandTracker) register() (uint32, <-chan commandResult) {
@@ -59,9 +72,20 @@ func (t *commandTracker) unregister(rc uint32) {
 }
 
 // collect appends a parameter row to the pending command with the largest return_code.
+//
+// Rows arriving before the welcome sequence ends are dropped: the server sends
+// its own channellist, channelgrouplist and so on unprompted, and without this
+// they land in the first command's response. That is how a client that asks for
+// channellist immediately after connecting used to get duplicate rows and a
+// phantom cid=0.
 func (t *commandTracker) collect(params map[string]string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	if !t.welcomeComplete {
+		return
+	}
+
 	var maxRC uint32
 	for rc := range t.pending {
 		if rc > maxRC {
@@ -83,10 +107,20 @@ func (t *commandTracker) resolve(rc uint32, err error) {
 	}
 }
 
+// signalWelcomeComplete marks the end of the server's welcome sequence and
+// discards whatever was buffered while it was still arriving.
+func (t *commandTracker) signalWelcomeComplete() {
+	t.mu.Lock()
+	t.welcomeComplete = true
+	t.collecting = make(map[uint32][]map[string]string)
+	t.mu.Unlock()
+}
+
 func (t *commandTracker) reset() {
 	t.mu.Lock()
 	t.pending = make(map[uint32]chan commandResult)
 	t.collecting = make(map[uint32][]map[string]string)
+	t.welcomeComplete = false
 	t.mu.Unlock()
 }
 
@@ -150,6 +184,14 @@ func (c *Client) handleCommand(s string) {
 		if len(cmd.Params) > 0 {
 			c.cmdTrack.collect(cmd.Params)
 		}
+
+		return
+	}
+
+	// channellistfinished ends the server's unprompted welcome sequence. It
+	// carries no data of its own, so it is the only reliable marker.
+	if cmd.Name == "channellistfinished" {
+		c.cmdTrack.signalWelcomeComplete()
 
 		return
 	}
