@@ -27,6 +27,10 @@ Compatible with TeamSpeak 3, 5 & 6. No proprietary SDK. No copy-pasted code.
 - **Middleware** — Pluggable command and event middleware chains
 - **Built-in rate limiter** — Token-bucket throttling to prevent server-side flood kicks
 - **Identity management** — Generate, import/export, and upgrade security level of identities
+- **Full command set** — 107 typed methods covering every command the voice protocol answers
+- **Reconnection** — Opt-in retry with backoff, tuned for TeamSpeak's antiflood ban
+- **Server capabilities** — Reports the server version and the uid hash it uses (SHA-1 on TS3, SHA-256 on TS6)
+- **Custom transports** — Supply your own net.PacketConn and file transfer dialer
 - **Zero CGO** — Pure Go, cross-compile anywhere
 
 ## Installation
@@ -115,6 +119,10 @@ func main() {
 | `Connect()` | Initiate connection to the server |
 | `WaitConnected(ctx)` | Block until the handshake completes |
 | `Disconnect()` | Gracefully disconnect |
+| `ClientID()` | Our clid, assigned by the server |
+| `ChannelID()` | The channel we are in |
+| `ServerCapabilities()` | Server version, family and uid hash |
+| `UniqueIdentifier()` | Our own uid, hashed as the server does |
 
 ### Events
 
@@ -130,28 +138,57 @@ func main() {
 
 ### Commands
 
-| Method | Description |
-|---|---|
-| `SendTextMessage(targetMode, targetID, msg)` | Send a text message |
-| `ClientMove(clid, channelID, password)` | Move a client to a channel |
-| `Poke(clid, message)` | Poke a client |
-| `SendVoice(data, codec)` | Send Opus voice data |
-| `SendWhisper(data, clientIDs, codec)` | Send Opus voice to selected clients |
-| `ListChannels()` | List all channels, including sibling ordering in `ChannelInfo.Order` |
-| `ListClients()` | List all connected clients |
-| `GetClientInfo(clid)` | Get detailed client information |
-| `ExecCommand(cmd, timeout)` | Execute a raw command |
-| `ExecCommandWithResponse(cmd, timeout)` | Execute a command and return response data |
+Every command the voice protocol answers is a typed method, grouped by area in
+`api_*.go`. Each takes an options struct, and a nil pointer field omits the
+parameter entirely — which the protocol distinguishes from an empty value:
+clearing a password takes `channel_password=`, leaving it alone sends nothing.
+
+```go
+channels, err := c.ListChannels()
+
+cid, err := c.CreateChannel(teamspeak.ChannelCreateOptions{
+	ChannelName:          "Lounge",
+	ChannelTopic:         teamspeak.String("the quiet one"),
+	ChannelFlagPermanent: teamspeak.BoolOf(true),
+})
+
+err = c.MoveClient(c.ClientID(), cid, "channel-password")
+err = c.SendTextMessage(teamspeak.TextMessageTargetChannel, cid, "hello")
+```
+
+| File            | Covers                                                          |
+| --------------- | --------------------------------------------------------------- |
+| `api_channels.go`  | Create, edit, move, delete, subscribe, channel permissions    |
+| `api_clients.go`   | List, move, kick, poke, edit, the client database, permissions |
+| `api_server.go`    | Server and instance settings, groups, temp passwords, bindings |
+| `api_groups.go`    | Channel groups, the permission catalogue, tokens               |
+| `api_moderation.go`| Bans, complaints, offline messages, text messages, the log     |
+| `api_files.go`     | List, delete, rename, create directories, transfer negotiation |
+
+> **The voice protocol answers `ok` with no data row for a set of commands that
+> ServerQuery answers normally** — `servergrouplist`, `permissionlist`, the
+> group permission lists, several client lookups, and the file transfer
+> negotiation. Verified with Server Admin, so this is server behaviour rather
+> than permissions. An empty slice does not mean "nothing there"; see
+> [voice-protocol-empty-responses.md](https://github.com/honeybbq/teamspeak-js/blob/main/docs/voice-protocol-empty-responses.md).
+
+For anything outside the typed set, `ExecCommand` and `ExecCommandWithResponse`
+take a raw command.
 
 ### File Transfers
 
 | Method | Description |
 |---|---|
-| `FileTransferInitUpload(...)` | Initialize a file upload |
-| `FileTransferInitDownload(...)` | Initialize a file download |
-| `FileTransferDeleteFile(...)` | Delete files on the server |
-| `UploadFileData(host, info, reader)` | Transfer file data to the server |
-| `DownloadFileData(host, info, writer)` | Receive file data from the server |
+| `ListFiles(cid, path, pw)` | Directory listing |
+| `GetFileInfo(cid, path, pw)` | Size and timestamp of one file |
+| `DeleteFile(cid, paths, pw)` | Delete one or more files |
+| `CreateDirectory(cid, dir, pw)` | Create a directory |
+| `RenameFile(cid, old, new, opts)` | Rename or move a file |
+| `StopFileTransfer(id, delete)` | Cancel a running transfer |
+| `ListActiveTransfers()` | Transfers in progress |
+| `InitFileUpload(...)` / `InitFileDownload(...)` | Negotiate a transfer (see the note above: empty over the voice protocol) |
+| `UploadFileData(host, info, reader, dialer)` | Transfer file data to the server |
+| `DownloadFileData(host, info, writer, dialer)` | Receive file data from the server |
 
 ### Identity
 
