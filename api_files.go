@@ -198,6 +198,12 @@ type FileDownloadInit struct {
 }
 
 // InitFileUpload negotiates an upload and returns the key and port to dial.
+//
+// Unusable over the voice protocol. ftinitupload answers ok with no rows, so
+// there is no key to dial — verified with Server Admin on the same identity,
+// and the same command returns ftkey=... over ServerQuery. This is the
+// empty-response behaviour documented in the JS repository's
+// docs/voice-protocol-empty-responses.md, not a permission problem.
 func (c *Client) InitFileUpload(
 	channelID uint64, path string, size uint64, password string, overwrite bool,
 ) (FileUploadInit, error) {
@@ -207,6 +213,9 @@ func (c *Client) InitFileUpload(
 		Uint("size", size),
 		Bool("overwrite", overwrite),
 		Bool("resume", false),
+		// proto is required: omitting it fails the whole call with 1539
+		// (parameter not found) rather than defaulting.
+		Uint("proto", 0),
 		Uint("clientftfid", 0),
 		Str("cpw", password),
 	}, PlainPassword("cpw"))
@@ -229,6 +238,8 @@ func (c *Client) InitFileUpload(
 }
 
 // InitFileDownload negotiates a download and returns the key and port to dial.
+//
+// Unusable over the voice protocol, for the same reason as InitFileUpload.
 func (c *Client) InitFileDownload(
 	channelID uint64, path, password string, seekPosition uint64,
 ) (FileDownloadInit, error) {
@@ -236,6 +247,7 @@ func (c *Client) InitFileDownload(
 		Uint("cid", channelID),
 		Str("name", asPath(path)),
 		Uint("seekpos", seekPosition),
+		Uint("proto", 0),
 		Uint("clientftfid", 0),
 		Str("cpw", password),
 	}, PlainPassword("cpw"))
