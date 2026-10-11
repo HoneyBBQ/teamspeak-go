@@ -344,3 +344,108 @@ func (c *Client) MoveClient(clid uint16, channelID uint64, password string) erro
 
 	return c.exec("clientmove", params, PlainPassword("cpw"))
 }
+
+// ---- Client lookups that the voice protocol answers empty ------------------
+//
+// The five commands below are documented and answer ok, but send no data row
+// over the voice protocol — with or without Server Admin rights. The same
+// commands return their rows over ServerQuery. They exist here because the
+// commands do, and they are honest about returning nothing rather than being
+// omitted: a caller porting from ServerQuery should be able to find them and
+// read why they come back empty.
+//
+// See docs/voice-protocol-empty-responses.md in the JS repository. Use
+// ListClients or GetClientInfo to read a uid.
+
+// GetClientDBIDByUID returns the persistent database id behind a uid.
+//
+// Answers empty over the voice protocol.
+func (c *Client) GetClientDBIDByUID(uid string) (uint64, error) {
+	rows, err := c.query("clientgetdbidfromuid", []param{Str("cluid", uid)})
+	if err != nil {
+		return 0, err
+	}
+
+	return firstOrEmpty(rows, "cldbid"), nil
+}
+
+// GetClientIDs returns every clid currently using a uid.
+//
+// Answers empty over the voice protocol.
+func (c *Client) GetClientIDs(uid string) ([]uint16, error) {
+	rows, err := c.query("clientgetids", []param{Str("cluid", uid)})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]uint16, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, fieldUint16(row, "clid"))
+	}
+
+	return out, nil
+}
+
+// GetClientUIDByID returns the uid of a connected client.
+//
+// Answers empty over the voice protocol.
+func (c *Client) GetClientUIDByID(clid uint16) (string, error) {
+	rows, err := c.query("clientgetuidfromclid", []param{Uint("clid", uint64(clid))})
+	if err != nil {
+		return "", err
+	}
+
+	if len(rows) == 0 {
+		return "", nil
+	}
+
+	return fieldStr(rows[0], "cluid"), nil
+}
+
+// GetClientNameByDBID returns the nickname recorded for a database id.
+//
+// Answers empty over the voice protocol.
+func (c *Client) GetClientNameByDBID(clientDBID uint64) (string, error) {
+	rows, err := c.query("clientgetnamefromdbid", []param{Uint("cldbid", clientDBID)})
+	if err != nil {
+		return "", err
+	}
+
+	if len(rows) == 0 {
+		return "", nil
+	}
+
+	return fieldStr(rows[0], "name"), nil
+}
+
+// GetClientNameByUID returns the database id and nickname recorded for a uid.
+//
+// Answers empty over the voice protocol.
+func (c *Client) GetClientNameByUID(uid string) (uint64, string, error) {
+	rows, err := c.query("clientgetnamefromuid", []param{Str("cluid", uid)})
+	if err != nil {
+		return 0, "", err
+	}
+
+	if len(rows) == 0 {
+		return 0, "", nil
+	}
+
+	return fieldUint(rows[0], "cldbid"), fieldStr(rows[0], "name"), nil
+}
+
+// ListClientPermissions returns the permissions granted to a client from the
+// database.
+func (c *Client) ListClientPermissions(clientDBID uint64) ([]PermissionEntry, error) {
+	rows, err := c.query("clientpermlist", []param{Uint("cldbid", clientDBID)})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]PermissionEntry, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, parsePermission(row))
+	}
+
+	return out, nil
+}

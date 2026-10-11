@@ -72,13 +72,13 @@ func (c *Client) GetServerInfo() (map[string]string, error) {
 	return rows[0], nil
 }
 
-// EditServerSettings changes the virtual server's settings.
+// EditServer changes the virtual server's settings.
 //
 // Settings are passed through as given — virtualserver_name, virtualserver_
 // maxclients and so on — rather than enumerated: there are well over a hundred,
 // they are version-dependent, and a value read out of GetServerInfo should be
 // writable straight back.
-func (c *Client) EditServerSettings(settings map[string]string) error {
+func (c *Client) EditServer(settings map[string]string) error {
 	return c.exec("serveredit", stringParams(settings))
 }
 
@@ -92,8 +92,8 @@ func (c *Client) GetInstanceInfo() (map[string]string, error) {
 	return c.firstRow("instanceinfo")
 }
 
-// EditInstanceSettings changes the server instance's settings.
-func (c *Client) EditInstanceSettings(settings map[string]string) error {
+// EditInstance changes the server instance's settings.
+func (c *Client) EditInstance(settings map[string]string) error {
 	return c.exec("instanceedit", stringParams(settings))
 }
 

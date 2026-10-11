@@ -272,3 +272,13 @@ func parseUint64List(raw string) []uint64 {
 
 	return out
 }
+
+// joinPipe joins values into the pipe-separated parameter the server expects for
+// multi-file operations.
+//
+// The separator is deliberately left unescaped here: buildParams escapes the
+// value as a whole, turning each pipe into \p so it cannot be read as a second
+// parameter.
+func joinPipe(values []string) string {
+	return strings.Join(values, "|")
+}

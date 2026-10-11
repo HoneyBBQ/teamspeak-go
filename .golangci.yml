@@ -48,6 +48,19 @@ linters:
       - path: handshake/license.go
         linters: [govet]
         text: "fieldalignment"
+      # The command options structs are parameter bags, built once per call and
+      # never in a hot path. Reordering their fields to save a few bytes of
+      # padding would cost readability for no measurable gain, and the field
+      # order mirrors the server's own documentation.
+      - path: 'api_.*\.go'
+        linters: [govet]
+        text: "fieldalignment"
+      - path: 'command_params\.go'
+        linters: [govet]
+        text: "fieldalignment"
+      - path: 'types\.go'
+        linters: [govet]
+        text: "fieldalignment"
       - path: handshake/crypt_handshake.go
         linters: [gosec]
         text: "G115"

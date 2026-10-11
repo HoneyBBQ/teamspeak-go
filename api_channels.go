@@ -351,3 +351,27 @@ func (c *Client) DeleteChannelClientPermission(cid, clientDBID uint64, permID *u
 		StrPtr("permsid", permSID),
 	})
 }
+
+// ChannelMatch is one row of a channelfind result.
+type ChannelMatch struct {
+	Name string
+	ID   uint64
+}
+
+// FindChannels returns channels whose name contains pattern.
+func (c *Client) FindChannels(pattern string) ([]ChannelMatch, error) {
+	rows, err := c.query("channelfind", []param{Str("pattern", pattern)})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]ChannelMatch, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ChannelMatch{
+			ID:   fieldUint(row, "cid"),
+			Name: fieldStr(row, "channel_name"),
+		})
+	}
+
+	return out, nil
+}
