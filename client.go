@@ -63,7 +63,10 @@ type Client struct {
 	// uidAlgorithm is the hash the connected server uses for
 	// client_unique_identifier, learned from virtualserver_version during
 	// initserver: SHA-1 on TS3, SHA-256 on TS6.
-	uidAlgorithm         crypto.UidAlgorithm
+	uidAlgorithm crypto.UidAlgorithm
+	// packetConn, when set, replaces the UDP socket the transport would
+	// otherwise dial. It is the seam for proxies, tunnels and tests.
+	packetConn           net.PacketConn
 	clientInitOptions    clientInitOptions
 	textMsgHandlers      []func(TextMessage)
 	cmdMiddlewares       []CommandMiddleware
@@ -119,6 +122,17 @@ func WithLogger(logger *slog.Logger) ClientOption {
 		if logger != nil {
 			c.logger = logger
 		}
+	}
+}
+
+// WithPacketConn dials no socket and instead runs the session over pc.
+//
+// The transport is otherwise closed: this is the only way to route traffic
+// through a proxy or tunnel, or to drive the client from something that is not
+// a real socket. pc must deliver whole datagrams, one per Read.
+func WithPacketConn(pc net.PacketConn) ClientOption {
+	return func(c *Client) {
+		c.packetConn = pc
 	}
 }
 
@@ -179,7 +193,24 @@ func (c *Client) Connect() error {
 	targetAddr, source := c.resolveConnectTarget(finalAddr)
 	c.logger.Info("connecting to server", slog.String("address", targetAddr), slog.String("source", source))
 
-	err := c.handler.Connect(targetAddr)
+	c.mu.Lock()
+	packetConn := c.packetConn
+	c.mu.Unlock()
+
+	var err error
+	if packetConn != nil {
+		// The adapter needs the peer address to send to; resolve it the same way
+		// the dialling path would, without opening a socket.
+		remote, resolveErr := net.ResolveUDPAddr("udp", targetAddr)
+		if resolveErr != nil {
+			c.failConnection(resolveErr)
+
+			return resolveErr
+		}
+		err = c.handler.Start(transport.NewPacketConnAdapter(packetConn, remote))
+	} else {
+		err = c.handler.Connect(targetAddr)
+	}
 	if err != nil {
 		// Without this the client stays in StatusConnecting and every later
 		// Connect fails with errAlreadyConnectingOrConnected.
