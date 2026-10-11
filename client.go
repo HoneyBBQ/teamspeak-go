@@ -64,6 +64,8 @@ type Client struct {
 	// client_unique_identifier, learned from virtualserver_version during
 	// initserver: SHA-1 on TS3, SHA-256 on TS6.
 	uidAlgorithm crypto.UidAlgorithm
+	// capabilities is what the server reported about itself in initserver.
+	capabilities ServerCapabilities
 	// packetConn, when set, replaces the UDP socket the transport would
 	// otherwise dial. It is the seam for proxies, tunnels and tests.
 	packetConn           net.PacketConn
@@ -268,6 +270,8 @@ func (c *Client) resetForConnectLocked() string {
 	c.clid = 0
 	// Reset to the TS3 default; initserver sets it from the server's version.
 	c.uidAlgorithm = crypto.UidSha1
+
+	c.capabilities = unknownServerCapabilities()
 
 	// Fallback used only if resolution fails. A colon check would misread any
 	// IPv6 literal as already carrying a port.

@@ -62,6 +62,16 @@ func (c *Client) SendWhisper(data []byte, targetClientIDs []uint16, codec byte) 
 	return c.handler.SendWhisperPacket(data, targetClientIDs, codec)
 }
 
+// ServerCapabilities reports what the connected server is: version, generation,
+// and the uid hash it uses. Populated from initserver; before connecting the
+// family reads as unknown.
+func (c *Client) ServerCapabilities() ServerCapabilities {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.capabilities
+}
+
 // UniqueIdentifier returns our own client_unique_identifier, hashed with the
 // algorithm the connected server uses.
 //

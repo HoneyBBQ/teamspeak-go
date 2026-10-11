@@ -222,3 +222,27 @@ func TestIntegration_ReportsHandshakeFailureAndDisconnects(t *testing.T) {
 		t.Error("disconnected handler was not called after the handshake failed")
 	}
 }
+
+// Capabilities come from initserver, so they must be populated as soon as the
+// handshake completes — and the reported uid hash has to be the one the server
+// actually applies, not just a claim about it.
+func TestIntegration_ServerCapabilities(t *testing.T) {
+	c := requireSharedClient(t)
+
+	caps := c.ServerCapabilities()
+	t.Logf("capabilities: version=%q family=%q uid=%q", caps.Version, caps.Family, caps.UIDAlgorithm)
+
+	if caps.Version == "" {
+		t.Error("expected a version string from initserver")
+	}
+	if caps.Family != teamspeak.ServerFamilyTS3 && caps.Family != teamspeak.ServerFamilyTS6 {
+		t.Errorf("Family = %q, want ts3 or ts6", caps.Family)
+	}
+	want := crypto.UidSha1
+	if caps.Family == teamspeak.ServerFamilyTS6 {
+		want = crypto.UidSha256
+	}
+	if caps.UIDAlgorithm != want {
+		t.Errorf("UIDAlgorithm = %q, want %q for family %q", caps.UIDAlgorithm, want, caps.Family)
+	}
+}

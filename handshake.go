@@ -123,9 +123,11 @@ func (c *Client) handleInitServer(cmd *commands.Command) {
 
 	// initserver is the only place the server names itself, and it determines
 	// how the server hashes our public key into client_unique_identifier:
-	// SHA-1 on TS3, SHA-256 on TS6.
+	// SHA-1 on TS3, SHA-256 on TS6. Record the whole capability set so callers
+	// do not have to re-derive it, or assume one server generation.
 	if version := cmd.Params["virtualserver_version"]; version != "" {
-		c.uidAlgorithm = crypto.UidAlgorithmForVersion(version)
+		c.capabilities = ParseServerCapabilities(version)
+		c.uidAlgorithm = c.capabilities.UIDAlgorithm
 	}
 
 	handlers := c.connectedHandlers
