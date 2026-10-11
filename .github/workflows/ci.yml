@@ -45,17 +45,41 @@ jobs:
           files: ./coverage.txt
           fail_ci_if_error: false
 
+  # Both supported server generations, because they differ in ways that only
+  # show up live: TS6 hashes client uids with SHA-256 where TS3 uses SHA-1.
   integration:
-    name: Integration (TS3)
+    name: Integration (${{ matrix.server.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        server:
+          - name: TS3
+            image: teamspeak:latest
+            # TS3 still serves raw ServerQuery on 10011.
+            query_host: 127.0.0.1
+            query_http: ""
+            query_port: 10011
+            api_key_env: TS3SERVER_LICENSE
+          - name: TS6
+            image: teamspeaksystems/teamspeak6-server:latest
+            # TS6 dropped raw ServerQuery for HTTP, so the fixture talks
+            # WebQuery here — the same commands over a different transport.
+            query_host: ""
+            query_http: 127.0.0.1:10080
+            query_port: 10080
+            api_key_env: TSSERVER_LICENSE_ACCEPTED
     services:
       teamspeak:
-        image: teamspeak:latest
+        image: ${{ matrix.server.image }}
         env:
           TS3SERVER_LICENSE: accept
+          TSSERVER_LICENSE_ACCEPTED: accept
+          TSSERVER_QUERY_HTTP_ENABLED: "1"
         ports:
           - 9987:9987/udp
           - 10011:10011
+          - 10080:10080
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -63,11 +87,20 @@ jobs:
           go-version: "1.26"
           cache: true
       - name: Wait for server to be ready
-        run: sleep 10
+        run: sleep 15
+      # The suite needs channels, permissions and relaxed antiflood. Skipping
+      # this is how the tests pass while testing nothing: they skip on
+      # permissions instead of failing, which hid a row-parsing bug for months.
+      - name: Provision the fixture
+        run: |
+          sudo apt-get install -y netcat-openbsd >/dev/null
+          TS3_QUERY_HOST='${{ matrix.server.query_host }}' \
+          TS3_QUERY_HTTP='${{ matrix.server.query_http }}' \
+          TS3_QUERY_PORT='${{ matrix.server.query_port }}' \
+          ./scripts/ts3-fixture.sh
       - name: Run integration tests
-        env:
-          TEAMSPEAK_ADDR: 127.0.0.1:9987
-          TEAMSPEAK_SERVER_PASSWORD: ${{ secrets.TEAMSPEAK_SERVER_PASSWORD }}
-          TEAMSPEAK_DEFAULT_CHANNEL: ${{ secrets.TEAMSPEAK_DEFAULT_CHANNEL }}
-          TEAMSPEAK_DEFAULT_CHANNEL_PASSWORD: ${{ secrets.TEAMSPEAK_DEFAULT_CHANNEL_PASSWORD }}
-        run: go test -v -tags integration -timeout 120s ./...
+        run: |
+          set -a
+          . ./ts3-fixture.env
+          set +a
+          go test -v -tags integration -timeout 300s ./...
