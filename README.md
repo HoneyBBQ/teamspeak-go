@@ -4,11 +4,12 @@
 
 **A clean-room TeamSpeak client protocol library written in pure Go.**
 
-Compatible with TeamSpeak 3, 5 & 6. No proprietary SDK. No copy-pasted code.
+Works with TeamSpeak 3 and TeamSpeak 6 servers. No proprietary SDK, no copied code.
 
 [![CI](https://github.com/honeybbq/teamspeak-go/actions/workflows/ci.yml/badge.svg)](https://github.com/honeybbq/teamspeak-go/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/honeybbq/teamspeak-go/branch/main/graph/badge.svg)](https://codecov.io/gh/honeybbq/teamspeak-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/honeybbq/teamspeak-go)](https://goreportcard.com/report/github.com/honeybbq/teamspeak-go)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/HoneyBBQ/teamspeak-go/badge)](https://scorecard.dev/viewer/?uri=github.com/HoneyBBQ/teamspeak-go)
+[![Release](https://img.shields.io/github/v/release/honeybbq/teamspeak-go?include_prereleases&sort=semver)](https://github.com/honeybbq/teamspeak-go/releases)
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/honeybbq/teamspeak-go.svg)](https://pkg.go.dev/github.com/honeybbq/teamspeak-go)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/honeybbq/teamspeak-go)](go.mod)
@@ -36,14 +37,17 @@ Compatible with TeamSpeak 3, 5 & 6. No proprietary SDK. No copy-pasted code.
 
 ## Installation
 
+1.0 is in beta. `go get` on its own still picks v0.2, because Go skips
+pre-releases unless you ask for one, so name the version:
+
 ```bash
-go get github.com/honeybbq/teamspeak-go
+go get github.com/honeybbq/teamspeak-go@v1.0.0-beta.1
 ```
 
-Requires **Go 1.26** or later.
+Everything in this README is the 1.0 API. You need Go 1.26 or newer.
 
-Upgrading from v0.x? Every signature changed for 1.0; [CHANGELOG.md](CHANGELOG.md)
-lists what changed and how to migrate.
+Coming from v0.x? Almost every signature changed. [CHANGELOG.md](CHANGELOG.md)
+has the full list and a migration table.
 
 ## Quick Start
 
