@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -95,7 +96,7 @@ func TestEvents_ArriveInOrder(t *testing.T) {
 	c := newTestClient(t)
 	var mu sync.Mutex
 	var got []teamspeak.ClientID
-	c.OnClientEnter(func(info teamspeak.ClientInfo) {
+	c.OnClientEnter(func(info ClientEnterEvent) {
 		mu.Lock()
 		got = append(got, info.ID)
 		mu.Unlock()
@@ -104,7 +105,7 @@ func TestEvents_ArriveInOrder(t *testing.T) {
 	want := make([]teamspeak.ClientID, 0, 200)
 	for i := range teamspeak.ClientID(200) {
 		want = append(want, i)
-		c.emitEvent(teamspeak.ClientInfo{ID: i})
+		c.emitEvent(ClientEnterEvent{ClientInfo: teamspeak.ClientInfo{ID: i}})
 	}
 	settle(t, c)
 
@@ -265,9 +266,9 @@ func TestCommandMiddleware_CanShortCircuit(t *testing.T) {
 }
 
 func TestEventMiddleware_InterceptsEvents(t *testing.T) {
-	intercepted := make(chan any, 1)
-	c := newTestClient(t, WithEventMiddleware(func(next func(any)) func(any) {
-		return func(evt any) {
+	intercepted := make(chan Event, 1)
+	c := newTestClient(t, WithEventMiddleware(func(next func(Event)) func(Event) {
+		return func(evt Event) {
 			intercepted <- evt
 			next(evt)
 		}
@@ -281,8 +282,8 @@ func TestEventMiddleware_InterceptsEvents(t *testing.T) {
 }
 
 func TestEventMiddleware_CanFilter(t *testing.T) {
-	c := newTestClient(t, WithEventMiddleware(func(next func(any)) func(any) {
-		return func(evt any) {
+	c := newTestClient(t, WithEventMiddleware(func(next func(Event)) func(Event) {
+		return func(evt Event) {
 			if _, ok := evt.(TextMessage); ok {
 				return // drop
 			}
@@ -302,8 +303,193 @@ func TestEventMiddleware_CanFilter(t *testing.T) {
 	}
 }
 
-func TestEmitEvent_UnknownType_NoPanic(t *testing.T) {
-	c := newTestClient(t)
-	c.emitEvent(struct{ X int }{X: 42})
+func TestEventMiddleware_CanReplace(t *testing.T) {
+	c := newTestClient(t, WithEventMiddleware(func(next func(Event)) func(Event) {
+		return func(evt Event) {
+			if m, ok := evt.(TextMessage); ok {
+				m.Message = strings.ToUpper(m.Message)
+				evt = m
+			}
+			next(evt)
+		}
+	}))
+	reached := make(chan TextMessage, 1)
+	c.OnTextMessage(func(m TextMessage) { reached <- m })
+
+	c.emitEvent(TextMessage{Message: "quiet"})
+
+	if m := receive(t, reached); m.Message != "QUIET" {
+		t.Errorf("handler got %q, want the middleware's replacement", m.Message)
+	}
+}
+
+// Middleware runs outermost first, and each sees what the one before passed.
+func TestEventMiddleware_RunsInOrder(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+	tag := func(name string) EventMiddleware {
+		return func(next func(Event)) func(Event) {
+			return func(evt Event) {
+				mu.Lock()
+				order = append(order, name)
+				mu.Unlock()
+				next(evt)
+			}
+		}
+	}
+	c := newTestClient(t, WithEventMiddleware(tag("outer"), tag("inner")))
+
+	c.emitEvent(PokeEvent{})
 	settle(t, c)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(order, []string{"outer", "inner"}) {
+		t.Errorf("middleware ran %v, want [outer inner]", order)
+	}
+}
+
+// Lifecycle events report the connection itself; a middleware that dropped one
+// would leave the application wrong about its own state.
+func TestEventMiddleware_DoesNotSeeLifecycleEvents(t *testing.T) {
+	seen := make(chan Event, 4)
+	c := newTestClient(t, WithEventMiddleware(func(next func(Event)) func(Event) {
+		return func(evt Event) {
+			seen <- evt
+			next(evt)
+		}
+	}))
+	connected := make(chan struct{}, 1)
+	c.OnConnected(func() { connected <- struct{}{} })
+
+	emit(c, &c.onConnected, struct{}{})
+	receive(t, connected)
+
+	select {
+	case evt := <-seen:
+		t.Errorf("middleware saw %T", evt)
+	default:
+	}
+}
+
+// Every notification reaches OnNotification as it arrived, after the typed
+// event it produced.
+func TestOnNotification_FollowsTheTypedEvent(t *testing.T) {
+	c := newTestClient(t)
+	var mu sync.Mutex
+	var order []string
+	c.OnTextMessage(func(TextMessage) {
+		mu.Lock()
+		order = append(order, "typed")
+		mu.Unlock()
+	})
+	raw := make(chan RawNotification, 2)
+	c.OnNotification(func(n RawNotification) {
+		mu.Lock()
+		order = append(order, "raw")
+		mu.Unlock()
+		raw <- n
+	})
+
+	c.handleCommandLines(`notifytextmessage targetmode=3 msg=hello\sthere invokerid=7`)
+	c.handleCommandLines("notifysomethingnew a=1")
+
+	first := receive(t, raw)
+	if first.Name != "notifytextmessage" || first.Params["msg"] != "hello there" {
+		t.Errorf("raw = %+v, want the text message, unescaped", first)
+	}
+	if second := receive(t, raw); second.Name != "notifysomethingnew" || second.Params["a"] != "1" {
+		t.Errorf("raw = %+v, want the unmodelled notification", second)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(order, []string{"typed", "raw", "raw"}) {
+		t.Errorf("delivered %v, want the typed event first", order)
+	}
+}
+
+// A batched notification is one RawNotification per row.
+func TestOnNotification_SplitsRows(t *testing.T) {
+	c := newTestClient(t)
+	raw := make(chan RawNotification, 2)
+	c.OnNotification(func(n RawNotification) { raw <- n })
+
+	c.handleCommandLines("notifychanneledited cid=1 reasonid=10|cid=2")
+
+	if n := receive(t, raw); n.Params["cid"] != "1" {
+		t.Errorf("row 0 = %v", n.Params)
+	}
+	if n := receive(t, raw); n.Params["cid"] != "2" || n.Params["reasonid"] != "10" {
+		t.Errorf("row 1 = %v, want the inherited reasonid", n.Params)
+	}
+}
+
+// One handler editing its params must not change what the next one sees.
+func TestOnNotification_CopiesParamsPerHandler(t *testing.T) {
+	c := newTestClient(t)
+	c.OnNotification(func(n RawNotification) { n.Params["a"] = "changed" })
+	got := make(chan string, 1)
+	c.OnNotification(func(n RawNotification) { got <- n.Params["a"] })
+
+	c.handleCommandLines("notifysomething a=1")
+
+	if v := receive(t, got); v != "1" {
+		t.Errorf("second handler saw a=%q, want 1", v)
+	}
+}
+
+// Raw notifications pass through event middleware like every server event.
+func TestOnNotification_PassesThroughMiddleware(t *testing.T) {
+	seen := make(chan RawNotification, 1)
+	c := newTestClient(t, WithEventMiddleware(func(next func(Event)) func(Event) {
+		return func(evt Event) {
+			if n, ok := evt.(RawNotification); ok {
+				seen <- n
+			}
+			next(evt)
+		}
+	}))
+
+	c.handleCommandLines("notifysomething a=1")
+
+	if n := receive(t, seen); n.Name != "notifysomething" {
+		t.Errorf("middleware saw %+v", n)
+	}
+}
+
+// Nobody listening, no middleware: nothing to build.
+func TestOnNotification_NotBuiltWithoutAnyone(t *testing.T) {
+	c := newTestClient(t)
+	c.handleCommandLines("notifysomething a=1")
+
+	c.events.mu.Lock()
+	queued := len(c.events.pending) + boolToInt(c.events.running)
+	c.events.mu.Unlock()
+	if queued != 0 {
+		t.Errorf("%d deliveries queued with nobody to receive them", queued)
+	}
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+
+	return 0
+}
+
+// A handler changing the groups it was given cannot edit the client list.
+func TestOnClientEnter_GroupsAreTheEventsOwn(t *testing.T) {
+	c := newTestClient(t)
+	c.OnClientEnter(func(e ClientEnterEvent) { e.ServerGroups[0] = 99 })
+
+	c.handleCommandLines("notifycliententerview clid=5 client_nickname=a client_servergroups=6,7")
+	settle(t, c)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if got := c.clients[5].ServerGroups; !slices.Equal(got, []teamspeak.ServerGroupID{6, 7}) {
+		t.Errorf("client list groups = %v, want [6 7]", got)
+	}
 }

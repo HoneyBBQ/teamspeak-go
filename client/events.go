@@ -1,11 +1,11 @@
 package client
 
 import (
+	"maps"
 	"slices"
 	"sync"
 	"sync/atomic"
 
-	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
@@ -30,7 +30,7 @@ func (c *Client) OnTextMessage(handler func(TextMessage)) func() {
 
 // OnClientEnter registers a handler for clients entering view. It returns a
 // function that removes the handler.
-func (c *Client) OnClientEnter(handler func(teamspeak.ClientInfo)) func() {
+func (c *Client) OnClientEnter(handler func(ClientEnterEvent)) func() {
 	return c.onClientEnter.add(handler)
 }
 
@@ -64,6 +64,14 @@ func (c *Client) OnClientMoved(handler func(ClientMovedEvent)) func() {
 // returns a function that removes the handler.
 func (c *Client) OnVoiceData(handler func(VoiceData)) func() {
 	return c.onVoiceData.add(handler)
+}
+
+// OnNotification registers a handler for every notification the server sends,
+// as it arrived: the way to hear one the SDK does not model. It runs after the
+// typed handlers for the same notification. It returns a function that removes
+// the handler.
+func (c *Client) OnNotification(handler func(RawNotification)) func() {
+	return c.onNotification.add(handler)
 }
 
 // OnConnected registers a handler for the handshake completing, on Connect and
@@ -105,9 +113,9 @@ func (c *Client) currentHandler() *transport.PacketHandler {
 	return c.handler
 }
 
-// emitEvent queues a notification event. The middleware runs on the delivery
+// emitEvent queues a server event. The middleware runs on the delivery
 // goroutine too, so a slow middleware does not stall the read loop either.
-func (c *Client) emitEvent(evt any) {
+func (c *Client) emitEvent(evt Event) {
 	c.events.push(func() { c.evtChain(evt) })
 }
 
@@ -116,9 +124,9 @@ func emit[E any](c *Client, subs *subscribers[E], evt E) {
 	c.events.push(func() { subs.deliver(evt, nil) })
 }
 
-// dispatchEvent hands a notification event, as the middleware left it, to its
+// dispatchEvent hands a server event, as the middleware left it, to its
 // handlers.
-func (c *Client) dispatchEvent(evt any) {
+func (c *Client) dispatchEvent(evt Event) {
 	switch e := evt.(type) {
 	case TextMessage:
 		c.onTextMessage.deliver(e, func(m TextMessage) TextMessage {
@@ -126,11 +134,11 @@ func (c *Client) dispatchEvent(evt any) {
 
 			return m
 		})
-	case teamspeak.ClientInfo:
-		c.onClientEnter.deliver(e, func(info teamspeak.ClientInfo) teamspeak.ClientInfo {
-			info.ServerGroups = slices.Clone(info.ServerGroups)
+	case ClientEnterEvent:
+		c.onClientEnter.deliver(e, func(enter ClientEnterEvent) ClientEnterEvent {
+			enter.ServerGroups = slices.Clone(enter.ServerGroups)
 
-			return info
+			return enter
 		})
 	case ClientLeftViewEvent:
 		c.onClientLeave.deliver(e, nil)
@@ -143,6 +151,12 @@ func (c *Client) dispatchEvent(evt any) {
 			v.Data = slices.Clone(v.Data)
 
 			return v
+		})
+	case RawNotification:
+		c.onNotification.deliver(e, func(n RawNotification) RawNotification {
+			n.Params = maps.Clone(n.Params)
+
+			return n
 		})
 	}
 }

@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	teamspeak "github.com/honeybbq/teamspeak-go"
-
 	"github.com/honeybbq/teamspeak-go/commands"
 )
 
@@ -23,7 +21,7 @@ func TestHandleCommandLines_NewlineSeparated(t *testing.T) {
 	// Two lines: an error line with a return_code + one notify.
 	// We only care that neither path panics and notify fires.
 	entered := make(chan struct{}, 2)
-	c.OnClientEnter(func(_ teamspeak.ClientInfo) { entered <- struct{}{} })
+	c.OnClientEnter(func(_ ClientEnterEvent) { entered <- struct{}{} })
 
 	line1 := "notifycliententerview clid=1 client_nickname=A" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
@@ -43,7 +41,7 @@ func TestHandleCommandLines_NewlineSeparated(t *testing.T) {
 func TestHandleCommandLines_NullByteSeparated(t *testing.T) {
 	c := newTestClient(t)
 	entered := make(chan struct{}, 1)
-	c.OnClientEnter(func(_ teamspeak.ClientInfo) { entered <- struct{}{} })
+	c.OnClientEnter(func(_ ClientEnterEvent) { entered <- struct{}{} })
 
 	line := "notifycliententerview clid=3 client_nickname=C" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=z"
@@ -59,7 +57,7 @@ func TestHandleCommandLines_NullByteSeparated(t *testing.T) {
 func TestHandleCommand_Notify_Routed(t *testing.T) {
 	c := newTestClient(t)
 	entered := make(chan struct{}, 1)
-	c.OnClientEnter(func(_ teamspeak.ClientInfo) { entered <- struct{}{} })
+	c.OnClientEnter(func(_ ClientEnterEvent) { entered <- struct{}{} })
 
 	line := "notifycliententerview clid=4 client_nickname=D" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=d"

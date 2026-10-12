@@ -4,7 +4,9 @@ import (
 	"strconv"
 	"strings"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 // ServerFamily is the server generation a version string belongs to.
@@ -28,11 +30,21 @@ const (
 // client_unique_identifier the other server never sends.
 //
 // Everything here comes from the handshake — initserver carries
-// virtualserver_version, the one place the server names itself — so reading it
-// costs no extra round trip.
+// virtualserver_version, the one place the server names itself, along with its
+// name, icon, banner and welcome message — so reading it costs no extra round
+// trip. It is one record of what the handshake said rather than a getter per
+// field.
 type ServerCapabilities struct {
 	// Version is the virtualserver_version string as the server sent it.
 	Version string
+	// Name is the virtual server's name (virtualserver_name).
+	Name string
+	// HostBannerImageURL is the host banner image's URL
+	// (virtualserver_hostbanner_gfx_url), or "" when none is set.
+	HostBannerImageURL string
+	// WelcomeMessage is the message shown on connecting
+	// (virtualserver_welcomemessage), as the server sent it, BBCode included.
+	WelcomeMessage string
 	// Family is the server generation.
 	Family ServerFamily
 	// UIDAlgorithm is the hash the server uses for client_unique_identifier.
@@ -42,11 +54,18 @@ type ServerCapabilities struct {
 	UIDAlgorithm identity.UIDAlgorithm
 	// Major is the parsed major version, or 0 when it could not be parsed.
 	Major int
+	// IconID is the server's icon (virtualserver_icon_id), or 0 for none. The
+	// server sends the icon's CRC32, sometimes as a negative 32-bit number;
+	// this is the unsigned value, which names the icon file.
+	IconID teamspeak.IconID
 }
 
-// ParseServerCapabilities reads a virtualserver_version value such as
-// "6.0.0-beta13.1 [Build: 1790080330]".
-func ParseServerCapabilities(version string) ServerCapabilities {
+// ParseServerCapabilities reads what a server says about itself in initserver.
+//
+// initserver is the command's parameters. To read a version string alone, such
+// as "6.0.0-beta13.1 [Build: 1790080330]", pass it as virtualserver_version.
+func ParseServerCapabilities(initserver map[string]string) ServerCapabilities {
+	version := initserver["virtualserver_version"]
 	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
 	if err != nil {
 		major = 0
@@ -61,10 +80,14 @@ func ParseServerCapabilities(version string) ServerCapabilities {
 	}
 
 	return ServerCapabilities{
-		Version:      version,
-		Major:        major,
-		Family:       family,
-		UIDAlgorithm: identity.UIDAlgorithmForVersion(version),
+		Version:            version,
+		Major:              major,
+		Family:             family,
+		UIDAlgorithm:       identity.UIDAlgorithmForVersion(version),
+		Name:               initserver["virtualserver_name"],
+		IconID:             wire.ParseIconID[teamspeak.IconID](initserver["virtualserver_icon_id"]),
+		HostBannerImageURL: strings.TrimSpace(initserver["virtualserver_hostbanner_gfx_url"]),
+		WelcomeMessage:     initserver["virtualserver_welcomemessage"],
 	}
 }
 
@@ -73,5 +96,5 @@ func ParseServerCapabilities(version string) ServerCapabilities {
 // The family is honestly unknown, while the uid hash stays SHA-1 so behaviour
 // before connecting is exactly what it was before TS6 support existed.
 func unknownServerCapabilities() ServerCapabilities {
-	return ParseServerCapabilities("")
+	return ParseServerCapabilities(nil)
 }

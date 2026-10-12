@@ -14,6 +14,9 @@ var (
 // TableSize is the QuickLZ level-1 hash table size.
 const TableSize = 4096
 
+// Qlz decompresses QuickLZ level 1, the compression TeamSpeak uses for
+// command payloads. Its hash table is reused between calls, so a Qlz is not
+// safe for concurrent use.
 type Qlz struct {
 	hashtable [TableSize]int
 }
@@ -25,6 +28,7 @@ type qlzState struct {
 	nextHashed int
 }
 
+// NewQlz returns a QuickLZ level 1 decompressor.
 func NewQlz() *Qlz {
 	return &Qlz{}
 }
@@ -37,6 +41,9 @@ func getDecompressedSize(data []byte) int {
 	return int(data[2])
 }
 
+// Decompress returns the data a QuickLZ level 1 block holds, with a 3- or
+// 9-byte header; a block stored uncompressed is copied out. Any other level
+// is rejected with an error.
 func (q *Qlz) Decompress(data []byte) ([]byte, error) {
 	headerLen, decompressedSize, flags, err := parseQlzHeader(data)
 	if err != nil {

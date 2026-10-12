@@ -3,8 +3,8 @@ package client_test
 import (
 	"testing"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/client"
-
 	"github.com/honeybbq/teamspeak-go/identity"
 )
 
@@ -28,7 +28,7 @@ func TestParseServerCapabilities(t *testing.T) {
 		{"unknown", client.ServerFamilyUnknown, identity.UIDSHA1, 0},
 	}
 	for _, tt := range tests {
-		got := client.ParseServerCapabilities(tt.version)
+		got := client.ParseServerCapabilities(map[string]string{"virtualserver_version": tt.version})
 		if got.Family != tt.family {
 			t.Errorf("ParseServerCapabilities(%q).Family = %q, want %q", tt.version, got.Family, tt.family)
 		}
@@ -43,5 +43,43 @@ func TestParseServerCapabilities(t *testing.T) {
 		if got.Version != tt.version {
 			t.Errorf("ParseServerCapabilities(%q).Version = %q, want it preserved", tt.version, got.Version)
 		}
+	}
+}
+
+// initserver names the server, its icon, banner and welcome message alongside
+// the version. The icon id arrives signed here, as some servers send it.
+func TestParseServerCapabilities_ServerInfo(t *testing.T) {
+	got := client.ParseServerCapabilities(map[string]string{
+		"virtualserver_version":            "3.13.8 [Build: 1779874471]",
+		"virtualserver_name":               "TeamSpeak ]I[ Server",
+		"virtualserver_icon_id":            "-1528016466",
+		"virtualserver_hostbanner_gfx_url": "  https://example.com/banner.png\n",
+		"virtualserver_welcomemessage":     "Welcome to [B]TeamSpeak[/B]",
+	})
+	if got.Name != "TeamSpeak ]I[ Server" {
+		t.Errorf("Name = %q", got.Name)
+	}
+	if got.IconID != teamspeak.IconID(2766950830) {
+		t.Errorf("IconID = %d, want 2766950830", got.IconID)
+	}
+	if got.HostBannerImageURL != "https://example.com/banner.png" {
+		t.Errorf("HostBannerImageURL = %q, want it trimmed", got.HostBannerImageURL)
+	}
+	if got.WelcomeMessage != "Welcome to [B]TeamSpeak[/B]" {
+		t.Errorf("WelcomeMessage = %q", got.WelcomeMessage)
+	}
+	if got.Family != client.ServerFamilyTS3 {
+		t.Errorf("Family = %q, want ts3", got.Family)
+	}
+}
+
+func TestParseServerCapabilities_NoServerInfo(t *testing.T) {
+	got := client.ParseServerCapabilities(map[string]string{
+		"virtualserver_version":            "6.1.0",
+		"virtualserver_icon_id":            "0",
+		"virtualserver_hostbanner_gfx_url": "   ",
+	})
+	if got.IconID != 0 || got.HostBannerImageURL != "" || got.Name != "" || got.WelcomeMessage != "" {
+		t.Errorf("got %+v, want no icon, banner, name or welcome message", got)
 	}
 }

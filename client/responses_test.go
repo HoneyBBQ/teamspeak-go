@@ -119,21 +119,6 @@ func TestCommandTracker_TurnsAFailureStatusIntoAServerError(t *testing.T) {
 	}
 }
 
-// Response rows carry no name. Treating the first field as one copied it onto
-// every row, and a batch with no space in it was never split at all.
-func TestSplitCommandRows_NamelessBatches(t *testing.T) {
-	cases := map[string][]string{
-		"clid=1 cid=5|clid=2 cid=6":  {"clid=1 cid=5", "clid=2 cid=6"},
-		"cldbid=1|cldbid=2|cldbid=3": {"cldbid=1", "cldbid=2", "cldbid=3"},
-		"cid=1 name=a|name=b":        {"cid=1 name=a", "cid=1 name=b"},
-	}
-	for line, want := range cases {
-		if got := splitCommandRows(line); !reflect.DeepEqual(got, want) {
-			t.Errorf("splitCommandRows(%q) = %q, want %q", line, got, want)
-		}
-	}
-}
-
 func TestExec_RefusesItsOwnReturnCode(t *testing.T) {
 	c := newTestClient(t)
 	_, err := c.Exec(ctxWithin(t, time.Second), "clientlist return_code=9")
@@ -214,21 +199,5 @@ func TestDefaultShouldRetry_StopsOnTheRealPermanentRefusals(t *testing.T) {
 	}
 	if !DefaultShouldRetry(&teamspeak.ServerError{Code: errcode.ClientTooManyClonesConnected}, 1) {
 		t.Error("does not retry 521, which clears once the server reaps the dropped session")
-	}
-}
-
-func TestParseServerError(t *testing.T) {
-	err := parseServerError(map[string]string{
-		"id": "2568", "msg": "insufficient client permissions", "failed_permid": "236", "extra_msg": "detail",
-	})
-	if err.Code != errcode.PermissionsClientInsufficient || err.FailedPermID != 236 || err.ExtraMessage != "detail" {
-		t.Errorf("parsed %+v", err)
-	}
-	if parseServerError(map[string]string{"id": "0", "msg": "ok"}) != nil {
-		t.Error("id=0 is success")
-	}
-	got := parseServerError(map[string]string{"msg": "no id"})
-	if got == nil || got.Code != errcode.Undefined {
-		t.Errorf("an error line without an id = %v, want errcode.Undefined", got)
 	}
 }

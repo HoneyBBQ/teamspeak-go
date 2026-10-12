@@ -4,7 +4,7 @@ package client_test
 
 import (
 	"context"
-	"errors"
+	"syscall"
 	"testing"
 	"time"
 
@@ -41,7 +41,8 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 	c := newClient(t, id, addr, "go-reconnect", opts...)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	if err := c.Connect(ctx); err != nil {
+	err = c.Connect(ctx)
+	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
@@ -56,7 +57,8 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 	// fires when nothing arrives, and closing the socket from underneath is the
 	// same path. TestReconnectLoopRetries below covers the retry behaviour
 	// without needing a real drop.
-	if dropErr := c.DropConnectionForTest(); dropErr != nil {
+	dropErr := c.DropConnectionForTest()
+	if dropErr != nil {
 		t.Fatalf("drop connection: %v", dropErr)
 	}
 
@@ -65,7 +67,8 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 		if c.Status() == client.StatusConnected && c.ClientID() != firstID && c.ClientID() != 0 {
 			t.Logf("recovered, clid=%d (was %d)", c.ClientID(), firstID)
 
-			if _, listErr := c.ListChannels(t.Context()); listErr != nil {
+			_, listErr := c.ListChannels(t.Context())
+			if listErr != nil {
 				t.Errorf("reconnected session is not usable: %v", listErr)
 			}
 
@@ -95,11 +98,13 @@ func TestIntegration_NoReconnectAfterExplicitDisconnect(t *testing.T) {
 	c := newClient(t, id, addr, "go-noreconnect", opts...)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	if err := c.Connect(ctx); err != nil {
+	err = c.Connect(ctx)
+	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 
-	if err := c.Disconnect(context.Background()); err != nil {
+	err = c.Disconnect(context.Background())
+	if err != nil {
 		t.Fatalf("Disconnect: %v", err)
 	}
 
@@ -121,7 +126,7 @@ func TestDefaultShouldRetry_TransientIsRetried(t *testing.T) {
 		t.Error("3329 should not be retried")
 	}
 	// A plain transport failure is worth another attempt.
-	if !client.DefaultShouldRetry(errors.New("read: connection refused"), 1) {
+	if !client.DefaultShouldRetry(syscall.ECONNREFUSED, 1) {
 		t.Error("a transport failure should be retried")
 	}
 }

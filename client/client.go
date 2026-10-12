@@ -42,13 +42,13 @@ const resolveTimeout = 10 * time.Second
 // timeout.
 const disconnectTimeout = time.Second
 
-// ClientStatus represents the current connection state of the client.
-type ClientStatus int
+// Status is the state of a client's connection.
+type Status int
 
 const (
 	// StatusDisconnected is a client with no connection: before Connect, after
 	// Disconnect, or after a drop until a reconnect starts.
-	StatusDisconnected ClientStatus = iota
+	StatusDisconnected Status = iota
 	// StatusConnecting is a client between Connect and the end of the
 	// handshake.
 	StatusConnecting
@@ -62,7 +62,7 @@ var clientStatusNames = [...]string{
 	StatusConnected:    "connected",
 }
 
-func (s ClientStatus) String() string {
+func (s Status) String() string {
 	if s >= 0 && int(s) < len(clientStatusNames) {
 		return clientStatusNames[s]
 	}
@@ -107,8 +107,9 @@ func (d defaultResolver) Resolve(ctx context.Context, addr string) ([]ResolvedAd
 // CommandMiddleware wraps the final command sender; it may alter or drop commands.
 type CommandMiddleware func(next func(string) error) func(string) error
 
-// EventMiddleware wraps event dispatch; it may observe or replace notifications.
-type EventMiddleware func(next func(any)) func(any)
+// EventMiddleware wraps the delivery of server events. It may observe an
+// event, pass on a different one in its place, or drop it by not calling next.
+type EventMiddleware func(next func(Event)) func(Event)
 
 type clientInitOptions struct {
 	serverPassword         string
@@ -131,7 +132,7 @@ type Client struct {
 	throttle        *commandThrottle
 	clients         map[teamspeak.ClientID]teamspeak.ClientInfo
 	// evtChain is the event middleware wrapped around dispatchEvent.
-	evtChain func(any)
+	evtChain func(Event)
 	addr     string
 	nickname string
 	// uidAlgorithm is the hash the connected server uses for
@@ -155,7 +156,7 @@ type Client struct {
 	eventMiddlewares []EventMiddleware
 	events           eventQueue
 	onTextMessage    subscribers[TextMessage]
-	onClientEnter    subscribers[teamspeak.ClientInfo]
+	onClientEnter    subscribers[ClientEnterEvent]
 	onClientLeave    subscribers[ClientLeftViewEvent]
 	onClientMoved    subscribers[ClientMovedEvent]
 	onConnected      subscribers[struct{}]
@@ -163,7 +164,8 @@ type Client struct {
 	onPoked          subscribers[PokeEvent]
 	onKicked         subscribers[KickedEvent]
 	onVoiceData      subscribers[VoiceData]
-	status           ClientStatus
+	onNotification   subscribers[RawNotification]
+	status           Status
 	mu               sync.Mutex
 	clid             teamspeak.ClientID
 }
@@ -268,7 +270,9 @@ func WithCommandMiddleware(mw ...CommandMiddleware) Option {
 	})
 }
 
-// WithEventMiddleware wraps every event before it reaches the handlers.
+// WithEventMiddleware wraps every server event before it reaches the handlers,
+// outermost first. Lifecycle events (connected, disconnected, kicked) do not
+// pass through it.
 func WithEventMiddleware(mw ...EventMiddleware) Option {
 	return optionFunc(func(c *Client) {
 		c.eventMiddlewares = append(c.eventMiddlewares, mw...)
@@ -409,6 +413,13 @@ func (c *Client) start(ctx context.Context) (*connectAttempt, error) {
 		// Without this the client stays in StatusConnecting and every later
 		// Connect fails with ErrAlreadyConnected.
 		c.failConnection(err)
+		// A Disconnect while the socket was opening closes it under the open,
+		// which then fails with "use of closed network connection". The
+		// attempt already holds the real outcome; report that.
+		<-attempt.done
+		if attempt.err != nil {
+			err = attempt.err
+		}
 
 		return nil, err
 	}
@@ -465,12 +476,7 @@ func (c *Client) newHandler() *transport.PacketHandler {
 	h := transport.NewPacketHandler(c.crypt, c.logger)
 	h.OnPacket = c.handlePacket
 	h.OnClosed = func(err error) {
-		c.mu.Lock()
-		current := c.handler == h
-		c.mu.Unlock()
-		if current {
-			c.handleConnectionClosed(err)
-		}
+		c.handleConnectionClosed(h, err)
 	}
 
 	return h
@@ -487,6 +493,12 @@ func (c *Client) newHandler() *transport.PacketHandler {
 // StatusConnecting forever without emitting disconnected.
 func (c *Client) failConnection(err error) {
 	c.mu.Lock()
+	c.failConnectionLocked(err)
+}
+
+// failConnectionLocked is failConnection for a caller already holding c.mu,
+// which it releases.
+func (c *Client) failConnectionLocked(err error) {
 	if c.status == StatusConnected {
 		c.mu.Unlock()
 
@@ -506,17 +518,30 @@ func (c *Client) failConnection(err error) {
 	emit(c, &c.onDisconnected, err)
 }
 
-func (c *Client) handleConnectionClosed(err error) {
+// handleConnectionClosed ends the session handler h ran, or the current one
+// when h is nil.
+//
+// Whether h is still the current handler is checked under the same lock as
+// the status it acts on. Checking it first and acting after let a close
+// reported late by the previous connection's handler land just after a new
+// Connect had begun, and fail that attempt instead.
+func (c *Client) handleConnectionClosed(h *transport.PacketHandler, err error) {
+	c.mu.Lock()
+	if h != nil && c.handler != h {
+		c.mu.Unlock()
+
+		return
+	}
 	// Nothing in flight can be answered any more; failing it now, with the
 	// reason, beats every caller timing out one by one. Harmless after a
-	// deliberate Disconnect, which has already done it.
+	// deliberate Disconnect, which has already done it. Under the lock, so a
+	// new connection's commands are not failed for the old one's close.
 	cause := teamspeak.ErrNotConnected
 	if err != nil {
 		cause = fmt.Errorf("%w: %w", teamspeak.ErrNotConnected, err)
 	}
 	c.cmdTrack.reset(cause)
 
-	c.mu.Lock()
 	if c.status == StatusDisconnected {
 		c.mu.Unlock()
 
@@ -525,11 +550,10 @@ func (c *Client) handleConnectionClosed(err error) {
 	if c.status == StatusConnecting {
 		// The socket closed before the handshake finished: a failed attempt,
 		// not the end of a live session.
-		c.mu.Unlock()
 		if err == nil {
 			err = errClosedDuringHandshake
 		}
-		c.failConnection(err)
+		c.failConnectionLocked(err)
 
 		return
 	}

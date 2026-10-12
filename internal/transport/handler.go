@@ -1,3 +1,10 @@
+// Package transport speaks the TeamSpeak voice protocol's packet layer over
+// UDP: it encrypts and decrypts packets, numbers them per type with wrapping
+// id generations, acknowledges and resends commands, splits and reassembles
+// fragmented commands, decompresses QuickLZ payloads, and keeps the
+// connection alive with pings.
+//
+// Callers above it see whole, decrypted packets through PacketHandler.OnPacket.
 package transport
 
 import (
@@ -14,24 +21,34 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
 )
 
+// Sizes and timings of the packet layer.
 const (
-	MaxOutPacketSize        = 500
+	// MaxOutPacketSize is the largest datagram sent, tag and header included;
+	// longer command payloads are split into fragments.
+	MaxOutPacketSize = 500
+	// ReceivePacketWindowSize is how many command ids past the next expected
+	// one are accepted and queued.
 	ReceivePacketWindowSize = 1024
-	PingInterval            = 5 * time.Second
-	PacketTimeout           = 60 * time.Second
-	MaxRetryInterval        = time.Second
-	udpReadBufferSize       = 4096
-	voicePayloadBufferSize  = 1027
-	smallPacketBufferSize   = 2
-	packetProcessQueueSize  = 2048
-	resendBaseInterval      = 500 * time.Millisecond
-	resendLoopInterval      = 100 * time.Millisecond
-	headerSize              = 5
-	tagSize                 = 8
-	voiceHeaderSize         = 3
-	whisperHeaderSize       = 5
-	maxWhisperTargets       = 32
-	ackDataSize             = 2
+	// PingInterval is how often a ping is sent once the handshake completes.
+	PingInterval = 5 * time.Second
+	// PacketTimeout is how long the server may stay silent, or leave a command
+	// unacknowledged, before the connection is closed with ErrTimedOut.
+	PacketTimeout = 60 * time.Second
+	// MaxRetryInterval caps the doubling interval between resends.
+	MaxRetryInterval = time.Second
+
+	udpReadBufferSize      = 4096
+	voicePayloadBufferSize = 1027
+	smallPacketBufferSize  = 2
+	packetProcessQueueSize = 2048
+	resendBaseInterval     = 500 * time.Millisecond
+	resendLoopInterval     = 100 * time.Millisecond
+	headerSize             = 5
+	tagSize                = 8
+	voiceHeaderSize        = 3
+	whisperHeaderSize      = 5
+	maxWhisperTargets      = 32
+	ackDataSize            = 2
 )
 
 var (
@@ -75,6 +92,9 @@ type pooledBuffer struct {
 	n   int
 }
 
+// PacketHandler runs one voice protocol connection: it sends packets with the
+// next id and generation for their type, resends commands until they are
+// acknowledged, and delivers received packets in order through OnPacket.
 type PacketHandler struct {
 	lastMessageReceived time.Time
 	conn                io.ReadWriteCloser
@@ -123,6 +143,8 @@ type decryptPacketResult struct {
 	dummyUsed bool
 }
 
+// NewPacketHandler returns a handler that encrypts with tsCrypt and logs to
+// logger (nil means slog.Default). It sends nothing until Connect or Start.
 func NewPacketHandler(tsCrypt *crypto.Crypt, logger *slog.Logger) *PacketHandler {
 	if logger == nil {
 		logger = slog.Default()
@@ -144,6 +166,8 @@ func NewPacketHandler(tsCrypt *crypto.Crypt, logger *slog.Logger) *PacketHandler
 	}
 }
 
+// SetClientID sets the client id the server assigned, which every packet the
+// client sends carries in its header.
 func (h *PacketHandler) SetClientID(id uint16) {
 	h.clientID.Store(uint32(id))
 }
@@ -190,6 +214,9 @@ func (h *PacketHandler) Start(conn io.ReadWriteCloser) error {
 	return h.SendPacket(byte(PacketTypeInit1), init1Data, 0)
 }
 
+// SendPacket sends data as one packet of type pType, splitting a command
+// payload too large for one datagram into fragments. Until the crypto
+// handshake completes it encrypts with the protocol's fixed dummy key.
 func (h *PacketHandler) SendPacket(pType byte, data []byte, flags byte) error {
 	dummy := !h.TsCrypt.CryptoInitComplete
 
@@ -839,6 +866,8 @@ func (h *PacketHandler) resendLoop() {
 	}
 }
 
+// ReceivedFinalInitAck stops resending the last Init1 packet; the server's
+// initivexpand2 command is what acknowledges it, not an Init1 reply.
 func (h *PacketHandler) ReceivedFinalInitAck() {
 	h.mu.Lock()
 	h.initPacketCheck = nil
@@ -904,6 +933,10 @@ func (h *PacketHandler) doResend(rp *resendPacket, now time.Time) {
 	}
 }
 
+// SendVoicePacket sends one unencrypted Voice packet carrying an audio frame
+// in codec. Voice is never acknowledged or resent.
+//
+// Payload layout: u16 voice packet ID, u8 codec, then the frame.
 func (h *PacketHandler) SendVoicePacket(data []byte, codec byte) error {
 	h.mu.Lock()
 	pID := h.packetCounter[PacketTypeVoice]

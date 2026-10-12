@@ -1,3 +1,6 @@
+// Package discovery turns the address a user types into the host:port of a
+// TeamSpeak voice server, the way the official client does: a MyTeamSpeak
+// nickname, a _ts3._udp SRV record, a TSDNS lookup, or plain DNS.
 package discovery
 
 import (
@@ -23,10 +26,16 @@ var (
 	errTSDNSNotFound     = errors.New("not found")
 )
 
+// Endpoints and lifetimes the resolver uses.
 const (
-	TsDnsDefaultPort = "41144"
-	NicknameLookup   = "https://named.myteamspeak.com/lookup"
-	CacheTTL         = 10 * time.Minute
+	// TSDNSDefaultPort is the TCP port a TSDNS server listens on when no SRV
+	// record names another.
+	TSDNSDefaultPort = "41144"
+	// NicknameLookup is the MyTeamSpeak endpoint that maps a nickname to a
+	// server address.
+	NicknameLookup = "https://named.myteamspeak.com/lookup"
+	// CacheTTL is how long a resolved address is reused before resolving again.
+	CacheTTL = 10 * time.Minute
 )
 
 // ResolvedAddr is one resolved host:port and how it was obtained.
@@ -202,7 +211,7 @@ func (r *Resolver) resolveTSDNSSRV(ctx context.Context, domains []string, queryH
 func (r *Resolver) resolveTSDNSDirect(ctx context.Context, domains []string, queryHost string) (string, bool) {
 	for _, domain := range domains {
 		r.log.Debug("trying tsdns direct", slog.String("domain", domain))
-		tsdnsAddr, err := queryTSDNS(ctx, net.JoinHostPort(domain, TsDnsDefaultPort), queryHost)
+		tsdnsAddr, err := queryTSDNS(ctx, net.JoinHostPort(domain, TSDNSDefaultPort), queryHost)
 		if err == nil && tsdnsAddr != "" {
 			r.log.Debug("tsdns direct succeeded", slog.String("domain", domain), slog.String("result", tsdnsAddr))
 

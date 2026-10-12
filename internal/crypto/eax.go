@@ -34,6 +34,7 @@ type EAX struct {
 	cmacHasher *subtle.AESCMAC
 }
 
+// NewEAX returns an EAX cipher using the AES key.
 func NewEAX(key []byte) (*EAX, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -47,8 +48,11 @@ func NewEAX(key []byte) (*EAX, error) {
 	return &EAX{block: block, cmacHasher: cmacHasher}, nil
 }
 
+// ErrEAXTagMismatch reports a packet whose EAX tag does not verify.
 var ErrEAXTagMismatch = errors.New("EAX tag mismatch")
 
+// Encrypt encrypts plaintext and returns it with its 8-byte tag, which also
+// authenticates header.
 func (e *EAX) Encrypt(nonce, header, plaintext []byte) ([]byte, []byte, error) {
 	nStar, _ := e.cmac(eaxTagByte0, nonce)
 	hStar, _ := e.cmac(eaxTagByte1, header)
@@ -68,6 +72,8 @@ func (e *EAX) Encrypt(nonce, header, plaintext []byte) ([]byte, []byte, error) {
 	return ciphertext, tag, nil
 }
 
+// Decrypt verifies tag over nonce, header and ciphertext in constant time and
+// only then decrypts; a bad tag returns ErrEAXTagMismatch.
 func (e *EAX) Decrypt(nonce, header, ciphertext, tag []byte) ([]byte, error) {
 	nStar, _ := e.cmac(eaxTagByte0, nonce)
 	hStar, _ := e.cmac(eaxTagByte1, header)

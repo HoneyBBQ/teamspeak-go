@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 // param is one wire parameter. A nil Value means "do not send this parameter
@@ -237,24 +239,9 @@ func fieldFloat32(row map[string]string, key string) float32 {
 	return float32(value)
 }
 
-// fieldIconID reads an icon id.
-//
-// An icon id is the CRC32 of the icon file, and the server sends it either as
-// that unsigned number or reinterpreted as a signed 32-bit one — -2004712318
-// for 2290254978. Reading only the unsigned form turned every icon whose CRC
-// has the top bit set into "no icon".
+// fieldIconID reads an icon id, signed or not; see wire.ParseIconID.
 func fieldIconID(row map[string]string, key string) IconID {
-	raw := row[key]
-	unsignedID, err := strconv.ParseUint(raw, 10, 32)
-	if err == nil {
-		return IconID(unsignedID)
-	}
-	signedID, err := strconv.ParseInt(raw, 10, 32)
-	if err == nil {
-		return IconID(uint32(int32(signedID))) //nolint:gosec // the reinterpretation is the point
-	}
-
-	return 0
+	return wire.ParseIconID[IconID](row[key])
 }
 
 // Timestamps above these are not seconds. TS6 sends some in finer units —

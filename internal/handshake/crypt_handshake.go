@@ -1,3 +1,6 @@
+// Package handshake implements the client's side of the TeamSpeak 3 connection
+// handshake: the Init1 packet exchange, including the RSA puzzle, and the
+// initivexpand2 key exchange that checks the server's license chain.
 package handshake
 
 import (
@@ -11,6 +14,8 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
 )
 
+// InitVersion is the client build timestamp every Init1 packet the client
+// sends starts with; it names a real client release, 3.5.0.
 const InitVersion = 1566914096 // 3.5.0 [Stable]
 const (
 	initVersionLen = 4

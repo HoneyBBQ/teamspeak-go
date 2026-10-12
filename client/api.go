@@ -66,7 +66,7 @@ func (c *Client) ClientID() teamspeak.ClientID {
 }
 
 // Status reports the current connection state.
-func (c *Client) Status() ClientStatus {
+func (c *Client) Status() Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

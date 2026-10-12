@@ -45,7 +45,8 @@ func TestIntegration_ChannelAPI(t *testing.T) {
 		t.Errorf("GetChannelInfo parentID = %d, list said %d", info.ParentID, first.ParentID)
 	}
 
-	if _, descErr := c.GetChannelDescription(t.Context(), first.ID); descErr != nil {
+	_, descErr := c.GetChannelDescription(t.Context(), first.ID)
+	if descErr != nil {
 		t.Errorf("GetChannelDescription: %v", descErr)
 	}
 }

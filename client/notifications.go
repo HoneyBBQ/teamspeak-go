@@ -2,6 +2,7 @@ package client
 
 import (
 	"log/slog"
+	"slices"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
@@ -73,7 +74,10 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 		}
 		c.mu.Unlock()
 
-		c.emitEvent(info)
+		// The event's groups are its own: the last handler gets the event
+		// itself, and must not be able to edit the client list through it.
+		info.ServerGroups = slices.Clone(info.ServerGroups)
+		c.emitEvent(ClientEnterEvent{ClientInfo: info})
 	}
 }
 
@@ -119,7 +123,7 @@ func (c *Client) handleClientLeftView(cmd *commands.Command) {
 // reported the end a minute late, without its cause, and with the client
 // claiming to be connected meanwhile.
 func (c *Client) removedByServer(cause error) {
-	c.handleConnectionClosed(cause)
+	c.handleConnectionClosed(nil, cause)
 	_ = c.currentHandler().Close()
 }
 
@@ -178,7 +182,7 @@ func (c *Client) handleTextMessage(cmd *commands.Command) {
 		if msg.InvokerUID == "" {
 			msg.InvokerUID = info.UID
 		}
-		msg.InvokerGroups = info.ServerGroups
+		msg.InvokerGroups = slices.Clone(info.ServerGroups)
 	}
 	c.mu.Unlock()
 

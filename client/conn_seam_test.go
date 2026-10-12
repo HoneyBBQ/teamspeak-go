@@ -19,7 +19,8 @@ import (
 func TestIntegration_CustomPacketConn(t *testing.T) {
 	addr := requireTeamSpeakAddr(t)
 
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	var lc net.ListenConfig
+	pc, err := lc.ListenPacket(t.Context(), "udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("ListenPacket: %v", err)
 	}
@@ -34,7 +35,8 @@ func TestIntegration_CustomPacketConn(t *testing.T) {
 	c := newClient(t, id, addr, "custom-packetconn", opts...)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	if err := c.Connect(ctx); err != nil {
+	err = c.Connect(ctx)
+	if err != nil {
 		t.Fatalf("Connect over a caller-supplied PacketConn: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })

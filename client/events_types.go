@@ -2,6 +2,59 @@ package client
 
 import teamspeak "github.com/honeybbq/teamspeak-go"
 
+// Event is a server event as event middleware sees it: a TextMessage,
+// ClientEnterEvent, ClientLeftViewEvent, ClientMovedEvent, PokeEvent,
+// VoiceData or RawNotification. A middleware tells them apart with a type
+// switch.
+//
+// The set is closed — the method is unexported — because the client delivers
+// only the events it knows: a middleware that invented a type of its own would
+// have it dropped with no handler to receive it, and a closed set is also what
+// lets a later version add an event without breaking anyone's code.
+//
+// Lifecycle events (connected, disconnected, kicked) are not server events
+// and do not pass through middleware: they report the connection, not what
+// happened on it, and a middleware dropping one would leave the application
+// unaware of its own state.
+type Event interface {
+	serverEvent()
+}
+
+func (TextMessage) serverEvent()         {}
+func (ClientEnterEvent) serverEvent()    {}
+func (ClientLeftViewEvent) serverEvent() {}
+func (ClientMovedEvent) serverEvent()    {}
+func (PokeEvent) serverEvent()           {}
+func (VoiceData) serverEvent()           {}
+func (RawNotification) serverEvent()     {}
+
+// ClientEnterEvent is emitted when a client enters view
+// (notifycliententerview): on connecting, for everyone already there, and
+// whenever someone joins or becomes visible.
+//
+// It wraps the teamspeak.ClientInfo the server described, so its fields read
+// as the event's own (evt.Nickname). A type of this package rather than
+// ClientInfo itself, because Event's method is unexported and the root
+// package's type cannot implement it.
+type ClientEnterEvent struct {
+	teamspeak.ClientInfo
+}
+
+// RawNotification is a notification exactly as the server sent it: its name,
+// such as "notifychanneledited", and its parameters, unescaped.
+//
+// It is the escape hatch for a notification the SDK does not model. Every
+// notification is delivered as one, after the typed event it produces, if
+// any. A batched notification arrives as one RawNotification per row, with
+// the fields the server left out of later rows filled in.
+type RawNotification struct {
+	// Params are the notification's parameters. Each handler gets its own
+	// copy.
+	Params map[string]string
+	// Name is the notification's name.
+	Name string
+}
+
 // TextMessage is an incoming notifytextmessage payload.
 type TextMessage struct {
 	InvokerName string

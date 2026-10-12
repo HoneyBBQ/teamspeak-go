@@ -38,8 +38,8 @@ func TestHandleClientEnterView_AddsToClients(t *testing.T) {
 func TestHandleClientEnterView_TriggersCallback(t *testing.T) {
 	c := newTestClient(t)
 
-	entered := make(chan teamspeak.ClientInfo, 1)
-	c.OnClientEnter(func(ci teamspeak.ClientInfo) { entered <- ci })
+	entered := make(chan ClientEnterEvent, 1)
+	c.OnClientEnter(func(ci ClientEnterEvent) { entered <- ci })
 
 	const enterCmd2 = "notifycliententerview clid=5 client_nickname=Alice" +
 		" ctid=10 client_type=0 client_servergroups= client_unique_identifier=uid123"

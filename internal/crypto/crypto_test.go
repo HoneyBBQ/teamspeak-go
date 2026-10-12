@@ -202,7 +202,7 @@ func TestClampScalar(t *testing.T) {
 	}
 }
 
-func TestClampScalarTooShort(t *testing.T) {
+func TestClampScalarTooShort(_ *testing.T) {
 	key := []byte{0xFF, 0xFF}
 	crypto.ClampScalar(key) // should not panic
 }
@@ -465,7 +465,7 @@ func TestAcquireReleaseKeyBuffer(t *testing.T) {
 	crypto.ReleaseKeyBuffer(buf2)
 }
 
-func TestReleaseKeyBufferWrongLength(t *testing.T) {
+func TestReleaseKeyBufferWrongLength(_ *testing.T) {
 	// Wrong-length buffers should not be returned to the pool (no panic)
 	crypto.ReleaseKeyBuffer(make([]byte, 15))
 	crypto.ReleaseKeyBuffer(make([]byte, 0))

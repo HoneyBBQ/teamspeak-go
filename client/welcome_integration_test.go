@@ -27,7 +27,8 @@ func TestIntegration_NoWelcomeContamination(t *testing.T) {
 	c := newClient(t, id, addr, "welcome-contamination", integrationClientOptions(nil)...)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	if err := c.Connect(ctx); err != nil {
+	err = c.Connect(ctx)
+	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })

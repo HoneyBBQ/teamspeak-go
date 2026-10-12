@@ -74,7 +74,7 @@ func TestIntegration_BatchedEnterInheritsOmittedFields(t *testing.T) {
 
 	var mu sync.Mutex
 	seen := make(map[string]teamspeak.ChannelID)
-	unsubscribe := observer.OnClientEnter(func(info teamspeak.ClientInfo) {
+	unsubscribe := observer.OnClientEnter(func(info client.ClientEnterEvent) {
 		mu.Lock()
 		seen[info.Nickname] = info.ChannelID
 		mu.Unlock()
@@ -142,7 +142,8 @@ func TestIntegration_ClientMoveIntoPasswordProtectedChannel(t *testing.T) {
 	// Cleanup runs in LIFO order at the end of this test, so the client is back
 	// in its original channel before the next test starts.
 	t.Cleanup(func() {
-		if moveErr := c.MoveClient(context.WithoutCancel(t.Context()), c.ClientID(), origin, ""); moveErr != nil {
+		moveErr := c.MoveClient(context.WithoutCancel(t.Context()), c.ClientID(), origin, "")
+		if moveErr != nil {
 			t.Errorf("moving back to channel %d: %v", origin, moveErr)
 		}
 	})
@@ -250,4 +251,10 @@ func TestIntegration_ServerCapabilities(t *testing.T) {
 	if caps.UIDAlgorithm != want {
 		t.Errorf("UIDAlgorithm = %q, want %q for family %q", caps.UIDAlgorithm, want, caps.Family)
 	}
+	// Every virtual server has a name; initserver carries it.
+	if caps.Name == "" {
+		t.Error("expected the virtual server's name from initserver")
+	}
+	t.Logf("server info: name=%q icon=%d banner=%q welcome=%q",
+		caps.Name, caps.IconID, caps.HostBannerImageURL, caps.WelcomeMessage)
 }

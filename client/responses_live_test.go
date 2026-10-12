@@ -105,7 +105,7 @@ func TestLive_FileTransferRoundTrip(t *testing.T) {
 	if upload.FileTransferKey == "" {
 		t.Fatal("upload negotiated without a key")
 	}
-	requireNoErr(t, teamspeak.UploadFileData(host, upload, bytes.NewReader(payload), nil))
+	requireNoErr(t, teamspeak.UploadFileData(t.Context(), host, upload, bytes.NewReader(payload), nil))
 	t.Cleanup(func() { _ = c.DeleteFile(context.WithoutCancel(t.Context()), cid, []string{path}, "") })
 
 	files, err := c.ListFiles(t.Context(), cid, "/", "")
@@ -119,7 +119,7 @@ func TestLive_FileTransferRoundTrip(t *testing.T) {
 	download, err := c.InitFileDownload(t.Context(), cid, path, "", 0)
 	requireNoErr(t, err)
 	var got bytes.Buffer
-	requireNoErr(t, teamspeak.DownloadFileData(host, download, &got, nil))
+	requireNoErr(t, teamspeak.DownloadFileData(t.Context(), host, download, &got, nil))
 	if !bytes.Equal(got.Bytes(), payload) {
 		t.Errorf("downloaded %q, want %q", got.Bytes(), payload)
 	}

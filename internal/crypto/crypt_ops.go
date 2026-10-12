@@ -48,6 +48,10 @@ var (
 	dummyNonce = []byte("m\\firewall32.cpl")
 )
 
+// GetKeyNonce returns the AES key and nonce for a packet: SHA-256 over the
+// direction, packet type, generation and IV struct, cached per generation, with
+// the packet ID XORed into the key. dummy selects the fixed pre-crypto key.
+// The caller must hand the key back with ReleaseKeyBuffer.
 func (tc *Crypt) GetKeyNonce(
 	fromServer bool,
 	packetID uint16,
@@ -99,6 +103,8 @@ func (tc *Crypt) GetKeyNonce(
 
 var init1MAC = []byte("TS3INIT1")
 
+// ErrFakeSignatureMismatch reports an unencrypted packet whose MAC is not the
+// connection's fake signature.
 var ErrFakeSignatureMismatch = errors.New("fake signature mismatch")
 
 // Encrypt returns (ciphertext, MAC, err). Init1 and unencrypted packet types bypass EAX.

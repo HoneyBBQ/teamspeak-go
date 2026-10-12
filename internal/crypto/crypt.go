@@ -1,3 +1,7 @@
+// Package crypto implements TeamSpeak 3 packet protection: the per-packet key
+// and nonce derivation from the handshake's shared secret, AES-128 EAX with a
+// 64-bit tag, the fake signature that authenticates unencrypted packets, and
+// the key exchange primitives the handshake uses.
 package crypto
 
 import (
@@ -39,6 +43,8 @@ const (
 	bitsPerByte             = 8
 )
 
+// Crypt holds a connection's crypto state: the identity it authenticates with,
+// the IV struct agreed in the handshake, and the keys derived from it.
 type Crypt struct {
 	Identity           *identity.Identity
 	CachedKeys         map[uint64]KeyNonce
@@ -49,6 +55,8 @@ type Crypt struct {
 	CryptoInitComplete bool
 }
 
+// KeyNonce is a derived AES key and EAX nonce for one direction, packet type
+// and generation, before the packet ID is mixed into the key.
 type KeyNonce struct {
 	Key   []byte
 	Nonce []byte
@@ -67,6 +75,8 @@ func makeCacheKey(fromServer bool, packetType byte, generationID uint32) uint64 
 	return key
 }
 
+// NewCrypt returns a Crypt for id with no shared secret; until one is set,
+// packets use the protocol's fixed dummy key.
 func NewCrypt(id *identity.Identity) *Crypt {
 	return &Crypt{
 		Identity:      id,
@@ -75,6 +85,9 @@ func NewCrypt(id *identity.Identity) *Crypt {
 	}
 }
 
+// SolveRsaChallenge solves the Init1 step 4 puzzle: y = x^(2^level) mod n,
+// with x and n the two 64-byte numbers at data[offset:], returned as 64
+// big-endian bytes. The server uses it as a proof of work against floods.
 func (tc *Crypt) SolveRsaChallenge(data []byte, offset int, level int) ([]byte, error) {
 	if level < 0 || level > maxRSAChallengeLevel {
 		return nil, errRSAChallengeOutRange
@@ -101,6 +114,8 @@ func (tc *Crypt) SolveRsaChallenge(data []byte, offset int, level int) ([]byte, 
 	return res, nil
 }
 
+// InitCrypto completes the legacy initivexpand key exchange: P-256 ECDH with
+// the server's omega key, hashed with SHA-1 and combined with alpha and beta.
 func (tc *Crypt) InitCrypto(alpha, beta, omega string) error {
 	alphaBytes, err := base64.StdEncoding.DecodeString(alpha)
 	if err != nil {
@@ -126,6 +141,8 @@ func (tc *Crypt) InitCrypto(alpha, beta, omega string) error {
 	return tc.SetSharedSecret(alphaBytes, betaBytes, sharedSecret)
 }
 
+// SetSharedSecret builds the IV struct by XORing alpha and beta into sharedKey,
+// derives the fake signature from it, and marks crypto as initialised.
 func (tc *Crypt) SetSharedSecret(alpha, beta, sharedKey []byte) error {
 	tc.IvStruct = make([]byte, ivAlphaSize+len(beta))
 	for i := range alpha {
@@ -144,6 +161,8 @@ func (tc *Crypt) SetSharedSecret(alpha, beta, sharedKey []byte) error {
 	return nil
 }
 
+// DebugCryptoState returns the IV struct's length and the fake signature in
+// hex, enough to compare crypto state in logs without exposing the IV struct.
 func (tc *Crypt) DebugCryptoState() (int, string) {
 	if len(tc.IvStruct) == 0 {
 		return 0, ""
@@ -178,12 +197,15 @@ func (tc *Crypt) getSharedSecret(pub *ecdsa.PublicKey) []byte {
 	return h.Sum(nil)
 }
 
+// Hash512 returns the SHA-512 digest of data; license blocks are hashed with it.
 func Hash512(data []byte) []byte {
 	sum := sha512.Sum512(data)
 
 	return sum[:]
 }
 
+// ImportPublicKey parses a P-256 public key in TeamSpeak's ASN.1 encoding, as
+// sent in omega, accepting both the current and the legacy field order.
 func ImportPublicKey(data []byte) (*ecdsa.PublicKey, error) {
 	// Canonical format (TS5/TS6): {BitString, Size, X, Y}
 	var canonical struct {

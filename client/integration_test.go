@@ -28,6 +28,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -108,7 +109,8 @@ func requireSharedClient(t *testing.T) *client.Client {
 		}
 		c := newClient(t, id, addr, "teamspeak-go-integ", integrationClientOptions(nil)...)
 		sharedClientEnter = make(chan teamspeak.ClientInfo, 1)
-		c.OnClientEnter(func(info teamspeak.ClientInfo) {
+		c.OnClientEnter(func(enter client.ClientEnterEvent) {
+			info := enter.ClientInfo
 			// Compare via the client rather than a precomputed UID: the hash
 			// depends on the server version (TS3 SHA-1, TS6 SHA-256), which is
 			// only known once the handshake has read initserver.
@@ -217,20 +219,6 @@ func mapKeys(m map[string]string) []string {
 	}
 
 	return keys
-}
-
-func extractJSONField(s string, needle string) string {
-	idx := strings.Index(s, needle)
-	if idx < 0 {
-		return ""
-	}
-	start := idx + len(needle)
-	end := strings.Index(s[start:], "\"")
-	if end < 0 {
-		return ""
-	}
-
-	return s[start : start+end]
 }
 
 // ---------------------------------------------------------------------------
@@ -447,6 +435,10 @@ func TestIntegration_GetClientInfo(t *testing.T) {
 // Text messages
 // ---------------------------------------------------------------------------
 
+// The typed TextMessage has to carry what the raw notification did: the
+// target, which channel and server messages lack, and the sender's uid. The
+// raw notification arrives through OnNotification, which this also checks
+// live.
 func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 	addr := requireTeamSpeakAddr(t)
 
@@ -457,70 +449,59 @@ func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 	// notification crosses the wire between two clients.
 	sender := requireSharedClient(t)
 	senderInfo, err := sender.GetClientInfo(t.Context(), sender.ClientID())
-	if err != nil {
-		t.Fatalf("sender GetClientInfo: %v", err)
-	}
+	requireNoErr(t, err)
 	senderUID := teamspeak.UID(strings.TrimSpace(senderInfo["client_unique_identifier"]))
-	t.Logf("sender clientinfo keys: %v", mapKeys(senderInfo))
-
-	received := make(chan client.TextMessage, 1)
-	receiver.OnTextMessage(func(msg client.TextMessage) {
-		select {
-		case received <- msg:
-		default:
-		}
-	})
-
-	time.Sleep(500 * time.Millisecond)
 
 	probeText := fmt.Sprintf("cursor-probe-%d", time.Now().UTC().UnixNano())
-	err = sender.SendPrivateMessage(t.Context(), receiver.ClientID(), probeText)
-	if err != nil {
-		t.Fatalf("sender SendPrivateMessage: %v", err)
+	received := make(chan client.TextMessage, 1)
+	defer receiver.OnTextMessage(func(msg client.TextMessage) {
+		if msg.Message == probeText {
+			received <- msg
+		}
+	})()
+	raw := make(chan client.RawNotification, 1)
+	defer receiver.OnNotification(func(n client.RawNotification) {
+		if n.Name == "notifytextmessage" && n.Params["msg"] == probeText {
+			raw <- n
+		}
+	})()
+
+	time.Sleep(500 * time.Millisecond)
+	requireNoErr(t, sender.SendPrivateMessage(t.Context(), receiver.ClientID(), probeText))
+
+	msg := awaitLive(t, received, "the private text message")
+	notification := awaitLive(t, raw, "the raw notifytextmessage")
+
+	if want := strconv.FormatUint(uint64(receiver.ClientID()), 10); notification.Params["target"] != want {
+		t.Errorf("raw target = %q, want %s", notification.Params["target"], want)
 	}
-
-	var msg client.TextMessage
-	select {
-	case msg = <-received:
-	case <-time.After(10 * time.Second):
-		t.Fatalf("timeout waiting for private text notification; logs=%s", peerLogs.String())
-	}
-
-	if msg.Message != probeText {
-		t.Fatalf("unexpected message text: got %q want %q", msg.Message, probeText)
-	}
-
-	logs := peerLogs.String()
-	t.Logf("receiver logs: %s", logs)
-
-	if !strings.Contains(logs, "\"name\":\"notifytextmessage\"") {
-		t.Fatalf("expected notifytextmessage in logs, got: %s", logs)
-	}
-
-	targetNeedle := fmt.Sprintf("\"target\":\"%d\"", receiver.ClientID())
-	if !strings.Contains(logs, targetNeedle) {
-		t.Fatalf("expected raw notify target %s in logs, got: %s", targetNeedle, logs)
-	}
-
-	rawInvokerUID := teamspeak.UID(extractJSONField(logs, "\"invokeruid\":\""))
-	if rawInvokerUID == "" {
-		t.Fatalf("expected raw notify invokeruid in logs, got: %s", logs)
-	}
-
 	if msg.TargetMode != teamspeak.TextMessageTargetClient {
-		t.Fatalf("unexpected target mode: got %v want %v", msg.TargetMode, teamspeak.TextMessageTargetClient)
+		t.Errorf("target mode = %v, want %v", msg.TargetMode, teamspeak.TextMessageTargetClient)
 	}
-
 	if msg.TargetID != receiver.ClientID() {
-		t.Fatalf("parsed TargetID mismatch: got %d want %d", msg.TargetID, receiver.ClientID())
+		t.Errorf("TargetID = %d, want %d", msg.TargetID, receiver.ClientID())
 	}
-
-	expectedInvokerUID := rawInvokerUID
+	expectedInvokerUID := teamspeak.UID(notification.Params["invokeruid"])
 	if senderUID != "" {
 		expectedInvokerUID = senderUID
 	}
-	if msg.InvokerUID != expectedInvokerUID {
-		t.Fatalf("parsed InvokerUID mismatch: got %q want %q", msg.InvokerUID, expectedInvokerUID)
+	if msg.InvokerUID == "" || msg.InvokerUID != expectedInvokerUID {
+		t.Errorf("InvokerUID = %q, want %q", msg.InvokerUID, expectedInvokerUID)
+	}
+}
+
+// awaitLive waits for one value from ch, failing the test after ten seconds.
+func awaitLive[T any](t *testing.T, ch <-chan T, what string) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timed out waiting for %s; receiver logs: %s", what, peerLogs.String())
+
+		var zero T
+
+		return zero
 	}
 }
 

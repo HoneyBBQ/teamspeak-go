@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,7 +18,9 @@ import (
 	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/errcode"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
+	"github.com/honeybbq/teamspeak-go/internal/servererr"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 type commandResult struct {
@@ -72,7 +75,7 @@ type commandTracker struct {
 	pending         map[uint32]*pendingCommand
 	buffer          []bufferedRow
 	mu              sync.Mutex
-	nextRC          uint32
+	nextRC          atomic.Uint32
 	welcomeComplete bool
 }
 
@@ -94,7 +97,7 @@ func newReadyCommandTracker() *commandTracker {
 func (t *commandTracker) register(
 	spec *responseSpec, correlation string, hasCorrelation bool,
 ) (uint32, <-chan commandResult) {
-	rc := atomic.AddUint32(&t.nextRC, 1)
+	rc := t.nextRC.Add(1)
 	ch := make(chan commandResult, 1)
 	t.mu.Lock()
 	t.pending[rc] = &pendingCommand{
@@ -157,7 +160,7 @@ func (t *commandTracker) offerCorrelated(name string, params map[string]string) 
 
 		if name == c.Failure && params["status"] != "" && params["status"] != "0" {
 			t.settleLocked(rc, p, commandResult{Err: &teamspeak.ServerError{
-				Code: parseCode(params["status"]), Message: params["msg"], ExtraMessage: params["extra_msg"],
+				Code: wire.ParseCode(params["status"]), Message: params["msg"], ExtraMessage: params["extra_msg"],
 			}})
 
 			return
@@ -284,7 +287,7 @@ func (c *Client) handleCommandLines(s string) {
 		if i == len(s) || s[i] == '\n' || s[i] == 0x00 {
 			part := strings.TrimSuffix(s[start:i], "\r")
 			if part != "" {
-				rows := splitCommandRows(part)
+				rows := wire.SplitRows(part)
 				for _, row := range rows {
 					c.handleCommand(row)
 				}
@@ -321,14 +324,7 @@ func (c *Client) handleCommand(s string) {
 	}
 
 	if strings.HasPrefix(cmd.Name, "notify") {
-		// Some commands are answered by a notification instead of data rows.
-		// It still goes on to be dispatched as an event, since the same
-		// notification also arrives unprompted.
-		if c.cmdTrack.expects(cmd.Name) {
-			c.cmdTrack.collect(cmd.Params, cmd.Name)
-			c.cmdTrack.offerCorrelated(cmd.Name, cmd.Params)
-		}
-		c.handleNotification(cmd)
+		c.receiveNotification(cmd)
 
 		return
 	}
@@ -351,11 +347,31 @@ func (c *Client) handleCommand(s string) {
 	}
 }
 
+// receiveNotification hands a notification to the command awaiting it, if
+// any, and then to its handlers.
+func (c *Client) receiveNotification(cmd *commands.Command) {
+	// Some commands are answered by a notification instead of data rows. It
+	// still goes on to be dispatched as an event, since the same notification
+	// also arrives unprompted.
+	if c.cmdTrack.expects(cmd.Name) {
+		c.cmdTrack.collect(cmd.Params, cmd.Name)
+		c.cmdTrack.offerCorrelated(cmd.Name, cmd.Params)
+	}
+	c.handleNotification(cmd)
+	// After the typed event, so a handler of both sees the typed one first.
+	// Built only for someone who will see it: a copy of every notification is
+	// not free. A copy because the command tracker hands the same map to the
+	// command that asked for it.
+	if c.onNotification.any() || len(c.eventMiddlewares) > 0 {
+		c.emitEvent(RawNotification{Name: cmd.Name, Params: maps.Clone(cmd.Params)})
+	}
+}
+
 func (c *Client) handleError(cmd *commands.Command) {
 	rcStr := cmd.Params["return_code"]
 
 	var err error
-	serverErr := parseServerError(cmd.Params)
+	serverErr := servererr.Parse(cmd.Params)
 	if serverErr != nil {
 		err = serverErr
 		// Debug, not Error: the error goes back to whoever sent the command,
@@ -530,34 +546,6 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 	}
 
 	c.emitEvent(vd)
-}
-
-// parseServerError reads an error line, returning nil for success.
-func parseServerError(params map[string]string) *teamspeak.ServerError {
-	code := parseCode(params["id"])
-	if code == errcode.OK {
-		return nil
-	}
-	failedPermID, _ := strconv.ParseUint(params["failed_permid"], 10, 32)
-
-	return &teamspeak.ServerError{
-		Code:         code,
-		Message:      params["msg"],
-		ExtraMessage: params["extra_msg"],
-		FailedPermID: teamspeak.PermissionID(failedPermID),
-	}
-}
-
-// parseCode reads an error id. One that is missing or unreadable is reported
-// as errcode.Undefined: an error line that does not say what went wrong has
-// still not said that nothing did.
-func parseCode(raw string) errcode.Code {
-	code, err := strconv.ParseUint(raw, 10, 32)
-	if err != nil {
-		return errcode.Undefined
-	}
-
-	return errcode.Code(code)
 }
 
 // commandName is the name a command line starts with: what the log may say

@@ -17,7 +17,6 @@ linters:
     - gochecknoglobals
     - paralleltest
     - tparallel
-    - revive
     - mnd
     - goconst
     - gomodguard
@@ -25,6 +24,18 @@ linters:
   settings:
     govet:
       enable-all: true
+    revive:
+      # revive's default rules, with one argument changed below.
+      enable-default-rules: true
+      rules:
+        # The stutter check reads client.ClientMovedEvent as client.Client...
+        # repeated, but the two words name different things: the package is
+        # this connection, and "Client" in an event's name is the other
+        # client the event is about. client.MovedEvent would read as this
+        # client having moved, which is the confusion the name prevents.
+        - name: exported
+          arguments:
+            - disableStutteringCheck
     cyclop:
       max-complexity: 20
     gocyclo:

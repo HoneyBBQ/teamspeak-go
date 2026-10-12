@@ -30,7 +30,7 @@ Compatible with TeamSpeak 3, 5 & 6. No proprietary SDK. No copy-pasted code.
 - **Full command set** — 109 typed methods covering every command the voice protocol answers
 - **Typed ids and times** — a channel id cannot be passed where a client id belongs; timestamps are `time.Time`, durations `time.Duration`
 - **Reconnection** — Opt-in retry with backoff, tuned for TeamSpeak's antiflood ban
-- **Server capabilities** — Reports the server version and the uid hash it uses (SHA-1 on TS3, SHA-256 on TS6)
+- **Server capabilities** — Reports the server version and the uid hash it uses (SHA-1 on TS3, SHA-256 on TS6), and the server's name, icon, banner and welcome message
 - **Custom transports** — Supply your own net.PacketConn and file transfer dialer
 - **Zero CGO** — Pure Go, cross-compile anywhere
 
@@ -95,7 +95,8 @@ func main() {
 	// Connect returns once the handshake completes.
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := c.Connect(ctx); err != nil {
+	err = c.Connect(ctx)
+	if err != nil {
 		log.Fatal(err)
 	}
 
@@ -123,9 +124,10 @@ func main() {
 | `client.New(identity, addr, nickname, ...opts)` | Create a new client |
 | `Connect(ctx)` | Connect, returning once the handshake completes |
 | `Disconnect(ctx)` | Leave the server and close the connection |
+| `Status() client.Status` | `StatusDisconnected`, `StatusConnecting` or `StatusConnected` |
 | `ClientID() teamspeak.ClientID` | Our clid, assigned by the server |
 | `ChannelID() teamspeak.ChannelID` | The channel we are in |
-| `ServerCapabilities()` | Server version, family and uid hash |
+| `ServerCapabilities()` | What the server said about itself in the handshake: version, family, uid hash, name, icon, banner and welcome message |
 | `UniqueIdentifier() teamspeak.UID` | Our own uid, hashed as the server does |
 
 ### Events
@@ -135,15 +137,65 @@ func main() {
 | `OnConnected(func())` | Fires when fully connected |
 | `OnDisconnected(func(error))` | Fires on disconnect |
 | `OnTextMessage(func(TextMessage))` | Fires on text messages |
-| `OnClientEnter(func(ClientInfo))` | Fires when a client joins |
+| `OnClientEnter(func(ClientEnterEvent))` | Fires when a client comes into view; the event embeds its `teamspeak.ClientInfo` |
 | `OnClientLeave(func(ClientLeftViewEvent))` | Fires when a client leaves |
 | `OnClientMoved(func(ClientMovedEvent))` | Fires when a client moves channels |
+| `OnPoked(func(PokeEvent))` | Fires when the bot is poked |
+| `OnVoiceData(func(VoiceData))` | Fires for each audio frame another client sends |
+| `OnNotification(func(RawNotification))` | Fires for every notification, as the server sent it |
 | `OnKicked(func(KickedEvent))` | Fires when the bot is kicked from its channel or the server |
 
 Each `On` method returns a function that removes the handler. Handlers run one
 at a time, in the order their events arrived, on a goroutine of the client's
 own, so a handler may call the client and wait for an answer; a handler that
 blocks holds up the events behind it.
+
+`OnNotification` is the escape hatch for a notification the SDK has no typed
+event for. Every notification arrives there — name and unescaped parameters —
+after the typed event it produced, one per row for a batched one. Each handler
+gets its own copy of the parameters.
+
+```go
+c.OnNotification(func(n client.RawNotification) {
+	if n.Name == "notifychanneledited" {
+		fmt.Println("channel", n.Params["cid"], "edited")
+	}
+})
+```
+
+#### Event middleware
+
+Event middleware sees every server event before its handlers do — the events
+above except connected, disconnected and kicked, which report the connection
+itself and bypass it. It receives a `client.Event`, which is one of
+`TextMessage`, `ClientEnterEvent`, `ClientLeftViewEvent`, `ClientMovedEvent`,
+`PokeEvent`, `VoiceData` or `RawNotification`; it may pass the event on,
+replace it, or drop it by not calling `next`.
+
+```go
+ignoreCommands := func(next func(client.Event)) func(client.Event) {
+	return func(evt client.Event) {
+		if msg, ok := evt.(client.TextMessage); ok && strings.HasPrefix(msg.Message, "!") {
+			return // dropped: no handler sees it
+		}
+		next(evt)
+	}
+}
+c, err := client.New(id, addr, "Bot", client.WithEventMiddleware(ignoreCommands))
+```
+
+#### Server info
+
+`ServerCapabilities()` is read from `initserver`, so it costs no round trip and
+is filled in by the time `Connect` returns:
+
+```go
+caps := c.ServerCapabilities()
+fmt.Println(caps.Name, caps.Family, caps.Version)
+// caps.IconID is the icon's CRC32 (0 for none), unsigned even when the server
+// sends it signed; caps.HostBannerImageURL and caps.WelcomeMessage are as set
+// on the server.
+```
 
 ### Commands
 
@@ -218,8 +270,25 @@ line and returns the rows that answer it.
 | `StopFileTransfer(id, delete)` | Cancel a running transfer |
 | `ListActiveTransfers()` | Transfers in progress |
 | `InitFileUpload(...)` / `InitFileDownload(...)` | Negotiate a transfer; pass the result to `UploadFileData` / `DownloadFileData` |
-| `UploadFileData(host, info, reader, dialer)` | Transfer file data to the server |
-| `DownloadFileData(host, info, writer, dialer)` | Receive file data from the server |
+| `teamspeak.UploadFileData(ctx, host, info, reader, dialer)` | Transfer file data to the server |
+| `teamspeak.DownloadFileData(ctx, host, info, writer, dialer)` | Receive file data from the server |
+| `teamspeak.DialFileTransfer(ctx, host, port, key, dialer)` | Open the transfer connection yourself |
+
+The data travels over its own TCP connection to the file transfer port. `ctx`
+bounds the whole transfer: when it is done the connection is closed and the
+call returns `ctx.Err()`, so `errors.Is(err, context.Canceled)` holds. `dialer`
+is a `teamspeak.FileTransferDialer` — anything with
+`DialContext(ctx, network, addr)`, such as a `*net.Dialer` or a
+`golang.org/x/net/proxy` `ContextDialer` — or nil for a default dialer with a
+10 second connect timeout.
+
+```go
+upload, err := c.InitFileUpload(ctx, cid, "/notes.txt", uint64(len(data)), "", true)
+if err != nil {
+	return err
+}
+err = teamspeak.UploadFileData(ctx, host, upload, bytes.NewReader(data), nil)
+```
 
 ### Identity
 
@@ -260,6 +329,21 @@ Connection auth options:
 - `WithDefaultChannel(channel)` requests a default channel during `clientinit`
 - `WithDefaultChannelPassword(password)` accepts the plain-text channel password and sends the TeamSpeak protocol hash for the configured default channel
 
+### Errors
+
+A refusal from the server is a `*teamspeak.ServerError`. It matches its code
+from the `errcode` package and `teamspeak.ErrServer` with `errors.Is`:
+
+```go
+err := c.MoveClient(ctx, c.ClientID(), cid, "wrong")
+switch {
+case errors.Is(err, errcode.ChannelInvalidPassword):
+	// ask for the password again
+case errors.Is(err, teamspeak.ErrNotConnected):
+	// the connection is gone
+}
+```
+
 ## Architecture
 
 ```
@@ -271,7 +355,9 @@ teamspeak-go/
 │                      #   voice, reconnection, voice-only commands
 ├── identity/          # creating, storing and inspecting identities
 ├── commands/          # the command language: escaping, parsing, building
-└── internal/          # crypto, handshake, transport, discovery
+└── internal/          # crypto, handshake, transport, discovery; wire and
+                       #   servererr, the line format both protocols share;
+                       #   serverquery, an unpublished ServerQuery client
 ```
 
 ## Acknowledgments

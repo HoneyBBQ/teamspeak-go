@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	teamspeak "github.com/honeybbq/teamspeak-go"
-
 	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
@@ -106,7 +104,7 @@ func TestHandleHandshakeInitIV_ValidParams_SendsClientInit(t *testing.T) {
 
 	// Wire OnPacket so that the handler routes Init1 packets to handlePacket.
 	c.handler.OnPacket = c.handlePacket
-	c.handler.OnClosed = func(err error) {}
+	c.handler.OnClosed = func(error) {}
 
 	// A valid old-style handshake: alpha + beta are 10-byte base64, omega is the
 	// server's public key. We use the test identity's own public key as omega
@@ -265,7 +263,7 @@ func TestHandlePacket_Init1_Step0_SendsStep1(t *testing.T) {
 func TestHandlePacket_CommandType_RoutedToHandleCommandLines(t *testing.T) {
 	c := newTestClient(t)
 	entered := make(chan struct{}, 1)
-	c.OnClientEnter(func(_ teamspeak.ClientInfo) { entered <- struct{}{} })
+	c.OnClientEnter(func(_ ClientEnterEvent) { entered <- struct{}{} })
 
 	enterLine := "notifycliententerview clid=9 client_nickname=G" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=g"

@@ -45,6 +45,8 @@ type licenseBlock struct {
 	serverType     byte
 }
 
+// LicenseChain is the chain of license blocks a server sends in initivexpand2,
+// rooted at TeamSpeak's license root key.
 type LicenseChain struct {
 	Blocks []licenseBlock
 }
@@ -56,6 +58,8 @@ type blockPayload struct {
 	properties [][]byte
 }
 
+// ParseLicenses parses version 1 license data into its blocks. It checks each
+// block's structure, not whether the block is currently valid.
 func ParseLicenses(data []byte) (*LicenseChain, error) {
 	if len(data) < 1 {
 		return nil, errLicenseTooShort
@@ -78,6 +82,8 @@ func ParseLicenses(data []byte) (*LicenseChain, error) {
 	return res, nil
 }
 
+// DeriveKey walks the chain from the root key, folding in each block's key and
+// hash, and returns the public key the shared secret is computed against.
 func (lc *LicenseChain) DeriveKey() ([]byte, error) {
 	round := make([]byte, len(licenseRootKey))
 	copy(round, licenseRootKey)

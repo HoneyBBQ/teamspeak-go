@@ -1,3 +1,6 @@
+// Package commands reads and writes TeamSpeak command lines: a name followed
+// by key=value parameters, with values escaped so a space or a pipe cannot end
+// them early. The voice protocol and ServerQuery share the format.
 package commands
 
 import (
@@ -29,10 +32,15 @@ var escaper = strings.NewReplacer(
 	"\v", "\\v",
 )
 
+// Escape escapes a parameter value for a command line: a space becomes \s, a
+// pipe \p, a slash \/, and so on, the escapes Unescape reverses.
 func Escape(s string) string {
 	return escaper.Replace(s)
 }
 
+// BuildCommand renders a command line from a name and its parameters, escaping
+// the values. Map order is random, so the parameters' order is too; use
+// BuildCommandOrdered where order matters.
 func BuildCommand(cmd string, params map[string]string) string {
 	var res strings.Builder
 	res.WriteString(Escape(cmd))
@@ -46,6 +54,9 @@ func BuildCommand(cmd string, params map[string]string) string {
 	return res.String()
 }
 
+// BuildCommandOrdered renders a command line with its parameters in the order
+// given, escaping the values. A key starting with "-" and an empty value is
+// written as a bare flag.
 func BuildCommandOrdered(cmd string, params [][2]string) string {
 	var res strings.Builder
 	res.WriteString(Escape(cmd))

@@ -4,6 +4,10 @@ import (
 	"strings"
 )
 
+// ParseCommand reads one command line into its name and unescaped parameters,
+// or returns nil for an empty line. A line that starts with a parameter rather
+// than a name — a response row — has the name "". A line carrying several rows
+// separated by pipes must be split first; this reads it as one.
 func ParseCommand(s string) *Command {
 	if s == "" {
 		return nil
@@ -98,6 +102,7 @@ var unescaper = strings.NewReplacer(
 	"\\v", "\v",
 )
 
+// Unescape reverses Escape.
 func Unescape(s string) string {
 	return unescaper.Replace(s)
 }
