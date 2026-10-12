@@ -108,7 +108,8 @@ func TestLive_FileTransferRoundTrip(t *testing.T) {
 	if upload.FileTransferKey == "" {
 		t.Fatal("upload negotiated without a key")
 	}
-	requireNoErr(t, teamspeak.UploadFileData(t.Context(), host, upload, bytes.NewReader(payload), nil))
+	requireNoErr(t, teamspeak.UploadFileData(t.Context(), host, upload,
+		bytes.NewReader(payload), teamspeak.FileTransferOptions{}))
 	t.Cleanup(func() {
 		_ = c.DeleteFile(context.WithoutCancel(t.Context()), cid, []string{path}, teamspeak.FileOptions{})
 	})
@@ -124,7 +125,7 @@ func TestLive_FileTransferRoundTrip(t *testing.T) {
 	download, err := c.InitFileDownload(t.Context(), cid, path, teamspeak.FileDownloadOptions{})
 	requireNoErr(t, err)
 	var got bytes.Buffer
-	requireNoErr(t, teamspeak.DownloadFileData(t.Context(), host, download, &got, nil))
+	requireNoErr(t, teamspeak.DownloadFileData(t.Context(), host, download, &got, teamspeak.FileTransferOptions{}))
 	if !bytes.Equal(got.Bytes(), payload) {
 		t.Errorf("downloaded %q, want %q", got.Bytes(), payload)
 	}
@@ -161,7 +162,8 @@ func TestIntegration_DeleteFileRemovesEveryPath(t *testing.T) {
 	for _, path := range paths {
 		upload, uploadErr := c.InitFileUpload(t.Context(), cid, path, 1, teamspeak.FileUploadOptions{Overwrite: true})
 		requireNoErr(t, uploadErr)
-		requireNoErr(t, teamspeak.UploadFileData(t.Context(), host, upload, bytes.NewReader([]byte{1}), nil))
+		requireNoErr(t, teamspeak.UploadFileData(t.Context(), host, upload,
+			bytes.NewReader([]byte{1}), teamspeak.FileTransferOptions{}))
 	}
 
 	requireNoErr(t, c.DeleteFile(t.Context(), cid, paths, teamspeak.FileOptions{}))

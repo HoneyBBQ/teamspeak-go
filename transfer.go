@@ -29,17 +29,25 @@ type FileTransferDialer interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
 }
 
+// FileTransferOptions are the optional parameters of DialFileTransfer,
+// UploadFileData and DownloadFileData. The zero value dials directly.
+type FileTransferOptions struct {
+	// Dialer opens the connection; nil uses a net.Dialer with a 10 second
+	// timeout.
+	Dialer FileTransferDialer
+}
+
 // DialFileTransfer opens TCP to the TeamSpeak file-transfer port and performs
 // the ftkey handshake. The caller is responsible for closing the returned
 // connection.
 //
-// ctx bounds the dial and the handshake, not the connection returned. dialer
-// may be nil, in which case a net.Dialer with a 10 second timeout is used.
+// ctx bounds the dial and the handshake, not the connection returned.
 func DialFileTransfer(
-	ctx context.Context, host string, port uint16, key string, dialer FileTransferDialer,
+	ctx context.Context, host string, port uint16, key string, opts FileTransferOptions,
 ) (net.Conn, error) {
 	addr := net.JoinHostPort(host, strconv.Itoa(int(port)))
 
+	dialer := opts.Dialer
 	if dialer == nil {
 		dialer = &net.Dialer{Timeout: fileTransferDialTimeout}
 	}
@@ -69,9 +77,9 @@ func DialFileTransfer(
 // If ctx is done first the connection is closed and the upload stops with
 // ctx's error. An upload waiting on data's Read notices at its next write.
 func UploadFileData(
-	ctx context.Context, host string, info *FileUploadInfo, data io.Reader, dialer FileTransferDialer,
+	ctx context.Context, host string, info *FileUploadInfo, data io.Reader, opts FileTransferOptions,
 ) error {
-	conn, err := DialFileTransfer(ctx, host, info.Port, info.FileTransferKey, dialer)
+	conn, err := DialFileTransfer(ctx, host, info.Port, info.FileTransferKey, opts)
 	if err != nil {
 		return err
 	}
@@ -95,9 +103,9 @@ func UploadFileData(
 // If ctx is done first the connection is closed and the download stops with
 // ctx's error; dest keeps whatever had arrived.
 func DownloadFileData(
-	ctx context.Context, host string, info *FileDownloadInfo, dest io.Writer, dialer FileTransferDialer,
+	ctx context.Context, host string, info *FileDownloadInfo, dest io.Writer, opts FileTransferOptions,
 ) error {
-	conn, err := DialFileTransfer(ctx, host, info.Port, info.FileTransferKey, dialer)
+	conn, err := DialFileTransfer(ctx, host, info.Port, info.FileTransferKey, opts)
 	if err != nil {
 		return err
 	}

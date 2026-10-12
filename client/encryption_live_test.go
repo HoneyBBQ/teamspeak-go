@@ -47,14 +47,15 @@ func TestLive_SessionNeedsNoUnencryptedCommands(t *testing.T) {
 	opts := teamspeak.FileUploadOptions{Overwrite: true}
 	upload, err := c.InitFileUpload(t.Context(), cid, path, uint64(len(payload)), opts)
 	requireNoErr(t, err)
-	requireNoErr(t, teamspeak.UploadFileData(t.Context(), host, upload, bytes.NewReader(payload), nil))
+	requireNoErr(t, teamspeak.UploadFileData(t.Context(), host, upload,
+		bytes.NewReader(payload), teamspeak.FileTransferOptions{}))
 	t.Cleanup(func() {
 		_ = c.DeleteFile(context.WithoutCancel(t.Context()), cid, []string{path}, teamspeak.FileOptions{})
 	})
 	download, err := c.InitFileDownload(t.Context(), cid, path, teamspeak.FileDownloadOptions{})
 	requireNoErr(t, err)
 	var back bytes.Buffer
-	requireNoErr(t, teamspeak.DownloadFileData(t.Context(), host, download, &back, nil))
+	requireNoErr(t, teamspeak.DownloadFileData(t.Context(), host, download, &back, teamspeak.FileTransferOptions{}))
 	if !bytes.Equal(back.Bytes(), payload) {
 		t.Errorf("downloaded %q, want %q", back.Bytes(), payload)
 	}

@@ -278,17 +278,17 @@ line and returns the rows that answer it.
 | `StopFileTransfer(id, FileTransferStopOptions)` | Cancel a running transfer |
 | `ListActiveTransfers()` | Transfers in progress |
 | `InitFileUpload(cid, path, size, FileUploadOptions)` / `InitFileDownload(cid, path, FileDownloadOptions)` | Negotiate a transfer; pass the result to `UploadFileData` / `DownloadFileData` |
-| `teamspeak.UploadFileData(ctx, host, info, reader, dialer)` | Transfer file data to the server |
-| `teamspeak.DownloadFileData(ctx, host, info, writer, dialer)` | Receive file data from the server |
-| `teamspeak.DialFileTransfer(ctx, host, port, key, dialer)` | Open the transfer connection yourself |
+| `teamspeak.UploadFileData(ctx, host, info, reader, FileTransferOptions)` | Transfer file data to the server |
+| `teamspeak.DownloadFileData(ctx, host, info, writer, FileTransferOptions)` | Receive file data from the server |
+| `teamspeak.DialFileTransfer(ctx, host, port, key, FileTransferOptions)` | Open the transfer connection yourself |
 
 The data travels over its own TCP connection to the file transfer port. `ctx`
 bounds the whole transfer: when it is done the connection is closed and the
-call returns `ctx.Err()`, so `errors.Is(err, context.Canceled)` holds. `dialer`
-is a `teamspeak.FileTransferDialer` — anything with
-`DialContext(ctx, network, addr)`, such as a `*net.Dialer` or a
-`golang.org/x/net/proxy` `ContextDialer` — or nil for a default dialer with a
-10 second connect timeout.
+call returns `ctx.Err()`, so `errors.Is(err, context.Canceled)` holds.
+`FileTransferOptions.Dialer` is a `teamspeak.FileTransferDialer` — anything
+with `DialContext(ctx, network, addr)`, such as a `*net.Dialer` or a
+`golang.org/x/net/proxy` `ContextDialer`; the zero options dial directly, with
+a 10 second connect timeout.
 
 ```go
 upload, err := c.InitFileUpload(ctx, cid, "/notes.txt", uint64(len(data)),
@@ -296,7 +296,7 @@ upload, err := c.InitFileUpload(ctx, cid, "/notes.txt", uint64(len(data)),
 if err != nil {
 	return err
 }
-err = teamspeak.UploadFileData(ctx, host, upload, bytes.NewReader(data), nil)
+err = teamspeak.UploadFileData(ctx, host, upload, bytes.NewReader(data), teamspeak.FileTransferOptions{})
 ```
 
 ### Identity

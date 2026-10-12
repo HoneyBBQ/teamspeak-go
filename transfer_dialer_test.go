@@ -55,7 +55,7 @@ func TestDialFileTransfer_UsesTheSuppliedDialer(t *testing.T) {
 		return client, nil
 	})
 
-	conn, err := teamspeak.DialFileTransfer(t.Context(), "transfer.example", 30033, "the-key", dialer)
+	conn, err := teamspeak.DialFileTransfer(t.Context(), "transfer.example", 30033, "the-key", viaDialer(dialer))
 	if err != nil {
 		t.Fatalf("DialFileTransfer: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestDialFileTransfer_ReportsADialFailure(t *testing.T) {
 		return nil, &net.AddrError{Err: "no route to host", Addr: "transfer.example:30033"}
 	})
 
-	_, err := teamspeak.DialFileTransfer(t.Context(), "transfer.example", 30033, "k", dialer)
+	_, err := teamspeak.DialFileTransfer(t.Context(), "transfer.example", 30033, "k", viaDialer(dialer))
 	if err == nil {
 		t.Fatal("expected a dial error")
 	}
@@ -97,7 +97,7 @@ func TestDialFileTransfer_RespectsTheDeadline(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, err := teamspeak.DialFileTransfer(ctx, "transfer.example", 30033, "k", dialer)
+	_, err := teamspeak.DialFileTransfer(ctx, "transfer.example", 30033, "k", viaDialer(dialer))
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
 	}
@@ -111,7 +111,7 @@ func TestDialFileTransfer_DefaultDialerRespectsTheDeadline(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	_, err := teamspeak.DialFileTransfer(ctx, "127.0.0.1", 9, "k", nil)
+	_, err := teamspeak.DialFileTransfer(ctx, "127.0.0.1", 9, "k", teamspeak.FileTransferOptions{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
@@ -131,7 +131,7 @@ func TestDownloadFileData_StopsWhenCancelled(t *testing.T) {
 
 	var got bytes.Buffer
 	info := &teamspeak.FileDownloadInfo{FileTransferKey: "key", Port: 30033, Size: 1 << 20}
-	err := teamspeak.DownloadFileData(ctx, "transfer.example", info, &got, dialer)
+	err := teamspeak.DownloadFileData(ctx, "transfer.example", info, &got, viaDialer(dialer))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
@@ -154,7 +154,7 @@ func TestUploadFileData_StopsWhenCancelled(t *testing.T) {
 
 	info := &teamspeak.FileUploadInfo{FileTransferKey: "key", Port: 30033}
 	data := bytes.NewReader(make([]byte, 1<<20))
-	err := teamspeak.UploadFileData(ctx, "transfer.example", info, data, dialer)
+	err := teamspeak.UploadFileData(ctx, "transfer.example", info, data, viaDialer(dialer))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
@@ -172,11 +172,15 @@ func TestDownloadFileData_ReadsUntilTheServerCloses(t *testing.T) {
 
 	var got bytes.Buffer
 	info := &teamspeak.FileDownloadInfo{FileTransferKey: "key", Port: 30033, Size: 10}
-	err := teamspeak.DownloadFileData(t.Context(), "transfer.example", info, &got, dialer)
+	err := teamspeak.DownloadFileData(t.Context(), "transfer.example", info, &got, viaDialer(dialer))
 	if err != nil {
 		t.Fatalf("DownloadFileData: %v", err)
 	}
 	if got.String() != "whole file" {
 		t.Errorf("dest = %q, want %q", got.String(), "whole file")
 	}
+}
+
+func viaDialer(d teamspeak.FileTransferDialer) teamspeak.FileTransferOptions {
+	return teamspeak.FileTransferOptions{Dialer: d}
 }
