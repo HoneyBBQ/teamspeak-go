@@ -3,7 +3,7 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
-## v1.0.0-beta.1 (unreleased)
+## v1.0.0-beta.1 (2026-10-12)
 
 The API settled for 1.0. Almost every signature changed; the
 [migration guide](#migrating-from-v02-and-v03) below walks through each one.
