@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -71,14 +72,20 @@ func TestIntegration_BatchedEnterInheritsOmittedFields(t *testing.T) {
 	requireSharedClient(t)
 	observer := requireIntegrationPeer(t, addr)
 
+	var mu sync.Mutex
 	seen := make(map[string]uint64)
-	observer.OnClientEnter(func(info teamspeak.ClientInfo) {
+	unsubscribe := observer.OnClientEnter(func(info teamspeak.ClientInfo) {
+		mu.Lock()
 		seen[info.Nickname] = info.ChannelID
+		mu.Unlock()
 	})
+	defer unsubscribe()
 	time.Sleep(2 * time.Second)
 
+	mu.Lock()
 	shared, okShared := seen["teamspeak-go-integ"]
 	peerCid, okPeer := seen["teamspeak-go-peer"]
+	mu.Unlock()
 	t.Logf("batched enter: shared cid=%d (seen=%t) peer cid=%d (seen=%t)", shared, okShared, peerCid, okPeer)
 
 	if !okShared || !okPeer {

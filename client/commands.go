@@ -508,14 +508,15 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 		return
 	}
 
-	c.mu.Lock()
-	handlers := c.voiceDataHandlers
-	selfID := c.clid
-	c.mu.Unlock()
-
-	if len(handlers) == 0 {
+	// Audio arrives fifty times a second per speaker; build no event nobody
+	// will see.
+	if !c.onVoiceData.any() && len(c.eventMiddlewares) == 0 {
 		return
 	}
+
+	c.mu.Lock()
+	selfID := c.clid
+	c.mu.Unlock()
 
 	speakerID := binary.BigEndian.Uint16(p.Data[2:4])
 	if speakerID == selfID {
@@ -528,7 +529,7 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 		Data:     append([]byte(nil), p.Data[5:]...),
 	}
 
-	c.finalEvtHandler(vd)
+	c.emitEvent(vd)
 }
 
 // parseServerError reads an error line, returning nil for success.

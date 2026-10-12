@@ -2,122 +2,217 @@ package client
 
 import (
 	"context"
+	"slices"
+	"sync"
 	"testing"
 	"time"
+
+	teamspeak "github.com/honeybbq/teamspeak-go"
 )
+
+// receive waits for one value from ch.
+func receive[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(time.Second):
+		t.Fatal("handler not called")
+
+		var zero T
+
+		return zero
+	}
+}
+
+// settle waits for every queued delivery to finish.
+func settle(t *testing.T, c *Client) {
+	t.Helper()
+	done := make(chan struct{})
+	c.events.push(func() { close(done) })
+	receive(t, done)
+}
 
 func TestOnTextMessage_RegistersHandler(t *testing.T) {
 	c := newTestClient(t)
-
 	called := make(chan TextMessage, 1)
 	c.OnTextMessage(func(m TextMessage) { called <- m })
-	c.rebuildMiddlewareChains()
 
-	c.finalEvtHandler(TextMessage{Message: "hi"})
+	c.emitEvent(TextMessage{Message: "hi"})
 
-	select {
-	case m := <-called:
-		if m.Message != "hi" {
-			t.Errorf("expected 'hi', got %q", m.Message)
-		}
-	case <-time.After(time.Second):
-		t.Error("OnTextMessage handler not called")
+	if m := receive(t, called); m.Message != "hi" {
+		t.Errorf("got %q, want hi", m.Message)
 	}
 }
 
 func TestOnClientLeave_RegistersHandler(t *testing.T) {
 	c := newTestClient(t)
-
 	called := make(chan ClientLeftViewEvent, 1)
 	c.OnClientLeave(func(e ClientLeftViewEvent) { called <- e })
-	c.rebuildMiddlewareChains()
 
-	c.finalEvtHandler(ClientLeftViewEvent{ID: 5})
+	c.emitEvent(ClientLeftViewEvent{ID: 5})
 
-	select {
-	case e := <-called:
-		if e.ID != 5 {
-			t.Errorf("expected ID=5, got %d", e.ID)
-		}
-	case <-time.After(time.Second):
-		t.Error("OnClientLeave handler not called")
+	if e := receive(t, called); e.ID != 5 {
+		t.Errorf("got ID %d, want 5", e.ID)
 	}
 }
 
-func TestOnDisconnected_RegistersHandler(t *testing.T) {
+func TestOnDisconnected_HearsADeliberateDisconnectAsNil(t *testing.T) {
 	c := newTestClient(t)
-
+	c.mu.Lock()
+	c.status = StatusConnecting
+	c.mu.Unlock()
 	called := make(chan error, 1)
 	c.OnDisconnected(func(err error) { called <- err })
 
-	// OnDisconnected handlers are called by onClosed; fire it directly.
-	c.mu.Lock()
-	handlers := c.disconnectedHandlers
-	c.mu.Unlock()
-
-	for _, h := range handlers {
-		go h(nil)
+	err := c.Disconnect(context.Background())
+	if err != nil {
+		t.Fatalf("Disconnect: %v", err)
 	}
 
-	select {
-	case <-called:
-	case <-time.After(time.Second):
-		t.Error("OnDisconnected handler not called")
+	got := receive(t, called)
+	if got != nil {
+		t.Errorf("OnDisconnected got %v, want nil after Disconnect", got)
 	}
 }
 
 func TestMultipleHandlers_AllCalled(t *testing.T) {
 	c := newTestClient(t)
-
 	a := make(chan struct{}, 1)
 	b := make(chan struct{}, 1)
-	c.OnTextMessage(func(_ TextMessage) { a <- struct{}{} })
-	c.OnTextMessage(func(_ TextMessage) { b <- struct{}{} })
-	c.rebuildMiddlewareChains()
+	c.OnTextMessage(func(TextMessage) { a <- struct{}{} })
+	c.OnTextMessage(func(TextMessage) { b <- struct{}{} })
 
-	c.finalEvtHandler(TextMessage{Message: "test"})
+	c.emitEvent(TextMessage{Message: "test"})
 
-	for _, ch := range []chan struct{}{a, b} {
-		select {
-		case <-ch:
-		case <-time.After(time.Second):
-			t.Error("not all handlers called")
-		}
+	receive(t, a)
+	receive(t, b)
+}
+
+// Each handler used to run on a goroutine of its own, so a client that entered
+// and left could be reported leaving first.
+func TestEvents_ArriveInOrder(t *testing.T) {
+	c := newTestClient(t)
+	var mu sync.Mutex
+	var got []uint16
+	c.OnClientEnter(func(info teamspeak.ClientInfo) {
+		mu.Lock()
+		got = append(got, info.ID)
+		mu.Unlock()
+	})
+
+	want := make([]uint16, 0, 200)
+	for i := range uint16(200) {
+		want = append(want, i)
+		c.emitEvent(teamspeak.ClientInfo{ID: i})
+	}
+	settle(t, c)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(got, want) {
+		t.Errorf("events out of order: %v", got)
 	}
 }
 
-func TestUseCommandMiddleware_InterceptsCommands(t *testing.T) {
+func TestEvents_UnsubscribeStopsDelivery(t *testing.T) {
 	c := newTestClient(t)
+	called := make(chan TextMessage, 2)
+	unsubscribe := c.OnTextMessage(func(m TextMessage) { called <- m })
 
+	c.emitEvent(TextMessage{Message: "first"})
+	receive(t, called)
+
+	unsubscribe()
+	unsubscribe() // a second call is harmless
+	c.emitEvent(TextMessage{Message: "second"})
+	settle(t, c)
+
+	select {
+	case m := <-called:
+		t.Errorf("handler called after unsubscribe with %q", m.Message)
+	default:
+	}
+}
+
+// An event already queued when its handler is removed is not delivered to it.
+func TestEvents_UnsubscribeCoversQueuedEvents(t *testing.T) {
+	c := newTestClient(t)
+	release := make(chan struct{})
+	c.OnConnected(func() { <-release })
+	called := make(chan TextMessage, 1)
+	unsubscribe := c.OnTextMessage(func(m TextMessage) { called <- m })
+
+	emit(c, &c.onConnected, struct{}{}) // holds the queue
+	c.emitEvent(TextMessage{Message: "queued"})
+	unsubscribe()
+	close(release)
+	settle(t, c)
+
+	select {
+	case <-called:
+		t.Error("removed handler got an event queued before its removal")
+	default:
+	}
+}
+
+// A handler that waits on the client — here, for the next event — must not
+// stall the code that produces events.
+func TestEvents_ABlockedHandlerDoesNotBlockTheProducer(t *testing.T) {
+	c := newTestClient(t)
+	release := make(chan struct{})
+	c.OnTextMessage(func(TextMessage) { <-release })
+	defer close(release)
+
+	done := make(chan struct{})
+	go func() {
+		for range 100 {
+			c.emitEvent(TextMessage{})
+		}
+		close(done)
+	}()
+	receive(t, done)
+}
+
+func TestEvents_EachHandlerGetsItsOwnCopy(t *testing.T) {
+	c := newTestClient(t)
+	seen := make(chan []uint64, 2)
+	c.OnTextMessage(func(m TextMessage) {
+		m.InvokerGroups[0] = 99
+		seen <- m.InvokerGroups
+	})
+	c.OnTextMessage(func(m TextMessage) { seen <- m.InvokerGroups })
+
+	c.emitEvent(TextMessage{InvokerGroups: []uint64{1, 2}})
+
+	receive(t, seen)
+	if second := receive(t, seen); second[0] != 1 {
+		t.Errorf("second handler saw %v; the first handler's change leaked", second)
+	}
+}
+
+func TestCommandMiddleware_InterceptsCommands(t *testing.T) {
 	intercepted := make(chan string, 1)
-	c.UseCommandMiddleware(func(next func(string) error) func(string) error {
+	c := newTestClient(t, WithCommandMiddleware(func(next func(string) error) func(string) error {
 		return func(cmd string) error {
 			intercepted <- cmd
 
 			return next(cmd)
 		}
-	})
+	}))
 
 	err := c.finalCmdHandler("test cmd")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	select {
-	case cmd := <-intercepted:
-		if cmd != "test cmd" {
-			t.Errorf("expected 'test cmd', got %q", cmd)
-		}
-	case <-time.After(time.Second):
-		t.Error("middleware not called")
+	if cmd := receive(t, intercepted); cmd != "test cmd" {
+		t.Errorf("got %q, want test cmd", cmd)
 	}
 }
 
-func TestUseCommandMiddleware_ChainOrder(t *testing.T) {
-	c := newTestClient(t)
-
+func TestCommandMiddleware_ChainOrder(t *testing.T) {
 	var order []string
-	c.UseCommandMiddleware(
+	c := newTestClient(t, WithCommandMiddleware(
 		func(next func(string) error) func(string) error {
 			return func(cmd string) error {
 				order = append(order, "first")
@@ -132,98 +227,83 @@ func TestUseCommandMiddleware_ChainOrder(t *testing.T) {
 				return next(cmd)
 			}
 		},
-	)
+	))
 
 	_ = c.finalCmdHandler("x")
 
-	if len(order) != 2 || order[0] != "first" || order[1] != "second" {
-		t.Errorf("unexpected middleware order: %v", order)
+	if !slices.Equal(order, []string{"first", "second"}) {
+		t.Errorf("middleware order = %v, want first, second", order)
 	}
 }
 
-func TestUseCommandMiddleware_CanShortCircuit(t *testing.T) {
-	c := newTestClient(t)
+func TestCommandMiddleware_CanShortCircuit(t *testing.T) {
+	reached := false
+	c := newTestClient(t,
+		WithCommandMiddleware(func(next func(string) error) func(string) error {
+			return func(cmd string) error {
+				if cmd == "blocked" {
+					return nil // don't call next
+				}
 
-	sent := make(chan string, 1)
-	c.UseCommandMiddleware(func(next func(string) error) func(string) error {
-		return func(cmd string) error {
-			if cmd == "blocked" {
-				return nil // don't call next
+				return next(cmd)
 			}
+		}),
+		WithCommandMiddleware(func(func(string) error) func(string) error {
+			return func(string) error {
+				reached = true
 
-			return next(cmd)
-		}
-	})
-
-	// Wrap the base handler to detect if it was called.
-	origBase := c.finalCmdHandler
-	c.finalCmdHandler = func(cmd string) error {
-		sent <- cmd
-
-		return origBase(cmd)
-	}
-	// Re-apply middleware on top of new base.
-	c.UseCommandMiddleware()
+				return nil
+			}
+		}),
+	)
 
 	_ = c.ExecNoWait(context.Background(), "blocked")
 
-	select {
-	case <-sent:
-		t.Error("short-circuited command should not reach base handler")
-	case <-time.After(50 * time.Millisecond):
+	if reached {
+		t.Error("short-circuited command reached the next middleware")
 	}
 }
 
-func TestUseEventMiddleware_InterceptsEvents(t *testing.T) {
-	c := newTestClient(t)
-
+func TestEventMiddleware_InterceptsEvents(t *testing.T) {
 	intercepted := make(chan any, 1)
-	c.UseEventMiddleware(func(next func(any)) func(any) {
+	c := newTestClient(t, WithEventMiddleware(func(next func(any)) func(any) {
 		return func(evt any) {
 			intercepted <- evt
 			next(evt)
 		}
-	})
+	}))
 
-	c.finalEvtHandler(TextMessage{Message: "intercepted"})
+	c.emitEvent(TextMessage{Message: "intercepted"})
 
-	select {
-	case evt := <-intercepted:
-		if m, ok := evt.(TextMessage); !ok || m.Message != "intercepted" {
-			t.Errorf("unexpected event: %v", evt)
-		}
-	case <-time.After(time.Second):
-		t.Error("event middleware not called")
+	if m, ok := receive(t, intercepted).(TextMessage); !ok || m.Message != "intercepted" {
+		t.Errorf("unexpected event: %v", m)
 	}
 }
 
-func TestUseEventMiddleware_CanFilter(t *testing.T) {
-	c := newTestClient(t)
-
-	reached := make(chan TextMessage, 1)
-	c.OnTextMessage(func(m TextMessage) { reached <- m })
-
-	// Filter: block all text messages.
-	c.UseEventMiddleware(func(next func(any)) func(any) {
+func TestEventMiddleware_CanFilter(t *testing.T) {
+	c := newTestClient(t, WithEventMiddleware(func(next func(any)) func(any) {
 		return func(evt any) {
 			if _, ok := evt.(TextMessage); ok {
 				return // drop
 			}
 			next(evt)
 		}
-	})
+	}))
+	reached := make(chan TextMessage, 1)
+	c.OnTextMessage(func(m TextMessage) { reached <- m })
 
-	c.finalEvtHandler(TextMessage{Message: "filtered"})
+	c.emitEvent(TextMessage{Message: "filtered"})
+	settle(t, c)
 
 	select {
 	case <-reached:
-		t.Error("filtered event should not reach handler")
-	case <-time.After(50 * time.Millisecond):
+		t.Error("filtered event reached the handler")
+	default:
 	}
 }
 
-func TestFinalEvtHandler_UnknownType_NoPanic(t *testing.T) {
+func TestEmitEvent_UnknownType_NoPanic(t *testing.T) {
 	c := newTestClient(t)
-	// Should not panic for an unhandled event type.
-	c.finalEvtHandler(struct{ X int }{X: 42})
+	c.emitEvent(struct{ X int }{X: 42})
+	settle(t, c)
 }

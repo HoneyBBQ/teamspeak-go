@@ -266,7 +266,6 @@ func TestHandlePacket_CommandType_RoutedToHandleCommandLines(t *testing.T) {
 	c := newTestClient(t)
 	entered := make(chan struct{}, 1)
 	c.OnClientEnter(func(_ teamspeak.ClientInfo) { entered <- struct{}{} })
-	c.rebuildMiddlewareChains()
 
 	enterLine := "notifycliententerview clid=9 client_nickname=G" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=g"

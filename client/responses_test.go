@@ -14,18 +14,6 @@ import (
 	"github.com/honeybbq/teamspeak-go/identity"
 )
 
-func receive(t *testing.T, ch <-chan commandResult) commandResult {
-	t.Helper()
-	select {
-	case res := <-ch:
-		return res
-	case <-time.After(time.Second):
-		t.Fatal("command not resolved")
-
-		return commandResult{}
-	}
-}
-
 // The server answers in order, so the rows before error 1 are command 1's,
 // whatever order the two were registered in. They used to go to the newest
 // pending command instead.
@@ -195,15 +183,14 @@ func TestFlags_AreSentBare(t *testing.T) {
 // The answer arrives after the command returns and is matched only by the
 // echoed clientftfid, so two negotiations must not share one.
 func TestInitFileUpload_GivesEachNegotiationItsOwnID(t *testing.T) {
-	c := newTestClient(t)
 	ids := make([]string, 0, 2)
-	c.UseCommandMiddleware(func(_ func(string) error) func(string) error {
+	c := newTestClient(t, WithCommandMiddleware(func(_ func(string) error) func(string) error {
 		return func(cmd string) error {
 			ids = append(ids, commands.ParseCommand(cmd).Params["clientftfid"])
 
 			return errCaptured
 		}
-	})
+	}))
 	_, _ = c.InitFileUpload(t.Context(), 1, "/a", 3, "", true)
 	_, _ = c.InitFileUpload(t.Context(), 1, "/b", 3, "", true)
 

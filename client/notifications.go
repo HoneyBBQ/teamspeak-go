@@ -68,7 +68,7 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 		}
 		c.mu.Unlock()
 
-		c.finalEvtHandler(info)
+		c.emitEvent(info)
 	}
 }
 
@@ -82,7 +82,6 @@ func (c *Client) handleClientLeftView(cmd *commands.Command) {
 		c.mu.Lock()
 		isSelf := (clid == c.clid)
 		delete(c.clients, clid)
-		kickHandlers := c.kickedHandlers
 		c.mu.Unlock()
 
 		evt := ClientLeftViewEvent{
@@ -91,12 +90,10 @@ func (c *Client) handleClientLeftView(cmd *commands.Command) {
 			ReasonMsg: reasonMsg,
 		}
 
-		c.finalEvtHandler(evt)
+		c.emitEvent(evt)
 
 		if isSelf && (reasonID == 4 || reasonID == 5) {
-			for _, h := range kickHandlers {
-				go h(reasonMsg)
-			}
+			emit(c, &c.onKicked, reasonMsg)
 		}
 	}
 }
@@ -124,7 +121,7 @@ func (c *Client) handleClientMoved(cmd *commands.Command) {
 			InvokerUID:      cmd.Params["invokeruid"],
 		}
 
-		c.finalEvtHandler(evt)
+		c.emitEvent(evt)
 	}
 }
 
@@ -157,7 +154,7 @@ func (c *Client) handleTextMessage(cmd *commands.Command) {
 		slog.String("invoker_uid", msg.InvokerUID),
 		slog.String("message", cmd.Params["msg"]))
 
-	c.finalEvtHandler(msg)
+	c.emitEvent(msg)
 }
 
 func (c *Client) handleClientPoke(cmd *commands.Command) {
@@ -174,5 +171,5 @@ func (c *Client) handleClientPoke(cmd *commands.Command) {
 		slog.String("invoker_uid", evt.InvokerUID),
 		slog.String("message", evt.Message))
 
-	c.finalEvtHandler(evt)
+	c.emitEvent(evt)
 }

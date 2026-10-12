@@ -64,13 +64,13 @@ func mustNew(t *testing.T, id *identity.Identity, nickname string, opts ...Optio
 	return c
 }
 
-func newTestClient(t *testing.T) *Client {
+func newTestClient(t *testing.T, opts ...Option) *Client {
 	t.Helper()
 	id, err := identity.Parse(testClientIdentity)
 	if err != nil {
 		t.Fatalf("IdentityFromString: %v", err)
 	}
-	c := mustNew(t, id, "TestBot")
+	c := mustNew(t, id, "TestBot", opts...)
 	// Command responses are only collected once the welcome sequence has
 	// finished; these tests never run a handshake, so mark it complete rather
 	// than making every one of them replay a channellistfinished first.

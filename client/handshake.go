@@ -131,7 +131,6 @@ func (c *Client) handleInitServer(cmd *commands.Command) {
 		c.uidAlgorithm = c.capabilities.UIDAlgorithm
 	}
 
-	handlers := c.connectedHandlers
 	c.attempt.finish(nil)
 	c.mu.Unlock()
 
@@ -145,9 +144,7 @@ func (c *Client) handleInitServer(cmd *commands.Command) {
 		_ = c.ExecNoWait(context.Background(), updateCmd)
 	}()
 
-	for _, h := range handlers {
-		go h()
-	}
+	emit(c, &c.onConnected, struct{}{})
 }
 
 func (c *Client) sendClientInit() {

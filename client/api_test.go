@@ -12,15 +12,14 @@ var errCaptured = errors.New("captured")
 // command and stops it before it reaches the wire.
 func captureCommand(t *testing.T, fn func(*Client) error) string {
 	t.Helper()
-	c := newTestClient(t)
 	var sent string
-	c.UseCommandMiddleware(func(_ func(string) error) func(string) error {
+	c := newTestClient(t, WithCommandMiddleware(func(_ func(string) error) func(string) error {
 		return func(cmd string) error {
 			sent = cmd
 
 			return errCaptured
 		}
-	})
+	}))
 	err := fn(c)
 	if !errors.Is(err, errCaptured) {
 		t.Fatalf("expected the captured sentinel, got %v", err)

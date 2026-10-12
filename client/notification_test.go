@@ -39,7 +39,6 @@ func TestHandleClientEnterView_TriggersCallback(t *testing.T) {
 
 	entered := make(chan teamspeak.ClientInfo, 1)
 	c.OnClientEnter(func(ci teamspeak.ClientInfo) { entered <- ci })
-	c.rebuildMiddlewareChains()
 
 	const enterCmd2 = "notifycliententerview clid=5 client_nickname=Alice" +
 		" ctid=10 client_type=0 client_servergroups= client_unique_identifier=uid123"
@@ -212,7 +211,6 @@ func TestHandleClientMoved_TriggersCallback(t *testing.T) {
 
 	moved := make(chan ClientMovedEvent, 1)
 	c.OnClientMoved(func(e ClientMovedEvent) { moved <- e })
-	c.rebuildMiddlewareChains()
 
 	const moveCmd2 = "notifyclientmoved clid=3 ctid=20 reasonid=0" +
 		" invokerid=1 invokername=Admin invokeruid=admin"
@@ -236,7 +234,6 @@ func TestHandleTextMessage_CallsCallback(t *testing.T) {
 
 	msgs := make(chan TextMessage, 1)
 	c.OnTextMessage(func(m TextMessage) { msgs <- m })
-	c.rebuildMiddlewareChains()
 
 	cmd := commands.ParseCommand(
 		"notifytextmessage targetmode=1 target=7 invokerid=2 " +
@@ -268,7 +265,6 @@ func TestHandleTextMessage_FallbackToClientCacheUID(t *testing.T) {
 
 	msgs := make(chan TextMessage, 1)
 	c.OnTextMessage(func(m TextMessage) { msgs <- m })
-	c.rebuildMiddlewareChains()
 
 	cmd := commands.ParseCommand("notifytextmessage targetmode=2 invokerid=99 invokername=Unknown msg=hi")
 	c.handleTextMessage(cmd)
@@ -291,7 +287,6 @@ func TestHandleTextMessage_MissingInvoker_NoUID(t *testing.T) {
 
 	msgs := make(chan TextMessage, 1)
 	c.OnTextMessage(func(m TextMessage) { msgs <- m })
-	c.rebuildMiddlewareChains()
 
 	cmd := commands.ParseCommand("notifytextmessage targetmode=2 invokerid=99 invokername=Unknown msg=hi")
 	c.handleTextMessage(cmd)
@@ -311,7 +306,6 @@ func TestHandleClientPoke_TriggersCallback(t *testing.T) {
 
 	poked := make(chan PokeEvent, 1)
 	c.OnPoked(func(e PokeEvent) { poked <- e })
-	c.rebuildMiddlewareChains()
 
 	cmd := commands.ParseCommand(
 		"notifyclientpoke invokerid=5 invokername=Alice invokeruid=uid123 msg=hello",
@@ -342,7 +336,6 @@ func TestHandleClientPoke_EmptyMessage(t *testing.T) {
 
 	poked := make(chan PokeEvent, 1)
 	c.OnPoked(func(e PokeEvent) { poked <- e })
-	c.rebuildMiddlewareChains()
 
 	cmd := commands.ParseCommand(
 		"notifyclientpoke invokerid=3 invokername=Bob invokeruid=uid456 msg=",
@@ -364,7 +357,6 @@ func TestHandleNotification_DispatchesPoke(t *testing.T) {
 
 	poked := make(chan PokeEvent, 1)
 	c.OnPoked(func(e PokeEvent) { poked <- e })
-	c.rebuildMiddlewareChains()
 
 	cmd := commands.ParseCommand(
 		"notifyclientpoke invokerid=5 invokername=Alice invokeruid=uid123 msg=hey",

@@ -110,9 +110,10 @@ type Client struct {
 	cmdTrack        *commandTracker
 	throttle        *commandThrottle
 	clients         map[uint16]teamspeak.ClientInfo
-	finalEvtHandler func(any)
-	addr            string
-	nickname        string
+	// evtChain is the event middleware wrapped around dispatchEvent.
+	evtChain func(any)
+	addr     string
+	nickname string
 	// uidAlgorithm is the hash the connected server uses for
 	// client_unique_identifier, learned from virtualserver_version during
 	// initserver: SHA-1 on TS3, SHA-256 on TS6.
@@ -129,21 +130,22 @@ type Client struct {
 	reconnecting bool
 	// stopped is set by an explicit Disconnect, which must never be undone by a
 	// retry.
-	stopped              bool
-	textMsgHandlers      []func(TextMessage)
-	cmdMiddlewares       []CommandMiddleware
-	eventMiddlewares     []EventMiddleware
-	clientEnterHandlers  []func(teamspeak.ClientInfo)
-	clientLeaveHandlers  []func(ClientLeftViewEvent)
-	clientMoveHandlers   []func(ClientMovedEvent)
-	connectedHandlers    []func()
-	disconnectedHandlers []func(error)
-	pokedHandlers        []func(PokeEvent)
-	kickedHandlers       []func(string)
-	voiceDataHandlers    []func(VoiceData)
-	status               ClientStatus
-	mu                   sync.Mutex
-	clid                 uint16
+	stopped          bool
+	cmdMiddlewares   []CommandMiddleware
+	eventMiddlewares []EventMiddleware
+	events           eventQueue
+	onTextMessage    subscribers[TextMessage]
+	onClientEnter    subscribers[teamspeak.ClientInfo]
+	onClientLeave    subscribers[ClientLeftViewEvent]
+	onClientMoved    subscribers[ClientMovedEvent]
+	onConnected      subscribers[struct{}]
+	onDisconnected   subscribers[error]
+	onPoked          subscribers[PokeEvent]
+	onKicked         subscribers[string]
+	onVoiceData      subscribers[VoiceData]
+	status           ClientStatus
+	mu               sync.Mutex
+	clid             uint16
 }
 
 // ErrInvalidConfig reports a client New cannot build as configured.
@@ -187,7 +189,7 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 		c.resolver = defaultResolver{resolver: discovery.NewResolver(c.logger)}
 	}
 
-	c.rebuildMiddlewareChains()
+	c.buildMiddlewareChains()
 
 	return c, nil
 }
@@ -325,7 +327,6 @@ func (c *Client) Disconnect(ctx context.Context) error {
 	c.status = StatusDisconnected
 	c.attempt.finish(errDisconnectedDuringHandshake)
 	handler := c.handler
-	handlers := c.disconnectedHandlers
 	c.mu.Unlock()
 
 	c.logger.InfoContext(ctx, "disconnecting from server")
@@ -341,11 +342,9 @@ func (c *Client) Disconnect(ctx context.Context) error {
 
 	err := handler.Close()
 	c.cmdTrack.reset(teamspeak.ErrNotConnected)
-	// Invoke disconnected handlers here; handleConnectionClosed skips them once
-	// status is already Disconnected to avoid duplicate callbacks.
-	for _, h := range handlers {
-		go h(nil)
-	}
+	// Announced here; handleConnectionClosed stays quiet once the status is
+	// already Disconnected, so the handlers hear about it once.
+	emit(c, &c.onDisconnected, nil)
 
 	return err
 }
@@ -481,13 +480,10 @@ func (c *Client) failConnection(err error) {
 	}
 	c.status = StatusDisconnected
 	handler := c.handler
-	handlers := c.disconnectedHandlers
 	c.mu.Unlock()
 
 	_ = handler.Close()
-	for _, h := range handlers {
-		go h(err)
-	}
+	emit(c, &c.onDisconnected, err)
 }
 
 func (c *Client) handleConnectionClosed(err error) {
@@ -518,15 +514,12 @@ func (c *Client) handleConnectionClosed(err error) {
 		return
 	}
 	c.status = StatusDisconnected
-	handlers := c.disconnectedHandlers
 	c.mu.Unlock()
 
 	// Announced first, then retried: a caller watching OnDisconnected should
 	// hear about the drop even when a reconnect is already on its way, because
 	// a silent recovery hides an outage.
-	for _, h := range handlers {
-		go h(err)
-	}
+	emit(c, &c.onDisconnected, err)
 
 	go c.scheduleReconnect(err)
 }

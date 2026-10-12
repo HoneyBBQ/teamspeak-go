@@ -139,6 +139,11 @@ func main() {
 | `OnClientMoved(func(ClientMovedEvent))` | Fires when a client moves channels |
 | `OnKicked(func(string))` | Fires when the bot is kicked |
 
+Each `On` method returns a function that removes the handler. Handlers run one
+at a time, in the order their events arrived, on a goroutine of the client's
+own, so a handler may call the client and wait for an answer; a handler that
+blocks holds up the events behind it.
+
 ### Commands
 
 Every command is a typed method taking a context, defined once in the root

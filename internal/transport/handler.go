@@ -94,11 +94,12 @@ type PacketHandler struct {
 	mu                   sync.Mutex
 	// lifecycleMu orders Start and Close: a Close that races a Start either
 	// sees the connection and closes it, or makes Start refuse it.
-	lifecycleMu      sync.Mutex
-	closed           atomic.Bool
-	started          atomic.Bool
-	packetCounter    [9]uint16
-	clientID         uint16
+	lifecycleMu   sync.Mutex
+	closed        atomic.Bool
+	started       atomic.Bool
+	packetCounter [9]uint16
+	// clientID is written once the server assigns it and read on every send.
+	clientID         atomic.Uint32
 	nextCommandLowID uint16
 	nextCommandID    uint16
 }
@@ -138,9 +139,7 @@ func NewPacketHandler(tsCrypt *crypto.Crypt, logger *slog.Logger) *PacketHandler
 }
 
 func (h *PacketHandler) SetClientID(id uint16) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.clientID = id
+	h.clientID.Store(uint32(id))
 }
 
 // Connect resolves addr as a UDP address, dials it, and calls Start.
@@ -233,7 +232,7 @@ func (h *PacketHandler) sendPacket(pType byte, data []byte, flags byte, dummy bo
 		ID:           pID,
 		GenerationID: pGen,
 		Data:         data,
-		ClientID:     h.clientID,
+		ClientID:     uint16(h.clientID.Load()), //nolint:gosec // stored from a uint16
 	}
 
 	unencrypted := (flags&byte(PacketFlagUnencrypted) != 0)
@@ -903,7 +902,7 @@ func (h *PacketHandler) SendVoicePacket(data []byte, codec byte) error {
 	if h.packetCounter[PacketTypeVoice] == 0 {
 		h.generationCounter[PacketTypeVoice]++
 	}
-	clid := h.clientID
+	clid := uint16(h.clientID.Load()) //nolint:gosec // stored from a uint16
 	h.mu.Unlock()
 
 	payloadLen := voiceHeaderSize + len(data)
@@ -957,7 +956,7 @@ func (h *PacketHandler) SendWhisperPacket(data []byte, targetClientIDs []uint16,
 	if h.packetCounter[PacketTypeVoiceWhisper] == 0 {
 		h.generationCounter[PacketTypeVoiceWhisper]++
 	}
-	clid := h.clientID
+	clid := uint16(h.clientID.Load()) //nolint:gosec // stored from a uint16
 	h.mu.Unlock()
 
 	targetsLen := len(targetClientIDs) * 2
