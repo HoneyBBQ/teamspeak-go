@@ -151,10 +151,11 @@ func TestHandlerDropsUnencryptedCommandsAfterCryptoInit(t *testing.T) {
 	}
 }
 
-// sealReal seals a server packet with the session key of tc for generation
+// sealReal seals a server command with the session key of tc for generation
 // gen, as the server would.
-func sealReal(t *testing.T, tc *crypto.Crypt, id uint16, gen uint32, typeFlagged byte, payload []byte) []byte {
+func sealReal(t *testing.T, tc *crypto.Crypt, id uint16, gen uint32, payload []byte) []byte {
 	t.Helper()
+	typeFlagged := byte(PacketTypeCommand) | byte(PacketFlagNewProtocol)
 	header := make([]byte, 3)
 	binary.BigEndian.PutUint16(header, id)
 	header[2] = typeFlagged
@@ -178,17 +179,94 @@ func TestHandlerRefusesAPacketOfAnotherGeneration(t *testing.T) {
 	h, delivered := newFuzzHandler(t, true)
 	h.nextCommandID = 200
 	h.recvWindowCommand.Advance(1<<16 + 200)
-	cmd := byte(PacketTypeCommand) | byte(PacketFlagNewProtocol)
 	payload := []byte("notifytextmessage targetmode=1 msg=replayed invokerid=5")
 
-	h.handleRawPacket(sealReal(t, h.TsCrypt, 200, 0, cmd, payload))
-	h.handleRawPacket(sealReal(t, h.TsCrypt, 200, 2, cmd, payload))
+	h.handleRawPacket(sealReal(t, h.TsCrypt, 200, 0, payload))
+	h.handleRawPacket(sealReal(t, h.TsCrypt, 200, 2, payload))
 	if *delivered != 0 {
 		t.Fatalf("delivered %d packets of another generation, want 0", *delivered)
 	}
 
-	h.handleRawPacket(sealReal(t, h.TsCrypt, 200, 1, cmd, payload))
+	h.handleRawPacket(sealReal(t, h.TsCrypt, 200, 1, payload))
 	if *delivered != 1 {
 		t.Fatalf("delivered %d packets of the current generation, want 1", *delivered)
+	}
+}
+
+// A datagram larger than 4096 bytes is dropped whole, and the connection
+// goes on; one of exactly 4096 is taken.
+func TestHandlerDropsDatagramsLargerThan4096(t *testing.T) {
+	h, delivered := newFuzzHandler(t, true)
+	got := make(chan int, 4)
+	h.OnPacket = func(p *Packet) {
+		*delivered++
+		got <- len(p.Data)
+	}
+	clientConn, serverConn := newTestPair()
+	h.conn = clientConn
+	go h.receiveLoop()
+	go h.processLoop()
+	t.Cleanup(func() { _ = h.Close(); _ = clientConn.Close() })
+
+	_, _ = serverConn.Write(sealReal(t, h.TsCrypt, 0, 0, make([]byte, maxDatagramSize-10)))
+	_, _ = serverConn.Write(sealReal(t, h.TsCrypt, 0, 0, make([]byte, maxDatagramSize-11)))
+
+	select {
+	case n := <-got:
+		if n != maxDatagramSize-11 {
+			t.Fatalf("delivered a %d-byte payload, want the 4096-byte datagram's", n)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the 4096-byte datagram was not delivered")
+	}
+}
+
+// Out-of-order command packets are held only up to maxQueuedCommandBytes;
+// past it they are dropped unacknowledged, and the packet the queue waits for
+// is still taken, so it drains and the dropped ones are accepted when resent.
+func TestHandlerCapsTheReceiveQueueBytes(t *testing.T) {
+	h, delivered := newFuzzHandler(t, true)
+	const size, count = 4000, 300
+	for id := uint16(1); id <= count; id++ {
+		h.handleRawPacket(sealReal(t, h.TsCrypt, id, 0, make([]byte, size)))
+	}
+	h.mu.Lock()
+	held, queued := h.queuedBytes, len(h.commandQueue)
+	h.mu.Unlock()
+	if held > maxQueuedCommandBytes || queued >= count {
+		t.Fatalf("holding %d bytes in %d packets, want at most %d bytes", held, queued, maxQueuedCommandBytes)
+	}
+
+	h.handleRawPacket(sealReal(t, h.TsCrypt, 0, 0, make([]byte, size)))
+	if *delivered != queued+1 {
+		t.Fatalf("delivered %d after the missing packet arrived, want %d", *delivered, queued+1)
+	}
+	for id := uint16(queued + 1); id <= count; id++ {
+		h.handleRawPacket(sealReal(t, h.TsCrypt, id, 0, make([]byte, size)))
+	}
+	if *delivered != count+1 {
+		t.Fatalf("delivered %d once the dropped packets were resent, want %d", *delivered, count+1)
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.queuedBytes != 0 {
+		t.Errorf("%d bytes still counted as queued", h.queuedBytes)
+	}
+}
+
+// A block declaring more output than its input could expand to is refused
+// before the output is allocated.
+func TestQlzDecompressRefusesASizeTheInputCannotReach(t *testing.T) {
+	data := make([]byte, 13)
+	data[0] = 0x47 // level 1, 9-byte header, compressed
+	binary.LittleEndian.PutUint32(data[1:5], 13)
+	binary.LittleEndian.PutUint32(data[5:9], MaxDecompressedSize)
+	_, err := NewQlz().Decompress(data)
+	if !errors.Is(err, errQlzTooLarge) {
+		t.Fatalf("Decompress = %v, want errQlzTooLarge", err)
+	}
+	allocs := testing.AllocsPerRun(10, func() { _, _ = NewQlz().Decompress(data) })
+	if allocs > 2 {
+		t.Errorf("%v allocations for a refused block", allocs)
 	}
 }

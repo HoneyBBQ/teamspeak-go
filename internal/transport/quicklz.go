@@ -26,6 +26,11 @@ const TableSize = 4096
 // for real traffic while keeping a forged header from allocating gigabytes.
 const MaxDecompressedSize = 1 << 20
 
+// qlzMaxExpansion bounds how many output bytes one input byte of a level 1
+// block can produce. The longest back-reference is three bytes copying 255, so
+// 85 is the most; control words only lower it. Rounded up generously.
+const qlzMaxExpansion = 128
+
 // Qlz decompresses QuickLZ level 1, the compression TeamSpeak uses for
 // command payloads. Its hash table is reused between calls, so a Qlz is not
 // safe for concurrent use.
@@ -65,6 +70,11 @@ func (q *Qlz) Decompress(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	if decompressedSize > MaxDecompressedSize {
+		return nil, errQlzTooLarge
+	}
+	// Nor more than the input can expand to, checked before the output is
+	// allocated: a few bytes declaring a megabyte would otherwise cost one.
+	if decompressedSize > (len(data)-headerLen)*qlzMaxExpansion+qlzMaxExpansion {
 		return nil, errQlzTooLarge
 	}
 

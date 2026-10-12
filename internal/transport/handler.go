@@ -39,7 +39,17 @@ const (
 	// MaxRetryInterval caps the doubling interval between resends.
 	MaxRetryInterval = time.Second
 
-	udpReadBufferSize      = 4096
+	// maxDatagramSize is the largest datagram accepted. The servers send at
+	// most MaxOutPacketSize; a larger one is dropped, not truncated.
+	maxDatagramSize = 4096
+	// udpReadBufferSize has one byte more, so a larger datagram shows as one
+	// rather than being cut to size.
+	udpReadBufferSize = maxDatagramSize + 1
+	// maxQueuedCommandBytes caps the bytes of command and command-low packets
+	// held for reordering and reassembly, together. Past it, a packet is
+	// dropped unacknowledged, so the server sends it again; the one packet the
+	// queue is waiting for is always taken, so the queue keeps draining.
+	maxQueuedCommandBytes  = 1 << 20
 	voicePayloadBufferSize = 1027
 	smallPacketBufferSize  = 2
 	packetProcessQueueSize = 2048
@@ -135,9 +145,12 @@ type PacketHandler struct {
 	mu                sync.Mutex
 	// lifecycleMu orders Start and Close: a Close that races a Start either
 	// sees the connection and closes it, or makes Start refuse it.
-	lifecycleMu   sync.Mutex
-	closed        atomic.Bool
-	started       atomic.Bool
+	lifecycleMu sync.Mutex
+	closed      atomic.Bool
+	started     atomic.Bool
+	// queuedBytes is the payload size of everything in commandQueue and
+	// commandLowQueue. Guarded by mu.
+	queuedBytes   int
 	packetCounter [9]uint16
 	// clientID is written once the server assigns it and read on every send.
 	clientID atomic.Uint32
@@ -371,6 +384,12 @@ func (h *PacketHandler) receiveLoop() {
 	for {
 		buf := getPooledBytes(&bufPool, udpReadBufferSize)
 		n, err := h.conn.Read(buf)
+		if err == nil && n > maxDatagramSize {
+			h.logger.Debug("datagram too large, dropping it", slog.Int("min_length", n))
+			putPooledBytes(&bufPool, buf)
+
+			continue
+		}
 		if err != nil {
 			close(h.readerDone)
 			putPooledBytes(&bufPool, buf)
@@ -525,7 +544,11 @@ func (h *PacketHandler) takeReadyCommands(p *Packet) []*Packet {
 		win = h.recvWindowCommandLow
 	}
 
+	if old, ok := queue[p.ID]; ok {
+		h.queuedBytes -= len(old.Data)
+	}
 	queue[p.ID] = p
+	h.queuedBytes += len(p.Data)
 
 	// If the expected ID never arrives, skip it once a newer fragment has stalled long enough.
 	h.fastForwardMissingPackets(pType, queue, nextID)
@@ -698,6 +721,7 @@ func (h *PacketHandler) handleCommandWindowAndAck(p *Packet, dummyUsed bool) boo
 	}
 	inWindow := win.IsInWindow(int(p.ID))
 	isOld := win.IsOldPacket(int(p.ID))
+	fits := h.fitsQueueLocked(p)
 	h.mu.Unlock()
 
 	ackType := PacketTypeAck
@@ -719,12 +743,48 @@ func (h *PacketHandler) handleCommandWindowAndAck(p *Packet, dummyUsed bool) boo
 
 		return false
 	}
+	if !fits {
+		// Not acknowledged, so the server sends it again once the queue has
+		// drained.
+		h.logger.Debug("receive queues full, dropping packet",
+			slog.Uint64("type", uint64(p.Type())),
+			slog.Uint64("id", uint64(p.ID)))
+
+		return false
+	}
 	h.logger.Debug("sending ack for command",
 		slog.Uint64("type", uint64(ackType)),
 		slog.Uint64("id", uint64(p.ID)))
 	h.sendAckPacket(p.ID, ackType, dummyUsed)
 
 	return true
+}
+
+// fitsQueueLocked reports whether command packet p may join its receive queue
+// within maxQueuedCommandBytes. The packet the queue needs next — the first id
+// from the next expected one that it does not hold — is always taken, so a
+// queue full of later packets still drains. The caller holds h.mu.
+func (h *PacketHandler) fitsQueueLocked(p *Packet) bool {
+	queue, nextID := h.commandQueue, h.nextCommandID
+	if p.Type() == PacketTypeCommandLow {
+		queue, nextID = h.commandLowQueue, h.nextCommandLowID
+	}
+	held := h.queuedBytes
+	if old, ok := queue[p.ID]; ok {
+		held -= len(old.Data)
+	}
+	if held+len(p.Data) <= maxQueuedCommandBytes {
+		return true
+	}
+	needed := nextID
+	for range len(queue) {
+		if _, ok := queue[needed]; !ok {
+			break
+		}
+		needed++
+	}
+
+	return p.ID == needed
 }
 
 func (h *PacketHandler) sendAckPacket(packetID uint16, ackType PacketType, dummyUsed bool) {
@@ -831,7 +891,7 @@ func (h *PacketHandler) tryReassemble(
 	startPacket *Packet, queue map[uint16]*Packet, nextID *uint16, win *GenerationWindow,
 ) (*Packet, bool) {
 	if (startPacket.Flags() & PacketFlagFragmented) == 0 {
-		advanceQueueWindow(queue, nextID, win)
+		h.advanceQueueWindow(queue, nextID, win)
 
 		return startPacket, true
 	}
@@ -847,7 +907,7 @@ func (h *PacketHandler) tryReassemble(
 			slog.Int("fragments", len(fragments)),
 			slog.Int("total_size", totalSize))
 		for range fragments {
-			advanceQueueWindow(queue, nextID, win)
+			h.advanceQueueWindow(queue, nextID, win)
 		}
 
 		return nil, true
@@ -858,7 +918,7 @@ func (h *PacketHandler) tryReassemble(
 	for i := range fragments {
 		copy(combined[pos:], fragments[i].Data)
 		pos += len(fragments[i].Data)
-		advanceQueueWindow(queue, nextID, win)
+		h.advanceQueueWindow(queue, nextID, win)
 	}
 
 	startPacket.Data = combined
@@ -949,7 +1009,10 @@ func updateFragmentState(startSeen bool, flags PacketFlags) (bool, bool) {
 	return startSeen, false
 }
 
-func advanceQueueWindow(queue map[uint16]*Packet, nextID *uint16, win *GenerationWindow) {
+func (h *PacketHandler) advanceQueueWindow(queue map[uint16]*Packet, nextID *uint16, win *GenerationWindow) {
+	if p, ok := queue[*nextID]; ok {
+		h.queuedBytes -= len(p.Data)
+	}
 	delete(queue, *nextID)
 	*nextID++
 	if win != nil {
