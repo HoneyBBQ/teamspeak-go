@@ -573,3 +573,13 @@ func TestEveryListTreatsAnEmptyResultAsEmpty(t *testing.T) {
 		}
 	}
 }
+
+// An upload does not replace an existing file unless asked to.
+func TestInitFileUploadDoesNotOverwriteByDefault(t *testing.T) {
+	line := encoded(t, func(c *Commands) error {
+		return errOf(c.InitFileUpload(t.Context(), 1, "/a.txt", 3, FileUploadOptions{}))
+	})
+	if !strings.Contains(line, " overwrite=0") {
+		t.Errorf("sent %q, want overwrite=0", line)
+	}
+}
