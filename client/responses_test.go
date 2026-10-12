@@ -111,11 +111,16 @@ func TestCommandTracker_TurnsAFailureStatusIntoAServerError(t *testing.T) {
 	tr.resolve(rc, nil, 0)
 	tr.offerCorrelated("notifystatusfiletransfer", map[string]string{
 		"clientftfid": "4", "status": "2568", "msg": "insufficient client permissions",
+		"extra_msg": "i_ft_file_upload_power",
 	})
 
 	err := receive(t, done).Err
 	if !errors.Is(err, errcode.PermissionsClientInsufficient) || !errors.Is(err, teamspeak.ErrServer) {
 		t.Errorf("err = %v, want the permissions refusal", err)
+	}
+	se, ok := errors.AsType[*teamspeak.ServerError](err)
+	if !ok || se.ExtraMessage != "i_ft_file_upload_power" {
+		t.Errorf("err = %#v, want the extra_msg carried", err)
 	}
 }
 

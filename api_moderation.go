@@ -421,17 +421,19 @@ type LogViewOptions struct {
 	BeginPosition *uint64
 	// Lines is how many lines to read, at most 100; 0 leaves it to the server.
 	Lines uint
-	// Reverse reads backwards from BeginPosition, newest line first.
+	// Reverse reads backwards from BeginPosition, newest line first. Sent
+	// only when true, as reverse=1.
 	Reverse bool
-	// Instance reads the instance log rather than the virtual server's.
+	// Instance reads the instance log rather than the virtual server's. Sent
+	// only when true, as instance=1.
 	Instance bool
 }
 
 // ViewLog reads a page of the server log.
 func (c *Commands) ViewLog(ctx context.Context, opts LogViewOptions) (LogPage, error) {
 	params := []param{
-		boolArg("reverse", opts.Reverse),
-		boolArg("instance", opts.Instance),
+		trueArg("reverse", opts.Reverse),
+		trueArg("instance", opts.Instance),
 		uintPtrArg("begin_pos", opts.BeginPosition),
 	}
 	if opts.Lines > 0 {

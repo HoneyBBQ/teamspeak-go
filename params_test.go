@@ -275,7 +275,7 @@ func TestViewLog_ReadsOneLinePerRow(t *testing.T) {
 	if len(page.Lines) != 2 || page.Lines[1] != "second" || page.LastPosition != 4096 {
 		t.Errorf("page = %+v", page)
 	}
-	if s.sent[0] != "logview reverse=1 instance=0 lines=2" {
+	if s.sent[0] != "logview reverse=1 lines=2" {
 		t.Errorf("request = %q", s.sent[0])
 	}
 }
@@ -582,4 +582,37 @@ func TestInitFileUploadDoesNotOverwriteByDefault(t *testing.T) {
 	if !strings.Contains(line, " overwrite=0") {
 		t.Errorf("sent %q, want overwrite=0", line)
 	}
+}
+
+// The parameter rules both SDKs share: ftrenamefile always carries cpw, and
+// tcid with tcpw only for a move into another channel; logview omits what is
+// left at its zero value; a permission with id 0 is refused.
+func TestParameterEncodingParity(t *testing.T) {
+	cases := map[string]struct {
+		run  func(c *Commands) error
+		want string
+	}{
+		"rename in place": {func(c *Commands) error {
+			return c.RenameFile(t.Context(), 1, "/a", "/b", FileRenameOptions{})
+		}, `ftrenamefile cid=1 oldname=\/a newname=\/b cpw=`},
+		"rename into another channel": {func(c *Commands) error {
+			return c.RenameFile(t.Context(), 1, "/a", "/b", FileRenameOptions{TargetChannelID: 2})
+		}, `ftrenamefile cid=1 oldname=\/a newname=\/b cpw= tcid=2 tcpw=`},
+		"log with defaults": {func(c *Commands) error {
+			return errOf(c.ViewLog(t.Context(), LogViewOptions{}))
+		}, "logview"},
+		"instance log from the start": {func(c *Commands) error {
+			start := uint64(0)
+
+			return errOf(c.ViewLog(t.Context(), LogViewOptions{Instance: true, BeginPosition: &start}))
+		}, "logview instance=1 begin_pos=0"},
+	}
+	for name, tc := range cases {
+		if got := encoded(t, tc.run); got != tc.want {
+			t.Errorf("%s: sent %q, want %q", name, got, tc.want)
+		}
+	}
+	refused(t, func(c *Commands) error {
+		return c.AddChannelPermission(t.Context(), 1, PermissionByID(0), 1)
+	})
 }

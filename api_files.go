@@ -131,7 +131,9 @@ type FileRenameOptions struct {
 	TargetChannelID ChannelID
 }
 
-// RenameFile renames or moves a file.
+// RenameFile renames or moves a file. cpw is always sent, empty for none, as
+// the command requires it; tcid and tcpw only with a TargetChannelID, tcpw
+// then empty for none.
 func (c *Commands) RenameFile(
 	ctx context.Context, channelID ChannelID, oldName, newName string, opts FileRenameOptions,
 ) error {
