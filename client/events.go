@@ -1,10 +1,12 @@
 package client
 
 import (
+	"log/slog"
 	"maps"
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
@@ -62,6 +64,11 @@ func (c *Client) OnClientMoved(handler func(ClientMovedEvent)) func() {
 
 // OnVoiceData registers a handler for incoming voice or whisper audio. It
 // returns a function that removes the handler.
+//
+// Voice is the one event that can be dropped: when more than 256 deliveries
+// of any kind are waiting for the handlers, incoming voice is discarded until
+// they catch up, and the client logs a warning, at most once every ten
+// seconds, with how much it dropped. Every other event is always delivered.
 func (c *Client) OnVoiceData(handler func(VoiceData)) func() {
 	return c.onVoiceData.add(handler)
 }
@@ -88,17 +95,10 @@ func (c *Client) OnDisconnected(handler func(err error)) func() {
 	return c.onDisconnected.add(handler)
 }
 
-// buildMiddlewareChains wraps the command sender and the event dispatch in the
-// configured middleware. It runs once, in New: the chains are read on every
+// buildMiddlewareChains wraps the event dispatch in the configured
+// middleware. It runs once, in New: the chains are read on every
 // command and event, so changing them afterwards would race with both.
 func (c *Client) buildMiddlewareChains() {
-	c.finalCmdHandler = func(cmd string) error {
-		return c.currentHandler().SendPacket(2, []byte(cmd), 0)
-	}
-	for _, middleware := range slices.Backward(c.cmdMiddlewares) {
-		c.finalCmdHandler = middleware(c.finalCmdHandler)
-	}
-
 	c.evtChain = c.dispatchEvent
 	for _, middleware := range slices.Backward(c.eventMiddlewares) {
 		c.evtChain = middleware(c.evtChain)
@@ -113,9 +113,41 @@ func (c *Client) currentHandler() *transport.PacketHandler {
 	return c.handler
 }
 
+// connectedHandler returns the current packet handler if its handshake has
+// completed, or nil. Commands and voice go only to a connected session: sent
+// mid-handshake they would reach a server that cannot read them yet, under
+// the dummy key.
+func (c *Client) connectedHandler() *transport.PacketHandler {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.status != StatusConnected {
+		return nil
+	}
+
+	return c.handler
+}
+
+// sendLine sends a command line on h, through the command middleware.
+func (c *Client) sendLine(h *transport.PacketHandler, line string) error {
+	send := func(l string) error {
+		return notConnected(h.SendPacket(byte(transport.PacketTypeCommand), []byte(l), 0))
+	}
+	for _, middleware := range slices.Backward(c.cmdMiddlewares) {
+		send = middleware(send)
+	}
+
+	return send(line)
+}
+
 // emitEvent queues a server event. The middleware runs on the delivery
 // goroutine too, so a slow middleware does not stall the read loop either.
 func (c *Client) emitEvent(evt Event) {
+	if _, voice := evt.(VoiceData); voice {
+		c.events.pushVoice(func() { c.evtChain(evt) }, c.logger)
+
+		return
+	}
 	c.events.push(func() { c.evtChain(evt) })
 }
 
@@ -221,13 +253,52 @@ func (s *subscribers[E]) deliver(evt E, clone func(E) E) {
 	}
 }
 
+// maxQueuedForVoice is how many deliveries may be pending before voice is
+// dropped. Ordinary events are rare and always queued; voice arrives fifty
+// times a second per speaker, so a handler slower than that would otherwise
+// grow the queue without bound.
+const maxQueuedForVoice = 256
+
+// voiceDropWarnInterval is the least time between two warnings about dropped
+// voice.
+const voiceDropWarnInterval = 10 * time.Second
+
 // eventQueue runs queued deliveries one at a time, in order. Its goroutine
 // exists only while there is something to deliver, so a client that is
 // dropped without Disconnect leaks nothing.
 type eventQueue struct {
-	pending []func()
-	mu      sync.Mutex
-	running bool
+	lastVoiceWarn time.Time
+	pending       []func()
+	// voiceDropped counts voice deliveries dropped since the last warning.
+	voiceDropped uint64
+	mu           sync.Mutex
+	running      bool
+}
+
+// pushVoice queues a voice delivery, or drops it when more than
+// maxQueuedForVoice deliveries are already waiting, warning at most once per
+// voiceDropWarnInterval with how many were dropped.
+func (q *eventQueue) pushVoice(delivery func(), logger *slog.Logger) {
+	q.mu.Lock()
+	if len(q.pending) > maxQueuedForVoice {
+		q.voiceDropped++
+		now := time.Now()
+		if now.Sub(q.lastVoiceWarn) < voiceDropWarnInterval {
+			q.mu.Unlock()
+
+			return
+		}
+		dropped := q.voiceDropped
+		q.voiceDropped = 0
+		q.lastVoiceWarn = now
+		q.mu.Unlock()
+		logger.Warn("event handlers are falling behind, dropping voice data",
+			slog.Uint64("dropped", dropped), slog.Int("queued", maxQueuedForVoice))
+
+		return
+	}
+	q.mu.Unlock()
+	q.push(delivery)
 }
 
 func (q *eventQueue) push(delivery func()) {

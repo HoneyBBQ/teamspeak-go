@@ -45,4 +45,31 @@ func TestIntegration_CustomPacketConn(t *testing.T) {
 		t.Error("expected the server to assign a client id over the custom transport")
 	}
 	t.Logf("connected over caller-supplied PacketConn, clid=%d", c.ClientID())
+
+	reconnectOnSamePacketConn(t, c)
+}
+
+// reconnectOnSamePacketConn disconnects c and connects it again on the same
+// PacketConn. The first connection's reader must have stopped, or it would
+// take the second's datagrams and the handshake would stall.
+func reconnectOnSamePacketConn(t *testing.T, c *client.Client) {
+	t.Helper()
+	err := c.Disconnect(t.Context())
+	if err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+	// Both servers ignore a new handshake from the address of a session that
+	// ended a moment ago — measured at three to four seconds — so a second
+	// connection from the same port has to wait that out.
+	time.Sleep(5 * time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	err = c.Connect(ctx)
+	if err != nil {
+		t.Fatalf("second Connect on the same PacketConn: %v", err)
+	}
+	_, err = c.WhoAmI(ctx)
+	if err != nil {
+		t.Fatalf("command on the second connection: %v", err)
+	}
 }

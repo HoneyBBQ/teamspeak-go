@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
@@ -10,9 +12,25 @@ import (
 )
 
 // SendVoice sends one encoded audio frame, normally teamspeak.CodecOpusVoice
-// or CodecOpusMusic.
+// or CodecOpusMusic. Without an open connection it returns
+// teamspeak.ErrNotConnected.
 func (c *Client) SendVoice(data []byte, codec teamspeak.Codec) error {
-	return c.currentHandler().SendVoicePacket(data, byte(codec))
+	h := c.connectedHandler()
+	if h == nil {
+		return teamspeak.ErrNotConnected
+	}
+
+	return notConnected(h.SendVoicePacket(data, byte(codec)))
+}
+
+// notConnected reports a send the transport refused for having no open
+// connection as teamspeak.ErrNotConnected.
+func notConnected(err error) error {
+	if errors.Is(err, transport.ErrNotOpen) {
+		return fmt.Errorf("%w: %w", teamspeak.ErrNotConnected, err)
+	}
+
+	return err
 }
 
 // ErrNoWhisperTargets reports a whisper with no one to receive it.
@@ -24,13 +42,19 @@ var ErrTooManyWhisperTargets = transport.ErrTooManyWhisperTargets
 
 // SendWhisper sends Opus voice directly to up to 32 clients, regardless of which
 // channel they are in. The bot's server group needs i_client_whisper_power.
+// Without an open connection it returns teamspeak.ErrNotConnected.
 func (c *Client) SendWhisper(data []byte, targetClientIDs []teamspeak.ClientID, codec teamspeak.Codec) error {
 	targets := make([]uint16, len(targetClientIDs))
 	for i, id := range targetClientIDs {
 		targets[i] = uint16(id)
 	}
 
-	return c.currentHandler().SendWhisperPacket(data, targets, byte(codec))
+	h := c.connectedHandler()
+	if h == nil {
+		return teamspeak.ErrNotConnected
+	}
+
+	return notConnected(h.SendWhisperPacket(data, targets, byte(codec)))
 }
 
 // ServerCapabilities reports what the connected server is: version, generation,
@@ -53,7 +77,7 @@ func (c *Client) UniqueIdentifier() teamspeak.UID {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return teamspeak.UID(identity.UID(c.crypt.Identity.PublicKey(), c.uidAlgorithm))
+	return teamspeak.UID(identity.UID(c.identity.PublicKey(), c.uidAlgorithm))
 }
 
 // ClientID returns the id the server assigned this session, or 0 before it

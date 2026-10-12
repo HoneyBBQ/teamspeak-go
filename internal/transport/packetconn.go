@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,7 @@ var errNoRemoteAddress = errors.New("packet conn adapter has no remote address")
 type packetConnAdapter struct {
 	pc     net.PacketConn
 	remote net.Addr
+	closed atomic.Bool
 }
 
 // PacketConnWriter is the write half of the adapter, useful to callers that
@@ -33,13 +35,27 @@ type PacketConnWriter interface {
 // Closing the adapter does not close pc: the caller supplied it and may be
 // using it for other traffic, so it is the caller's to close. The handler
 // closes what it was given on disconnect, which must not tear down a socket the
-// application still owns.
+// application still owns. Instead Close sets pc's read deadline to now, which
+// unblocks a Read in progress, and every later Read returns net.ErrClosed, so
+// no reader outlives the adapter. pc must therefore honour SetReadDeadline.
+//
+// A new adapter clears pc's read deadline, so pc can serve one adapter after
+// another; the caller must let the previous adapter's reader stop first (see
+// PacketHandler.WaitReaderStopped), or the two would read the same datagrams.
 func NewPacketConnAdapter(pc net.PacketConn, remote net.Addr) io.ReadWriteCloser {
+	_ = pc.SetReadDeadline(time.Time{})
+
 	return &packetConnAdapter{pc: pc, remote: remote}
 }
 
 func (a *packetConnAdapter) Read(p []byte) (int, error) {
+	if a.closed.Load() {
+		return 0, net.ErrClosed
+	}
 	n, _, err := a.pc.ReadFrom(p)
+	if a.closed.Load() {
+		return 0, net.ErrClosed
+	}
 
 	return n, err
 }
@@ -52,11 +68,11 @@ func (a *packetConnAdapter) Write(p []byte) (int, error) {
 	return a.pc.WriteTo(p, a.remote)
 }
 
+// Close stops the adapter's reader without closing pc.
 func (a *packetConnAdapter) Close() error {
-	return nil
-}
+	if a.closed.Swap(true) {
+		return nil
+	}
 
-// SetReadDeadline is used by the handler's ping loop.
-func (a *packetConnAdapter) SetReadDeadline(t time.Time) error {
-	return a.pc.SetReadDeadline(t)
+	return a.pc.SetReadDeadline(time.Now())
 }

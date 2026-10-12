@@ -81,6 +81,10 @@ func newTestClient(t *testing.T, opts ...Option) *Client {
 		t.Fatalf("handler.Start: %v", startErr)
 	}
 	t.Cleanup(func() { _ = c.handler.Close() })
+	// As after a handshake: commands go only to a connected session.
+	c.mu.Lock()
+	c.status = StatusConnected
+	c.mu.Unlock()
 
 	return c
 }

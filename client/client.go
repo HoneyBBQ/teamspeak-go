@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"strconv"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ import (
 var ErrAlreadyConnected = errors.New("already connecting or connected")
 
 var (
+	errNoAddresses                 = errors.New("the host has no addresses")
 	errClosedDuringHandshake       = errors.New("connection closed before the TeamSpeak handshake completed")
 	errDisconnectedDuringHandshake = fmt.Errorf("%w: Disconnect was called before the handshake completed",
 		teamspeak.ErrNotConnected)
@@ -122,15 +124,17 @@ type Client struct {
 	// Commands are the typed commands, running on this client's Send.
 	*teamspeak.Commands
 
-	resolver        AddrResolver
-	finalCmdHandler func(string) error
-	crypt           *crypto.Crypt
-	attempt         *connectAttempt
-	logger          *slog.Logger
-	handler         *transport.PacketHandler
-	cmdTrack        *commandTracker
-	throttle        *commandThrottle
-	clients         map[teamspeak.ClientID]teamspeak.ClientInfo
+	resolver AddrResolver
+	identity *identity.Identity
+	attempt  *connectAttempt
+	logger   *slog.Logger
+	// handler is the current connection's packet handler, which owns that
+	// connection's crypto state. It is replaced, under mu, by every Connect;
+	// read it with currentHandler.
+	handler  *transport.PacketHandler
+	cmdTrack *commandTracker
+	throttle *commandThrottle
+	clients  map[teamspeak.ClientID]teamspeak.ClientInfo
 	// evtChain is the event middleware wrapped around dispatchEvent.
 	evtChain func(Event)
 	addr     string
@@ -187,8 +191,8 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 	}
 
 	c := &Client{
-		crypt:  crypto.NewCrypt(id),
-		status: StatusDisconnected,
+		identity: id,
+		status:   StatusDisconnected,
 		// Silent unless the application asks: a library has no business
 		// writing to the application's default logger.
 		logger:   slog.New(slog.DiscardHandler),
@@ -239,7 +243,13 @@ func WithLogger(logger *slog.Logger) Option {
 //
 // The transport is otherwise closed: this is the only way to route traffic
 // through a proxy or tunnel, or to drive the client from something that is not
-// a real socket. pc must deliver whole datagrams, one per Read.
+// a real socket. pc must deliver whole datagrams, one per Read, and honour
+// SetReadDeadline: closing a connection sets pc's read deadline to stop its
+// reader, and the next Connect clears it. pc itself is never closed.
+//
+// The servers ignore a new handshake from the address of a session that ended
+// a few seconds earlier, so a Connect on the same pc right after a Disconnect
+// stalls until that has passed.
 func WithPacketConn(pc net.PacketConn) Option {
 	return optionFunc(func(c *Client) {
 		c.packetConn = pc
@@ -361,7 +371,7 @@ func (c *Client) Disconnect(ctx context.Context) error {
 			ctx, cancel = context.WithTimeout(ctx, disconnectTimeout)
 			defer cancel()
 		}
-		_, _ = c.execWithResponse(ctx, "clientdisconnect reasonmsg=Shutdown")
+		_, _ = c.execOn(ctx, handler, "clientdisconnect reasonmsg=Shutdown")
 	}
 
 	err := handler.Close()
@@ -386,6 +396,7 @@ func (c *Client) start(ctx context.Context) (*connectAttempt, error) {
 
 	// The handler resetForConnectLocked wires up reconnects on its own context:
 	// a reconnection outlives the Connect that started the session.
+	previous := c.handler
 	finalAddr := c.resetForConnectLocked() //nolint:contextcheck // see above
 	attempt := c.attempt
 
@@ -399,13 +410,7 @@ func (c *Client) start(ctx context.Context) (*connectAttempt, error) {
 
 	var err error
 	if packetConn != nil {
-		// The adapter needs the peer address to send to; resolve it the same way
-		// the dialling path would, without opening a socket.
-		var remote *net.UDPAddr
-		remote, err = net.ResolveUDPAddr("udp", targetAddr)
-		if err == nil {
-			err = handler.Start(transport.NewPacketConnAdapter(packetConn, remote))
-		}
+		err = startOnPacketConn(ctx, previous, handler, packetConn, targetAddr)
 	} else {
 		err = handler.Connect(ctx, targetAddr)
 	}
@@ -427,12 +432,54 @@ func (c *Client) start(ctx context.Context) (*connectAttempt, error) {
 	return attempt, nil
 }
 
+// startOnPacketConn starts handler on the caller's PacketConn, sending to
+// targetAddr. The PacketConn outlives each connection, so the previous
+// handler's reader must have stopped first: two readers would split the
+// datagrams between them.
+func startOnPacketConn(
+	ctx context.Context, previous, handler *transport.PacketHandler, packetConn net.PacketConn, targetAddr string,
+) error {
+	if previous != nil {
+		err := previous.WaitReaderStopped(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	// The adapter needs the peer address to send to; resolve it the same way
+	// the dialling path would, without opening a socket.
+	remote, err := resolveUDPAddr(ctx, targetAddr)
+	if err != nil {
+		return err
+	}
+
+	return handler.Start(transport.NewPacketConnAdapter(packetConn, remote))
+}
+
+// resolveUDPAddr resolves host:port, bounded by ctx.
+func resolveUDPAddr(ctx context.Context, addr string) (*net.UDPAddr, error) {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	port, err := net.DefaultResolver.LookupPort(ctx, "udp", portStr)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	if err != nil {
+		return nil, err
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("%w: %s", errNoAddresses, host)
+	}
+
+	return net.UDPAddrFromAddrPort(netip.AddrPortFrom(ips[0].Unmap(), uint16(port))), nil //nolint:gosec // a port
+}
+
 func (c *Client) resetForConnectLocked() string {
 	if c.handler != nil {
 		_ = c.handler.Close()
 	}
-	id := c.crypt.Identity
-	c.crypt = crypto.NewCrypt(id)
 	c.handler = c.newHandler()
 	// Keep an attempt nobody has resolved yet: something may already be
 	// waiting on it, and must be released by this connection's handshake.
@@ -473,7 +520,7 @@ func (c *Client) resolveConnectTarget(ctx context.Context, fallbackAddr string) 
 // bound to the handler instance, so a close reported late by a handler that a
 // later Connect already replaced cannot tear down the new connection.
 func (c *Client) newHandler() *transport.PacketHandler {
-	h := transport.NewPacketHandler(c.crypt, c.logger)
+	h := transport.NewPacketHandler(crypto.NewCrypt(c.identity), c.logger)
 	h.OnPacket = func(p *transport.Packet) {
 		c.handlePacket(h, p)
 	}

@@ -149,7 +149,7 @@ func TestHandleHandshakeInitIV_ValidParams_SendsClientInit(t *testing.T) {
 	// A valid old-style handshake: alpha + beta are 10-byte base64, omega is the
 	// server's public key. We use the test identity's own public key as omega
 	// (InitCrypto only validates format, not that it comes from a server).
-	pubKey := c.crypt.Identity.PublicKey()
+	pubKey := c.handler.TsCrypt.Identity.PublicKey()
 
 	cmd := "clientinitiv alpha=AAAAAAAAAAAAAA== beta=AAAAAAAAAAAAAA== omega=" + pubKey
 	c.handleCommand(c.handler, cmd)
@@ -178,7 +178,7 @@ func TestHandleHandshakeExpand2_InvalidBeta_NoSendClientInit(t *testing.T) {
 func TestBuildClientInitCommand_DefaultAuthFieldsAreEmpty(t *testing.T) {
 	c := newTestClient(t)
 
-	cmd := commands.ParseCommand(c.buildClientInitCommand(c.crypt))
+	cmd := commands.ParseCommand(c.buildClientInitCommand(c.handler.TsCrypt))
 	if cmd == nil {
 		t.Fatal("expected clientinit command")
 	}
@@ -208,7 +208,7 @@ func TestBuildClientInitCommand_IncludesConfiguredHandshakeCredentials(t *testin
 		WithDefaultChannelPassword("channel secret"),
 	)
 
-	cmd := commands.ParseCommand(c.buildClientInitCommand(c.crypt))
+	cmd := commands.ParseCommand(c.buildClientInitCommand(c.handler.TsCrypt))
 	if cmd == nil {
 		t.Fatal("expected clientinit command")
 	}
@@ -242,7 +242,7 @@ func TestBuildClientInitCommand_PreservesCredentialFieldOrder(t *testing.T) {
 		WithDefaultChannelPassword("channel secret"),
 	)
 
-	raw := c.buildClientInitCommand(c.crypt)
+	raw := c.buildClientInitCommand(c.handler.TsCrypt)
 	defaultChannelIndex := indexOfOrFail(t, raw, "client_default_channel=Lobby\\sAlpha")
 	defaultChannelPasswordIndex := indexOfOrFail(
 		t,
@@ -367,7 +367,7 @@ func TestHandshakeFailureEndsTheAttemptWithErrHandshake(t *testing.T) {
 			c.handleInit1(c.handler, []byte{})
 		},
 		"initivexpand2 with a bad license": func(c *Client) {
-			c.crypt.AlphaTmp = make([]byte, 10)
+			c.handler.TsCrypt.AlphaTmp = make([]byte, 10)
 			c.handleCommand(c.handler, "initivexpand2 l=AQ== beta=AAAA omega=AAAA proof=AAAA")
 		},
 	}

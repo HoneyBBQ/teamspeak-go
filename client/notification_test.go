@@ -15,7 +15,7 @@ func TestHandleClientEnterView_AddsToClients(t *testing.T) {
 
 	const enterCmd = "notifycliententerview clid=5 client_nickname=Alice" +
 		" ctid=10 client_type=0 client_servergroups= client_unique_identifier=uid123"
-	c.handleClientEnterView(commands.ParseCommand(enterCmd))
+	c.handleClientEnterView(c.handler, commands.ParseCommand(enterCmd))
 
 	c.mu.Lock()
 	info, ok := c.clients[5]
@@ -43,7 +43,7 @@ func TestHandleClientEnterView_TriggersCallback(t *testing.T) {
 
 	const enterCmd2 = "notifycliententerview clid=5 client_nickname=Alice" +
 		" ctid=10 client_type=0 client_servergroups= client_unique_identifier=uid123"
-	c.handleClientEnterView(commands.ParseCommand(enterCmd2))
+	c.handleClientEnterView(c.handler, commands.ParseCommand(enterCmd2))
 
 	select {
 	case ci := <-entered:
@@ -60,7 +60,7 @@ func TestHandleClientEnterView_SetsOwnClidOnNicknameMatch(t *testing.T) {
 
 	const enterSelf = "notifycliententerview clid=7 client_nickname=TestBot" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
-	c.handleClientEnterView(commands.ParseCommand(enterSelf))
+	c.handleClientEnterView(c.handler, commands.ParseCommand(enterSelf))
 
 	c.mu.Lock()
 	clid := c.clid
@@ -82,7 +82,7 @@ func TestHandleClientEnterView_LookalikeDoesNotHijackClid(t *testing.T) {
 
 	const lookalike = "notifycliententerview clid=9 client_nickname=TestBot2" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
-	c.handleClientEnterView(commands.ParseCommand(lookalike))
+	c.handleClientEnterView(c.handler, commands.ParseCommand(lookalike))
 
 	c.mu.Lock()
 	clid, nick := c.clid, c.nickname
@@ -100,7 +100,7 @@ func TestHandleClientEnterView_OwnEnterTracksServerRename(t *testing.T) {
 
 	const ownRenamed = "notifycliententerview clid=5 client_nickname=TestBot2" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
-	c.handleClientEnterView(commands.ParseCommand(ownRenamed))
+	c.handleClientEnterView(c.handler, commands.ParseCommand(ownRenamed))
 
 	c.mu.Lock()
 	clid, nick := c.clid, c.nickname
@@ -114,7 +114,7 @@ func TestHandleClientEnterView_InvalidClidIgnored(t *testing.T) {
 	c := newTestClient(t)
 	const enterZero = "notifycliententerview clid=0 client_nickname=X" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
-	c.handleClientEnterView(commands.ParseCommand(enterZero))
+	c.handleClientEnterView(c.handler, commands.ParseCommand(enterZero))
 
 	c.mu.Lock()
 	_, ok := c.clients[0]
@@ -130,7 +130,7 @@ func TestHandleClientLeftView_RemovesFromClients(t *testing.T) {
 	c.clients[5] = teamspeak.ClientInfo{ID: 5, Nickname: "Alice"}
 
 	cmd := commands.ParseCommand("notifyclientleftview clid=5 reasonid=8 reasonmsg=")
-	c.handleClientLeftView(cmd)
+	c.handleClientLeftView(c.handler, cmd)
 
 	c.mu.Lock()
 	_, ok := c.clients[5]
@@ -161,7 +161,7 @@ func TestHandleClientLeftView_KickSelf_TriggersKickedAndEndsTheSession(t *testin
 	disconnected := make(chan error, 1)
 	c.OnDisconnected(func(err error) { disconnected <- err })
 
-	c.handleClientLeftView(commands.ParseCommand(
+	c.handleClientLeftView(c.handler, commands.ParseCommand(
 		`notifyclientleftview clid=5 reasonid=5 reasonmsg=behave invokerid=1 invokername=Admin`))
 
 	if e := receive(t, kicked); e.Message != "behave" || e.InvokerName != "Admin" ||
@@ -189,7 +189,7 @@ func TestHandleClientLeftView_ServerStop_EndsTheSessionAndIsRetried(t *testing.T
 	disconnected := make(chan error, 1)
 	c.OnDisconnected(func(err error) { disconnected <- err })
 
-	c.handleClientLeftView(commands.ParseCommand(`notifyclientleftview clid=5 reasonid=11 reasonmsg=restart`))
+	c.handleClientLeftView(c.handler, commands.ParseCommand(`notifyclientleftview clid=5 reasonid=11 reasonmsg=restart`))
 
 	err := receive(t, disconnected)
 	if !DefaultShouldRetry(err, 1) {
@@ -224,7 +224,7 @@ func TestHandleClientLeftView_OthersLeaving_NoKickedCallback(t *testing.T) {
 	kicked := make(chan KickedEvent, 1)
 	c.OnKicked(func(e KickedEvent) { kicked <- e })
 
-	c.handleClientLeftView(commands.ParseCommand("notifyclientleftview clid=6 reasonid=5 reasonmsg="))
+	c.handleClientLeftView(c.handler, commands.ParseCommand("notifyclientleftview clid=6 reasonid=5 reasonmsg="))
 	settle(t, c)
 
 	select {
@@ -414,7 +414,7 @@ func TestHandleNotification_DispatchesPoke(t *testing.T) {
 	cmd := commands.ParseCommand(
 		"notifyclientpoke invokerid=5 invokername=Alice invokeruid=uid123 msg=hey",
 	)
-	c.handleNotification(cmd)
+	c.handleNotification(c.handler, cmd)
 
 	select {
 	case e := <-poked:
@@ -429,5 +429,5 @@ func TestHandleNotification_DispatchesPoke(t *testing.T) {
 func TestHandleNotification_UnknownNotification_NoError(t *testing.T) {
 	c := newTestClient(t)
 	cmd := commands.ParseCommand("notifyunknowncommand foo=bar")
-	c.handleNotification(cmd)
+	c.handleNotification(c.handler, cmd)
 }

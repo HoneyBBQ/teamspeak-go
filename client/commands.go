@@ -354,7 +354,7 @@ func (c *Client) handleCommand(h *transport.PacketHandler, s string) {
 	}
 
 	if strings.HasPrefix(cmd.Name, "notify") {
-		c.receiveNotification(cmd)
+		c.receiveNotification(h, cmd)
 
 		return
 	}
@@ -379,7 +379,7 @@ func (c *Client) handleCommand(h *transport.PacketHandler, s string) {
 
 // receiveNotification hands a notification to the command awaiting it, if
 // any, and then to its handlers.
-func (c *Client) receiveNotification(cmd *commands.Command) {
+func (c *Client) receiveNotification(h *transport.PacketHandler, cmd *commands.Command) {
 	// Some commands are answered by a notification instead of data rows. It
 	// still goes on to be dispatched as an event, since the same notification
 	// also arrives unprompted.
@@ -387,7 +387,7 @@ func (c *Client) receiveNotification(cmd *commands.Command) {
 		c.cmdTrack.collect(cmd.Params, cmd.Name)
 		c.cmdTrack.offerCorrelated(cmd.Name, cmd.Params)
 	}
-	c.handleNotification(cmd)
+	c.handleNotification(h, cmd)
 	// After the typed event, so a handler of both sees the typed one first.
 	// Built only for someone who will see it: a copy of every notification is
 	// not free. A copy because the command tracker hands the same map to the
@@ -437,15 +437,20 @@ func (c *Client) handleError(cmd *commands.Command) {
 
 // ExecNoWait sends a raw command line without waiting for an answer, for the
 // few commands the server answers with nothing at all. ctx bounds only the
-// wait for the flood throttle.
+// wait for the flood throttle. Without an open connection it returns
+// teamspeak.ErrNotConnected.
 func (c *Client) ExecNoWait(ctx context.Context, cmd string) error {
+	h := c.connectedHandler()
+	if h == nil {
+		return teamspeak.ErrNotConnected
+	}
 	err := c.throttle.wait(ctx)
 	if err != nil {
 		return err
 	}
 	c.logger.DebugContext(ctx, "sending command without waiting", slog.String("command", commandName(cmd)))
 
-	return c.finalCmdHandler(cmd)
+	return c.sendLine(h, cmd)
 }
 
 // Exec sends a raw command line and returns the rows that answer it: the
@@ -489,9 +494,18 @@ func (c *Client) send(ctx context.Context, cmd string) ([]map[string]string, err
 // execWithResponse sends a raw command and waits, until ctx is done, for the
 // answer the tracker pairs with it.
 func (c *Client) execWithResponse(ctx context.Context, cmd string) ([]map[string]string, error) {
-	// A command sent on no socket used to vanish and surface later as a
-	// timeout, which reads like a slow server rather than a usage error.
-	if !c.handler.IsOpen() {
+	h := c.connectedHandler()
+	if h == nil {
+		return nil, teamspeak.ErrNotConnected
+	}
+
+	return c.execOn(ctx, h, cmd)
+}
+
+// execOn sends a raw command on h and waits, until ctx is done, for its
+// answer.
+func (c *Client) execOn(ctx context.Context, h *transport.PacketHandler, cmd string) ([]map[string]string, error) {
+	if !h.IsOpen() {
 		return nil, teamspeak.ErrNotConnected
 	}
 
@@ -529,7 +543,7 @@ func (c *Client) execWithResponse(ctx context.Context, cmd string) ([]map[string
 		return nil, err
 	}
 
-	err = c.finalCmdHandler(fmt.Sprintf("%s return_code=%d", cmd, rc))
+	err = c.sendLine(h, fmt.Sprintf("%s return_code=%d", cmd, rc))
 	if err != nil {
 		return nil, err
 	}

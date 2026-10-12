@@ -4,6 +4,7 @@ package client_test
 
 import (
 	"context"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -57,6 +58,10 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 	// fires when nothing arrives, and closing the socket from underneath is the
 	// same path. TestReconnectLoopRetries below covers the retry behaviour
 	// without needing a real drop.
+	// Commands keep arriving from other goroutines while the connection
+	// drops and comes back; see sendCommandsUntilStopped.
+	defer sendCommandsUntilStopped(t, c)()
+
 	dropErr := c.DropConnectionForTest()
 	if dropErr != nil {
 		t.Fatalf("drop connection: %v", dropErr)
@@ -128,5 +133,38 @@ func TestDefaultShouldRetry_TransientIsRetried(t *testing.T) {
 	// A plain transport failure is worth another attempt.
 	if !client.DefaultShouldRetry(syscall.ECONNREFUSED, 1) {
 		t.Error("a transport failure should be retried")
+	}
+}
+
+// sendCommandsUntilStopped sends commands, raw lines and voice from three
+// goroutines, as a bot would, until the returned function is called. Run under
+// -race across a reconnect it checks that none of them reads the handler or
+// its crypto state while the reconnect replaces it; failing with
+// ErrNotConnected meanwhile is fine.
+func sendCommandsUntilStopped(t *testing.T, c *client.Client) func() {
+	t.Helper()
+	stop := make(chan struct{})
+	var senders sync.WaitGroup
+	for range 3 {
+		senders.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+				_, _ = c.WhoAmI(ctx)
+				_ = c.ExecNoWait(ctx, "clientupdate client_away=0")
+				_ = c.SendVoice([]byte{0}, teamspeak.CodecOpusVoice)
+				cancel()
+				time.Sleep(100 * time.Millisecond)
+			}
+		})
+	}
+
+	return func() {
+		close(stop)
+		senders.Wait()
 	}
 }

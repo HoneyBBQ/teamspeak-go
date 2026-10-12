@@ -2,6 +2,7 @@ package transport_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -112,5 +113,47 @@ func TestPacketConnAdapterWithoutRemoteFailsToWrite(t *testing.T) {
 	_, writeErr := conn.Write([]byte("x"))
 	if writeErr == nil {
 		t.Error("expected a write error without a remote address")
+	}
+}
+
+// Closing an adapter unblocks its reader, without closing the PacketConn, so
+// a second adapter on the same PacketConn is its only reader.
+func TestPacketConnAdapterCloseUnblocksItsReader(t *testing.T) {
+	server := listenPacket(t)
+	pc := listenPacket(t)
+
+	first := transport.NewPacketConnAdapter(pc, server.LocalAddr())
+	readErr := make(chan error, 1)
+	go func() {
+		_, err := first.Read(make([]byte, 64))
+		readErr <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+
+	closeErr := first.Close()
+	if closeErr != nil {
+		t.Fatalf("Close: %v", closeErr)
+	}
+	select {
+	case err := <-readErr:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Errorf("Read after Close = %v, want net.ErrClosed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not unblock the adapter's Read")
+	}
+
+	second := transport.NewPacketConnAdapter(pc, server.LocalAddr())
+	_, err := server.WriteTo([]byte("for the second"), pc.LocalAddr())
+	if err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	buf := make([]byte, 64)
+	n, err := second.Read(buf)
+	if err != nil {
+		t.Fatalf("second adapter Read: %v", err)
+	}
+	if got := string(buf[:n]); got != "for the second" {
+		t.Errorf("second adapter read %q", got)
 	}
 }

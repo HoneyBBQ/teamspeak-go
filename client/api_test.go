@@ -4,6 +4,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 var errCaptured = errors.New("captured")
@@ -67,5 +70,27 @@ func TestFileTransfer_HashesChannelPassword(t *testing.T) {
 		if !strings.Contains(sent, want) {
 			t.Errorf("%s = %q, want it to contain %q", name, sent, want)
 		}
+	}
+}
+
+// Sending before Connect, or after Disconnect, fails cleanly.
+func TestSendsWithoutAConnectionReturnErrNotConnected(t *testing.T) {
+	id, err := identity.Parse(testClientIdentity)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	c := mustNew(t, id, "idle")
+
+	err = c.SendVoice([]byte{1}, teamspeak.CodecOpusVoice)
+	if !errors.Is(err, teamspeak.ErrNotConnected) {
+		t.Errorf("SendVoice = %v, want ErrNotConnected", err)
+	}
+	err = c.SendWhisper([]byte{1}, []teamspeak.ClientID{1}, teamspeak.CodecOpusVoice)
+	if !errors.Is(err, teamspeak.ErrNotConnected) {
+		t.Errorf("SendWhisper = %v, want ErrNotConnected", err)
+	}
+	err = c.ExecNoWait(t.Context(), "clientupdate")
+	if !errors.Is(err, teamspeak.ErrNotConnected) {
+		t.Errorf("ExecNoWait = %v, want ErrNotConnected", err)
 	}
 }

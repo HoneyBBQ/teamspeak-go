@@ -7,14 +7,15 @@ import (
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
 	"github.com/honeybbq/teamspeak-go/commands"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
-func (c *Client) handleNotification(cmd *commands.Command) {
+func (c *Client) handleNotification(h *transport.PacketHandler, cmd *commands.Command) {
 	switch cmd.Name {
 	case "notifycliententerview":
-		c.handleClientEnterView(cmd)
+		c.handleClientEnterView(h, cmd)
 	case "notifyclientleftview":
-		c.handleClientLeftView(cmd)
+		c.handleClientLeftView(h, cmd)
 	case "notifyclientmoved":
 		c.handleClientMoved(cmd)
 	case "notifytextmessage":
@@ -30,7 +31,7 @@ func (c *Client) handleNotification(cmd *commands.Command) {
 	}
 }
 
-func (c *Client) handleClientEnterView(cmd *commands.Command) {
+func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *commands.Command) {
 	nick := cmd.Params["client_nickname"]
 	uid := cmd.Params["client_unique_identifier"]
 	groupsStr := cmd.Params["client_servergroups"]
@@ -55,6 +56,11 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 		}
 
 		c.mu.Lock()
+		if c.handler != h {
+			c.mu.Unlock()
+
+			return
+		}
 		c.clients[clid] = info
 		// Identify self by the clid initserver assigned, never by nickname alone:
 		// another client whose nickname is "<our nick><digits>" (the server's
@@ -69,7 +75,7 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 			// initserver carried no aclid, so the welcome enter is the only way
 			// to learn our clid. Once known, a later lookalike cannot take over.
 			c.clid = clid
-			c.handler.SetClientID(uint16(clid))
+			h.SetClientID(uint16(clid))
 			c.nickname = nick
 		}
 		c.mu.Unlock()
@@ -81,7 +87,7 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 	}
 }
 
-func (c *Client) handleClientLeftView(cmd *commands.Command) {
+func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *commands.Command) {
 	clid := parseClientID(cmd.Params["clid"])
 	if clid == 0 {
 		return
@@ -115,16 +121,16 @@ func (c *Client) handleClientLeftView(cmd *commands.Command) {
 			InvokerID:   evt.InvokerID,
 		})
 	}
-	c.removedByServer(&RemovedError{Message: evt.ReasonMessage, InvokerName: evt.InvokerName, Reason: evt.Reason})
+	c.removedByServer(h, &RemovedError{Message: evt.ReasonMessage, InvokerName: evt.InvokerName, Reason: evt.Reason})
 }
 
-// removedByServer ends a session the server has ended. The server stops
-// answering a client it has removed, so waiting for the transport to notice
-// reported the end a minute late, without its cause, and with the client
-// claiming to be connected meanwhile.
-func (c *Client) removedByServer(cause error) {
-	c.handleConnectionClosed(nil, cause)
-	_ = c.currentHandler().Close()
+// removedByServer ends the session h ran, which the server has ended. The
+// server stops answering a client it has removed, so waiting for the transport
+// to notice reported the end a minute late, without its cause, and with the
+// client claiming to be connected meanwhile.
+func (c *Client) removedByServer(h *transport.PacketHandler, cause error) {
+	c.handleConnectionClosed(h, cause)
+	_ = h.Close()
 }
 
 func (c *Client) handleClientMoved(cmd *commands.Command) {

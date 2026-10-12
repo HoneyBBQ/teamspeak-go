@@ -2,9 +2,11 @@ package client
 
 import (
 	"context"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -202,7 +204,7 @@ func TestCommandMiddleware_InterceptsCommands(t *testing.T) {
 		}
 	}))
 
-	err := c.finalCmdHandler("test cmd")
+	err := c.sendLine(c.handler, "test cmd")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -230,7 +232,7 @@ func TestCommandMiddleware_ChainOrder(t *testing.T) {
 		},
 	))
 
-	_ = c.finalCmdHandler("x")
+	_ = c.sendLine(c.handler, "x")
 
 	if !slices.Equal(order, []string{"first", "second"}) {
 		t.Errorf("middleware order = %v, want first, second", order)
@@ -491,5 +493,28 @@ func TestOnClientEnter_GroupsAreTheEventsOwn(t *testing.T) {
 	defer c.mu.Unlock()
 	if got := c.clients[5].ServerGroups; !slices.Equal(got, []teamspeak.ServerGroupID{6, 7}) {
 		t.Errorf("client list groups = %v, want [6 7]", got)
+	}
+}
+
+// Voice is dropped once the queue is backed up; other events are not.
+func TestEventQueueDropsVoiceWhenBackedUp(t *testing.T) {
+	var q eventQueue
+	release := make(chan struct{})
+	q.push(func() { <-release })
+	var delivered atomic.Int32
+	for range maxQueuedForVoice + 50 {
+		q.pushVoice(func() { delivered.Add(1) }, slog.New(slog.DiscardHandler))
+	}
+	ordinary := make(chan struct{})
+	q.push(func() { close(ordinary) })
+	close(release)
+
+	select {
+	case <-ordinary:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ordinary event not delivered")
+	}
+	if got := delivered.Load(); got > maxQueuedForVoice+1 || got < maxQueuedForVoice {
+		t.Errorf("delivered %d voice events, want about %d", got, maxQueuedForVoice)
 	}
 }
