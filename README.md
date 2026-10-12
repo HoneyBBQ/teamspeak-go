@@ -126,7 +126,7 @@ func main() {
 |---|---|
 | `client.New(identity, addr, nickname, ...opts)` | Create a new client |
 | `Connect(ctx)` | Connect, returning once the handshake completes |
-| `Disconnect(ctx)` | Leave the server and close the connection |
+| `Disconnect(ctx)` | Leave the server, close the connection and cancel a pending reconnect |
 | `Status() client.Status` | `StatusDisconnected`, `StatusConnecting` or `StatusConnected` |
 | `ClientID() teamspeak.ClientID` | Our clid, assigned by the server |
 | `ChannelID() teamspeak.ChannelID` | The channel we are in |
@@ -389,6 +389,26 @@ members to `Status`, `ServerFamily`, `identity.UIDAlgorithm`, the set of
 `client.Event` types and the enumerations (`GroupType`, `Codec`, `Reason` and
 the rest), and the server may send values this module does not name, so a
 `switch` over any of them should have a default case.
+
+### Differences from teamspeak-js
+
+The two SDKs make the same decisions and use the same names, except where the
+languages differ:
+
+- **Backoff zero values.** Go cannot tell an unset field from 0, so a zero
+  `BackoffPolicy` field takes the default, and a negative `Jitter` turns
+  jitter off. JavaScript takes `undefined` as the default and 0 as 0.
+- **A handler that panics or throws.** Go recovers the panic, logs it at
+  Error, and keeps delivering. JavaScript rethrows it through
+  `queueMicrotask`, as an uncaught exception from an EventEmitter listener
+  would be, and keeps delivering to the other listeners.
+- **Durations** are `time.Duration` in Go and milliseconds, with an `Ms`
+  suffix, in JavaScript. Go's `ClientListOptions.OmitUID` is JavaScript's
+  `uid` flag, because a Go bool's zero value must be the default.
+- **connected.** Both deliver it once `Connect` has succeeded, on the event
+  queue. JavaScript's single thread lets a listener added right after
+  `connect()` resolves still hear it; Go's event goroutine may run first, so
+  register `OnConnected` before `Connect` to be sure to.
 
 ## Architecture
 

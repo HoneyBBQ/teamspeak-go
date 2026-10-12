@@ -49,7 +49,22 @@ before v1.0.0.
   minute, then reported the end with a nil error. The session now ends at once
   with a `*client.RemovedError`. Channel kicks were never reported.
 - An empty list (`banlist` on a server with no bans) failed with error 1281; it
-  returns no rows.
+  returns no rows. Every list and find does so, the permission lists,
+  `ListFiles`, `GetClientIDs` and `GetServerGroupsByClient` among them.
+- A command defined to answer with a row — the `Get…` and `Init…` methods,
+  `CreateChannel`, `AddBan`, `BanClient`, `AddPrivilegeKey`, `ViewLog` and
+  the group creators — fails with an error wrapping `teamspeak.ErrNoData`
+  when the server acknowledges it without that row, or without the field it
+  must hold. Several returned 0, `""` or empty `Properties`.
+- `BanClient` returns every ban it created: the server bans the uid and the
+  IP (and the MyTeamSpeak id), two or three bans, each with its own id.
+- An `error` line without a `return_code` drops the rows before it; the next
+  command answered took them as its own.
+- `GetChannelDescription` and the channel subscriptions are typed requests,
+  so command middleware sees them.
+- `logview` sends `reverse` and `instance` only when set, and `ftrenamefile`
+  always sends `cpw`, with `tcid` and `tcpw` only for a move into another
+  channel — the rules the JavaScript SDK follows.
 - `AddTempPassword` always created an empty password; `ViewLog` returned no
   lines; TeamSpeak 6 file times were read in the wrong unit; transfer speeds
   and negative icon ids read as 0.
@@ -66,7 +81,8 @@ before v1.0.0.
   opaque `client.Option`.
 - Errors are matched with `errors.Is`: `teamspeak.ErrServer`, an
   `errcode.Code`, `teamspeak.ErrNotConnected`, `client.ErrAlreadyConnected`,
-  `client.ErrTimedOut`, `context.DeadlineExceeded`; `errors.As` for
+  `client.ErrConnectionTimeout`, `client.ErrInvalidAddress`,
+  `teamspeak.ErrNoData`, `context.DeadlineExceeded`; `errors.As` for
   `*teamspeak.ServerError` and `*client.RemovedError`.
 - Ids are named types, times are `time.Time`, durations `time.Duration`,
   enums have `String` methods.
@@ -103,6 +119,22 @@ before v1.0.0.
   dropped instead of read as the server's.
 - A server error or ban from a connection that a new `Connect` has replaced
   no longer fails or disconnects the new one.
+- Before crypto init, when everything is sealed with the public dummy key,
+  only `clientinitiv`, `initivexpand2` and `error` are handled; notifications,
+  data rows and unknown commands are dropped. A pre-init error may fail the
+  attempt, but a ban stops the client only once crypto init is complete.
+- A license chain longer than 8 blocks fails the handshake. TeamSpeak 3 sends
+  2 blocks and TeamSpeak 6 sends 3.
+- A packet is decrypted under its own generation only. Guessing the previous
+  one let a packet recorded before the 16-bit id wrapped be replayed after
+  it; guessing the next never decrypted a packet on either server.
+- One Init1 RSA challenge is solved per connection; the same one again gets
+  the same answer, a different one none, and the clientinitiv alpha is chosen
+  once.
+- A datagram over 4096 bytes is dropped; the command receive queues hold at
+  most 1 MiB, which bounds fragment reassembly too, and QuickLZ refuses a
+  declared size its input could not expand to.
+- TSDNS and nickname lookup answers are read through an 8 KiB limit.
 - Logs carry a command's name and parameter count, never its parameters or a
   message body. The client keeps only the hashes of its passwords; `*Client`,
   `Request`, the transfer infos, `PrivilegeKey` and `TempPassword` format
@@ -127,10 +159,24 @@ before v1.0.0.
 - A `Disconnect` can no longer be undone by a reconnect already under way, a
   reconnect loop ends once the caller has reconnected by hand, and a drop that
   arrives while a loop is ending is retried rather than lost.
+- `Connect` waits for a `Disconnect` that is still saying goodbye, so the old
+  session is closed and announced before the new one starts; a `Disconnect`
+  during that wait wins, and `Connect` returns `ErrNotConnected`. A second
+  `Disconnect` joins the first.
+- A `connected`, `disconnected` or `kicked` event still queued when a new
+  connection attempt starts is dropped instead of being read as the new
+  session's.
+- The goodbye waits a second at most, however long `ctx` allows.
+- Resolution, the default chain or a `WithResolver` one, gets 10 seconds in
+  all; a resolver that ignores its context is not waited for past it.
+- The flood throttle releases waiting commands in arrival order.
 
 ### Added
 
 - `errcode`: every server error code by name.
+- `client.ErrInvalidAddress`: an address with no host, a host no host name or
+  IP can be, or a port outside 1–65535 fails `Connect` at once, and is not
+  retried.
 - `client.OnNotification`: every notification as it arrived, for the ones the
   SDK does not model.
 - `client.ServerCapabilities` reports the server's name, icon, host banner and
@@ -186,7 +232,7 @@ The changes from the earlier v1 previews are listed first, under
 | `RenameFileOptions` | `FileRenameOptions` |
 | ban, message and transfer ids as `uint64`/`uint16` | `BanID`, `MessageID`, `ClientFileTransferID`, `ServerFileTransferID` |
 | `Binding.Port int`, `SortID uint64` | `uint16`, `int32` |
-| `PermissionLocation{ID1, ID2}` | `ServerGroupID`, `ClientDBID`, `ChannelID`, `ChannelGroupID`, set by `Target` |
+| `PermissionLocation{ID1, ID2}` | `ServerGroupID`, `DatabaseID`, `ChannelID`, `ChannelGroupID`, set by `Target` |
 | `WhoAmI`, `GetConnectionInfo` → `map[string]string` | `teamspeak.WhoAmI`, `teamspeak.ServerConnectionInfo` |
 | `ListPermissions`, `GetPermissionOverview` → maps | `[]PermissionInfo`, `[]PermissionOverviewEntry` |
 | `GetServerInfo`, `GetClientInfo`, `GetHostInfo`, `GetInstanceInfo` → `map[string]string` | `teamspeak.Properties` (the same map, named) |
@@ -196,6 +242,17 @@ The changes from the earlier v1 previews are listed first, under
 | a dot-less address looked up at named.myteamspeak.com | resolved as a host; opt in with `client.WithNicknameLookup()` |
 | `ServerFamilyUnknown == "unknown"` | the zero value `""`; `String()` still says "unknown" |
 | `c.Commands = …` | not assignable; the typed commands are still the client's methods |
+| `banID, err := c.BanClient(…)` | `banIDs, err := c.BanClient(…)`, a `[]BanID` |
+| `DialFileTransfer(ctx, host, port, key, dialer)`, and `dialer` last in `UploadFileData`, `DownloadFileData` | `…, FileTransferOptions{Dialer: dialer})`; `nil` is `FileTransferOptions{}` |
+| `req.Encode(…)`, `client.ParseServerCapabilities(…)` | internal; `c.ServerCapabilities()` reports the record |
+| `Complaint.Timestamp`, `OfflineMessage.Timestamp` | `.Created`, `.Sent` |
+| `TempPassword.Start`, `.End` | `.Starts`, `.Ends` |
+| `FileEntry.ModifiedAt`, `PrivilegeKey.CreatedAt` | `.Modified`, `.Created` |
+| `PermissionLocation.ClientDBID` | `.DatabaseID` |
+| `ServerGroupClient`, `BuildVersion` | `ServerGroupMember`, `ServerVersion` |
+| `client.ErrTimedOut` | `client.ErrConnectionTimeout` |
+| a missing row read as `0`, `""` or empty `Properties` | an error wrapping `teamspeak.ErrNoData` |
+| `ViewLog` always sent `reverse=0 instance=0` | sends them only when set |
 
 A deleted file list is now sent the way the server reads it, so
 `DeleteFile` with several paths deletes them all instead of failing with
@@ -314,8 +371,9 @@ err = teamspeak.UploadFileData(host, info, r)
 
 // v1
 info, err := c.InitFileUpload(ctx, cid, "/a.txt", size, teamspeak.FileUploadOptions{Overwrite: true})
-err = teamspeak.UploadFileData(ctx, host, info, r, nil)
+err = teamspeak.UploadFileData(ctx, host, info, r, teamspeak.FileTransferOptions{})
 ```
 
-The last argument is a `teamspeak.FileTransferDialer` — any `DialContext`,
-such as a `*net.Dialer` or a proxy — or nil for a direct dial.
+`FileTransferOptions.Dialer` is a `teamspeak.FileTransferDialer` — any
+`DialContext`, such as a `*net.Dialer` or a proxy; the zero options dial
+directly.

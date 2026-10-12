@@ -434,6 +434,10 @@ func WithDefaultChannelPassword(password string) Option {
 // ctx bounds only the connecting: once Connect returns, the connection lasts
 // until Disconnect or a drop.
 //
+// An address that cannot be one fails at once with an error wrapping
+// ErrInvalidAddress. On success the connected event is queued, and delivered
+// on the event goroutine: register OnConnected before Connect to hear it.
+//
 // Called while a Disconnect is still saying goodbye, Connect waits for it
 // first, so the old session is closed, and its end announced, before the new
 // one starts. A Disconnect called during that wait wins: Connect then returns
@@ -448,7 +452,8 @@ func (c *Client) Connect(ctx context.Context) error {
 // at most, or until ctx is done if that is sooner. The connection is closed
 // either way. A Connect still waiting for its handshake returns
 // teamspeak.ErrNotConnected, and so do the commands still waiting for an
-// answer. Disconnect on a client that is not connected does nothing; called
+// answer, and a reconnect still pending or waiting out its backoff is
+// cancelled. Disconnect on a client that is not connected does nothing; called
 // while an earlier Disconnect is still saying goodbye, it waits for that one
 // and returns its result.
 func (c *Client) Disconnect(ctx context.Context) error {
