@@ -556,7 +556,7 @@ func (c *Client) scheduleReconnect(connErr error) {
 			return
 		}
 
-		delay := BackoffDelay(options.Backoff, attempt, nil)
+		delay := options.Backoff.Delay(attempt)
 		c.logger.Info("reconnecting", slog.Int("attempt", attempt), slog.Duration("delay", delay))
 
 		if !c.sleepWhileRunning(delay) {
