@@ -408,24 +408,7 @@ func WithDefaultChannelPassword(password string) Option {
 // ctx bounds only the connecting: once Connect returns, the connection lasts
 // until Disconnect or a drop.
 func (c *Client) Connect(ctx context.Context) error {
-	attempt, err := c.start(ctx)
-	if err != nil {
-		return err
-	}
-
-	select {
-	case <-attempt.done:
-		return attempt.err
-	case <-ctx.Done():
-		// Abandon the attempt. The handshake may have completed meanwhile, in
-		// which case failConnection leaves the session alone and Connect
-		// reports the connection it made rather than one the caller would
-		// believe had failed.
-		c.failConnection(ctx.Err())
-		<-attempt.done
-
-		return attempt.err
-	}
+	return c.connect(ctx, true)
 }
 
 // Disconnect leaves the server and closes the connection.
@@ -471,11 +454,43 @@ func (c *Client) Disconnect(ctx context.Context) error {
 	return err
 }
 
+// connect runs one connection attempt. Only an explicit Connect (fromCaller)
+// undoes a Disconnect; a reconnect that finds the client stopped gives up,
+// whenever the Disconnect landed.
+func (c *Client) connect(ctx context.Context, fromCaller bool) error {
+	attempt, err := c.start(ctx, fromCaller)
+	if err != nil {
+		return err
+	}
+
+	select {
+	case <-attempt.done:
+		return attempt.err
+	case <-ctx.Done():
+		// Abandon the attempt. The handshake may have completed meanwhile, in
+		// which case failConnection leaves the session alone and Connect
+		// reports the connection it made rather than one the caller would
+		// believe had failed.
+		c.failConnection(ctx.Err())
+		<-attempt.done
+
+		return attempt.err
+	}
+}
+
 // start resets the session and begins the handshake, returning the attempt
-// that the handshake will resolve.
-func (c *Client) start(ctx context.Context) (*connectAttempt, error) {
+// that the handshake will resolve. fromCaller clears a previous Disconnect;
+// otherwise a stopped client is refused with errStopped, checked under the
+// same lock Disconnect takes so that one landing just before cannot be undone.
+func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, error) {
 	c.mu.Lock()
-	c.stopped = false
+	if fromCaller {
+		c.stopped = false
+	} else if c.stopped {
+		c.mu.Unlock()
+
+		return nil, errStopped
+	}
 	if c.status != StatusDisconnected {
 		c.mu.Unlock()
 
@@ -753,6 +768,14 @@ func (c *Client) scheduleReconnect(connErr error) {
 
 			return
 		}
+		// Stopped: a Disconnect landed between the check above and the
+		// attempt. Already connected: the caller reconnected by hand. Either
+		// way there is nothing left to retry.
+		if errors.Is(retryErr, errStopped) || errors.Is(retryErr, ErrAlreadyConnected) {
+			c.logger.Info("reconnect no longer needed", slog.Any("reason", retryErr))
+
+			return
+		}
 
 		connErr = retryErr
 		if options.ShouldRetry == nil && !DefaultShouldRetry(retryErr, attempt) {
@@ -770,7 +793,7 @@ func (c *Client) runConnect() error {
 	ctx, cancel := context.WithTimeout(context.Background(), reconnectAttemptTimeout)
 	defer cancel()
 
-	return c.Connect(ctx)
+	return c.connect(ctx, false)
 }
 
 // beginReconnect claims the reconnect slot, reporting false when reconnection

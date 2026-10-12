@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -33,5 +34,53 @@ func TestBackoffPolicy_JitterStaysUnderTheCeiling(t *testing.T) {
 	}
 	if got := p.delay(1, func() float64 { return 0 }); got != 500*time.Millisecond {
 		t.Errorf("lowest jitter on the first delay = %v, want 500ms", got)
+	}
+}
+
+var errTestDrop = errors.New("test drop")
+
+func withFastReconnect(c *Client, shouldRetry ShouldRetryFunc) {
+	options := ReconnectOptions{
+		ShouldRetry: shouldRetry,
+		Backoff:     BackoffPolicy{InitialDelay: time.Millisecond, MaxDelay: time.Millisecond, Jitter: -1},
+	}.withDefaults()
+	c.mu.Lock()
+	c.reconnectOptions = &options
+	c.mu.Unlock()
+}
+
+// A Disconnect that lands just before a reconnect attempt takes the lock must
+// not be undone by it.
+func TestReconnectAttemptRefusesAStoppedClient(t *testing.T) {
+	c := newTestClient(t)
+	c.mu.Lock()
+	c.status = StatusDisconnected
+	c.stopped = true
+	c.mu.Unlock()
+
+	err := c.runConnect()
+	if !errors.Is(err, errStopped) {
+		t.Fatalf("reconnect attempt after Disconnect = %v, want errStopped", err)
+	}
+	if got := c.Status(); got != StatusDisconnected {
+		t.Errorf("status = %v, want disconnected", got)
+	}
+}
+
+// After the caller reconnected by hand, the loop has nothing to do; it must
+// end rather than spin on ErrAlreadyConnected.
+func TestReconnectLoopEndsWhenAlreadyConnected(t *testing.T) {
+	c := newTestClient(t) // connected
+	withFastReconnect(c, func(error, int) bool { return true })
+
+	done := make(chan struct{})
+	go func() {
+		c.scheduleReconnect(errTestDrop)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the reconnect loop kept retrying a client that is already connected")
 	}
 }

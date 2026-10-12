@@ -21,6 +21,9 @@ var ErrHandshake = errors.New("TeamSpeak handshake failed")
 // dropped connection is never reported with a nil error.
 var errConnectionClosed = errors.New("connection closed")
 
+// errStopped ends a reconnect attempt that finds Disconnect already called.
+var errStopped = errors.New("client was disconnected")
+
 // RemovedError reports the server ending this client's session: a kick, a
 // ban, or the server stopping. The default reconnect policy retries a server
 // that stopped, but not a kick or a ban.
