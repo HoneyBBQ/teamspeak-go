@@ -24,7 +24,7 @@ type reply struct {
 }
 
 func (s *script) Send(_ context.Context, req Request) ([]map[string]string, error) {
-	s.sent = append(s.sent, req.Encode(func(pw string) string { return pw }))
+	s.sent = append(s.sent, req.encode(func(pw string) string { return pw }))
 	if len(s.replies) == 0 {
 		return nil, nil
 	}

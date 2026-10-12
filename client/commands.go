@@ -17,6 +17,7 @@ import (
 
 	"github.com/honeybbq/teamspeak-go/errcode"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
+	"github.com/honeybbq/teamspeak-go/internal/request"
 	"github.com/honeybbq/teamspeak-go/internal/servererr"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
@@ -530,7 +531,7 @@ func (c *Client) Send(ctx context.Context, req teamspeak.Request) ([]map[string]
 // sendRequest is the executor the command middleware wraps: it encodes the
 // request for the voice protocol and sends it.
 func (c *Client) sendRequest(ctx context.Context, req teamspeak.Request) ([]map[string]string, error) {
-	return c.send(ctx, req.Encode(prepareClientPassword))
+	return c.send(ctx, request.Encode(req, prepareClientPassword))
 }
 
 // send executes a command line, applying defaultCommandTimeout when ctx sets

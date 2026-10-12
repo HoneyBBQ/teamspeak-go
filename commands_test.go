@@ -2,8 +2,10 @@ package teamspeak
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
+	"github.com/honeybbq/teamspeak-go/internal/request"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
@@ -29,11 +31,11 @@ func TestRequest_LeavesPasswordEncodingToTheTransport(t *testing.T) {
 	}
 
 	req := rec.requests[0]
-	hashed := req.Encode(func(pw string) string { return "hashed(" + pw + ")" })
+	hashed := req.encode(func(pw string) string { return "hashed(" + pw + ")" })
 	if hashed != "clientmove clid=7 cid=42 cpw=hashed(hunter2)" {
 		t.Errorf("hashed encoding = %q", hashed)
 	}
-	plain := req.Encode(func(pw string) string { return pw })
+	plain := req.encode(func(pw string) string { return pw })
 	if plain != "clientmove clid=7 cid=42 cpw=hunter2" {
 		t.Errorf("plain encoding = %q", plain)
 	}
@@ -45,7 +47,7 @@ func TestRequest_SendsFlagsBare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := rec.requests[0].Encode(func(pw string) string { return pw }); got != "clientlist -uid -away" {
+	if got := rec.requests[0].encode(func(pw string) string { return pw }); got != "clientlist -uid -away" {
 		t.Errorf("encoding = %q", got)
 	}
 }
@@ -77,5 +79,17 @@ func TestCreatedGroupID(t *testing.T) {
 	_, err = createdGroupID[ServerGroupID](list[:1], "sgid", "bots")
 	if err == nil {
 		t.Error("missing group: want an error rather than another group's id")
+	}
+}
+
+// Encoding is the transport's business: a Request offers callers its name and
+// nothing that renders it.
+func TestRequestHasNoPublicEncode(t *testing.T) {
+	if _, ok := reflect.TypeFor[Request]().MethodByName("Encode"); ok {
+		t.Error("Request has a public Encode method")
+	}
+	line := request.Encode(request.New("channelsubscribe", [][2]string{{"cid", "7"}}), nil)
+	if line != "channelsubscribe cid=7" {
+		t.Errorf("the transports' encoding = %q", line)
 	}
 }

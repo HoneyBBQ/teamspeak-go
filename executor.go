@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/honeybbq/teamspeak-go/errcode"
+	"github.com/honeybbq/teamspeak-go/internal/request"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
@@ -50,13 +51,30 @@ func (r Request) LogValue() slog.Value {
 	return slog.StringValue(r.command)
 }
 
-// Encode renders the request as a command line. encodePassword is the
+// init hands the SDK's transports the two things about a Request they need and
+// callers must not: building one from parts, and encoding it. An init, because
+// the hooks must be in place before any importer of this package runs.
+func init() { //nolint:gochecknoinits // see above
+	request.New = func(command string, params [][2]string) any {
+		req := Request{command: command, params: make([]param, len(params))}
+		for i, p := range params {
+			req.params[i] = strArg(p[0], p[1])
+		}
+
+		return req
+	}
+	request.Encode = func(req any, encodePassword func(password string) string) string {
+		return req.(Request).encode(encodePassword) //nolint:forcetypeassert // only ever given a Request
+	}
+}
+
+// encode renders the request as a command line. encodePassword is the
 // transport's rule for password parameters; an empty password is sent as is,
 // since it means "no password" in every encoding.
 //
 // A list parameter is written last, as a row group: key=value per value,
 // separated by pipes, the other parameters applying to every row.
-func (r Request) Encode(encodePassword func(password string) string) string {
+func (r Request) encode(encodePassword func(password string) string) string {
 	out := make([][2]string, 0, len(r.params))
 	var group *param
 	for i, p := range r.params {

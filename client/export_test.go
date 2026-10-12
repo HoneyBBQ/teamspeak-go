@@ -7,6 +7,9 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
+// ParseServerCapabilities is parseServerCapabilities, for the external tests.
+var ParseServerCapabilities = parseServerCapabilities
+
 // DropConnectionForTest closes the transport out from under the client, which
 // is what a network failure does. Exported to the test binary only, so the
 // integration test can exercise reconnection without a real outage.

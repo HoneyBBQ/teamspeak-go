@@ -18,6 +18,7 @@ import (
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/internal/request"
 	"github.com/honeybbq/teamspeak-go/internal/servererr"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
@@ -101,7 +102,7 @@ func New(transport Transport) *Client {
 // Passwords go as they are: ServerQuery takes the password itself and hashes
 // it server-side, where the voice protocol wants the hash.
 func (c *Client) Send(ctx context.Context, req teamspeak.Request) ([]map[string]string, error) {
-	return c.Exec(ctx, req.Encode(func(password string) string { return password }))
+	return c.Exec(ctx, request.Encode(req, func(password string) string { return password }))
 }
 
 // Exec sends a raw command line and returns the rows that answer it. The line

@@ -72,11 +72,11 @@ type ServerCapabilities struct {
 	IconID teamspeak.IconID
 }
 
-// ParseServerCapabilities reads what a server says about itself in initserver.
+// parseServerCapabilities reads what a server says about itself in initserver.
 //
 // initserver is the command's parameters. To read a version string alone, such
 // as "6.0.0-beta13.1 [Build: 1790080330]", pass it as virtualserver_version.
-func ParseServerCapabilities(initserver map[string]string) ServerCapabilities {
+func parseServerCapabilities(initserver map[string]string) ServerCapabilities {
 	version := initserver["virtualserver_version"]
 	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
 	if err != nil {
@@ -106,5 +106,5 @@ func ParseServerCapabilities(initserver map[string]string) ServerCapabilities {
 // unknownServerCapabilities is the state before a server has identified
 // itself: the family unknown, the uid hash SHA-1.
 func unknownServerCapabilities() ServerCapabilities {
-	return ParseServerCapabilities(nil)
+	return parseServerCapabilities(nil)
 }
