@@ -20,8 +20,7 @@ var ErrNotConnected = errors.New("not connected")
 // ErrNoData reports a command that succeeded without the data it should carry,
 // such as a channelinfo for a channel the server no longer lists. Every
 // command defined to answer with a row — the Get and Init methods, the
-// creating ones that return an id, AddBan, BanClient, AddPrivilegeKey,
-// ViewLog — fails with an error wrapping it rather than return a zero
+// creating ones that return an id, AddPrivilegeKey, ViewLog — fails with an error wrapping it rather than return a zero
 // value. A list that comes back empty is not this error.
 var ErrNoData = errors.New("the server answered with no data")
 

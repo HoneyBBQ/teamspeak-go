@@ -234,7 +234,8 @@ err = c.SendChannelMessage(ctx, "hello")
 err = c.AddChannelPermission(ctx, cid, teamspeak.PermissionByName("i_channel_needed_join_power"), 50)
 
 // 0 bans permanently; anything else is sent in whole seconds. The server bans
-// the client's uid and IP (and MyTeamSpeak id), so there is one id per ban.
+// the client's uid and IP (and MyTeamSpeak id); over the voice protocol it
+// reports none of their ids, so banIDs is empty and ListBans finds them.
 banIDs, err := c.BanClient(ctx, troll, teamspeak.BanClientOptions{Duration: 10 * time.Minute, Reason: "cool off"})
 
 // The client database is paged; the iterator fetches page after page.

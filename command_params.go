@@ -73,16 +73,6 @@ func boolArg(key string, value bool) param {
 	return param{Key: key, Value: &encoded}
 }
 
-// trueArg encodes a boolean that is sent only when true, as 1: for the
-// parameters whose absence already means false.
-func trueArg(key string, value bool) param {
-	if !value {
-		return param{Key: key}
-	}
-
-	return boolArg(key, true)
-}
-
 // strPtrArg encodes an optional string: nil omits the parameter entirely.
 func strPtrArg(key string, value *string) param {
 	return param{Key: key, Value: value}

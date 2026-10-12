@@ -257,7 +257,8 @@ func (c *Commands) ListPermissions(ctx context.Context) ([]PermissionInfo, error
 }
 
 // GetPermissionIDByName resolves a permission name to its numeric id. The
-// second return value is false when the server knows no such permission.
+// second return value is false when the server knows no such permission; a
+// row without a permid fails with an error wrapping ErrNoData.
 //
 // Needs an instance-level permission (b_serverinstance_*), which not even the
 // Server Admin group holds by default — expect error 2568 until it is granted.
@@ -271,8 +272,12 @@ func (c *Commands) GetPermissionIDByName(ctx context.Context, name string) (Perm
 	if len(rows) == 0 {
 		return 0, false, nil
 	}
+	row, err := requireRow(rows, "permidgetbyname", "permid")
+	if err != nil {
+		return 0, false, err
+	}
 
-	return PermissionID(fieldUint32(rows[0], "permid")), true, nil
+	return PermissionID(fieldUint32(row, "permid")), true, nil
 }
 
 // PermissionLocation is one place a permission is set, as permfind and

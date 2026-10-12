@@ -2,8 +2,11 @@ package teamspeak
 
 import (
 	"context"
+	"errors"
 	"math"
 	"time"
+
+	"github.com/honeybbq/teamspeak-go/errcode"
 )
 
 // Channel commands.
@@ -419,9 +422,15 @@ type ChannelMatch struct {
 	ID ChannelID
 }
 
-// FindChannels returns channels whose name contains pattern.
+// FindChannels returns channels whose name contains pattern, none when no
+// channel matches.
 func (c *Commands) FindChannels(ctx context.Context, pattern string) ([]ChannelMatch, error) {
 	rows, err := c.list(ctx, "channelfind", []param{strArg("pattern", pattern)})
+	// No match is 768, "invalid channelID", measured on TeamSpeak 3 and 6:
+	// channelfind takes no cid, so the code can only mean none was found.
+	if errors.Is(err, errcode.ChannelInvalidID) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}

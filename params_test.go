@@ -275,7 +275,7 @@ func TestViewLog_ReadsOneLinePerRow(t *testing.T) {
 	if len(page.Lines) != 2 || page.Lines[1] != "second" || page.LastPosition != 4096 {
 		t.Errorf("page = %+v", page)
 	}
-	if s.sent[0] != "logview reverse=1 lines=2" {
+	if s.sent[0] != "logview reverse=1 instance=0 lines=2" {
 		t.Errorf("request = %q", s.sent[0])
 	}
 }
@@ -485,9 +485,6 @@ func TestRequiredRowsFailWithErrNoData(t *testing.T) {
 		"GetMessage": func(c *Commands) error {
 			return errOf(c.GetMessage(t.Context(), 1))
 		},
-		"AddBan": func(c *Commands) error {
-			return errOf(c.AddBan(t.Context(), BanOptions{IP: "1.2.3.4"}))
-		},
 		"InitFileUpload": func(c *Commands) error {
 			return errOf(c.InitFileUpload(t.Context(), 1, "/a", 1, FileUploadOptions{}))
 		},
@@ -520,13 +517,28 @@ func TestRequiredRowsFailWithErrNoData(t *testing.T) {
 // errOf is the error of a call that also returns a value.
 func errOf[T any](_ T, err error) error { return err }
 
-// The server answers banclient with one banid per ban it created, two or
-// three; BanClient returns them all.
-func TestBanClientReturnsEveryBan(t *testing.T) {
+// Over ServerQuery the server answers banclient with one banid per ban it
+// created, two or three, and BanClient returns them all. Over the voice
+// protocol it answers banclient and banadd with nothing, which is success
+// with no ids, not ErrNoData.
+func TestBansReturnTheIDsTheServerReports(t *testing.T) {
 	s := &script{replies: []reply{{rows: []map[string]string{{"banid": "12"}, {"banid": "13"}, {"banid": "14"}}}}}
 	ids, err := NewCommands(s).BanClient(t.Context(), 7, BanClientOptions{})
 	if err != nil || !slices.Equal(ids, []BanID{12, 13, 14}) {
 		t.Fatalf("BanClient = %v, %v; want [12 13 14]", ids, err)
+	}
+	ids, err = NewCommands(&script{}).BanClient(t.Context(), 7, BanClientOptions{})
+	if err != nil || len(ids) != 0 {
+		t.Errorf("BanClient answered with nothing = %v, %v; want no ids, no error", ids, err)
+	}
+	id, err := NewCommands(&script{}).AddBan(t.Context(), BanOptions{IP: "203.0.113.5"})
+	if err != nil || id != 0 {
+		t.Errorf("AddBan answered with nothing = %v, %v; want 0, no error", id, err)
+	}
+	id, err = NewCommands(&script{replies: []reply{{rows: []map[string]string{{"banid": "9"}}}}}).
+		AddBan(t.Context(), BanOptions{IP: "203.0.113.5"})
+	if err != nil || id != 9 {
+		t.Errorf("AddBan = %v, %v; want 9", id, err)
 	}
 }
 
@@ -585,8 +597,9 @@ func TestInitFileUploadDoesNotOverwriteByDefault(t *testing.T) {
 }
 
 // The parameter rules both SDKs share: ftrenamefile always carries cpw, and
-// tcid with tcpw only for a move into another channel; logview omits what is
-// left at its zero value; a permission with id 0 is refused.
+// tcid with tcpw only for a move into another channel; logview always sends
+// reverse and instance, lines only above 0; a permission with id 0 is
+// refused.
 func TestParameterEncodingParity(t *testing.T) {
 	cases := map[string]struct {
 		run  func(c *Commands) error
@@ -600,12 +613,12 @@ func TestParameterEncodingParity(t *testing.T) {
 		}, `ftrenamefile cid=1 oldname=\/a newname=\/b cpw= tcid=2 tcpw=`},
 		"log with defaults": {func(c *Commands) error {
 			return errOf(c.ViewLog(t.Context(), LogViewOptions{}))
-		}, "logview"},
+		}, "logview reverse=0 instance=0"},
 		"instance log from the start": {func(c *Commands) error {
 			start := uint64(0)
 
 			return errOf(c.ViewLog(t.Context(), LogViewOptions{Instance: true, BeginPosition: &start}))
-		}, "logview instance=1 begin_pos=0"},
+		}, "logview reverse=0 instance=1 begin_pos=0"},
 	}
 	for name, tc := range cases {
 		if got := encoded(t, tc.run); got != tc.want {
@@ -615,4 +628,33 @@ func TestParameterEncodingParity(t *testing.T) {
 	refused(t, func(c *Commands) error {
 		return c.AddChannelPermission(t.Context(), 1, PermissionByID(0), 1)
 	})
+}
+
+// A find with no match is 512 for clientfind and 768 for channelfind, measured
+// on TeamSpeak 3 and 6; both are an empty result. Another refusal is passed on.
+func TestFindsWithNoMatchAreEmpty(t *testing.T) {
+	answer := func(code errcode.Code) *Commands {
+		return NewCommands(&script{replies: []reply{{err: &ServerError{Code: code}}}})
+	}
+	clients, err := answer(errcode.ClientInvalidID).FindClients(t.Context(), "x")
+	if err != nil || len(clients) != 0 {
+		t.Errorf("FindClients on 512 = %v, %v", clients, err)
+	}
+	channels, err := answer(errcode.ChannelInvalidID).FindChannels(t.Context(), "x")
+	if err != nil || len(channels) != 0 {
+		t.Errorf("FindChannels on 768 = %v, %v", channels, err)
+	}
+	_, err = answer(errcode.PermissionsClientInsufficient).FindChannels(t.Context(), "x")
+	if !errors.Is(err, errcode.PermissionsClientInsufficient) {
+		t.Errorf("FindChannels on 2568 = %v, want the refusal", err)
+	}
+	_, ok, err := NewCommands(&script{replies: []reply{{rows: []map[string]string{{"permsid": "x"}}}}}).
+		GetPermissionIDByName(t.Context(), "x")
+	if ok || !errors.Is(err, ErrNoData) {
+		t.Errorf("GetPermissionIDByName with a row lacking permid = %v, %v; want ErrNoData", ok, err)
+	}
+	_, ok, err = NewCommands(&script{}).GetPermissionIDByName(t.Context(), "x")
+	if ok || err != nil {
+		t.Errorf("GetPermissionIDByName with no row = %v, %v; want not found", ok, err)
+	}
 }

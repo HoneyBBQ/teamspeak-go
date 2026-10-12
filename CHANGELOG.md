@@ -50,21 +50,26 @@ before v1.0.0.
   with a `*client.RemovedError`. Channel kicks were never reported.
 - An empty list (`banlist` on a server with no bans) failed with error 1281; it
   returns no rows. Every list and find does so, the permission lists,
-  `ListFiles`, `GetClientIDs` and `GetServerGroupsByClient` among them.
+  `ListFiles`, `GetClientIDs` and `GetServerGroupsByClient` among them, and
+  `FindClients` and `FindChannels` treat 512 and 768, which TeamSpeak 3 and 6
+  answer a find with no match, as no match.
 - A command defined to answer with a row — the `Get…` and `Init…` methods,
-  `CreateChannel`, `AddBan`, `BanClient`, `AddPrivilegeKey`, `ViewLog` and
-  the group creators — fails with an error wrapping `teamspeak.ErrNoData`
+  `CreateChannel`, `AddPrivilegeKey`, `ViewLog` and the group creators —
+  fails with an error wrapping `teamspeak.ErrNoData`
   when the server acknowledges it without that row, or without the field it
   must hold. Several returned 0, `""` or empty `Properties`.
-- `BanClient` returns every ban it created: the server bans the uid and the
-  IP (and the MyTeamSpeak id), two or three bans, each with its own id.
+- `BanClient` returns every ban id the server reports: it bans the uid and
+  the IP (and the MyTeamSpeak id), two or three bans. Over ServerQuery each
+  has an id; over the voice protocol TeamSpeak 3 and 6 report none, measured,
+  so `BanClient` returns an empty slice and `AddBan` 0 — the bans are made,
+  and `ListBans` finds their ids.
 - An `error` line without a `return_code` drops the rows before it; the next
   command answered took them as its own.
 - `GetChannelDescription` and the channel subscriptions are typed requests,
   so command middleware sees them.
-- `logview` sends `reverse` and `instance` only when set, and `ftrenamefile`
-  always sends `cpw`, with `tcid` and `tcpw` only for a move into another
-  channel — the rules the JavaScript SDK follows.
+- `ftrenamefile` always sends `cpw`, with `tcid` and `tcpw` only for a move
+  into another channel, and `logview` always sends `reverse` and `instance`,
+  `lines` only above 0 — the rules the JavaScript SDK follows too.
 - `AddTempPassword` always created an empty password; `ViewLog` returned no
   lines; TeamSpeak 6 file times were read in the wrong unit; transfer speeds
   and negative icon ids read as 0.
@@ -252,7 +257,6 @@ The changes from the earlier v1 previews are listed first, under
 | `ServerGroupClient`, `BuildVersion` | `ServerGroupMember`, `ServerVersion` |
 | `client.ErrTimedOut` | `client.ErrConnectionTimeout` |
 | a missing row read as `0`, `""` or empty `Properties` | an error wrapping `teamspeak.ErrNoData` |
-| `ViewLog` always sent `reverse=0 instance=0` | sends them only when set |
 
 A deleted file list is now sent the way the server reads it, so
 `DeleteFile` with several paths deletes them all instead of failing with

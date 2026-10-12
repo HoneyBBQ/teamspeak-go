@@ -232,9 +232,15 @@ type ClientMatch struct {
 	ID ClientID
 }
 
-// FindClients returns clients whose nickname contains pattern.
+// FindClients returns clients whose nickname contains pattern, none when no
+// client matches.
 func (c *Commands) FindClients(ctx context.Context, pattern string) ([]ClientMatch, error) {
 	rows, err := c.list(ctx, "clientfind", []param{strArg("pattern", pattern)})
+	// No match is 512, "invalid clientID", measured on TeamSpeak 3 and 6:
+	// clientfind takes no clid, so the code can only mean none was found.
+	if errors.Is(err, errcode.ClientInvalidID) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}

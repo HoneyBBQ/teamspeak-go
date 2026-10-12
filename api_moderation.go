@@ -2,7 +2,6 @@ package teamspeak
 
 import (
 	"context"
-	"fmt"
 	"time"
 )
 
@@ -100,15 +99,17 @@ func banDurationArg(d time.Duration) param {
 	return durationArg("time", d, time.Second)
 }
 
-// AddBan adds a ban and returns its id: the server creates one ban, and
-// answers one banid, measured on TeamSpeak 3 and 6.
+// AddBan adds a ban and returns its id, or 0 when the server did not report
+// one. Over ServerQuery the server answers one banid. Over the voice protocol
+// TeamSpeak 3 and 6 answer nothing, measured: the ban is made all the same,
+// and ListBans finds its id.
 func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (BanID, error) {
 	target := optStrArg("ip", opts.IP)
 	if opts.IP == "" && opts.Name == "" && opts.UID == "" {
 		target = invalidArg("a ban needs an IP, a name or a UID to match")
 	}
 
-	row, err := c.queryRow(ctx, "banadd", "banid", []param{
+	rows, err := c.query(ctx, "banadd", []param{
 		target,
 		optStrArg("name", opts.Name),
 		optStrArg("uid", string(opts.UID)),
@@ -119,7 +120,24 @@ func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (BanID, error) {
 		return 0, err
 	}
 
-	return BanID(fieldUint(row, "banid")), nil
+	ids := banIDs(rows)
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	return ids[0], nil
+}
+
+// banIDs reads the banid of every row that has one.
+func banIDs(rows []map[string]string) []BanID {
+	ids := make([]BanID, 0, len(rows))
+	for _, row := range rows {
+		if id := fieldUint(row, "banid"); id != 0 {
+			ids = append(ids, BanID(id))
+		}
+	}
+
+	return ids
 }
 
 // BanClientOptions are BanClient's optional parameters.
@@ -131,11 +149,12 @@ type BanClientOptions struct {
 	Duration time.Duration
 }
 
-// BanClient bans a connected client and returns the id of every ban it
-// created: the server bans the client's uid and IP address, and its
-// MyTeamSpeak id when it has one, answering one banid each — two or three in
-// all, measured on TeamSpeak 3 and 6. No ban id at all fails with an error
-// wrapping ErrNoData.
+// BanClient bans a connected client and returns the id of every ban the
+// server reported creating. The server bans the client's uid and IP address,
+// and its MyTeamSpeak id when it has one: over ServerQuery it answers one banid
+// each, two or three in all. Over the voice protocol TeamSpeak 3 and 6 answer
+// nothing, measured, so the result is empty though the bans are made;
+// ListBans finds their ids.
 func (c *Commands) BanClient(ctx context.Context, clid ClientID, opts BanClientOptions) ([]BanID, error) {
 	rows, err := c.query(ctx, "banclient", []param{
 		idArg("clid", clid),
@@ -146,17 +165,7 @@ func (c *Commands) BanClient(ctx context.Context, clid ClientID, opts BanClientO
 		return nil, err
 	}
 
-	ids := make([]BanID, 0, len(rows))
-	for _, row := range rows {
-		if id := fieldUint(row, "banid"); id != 0 {
-			ids = append(ids, BanID(id))
-		}
-	}
-	if len(ids) == 0 {
-		return nil, fmt.Errorf("%w: banclient", ErrNoData)
-	}
-
-	return ids, nil
+	return banIDs(rows), nil
 }
 
 // DeleteBan removes a ban.
@@ -421,19 +430,19 @@ type LogViewOptions struct {
 	BeginPosition *uint64
 	// Lines is how many lines to read, at most 100; 0 leaves it to the server.
 	Lines uint
-	// Reverse reads backwards from BeginPosition, newest line first. Sent
-	// only when true, as reverse=1.
+	// Reverse reads backwards from BeginPosition, newest line first. Always
+	// sent, as reverse=0 or 1.
 	Reverse bool
-	// Instance reads the instance log rather than the virtual server's. Sent
-	// only when true, as instance=1.
+	// Instance reads the instance log rather than the virtual server's.
+	// Always sent, as instance=0 or 1.
 	Instance bool
 }
 
 // ViewLog reads a page of the server log.
 func (c *Commands) ViewLog(ctx context.Context, opts LogViewOptions) (LogPage, error) {
 	params := []param{
-		trueArg("reverse", opts.Reverse),
-		trueArg("instance", opts.Instance),
+		boolArg("reverse", opts.Reverse),
+		boolArg("instance", opts.Instance),
 		uintPtrArg("begin_pos", opts.BeginPosition),
 	}
 	if opts.Lines > 0 {
