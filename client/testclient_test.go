@@ -64,7 +64,23 @@ func mustNew(t *testing.T, id *identity.Identity, nickname string, opts ...Optio
 	return c
 }
 
+// newTestClient returns a client that looks connected: crypto init done, the
+// welcome sequence over, status Connected.
 func newTestClient(t *testing.T, opts ...Option) *Client {
+	t.Helper()
+
+	return newTestClientInit(t, true, opts...)
+}
+
+// newHandshakingClient is newTestClient before crypto init, for the
+// handshake steps that run under the dummy key.
+func newHandshakingClient(t *testing.T) *Client {
+	t.Helper()
+
+	return newTestClientInit(t, false)
+}
+
+func newTestClientInit(t *testing.T, cryptoInit bool, opts ...Option) *Client {
 	t.Helper()
 	id, err := identity.Parse(testClientIdentity)
 	if err != nil {
@@ -75,6 +91,9 @@ func newTestClient(t *testing.T, opts ...Option) *Client {
 	// finished; these tests never run a handshake, so mark it complete rather
 	// than making every one of them replay a channellistfinished first.
 	c.cmdTrack.signalWelcomeComplete()
+	if cryptoInit {
+		completeCryptoInit(t, c.handler)
+	}
 	tc := newTestConn()
 	startErr := c.handler.Start(tc)
 	if startErr != nil {
@@ -87,6 +106,16 @@ func newTestClient(t *testing.T, opts ...Option) *Client {
 	c.mu.Unlock()
 
 	return c
+}
+
+// completeCryptoInit gives h a shared secret, as the handshake does before the
+// server sends initserver.
+func completeCryptoInit(t *testing.T, h *transport.PacketHandler) {
+	t.Helper()
+	err := h.TsCrypt.SetSharedSecret(make([]byte, 10), make([]byte, 54), make([]byte, 64))
+	if err != nil {
+		t.Fatalf("SetSharedSecret: %v", err)
+	}
 }
 
 // pipePair is an in-memory io.ReadWriteCloser with datagram semantics.

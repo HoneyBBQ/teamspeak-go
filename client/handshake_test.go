@@ -122,6 +122,22 @@ func TestHandleInitServer_AfterDisconnect_StaysDisconnected(t *testing.T) {
 
 // markConnecting puts the client in the state Connect leaves it in while the
 // handshake runs.
+// An initserver under the public dummy key, before the shared secret exists,
+// could come from anyone on the path; it must not report the client connected.
+func TestHandleInitServer_BeforeCryptoInit_StaysConnecting(t *testing.T) {
+	c := newHandshakingClient(t)
+	markConnecting(c)
+
+	c.handleCommand(c.handler, "initserver aclid=7 virtualserver_name=Forged")
+
+	if got := c.Status(); got != StatusConnecting {
+		t.Errorf("status after a dummy-key initserver = %v, want StatusConnecting", got)
+	}
+	if got := c.ClientID(); got != 0 {
+		t.Errorf("ClientID after a dummy-key initserver = %d, want 0", got)
+	}
+}
+
 func markConnecting(c *Client) {
 	c.mu.Lock()
 	c.status = StatusConnecting
@@ -373,7 +389,7 @@ func TestHandshakeFailureEndsTheAttemptWithErrHandshake(t *testing.T) {
 	}
 	for name, step := range cases {
 		t.Run(name, func(t *testing.T) {
-			c := newTestClient(t)
+			c := newHandshakingClient(t)
 			markConnecting(c)
 			attempt := c.attempt
 

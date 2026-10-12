@@ -112,6 +112,7 @@ func TestWaitConnected_CalledBeforeConnectIsReleasedByTheHandshake(t *testing.T)
 	time.Sleep(50 * time.Millisecond) // let the waiter grab the attempt
 
 	reconnect(t, c)
+	completeCryptoInit(t, c.handler)
 	c.handleCommand(c.handler, "initserver aclid=3 virtualserver_name=X")
 
 	err := <-result

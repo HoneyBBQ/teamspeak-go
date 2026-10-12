@@ -131,6 +131,16 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 
 		return
 	}
+	// The server sends initserver only once the shared secret exists. One
+	// sealed with the public dummy key could come from anyone; accepting it
+	// would report the client connected and send the next commands, channel
+	// password hashes included, under that key.
+	if !h.TsCrypt.InitComplete() {
+		c.mu.Unlock()
+		c.logger.Debug("ignoring initserver before crypto init")
+
+		return
+	}
 	c.status = StatusConnected
 
 	idStr := ""
