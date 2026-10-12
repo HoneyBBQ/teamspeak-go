@@ -90,12 +90,25 @@ before v1.0.0.
   the server's Ack of `clientek`); a forged command under it was taken for
   the server's. Init1 is ignored once the handshake is complete, and its RSA
   puzzle is capped at 100000 squarings.
-- `initserver` after `Disconnect`, or on a replaced connection, can no longer
-  bring the client back to connected.
+- `initserver` after `Disconnect`, on a replaced connection, or before crypto
+  init (under the public dummy key) can no longer bring the client to
+  connected.
+- A command packet flagged unencrypted is dropped. Its only authentication is
+  the fake signature, which every plaintext ping and voice packet shows, so an
+  on-path peer could forge text messages, kicks and command answers. Measured
+  on TeamSpeak 3 and 6, the servers send only Init1 unencrypted before crypto
+  init, and voice, whisper, ping, pong and Ack after it; those are still
+  accepted.
+- With `WithPacketConn`, datagrams from any address but the server's are
+  dropped instead of read as the server's.
+- A server error or ban from a connection that a new `Connect` has replaced
+  no longer fails or disconnects the new one.
 - Logs carry a command's name and parameter count, never its parameters or a
   message body. The client keeps only the hashes of its passwords; `*Client`,
   `Request`, the transfer infos, `PrivilegeKey` and `TempPassword` format
-  without secrets. `identity.Identity` cannot be marshalled.
+  without secrets, through `fmt` and through log/slog's text and JSON
+  handlers alike. `json.Marshal` keeps the secret in the last four: it is the
+  caller's own data. `identity.Identity` cannot be marshalled.
 
 ### Lifecycle
 
@@ -109,6 +122,11 @@ before v1.0.0.
   commands concurrently under `-race`.
 - Voice is dropped, with a rate-limited warning, while more than 256 event
   deliveries are waiting; other events are always delivered.
+- A handler or event middleware that panics is recovered and logged at Error
+  with the event type; the rest are still delivered. It crashed the process.
+- A `Disconnect` can no longer be undone by a reconnect already under way, a
+  reconnect loop ends once the caller has reconnected by hand, and a drop that
+  arrives while a loop is ending is retried rather than lost.
 
 ### Added
 

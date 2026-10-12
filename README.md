@@ -151,7 +151,9 @@ func main() {
 Each `On` method returns a function that removes the handler. Handlers run one
 at a time, in the order their events arrived, on a goroutine of the client's
 own, so a handler may call the client and wait for an answer; a handler that
-blocks holds up the events behind it.
+blocks holds up the events behind it. A handler that panics is recovered and
+logged at Error with the event type; the other handlers and later events are
+still delivered.
 
 `OnNotification` is the escape hatch for a notification the SDK has no typed
 event for. Every notification arrives there — name and unescaped parameters —
@@ -355,7 +357,8 @@ is resolved like any host.
 
 `WithPacketConn(pc)` runs the session over your own `net.PacketConn`. The
 client never closes it: ending a connection sets its read deadline to stop the
-reader, and the next `Connect` clears it.
+reader, and the next `Connect` clears it. Datagrams from any address but the
+server's are dropped.
 
 Connection auth options:
 
