@@ -114,18 +114,10 @@ func (c *Commands) EditInstance(ctx context.Context, settings Properties) error 
 	return c.exec(ctx, "instanceedit", stringParams(settings))
 }
 
-// firstRow runs a command and returns its single row, or empty Properties.
+// firstRow runs a command defined to answer with one row and returns it, or an
+// error wrapping ErrNoData.
 func (c *Commands) firstRow(ctx context.Context, command string) (Properties, error) {
-	rows, err := c.query(ctx, command, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(rows) == 0 {
-		return Properties{}, nil
-	}
-
-	return rows[0], nil
+	return c.queryRow(ctx, command, "", nil)
 }
 
 // stringParams turns a settings map into params.
@@ -195,16 +187,10 @@ type BuildVersion struct {
 
 // GetVersion returns the server's build version.
 func (c *Commands) GetVersion(ctx context.Context) (BuildVersion, error) {
-	rows, err := c.query(ctx, "version", nil)
+	row, err := c.queryRow(ctx, "version", "", nil)
 	if err != nil {
 		return BuildVersion{}, err
 	}
-
-	if len(rows) == 0 {
-		return BuildVersion{}, ErrNoData
-	}
-
-	row := rows[0]
 
 	return BuildVersion{
 		Version:  fieldStr(row, "version"),
@@ -339,12 +325,12 @@ func (c *Commands) GetConnectionInfo(ctx context.Context) (ServerConnectionInfo,
 // Server Admin group holds by default — expect error 2568 until it is granted.
 // Granted, it works over the voice protocol like any other query.
 func (c *Commands) GetServerIDByPort(ctx context.Context, port uint16) (ServerID, error) {
-	rows, err := c.query(ctx, "serveridgetbyport", []param{uintArg("virtualserver_port", uint64(port))})
+	row, err := c.queryRow(ctx, "serveridgetbyport", "server_id", []param{uintArg("virtualserver_port", uint64(port))})
 	if err != nil {
 		return 0, err
 	}
 
-	return ServerID(firstOrEmpty(rows, "server_id")), nil
+	return ServerID(fieldUint(row, "server_id")), nil
 }
 
 // CreateServerGroup creates a server group and returns its id.

@@ -107,16 +107,7 @@ func (c *Commands) ListClients(ctx context.Context, options ClientListOptions) (
 // permissions, so anything narrower would silently drop data the caller asked
 // for. Use ListClients for parsed fields.
 func (c *Commands) GetClientInfo(ctx context.Context, clid ClientID) (Properties, error) {
-	rows, err := c.query(ctx, "clientinfo", []param{idArg("clid", clid)})
-	if err != nil {
-		return nil, err
-	}
-
-	if len(rows) == 0 {
-		return nil, ErrNoData
-	}
-
-	return rows[0], nil
+	return c.queryRow(ctx, "clientinfo", "", []param{idArg("clid", clid)})
 }
 
 // ClientKickOptions are KickClient's optional parameters.
@@ -380,17 +371,13 @@ func (c *Commands) FindClientDatabase(ctx context.Context, pattern string) ([]Cl
 
 // GetClientDatabaseInfo returns one persistent client record.
 func (c *Commands) GetClientDatabaseInfo(ctx context.Context, clientDBID ClientDBID) (ClientDatabaseEntry, error) {
-	rows, err := c.query(ctx, "clientdbinfo", []param{idArg("cldbid", clientDBID)})
+	row, err := c.queryRow(ctx, "clientdbinfo", "", []param{idArg("cldbid", clientDBID)})
 	if err != nil {
 		return ClientDatabaseEntry{}, err
 	}
 
-	if len(rows) == 0 {
-		return ClientDatabaseEntry{}, ErrNoData
-	}
-
 	// The answer does not repeat the id it was asked about.
-	entry := parseDatabaseEntry(rows[0])
+	entry := parseDatabaseEntry(row)
 	entry.DatabaseID = clientDBID
 
 	return entry, nil
@@ -477,12 +464,12 @@ func (c *Commands) MoveClient(ctx context.Context, clid ClientID, channelID Chan
 
 // GetClientDBIDByUID returns the persistent database id behind a uid.
 func (c *Commands) GetClientDBIDByUID(ctx context.Context, uid UID) (ClientDBID, error) {
-	rows, err := c.query(ctx, "clientgetdbidfromuid", []param{strArg("cluid", string(uid))})
+	row, err := c.queryRow(ctx, "clientgetdbidfromuid", "cldbid", []param{strArg("cluid", string(uid))})
 	if err != nil {
 		return 0, err
 	}
 
-	return ClientDBID(firstOrEmpty(rows, "cldbid")), nil
+	return ClientDBID(fieldUint(row, "cldbid")), nil
 }
 
 // GetClientIDs returns every clid currently using a uid.
@@ -502,44 +489,32 @@ func (c *Commands) GetClientIDs(ctx context.Context, uid UID) ([]ClientID, error
 
 // GetClientUIDByID returns the uid of a connected client.
 func (c *Commands) GetClientUIDByID(ctx context.Context, clid ClientID) (UID, error) {
-	rows, err := c.query(ctx, "clientgetuidfromclid", []param{idArg("clid", clid)})
+	row, err := c.queryRow(ctx, "clientgetuidfromclid", "cluid", []param{idArg("clid", clid)})
 	if err != nil {
 		return "", err
 	}
 
-	if len(rows) == 0 {
-		return "", nil
-	}
-
-	return UID(fieldStr(rows[0], "cluid")), nil
+	return UID(fieldStr(row, "cluid")), nil
 }
 
 // GetClientNameByDBID returns the nickname recorded for a database id.
 func (c *Commands) GetClientNameByDBID(ctx context.Context, clientDBID ClientDBID) (string, error) {
-	rows, err := c.query(ctx, "clientgetnamefromdbid", []param{idArg("cldbid", clientDBID)})
+	row, err := c.queryRow(ctx, "clientgetnamefromdbid", "", []param{idArg("cldbid", clientDBID)})
 	if err != nil {
 		return "", err
 	}
 
-	if len(rows) == 0 {
-		return "", nil
-	}
-
-	return fieldStr(rows[0], "name"), nil
+	return fieldStr(row, "name"), nil
 }
 
 // GetClientNameByUID returns the database id and nickname recorded for a uid.
 func (c *Commands) GetClientNameByUID(ctx context.Context, uid UID) (ClientDBID, string, error) {
-	rows, err := c.query(ctx, "clientgetnamefromuid", []param{strArg("cluid", string(uid))})
+	row, err := c.queryRow(ctx, "clientgetnamefromuid", "cldbid", []param{strArg("cluid", string(uid))})
 	if err != nil {
 		return 0, "", err
 	}
 
-	if len(rows) == 0 {
-		return 0, "", nil
-	}
-
-	return ClientDBID(fieldUint(rows[0], "cldbid")), fieldStr(rows[0], "name"), nil
+	return ClientDBID(fieldUint(row, "cldbid")), fieldStr(row, "name"), nil
 }
 
 // ListClientPermissions returns the permissions granted to a client from the

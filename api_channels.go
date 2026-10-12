@@ -160,12 +160,12 @@ func (c *Commands) CreateChannel(ctx context.Context, opts ChannelCreateOptions)
 		strPtrArg("channel_name_phonetic", opts.NamePhonetic),
 	}
 
-	rows, err := c.query(ctx, "channelcreate", params, "channel_password")
+	row, err := c.queryRow(ctx, "channelcreate", "cid", params, "channel_password")
 	if err != nil {
 		return 0, err
 	}
 
-	return ChannelID(firstOrEmpty(rows, "cid")), nil
+	return ChannelID(fieldUint(row, "cid")), nil
 }
 
 // ChannelEditOptions are the parameters for channeledit, named as on
@@ -277,16 +277,12 @@ func (c *Commands) ListChannels(ctx context.Context) ([]Channel, error) {
 // whatever was asked for — so the id is filled in from the argument rather than
 // read from the row, which would come back 0.
 func (c *Commands) GetChannelInfo(ctx context.Context, cid ChannelID) (Channel, error) {
-	rows, err := c.query(ctx, "channelinfo", []param{idArg("cid", cid)})
+	row, err := c.queryRow(ctx, "channelinfo", "", []param{idArg("cid", cid)})
 	if err != nil {
 		return Channel{}, err
 	}
 
-	if len(rows) == 0 {
-		return Channel{}, ErrNoData
-	}
-
-	channel := parseChannel(rows[0])
+	channel := parseChannel(row)
 	channel.ID = cid
 
 	return channel, nil

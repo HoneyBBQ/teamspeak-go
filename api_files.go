@@ -80,7 +80,7 @@ func (c *Commands) ListFiles(
 func (c *Commands) GetFileInfo(
 	ctx context.Context, channelID ChannelID, path string, opts FileOptions,
 ) (FileEntry, error) {
-	rows, err := c.query(ctx, "ftgetfileinfo", []param{
+	row, err := c.queryRow(ctx, "ftgetfileinfo", "", []param{
 		idArg("cid", channelID),
 		strArg("name", asPath(path)),
 		strArg("cpw", opts.Password),
@@ -89,11 +89,7 @@ func (c *Commands) GetFileInfo(
 		return FileEntry{}, err
 	}
 
-	if len(rows) == 0 {
-		return FileEntry{}, ErrNoData
-	}
-
-	return parseFileEntry(rows[0]), nil
+	return parseFileEntry(row), nil
 }
 
 // DeleteFile removes one or more files in one command; deleting none does
@@ -268,7 +264,7 @@ type FileUploadOptions struct {
 func (c *Commands) InitFileUpload(
 	ctx context.Context, channelID ChannelID, path string, size uint64, opts FileUploadOptions,
 ) (*FileUploadInfo, error) {
-	rows, err := c.query(ctx, "ftinitupload", []param{
+	row, err := c.queryRow(ctx, "ftinitupload", "ftkey", []param{
 		uintArg("clientftfid", c.nextFileTransferID()),
 		strArg("name", asPath(path)),
 		idArg("cid", channelID),
@@ -283,12 +279,6 @@ func (c *Commands) InitFileUpload(
 	if err != nil {
 		return nil, err
 	}
-
-	if len(rows) == 0 {
-		return nil, ErrNoData
-	}
-
-	row := rows[0]
 
 	return &FileUploadInfo{
 		FileTransferKey:      fieldStr(row, "ftkey"),
@@ -314,7 +304,7 @@ type FileDownloadOptions struct {
 func (c *Commands) InitFileDownload(
 	ctx context.Context, channelID ChannelID, path string, opts FileDownloadOptions,
 ) (*FileDownloadInfo, error) {
-	rows, err := c.query(ctx, "ftinitdownload", []param{
+	row, err := c.queryRow(ctx, "ftinitdownload", "ftkey", []param{
 		uintArg("clientftfid", c.nextFileTransferID()),
 		strArg("name", asPath(path)),
 		idArg("cid", channelID),
@@ -325,12 +315,6 @@ func (c *Commands) InitFileDownload(
 	if err != nil {
 		return nil, err
 	}
-
-	if len(rows) == 0 {
-		return nil, ErrNoData
-	}
-
-	row := rows[0]
 
 	return &FileDownloadInfo{
 		FileTransferKey:      fieldStr(row, "ftkey"),

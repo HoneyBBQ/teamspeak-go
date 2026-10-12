@@ -326,7 +326,12 @@ func createdGroupID[T ~uint64](rows []map[string]string, idKey, name string) (T,
 	}
 
 	if !listed {
-		return T(firstOrEmpty(rows, idKey)), nil
+		row, err := requireRow(rows, "group creation", idKey)
+		if err != nil {
+			return 0, err
+		}
+
+		return T(fieldUint(row, idKey)), nil
 	}
 	if id == 0 {
 		return 0, fmt.Errorf("%w: the server did not report the new group %q", ErrNoData, name)
@@ -335,13 +340,16 @@ func createdGroupID[T ~uint64](rows []map[string]string, idKey, name string) (T,
 	return T(id), nil
 }
 
-// firstOrEmpty reads a field from the first row, or returns 0 for no rows.
-func firstOrEmpty(rows []map[string]string, key string) uint64 {
-	if len(rows) == 0 {
-		return 0
+// requireRow returns the row command is defined to answer with, which must
+// hold key when one is named. A server that acknowledged the command without
+// it has not answered: that is an error wrapping ErrNoData, not a row of empty
+// fields.
+func requireRow(rows []map[string]string, command, key string) (map[string]string, error) {
+	if len(rows) == 0 || (key != "" && rows[0][key] == "") {
+		return nil, fmt.Errorf("%w: %s", ErrNoData, command)
 	}
 
-	return fieldUint(rows[0], key)
+	return rows[0], nil
 }
 
 // fieldIDList reads a comma-separated list of ids, as client_servergroups

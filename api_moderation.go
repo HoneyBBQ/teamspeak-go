@@ -106,7 +106,7 @@ func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (BanID, error) {
 		target = invalidArg("a ban needs an IP, a name or a UID to match")
 	}
 
-	rows, err := c.query(ctx, "banadd", []param{
+	row, err := c.queryRow(ctx, "banadd", "banid", []param{
 		target,
 		optStrArg("name", opts.Name),
 		optStrArg("uid", string(opts.UID)),
@@ -117,7 +117,7 @@ func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (BanID, error) {
 		return 0, err
 	}
 
-	return BanID(firstOrEmpty(rows, "banid")), nil
+	return BanID(fieldUint(row, "banid")), nil
 }
 
 // BanClientOptions are BanClient's optional parameters.
@@ -131,7 +131,7 @@ type BanClientOptions struct {
 
 // BanClient bans a connected client and returns the ban id.
 func (c *Commands) BanClient(ctx context.Context, clid ClientID, opts BanClientOptions) (BanID, error) {
-	rows, err := c.query(ctx, "banclient", []param{
+	row, err := c.queryRow(ctx, "banclient", "banid", []param{
 		idArg("clid", clid),
 		banDurationArg(opts.Duration),
 		optStrArg("banreason", opts.Reason),
@@ -140,7 +140,7 @@ func (c *Commands) BanClient(ctx context.Context, clid ClientID, opts BanClientO
 		return 0, err
 	}
 
-	return BanID(firstOrEmpty(rows, "banid")), nil
+	return BanID(fieldUint(row, "banid")), nil
 }
 
 // DeleteBan removes a ban.
@@ -268,16 +268,12 @@ func (c *Commands) ListMessages(ctx context.Context) ([]OfflineMessage, error) {
 
 // GetMessage returns one offline message.
 func (c *Commands) GetMessage(ctx context.Context, messageID MessageID) (OfflineMessage, error) {
-	rows, err := c.query(ctx, "messageget", []param{idArg("msgid", messageID)})
+	row, err := c.queryRow(ctx, "messageget", "", []param{idArg("msgid", messageID)})
 	if err != nil {
 		return OfflineMessage{}, err
 	}
 
-	if len(rows) == 0 {
-		return OfflineMessage{}, ErrNoData
-	}
-
-	return parseMessage(rows[0]), nil
+	return parseMessage(row), nil
 }
 
 // DeleteMessage removes an offline message.
@@ -431,8 +427,9 @@ func (c *Commands) ViewLog(ctx context.Context, opts LogViewOptions) (LogPage, e
 		return LogPage{}, err
 	}
 
-	if len(rows) == 0 {
-		return LogPage{}, nil
+	_, err = requireRow(rows, "logview", "")
+	if err != nil {
+		return LogPage{}, err
 	}
 
 	page := LogPage{

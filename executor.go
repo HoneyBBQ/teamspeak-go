@@ -175,6 +175,19 @@ func (c *Commands) query(
 	return c.executor.Send(ctx, Request{command: command, params: params, passwords: passwords})
 }
 
+// queryRow sends a command defined to answer with one row, holding key when
+// one is named, and returns that row; without it the error wraps ErrNoData.
+func (c *Commands) queryRow(
+	ctx context.Context, command, key string, params []param, passwords ...string,
+) (map[string]string, error) {
+	rows, err := c.query(ctx, command, params, passwords...)
+	if err != nil {
+		return nil, err
+	}
+
+	return requireRow(rows, command, key)
+}
+
 // list sends a command that lists something and returns its rows.
 //
 // The server reports an empty list as error 1281, "database empty result set",

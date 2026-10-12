@@ -39,7 +39,9 @@ func encoded(t *testing.T, run func(c *Commands) error) string {
 	t.Helper()
 	s := &script{}
 	err := run(NewCommands(s))
-	if err != nil {
+	// The script answers nothing, which a command defined to answer with a
+	// row reports; only the line it sent matters here.
+	if err != nil && !errors.Is(err, ErrNoData) {
 		t.Fatalf("command failed: %v", err)
 	}
 	if len(s.sent) != 1 {
@@ -448,3 +450,71 @@ func TestDeleteFile_SendsARowGroup(t *testing.T) {
 		t.Errorf("DeleteFile sent %q, want %q", line, want)
 	}
 }
+
+// A command defined to answer with a row fails with ErrNoData when the server
+// acknowledges it without one, or without the field that row must hold.
+func TestRequiredRowsFailWithErrNoData(t *testing.T) {
+	calls := map[string]func(c *Commands) error{
+		"CreateChannel": func(c *Commands) error {
+			return errOf(c.CreateChannel(t.Context(), ChannelCreateOptions{Name: "x"}))
+		},
+		"GetChannelInfo": func(c *Commands) error {
+			return errOf(c.GetChannelInfo(t.Context(), 1))
+		},
+		"GetClientInfo": func(c *Commands) error {
+			return errOf(c.GetClientInfo(t.Context(), 1))
+		},
+		"GetClientDBIDByUID": func(c *Commands) error {
+			return errOf(c.GetClientDBIDByUID(t.Context(), "u"))
+		},
+		"GetClientUIDByID": func(c *Commands) error {
+			return errOf(c.GetClientUIDByID(t.Context(), 1))
+		},
+		"GetClientNameByDBID": func(c *Commands) error {
+			return errOf(c.GetClientNameByDBID(t.Context(), 1))
+		},
+		"GetClientNameByUID": func(c *Commands) error {
+			_, _, err := c.GetClientNameByUID(t.Context(), "u")
+
+			return err
+		},
+		"GetServerIDByPort": func(c *Commands) error {
+			return errOf(c.GetServerIDByPort(t.Context(), 9987))
+		},
+		"GetMessage": func(c *Commands) error {
+			return errOf(c.GetMessage(t.Context(), 1))
+		},
+		"AddBan": func(c *Commands) error {
+			return errOf(c.AddBan(t.Context(), BanOptions{IP: "1.2.3.4"}))
+		},
+		"InitFileUpload": func(c *Commands) error {
+			return errOf(c.InitFileUpload(t.Context(), 1, "/a", 1, FileUploadOptions{}))
+		},
+		"InitFileDownload": func(c *Commands) error {
+			return errOf(c.InitFileDownload(t.Context(), 1, "/a", FileDownloadOptions{}))
+		},
+		"GetServerInfo": func(c *Commands) error {
+			return errOf(c.GetServerInfo(t.Context()))
+		},
+		"LogView": func(c *Commands) error {
+			return errOf(c.ViewLog(t.Context(), LogViewOptions{}))
+		},
+	}
+	for name, call := range calls {
+		for _, rows := range [][]map[string]string{nil, {{"unrelated": "1"}}} {
+			if name == "GetChannelInfo" || name == "GetClientInfo" || name == "GetMessage" ||
+				name == "GetServerInfo" || name == "LogView" || name == "GetClientNameByDBID" {
+				if rows != nil {
+					continue // any row will do for these
+				}
+			}
+			err := call(NewCommands(&script{replies: []reply{{rows: rows}}}))
+			if !errors.Is(err, ErrNoData) {
+				t.Errorf("%s answered with %v: %v, want ErrNoData", name, rows, err)
+			}
+		}
+	}
+}
+
+// errOf is the error of a call that also returns a value.
+func errOf[T any](_ T, err error) error { return err }

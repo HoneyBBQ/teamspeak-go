@@ -517,17 +517,13 @@ func (opts PrivilegeKeyOptions) keyParams() []param {
 }
 
 func (c *Commands) addKey(ctx context.Context, command string, opts PrivilegeKeyOptions) (string, error) {
-	rows, err := c.query(ctx, command, append(opts.keyParams(),
+	row, err := c.queryRow(ctx, command, "token", append(opts.keyParams(),
 		optStrArg("tokendescription", opts.Description)))
 	if err != nil {
 		return "", err
 	}
 
-	if len(rows) == 0 {
-		return "", nil
-	}
-
-	return fieldStr(rows[0], "token"), nil
+	return fieldStr(row, "token"), nil
 }
 
 // AddPrivilegeKey creates a privilege key and returns it as the server
