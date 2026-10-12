@@ -73,29 +73,50 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 }
 
 func (c *Client) handleClientLeftView(cmd *commands.Command) {
-	reasonMsg := cmd.Params["reasonmsg"]
-
 	clid, _ := parseUint16Value(cmd.Params["clid"])
-	reasonID, _ := parseIntValue(cmd.Params["reasonid"]) // 4=channel kick, 5=server kick
-
-	if clid != 0 {
-		c.mu.Lock()
-		isSelf := (clid == c.clid)
-		delete(c.clients, clid)
-		c.mu.Unlock()
-
-		evt := ClientLeftViewEvent{
-			ID:        clid,
-			ReasonID:  reasonID,
-			ReasonMsg: reasonMsg,
-		}
-
-		c.emitEvent(evt)
-
-		if isSelf && (reasonID == 4 || reasonID == 5) {
-			emit(c, &c.onKicked, reasonMsg)
-		}
+	if clid == 0 {
+		return
 	}
+	reasonID, _ := parseIntValue(cmd.Params["reasonid"])
+	invokerID, _ := parseUint16Value(cmd.Params["invokerid"])
+	evt := ClientLeftViewEvent{
+		ID:            clid,
+		Reason:        teamspeak.Reason(reasonID),
+		ReasonMessage: cmd.Params["reasonmsg"],
+		InvokerID:     invokerID,
+		InvokerName:   cmd.Params["invokername"],
+		InvokerUID:    cmd.Params["invokeruid"],
+	}
+
+	c.mu.Lock()
+	isSelf := clid == c.clid
+	delete(c.clients, clid)
+	c.mu.Unlock()
+
+	c.emitEvent(evt)
+
+	if !isSelf {
+		return
+	}
+	if evt.Reason == teamspeak.ReasonKickServer || evt.Reason == teamspeak.ReasonKickServerBan {
+		emit(c, &c.onKicked, KickedEvent{
+			Message:     evt.ReasonMessage,
+			InvokerName: evt.InvokerName,
+			InvokerUID:  evt.InvokerUID,
+			Reason:      evt.Reason,
+			InvokerID:   evt.InvokerID,
+		})
+	}
+	c.removedByServer(&RemovedError{Message: evt.ReasonMessage, InvokerName: evt.InvokerName, Reason: evt.Reason})
+}
+
+// removedByServer ends a session the server has ended. The server stops
+// answering a client it has removed, so waiting for the transport to notice
+// reported the end a minute late, without its cause, and with the client
+// claiming to be connected meanwhile.
+func (c *Client) removedByServer(cause error) {
+	c.handleConnectionClosed(cause)
+	_ = c.currentHandler().Close()
 }
 
 func (c *Client) handleClientMoved(cmd *commands.Command) {
@@ -104,24 +125,37 @@ func (c *Client) handleClientMoved(cmd *commands.Command) {
 	reasonID, _ := parseIntValue(cmd.Params["reasonid"])
 	invokerID, _ := parseUint16Value(cmd.Params["invokerid"])
 
-	if clid != 0 {
-		c.mu.Lock()
-		if info, ok := c.clients[clid]; ok {
-			info.ChannelID = ctid
-			c.clients[clid] = info
-		}
-		c.mu.Unlock()
+	if clid == 0 {
+		return
+	}
+	c.mu.Lock()
+	if info, ok := c.clients[clid]; ok {
+		info.ChannelID = ctid
+		c.clients[clid] = info
+	}
+	isSelf := clid == c.clid
+	c.mu.Unlock()
 
-		evt := ClientMovedEvent{
-			ID:              clid,
-			TargetChannelID: ctid,
-			ReasonID:        reasonID,
-			InvokerID:       invokerID,
-			InvokerName:     cmd.Params["invokername"],
-			InvokerUID:      cmd.Params["invokeruid"],
-		}
+	evt := ClientMovedEvent{
+		ID:              clid,
+		TargetChannelID: ctid,
+		Reason:          teamspeak.Reason(reasonID),
+		InvokerID:       invokerID,
+		InvokerName:     cmd.Params["invokername"],
+		InvokerUID:      cmd.Params["invokeruid"],
+	}
+	c.emitEvent(evt)
 
-		c.emitEvent(evt)
+	// A channel kick moves the client to the default channel; it arrives as
+	// a move, not as leaving view, which is where it used to be looked for.
+	if isSelf && evt.Reason == teamspeak.ReasonKickChannel {
+		emit(c, &c.onKicked, KickedEvent{
+			Message:     cmd.Params["reasonmsg"],
+			InvokerName: evt.InvokerName,
+			InvokerUID:  evt.InvokerUID,
+			Reason:      evt.Reason,
+			InvokerID:   evt.InvokerID,
+		})
 	}
 }
 

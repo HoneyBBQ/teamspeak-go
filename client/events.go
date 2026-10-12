@@ -47,9 +47,10 @@ func (c *Client) OnPoked(handler func(PokeEvent)) func() {
 }
 
 // OnKicked registers a handler for this client being kicked from its channel
-// or the server; it receives the kick's reason. It returns a function that
+// or the server. A kick from the server also ends the connection, which
+// OnDisconnected reports with a *RemovedError. It returns a function that
 // removes the handler.
-func (c *Client) OnKicked(handler func(reason string)) func() {
+func (c *Client) OnKicked(handler func(KickedEvent)) func() {
 	return c.onKicked.add(handler)
 }
 
@@ -72,8 +73,9 @@ func (c *Client) OnConnected(handler func()) func() {
 }
 
 // OnDisconnected registers a handler for the connection ending. It receives
-// nil after Disconnect, and the cause otherwise: a failed handshake or a
-// dropped connection. It returns a function that removes the handler.
+// nil after Disconnect, and the cause otherwise: a failed handshake, ErrTimedOut
+// for a server that stopped answering, or a *RemovedError for a kick, a ban or
+// a server stopping. It returns a function that removes the handler.
 func (c *Client) OnDisconnected(handler func(err error)) func() {
 	return c.onDisconnected.add(handler)
 }

@@ -35,6 +35,9 @@ const (
 )
 
 var (
+	// ErrTimedOut reports a connection the server stopped answering: nothing
+	// arrived, or a packet went unacknowledged, for PacketTimeout.
+	ErrTimedOut = errors.New("connection timed out: the server stopped answering")
 	// ErrNoWhisperTargets is returned when a whisper is sent to no clients.
 	ErrNoWhisperTargets = errors.New("whisper requires at least one target client")
 	// ErrTooManyWhisperTargets is returned when a whisper names more than 32 clients.
@@ -73,8 +76,11 @@ type pooledBuffer struct {
 }
 
 type PacketHandler struct {
-	lastMessageReceived  time.Time
-	conn                 io.ReadWriteCloser
+	lastMessageReceived time.Time
+	conn                io.ReadWriteCloser
+	// closeCause is why the handler closed itself, reported to OnClosed; nil
+	// for a Close from outside. Guarded by lifecycleMu.
+	closeCause           error
 	commandQueue         map[uint16]*Packet
 	commandLowQueue      map[uint16]*Packet
 	stopCh               chan struct{}
@@ -286,6 +292,10 @@ func (h *PacketHandler) receiveLoop() {
 			putPooledBytes(&bufPool, buf)
 			select {
 			case <-h.stopCh:
+				h.lifecycleMu.Lock()
+				finalErr = h.closeCause
+				h.lifecycleMu.Unlock()
+
 				return
 			default:
 				h.logger.Error("udp read failed", slog.Any("error", err))
@@ -859,7 +869,7 @@ func (h *PacketHandler) checkResends() {
 	}
 	h.mu.Unlock()
 	if needClose {
-		_ = h.Close()
+		_ = h.closeWith(ErrTimedOut)
 	}
 }
 
@@ -997,12 +1007,18 @@ func (h *PacketHandler) IsOpen() bool {
 
 // Close stops the handler and closes its connection.
 func (h *PacketHandler) Close() error {
+	return h.closeWith(nil)
+}
+
+// closeWith closes the handler, recording cause for OnClosed.
+func (h *PacketHandler) closeWith(cause error) error {
 	h.lifecycleMu.Lock()
 	if h.closed.Swap(true) {
 		h.lifecycleMu.Unlock()
 
 		return nil
 	}
+	h.closeCause = cause
 	close(h.stopCh)
 	conn := h.conn
 	h.lifecycleMu.Unlock()

@@ -9,7 +9,7 @@ import (
 
 // SendVoice sends a raw Opus frame. Codec values: 4 = Opus voice, 5 = Opus music.
 func (c *Client) SendVoice(data []byte, codec byte) error {
-	return c.handler.SendVoicePacket(data, codec)
+	return c.currentHandler().SendVoicePacket(data, codec)
 }
 
 // ErrNoWhisperTargets reports a whisper with no one to receive it.
@@ -22,7 +22,7 @@ var ErrTooManyWhisperTargets = transport.ErrTooManyWhisperTargets
 // SendWhisper sends Opus voice directly to up to 32 clients, regardless of which
 // channel they are in. The bot's server group needs i_client_whisper_power.
 func (c *Client) SendWhisper(data []byte, targetClientIDs []uint16, codec byte) error {
-	return c.handler.SendWhisperPacket(data, targetClientIDs, codec)
+	return c.currentHandler().SendWhisperPacket(data, targetClientIDs, codec)
 }
 
 // ServerCapabilities reports what the connected server is: version, generation,

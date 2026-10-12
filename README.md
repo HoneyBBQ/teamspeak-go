@@ -137,7 +137,7 @@ func main() {
 | `OnClientEnter(func(ClientInfo))` | Fires when a client joins |
 | `OnClientLeave(func(ClientLeftViewEvent))` | Fires when a client leaves |
 | `OnClientMoved(func(ClientMovedEvent))` | Fires when a client moves channels |
-| `OnKicked(func(string))` | Fires when the bot is kicked |
+| `OnKicked(func(KickedEvent))` | Fires when the bot is kicked from its channel or the server |
 
 Each `On` method returns a function that removes the handler. Handlers run one
 at a time, in the order their events arrived, on a goroutine of the client's

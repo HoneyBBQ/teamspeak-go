@@ -1,5 +1,7 @@
 package client
 
+import teamspeak "github.com/honeybbq/teamspeak-go"
+
 // TextMessage is an incoming notifytextmessage payload.
 type TextMessage struct {
 	InvokerName   string
@@ -16,7 +18,7 @@ type ClientMovedEvent struct {
 	InvokerName     string
 	InvokerUID      string
 	TargetChannelID uint64
-	ReasonID        int
+	Reason          teamspeak.Reason
 	ID              uint16
 	InvokerID       uint16
 }
@@ -31,10 +33,28 @@ type PokeEvent struct {
 
 // ClientLeftViewEvent is emitted when a client leaves view (notifyclientleftview).
 type ClientLeftViewEvent struct {
-	ReasonMsg string
-	ReasonID  int
-	ID        uint16
-	TargetID  uint16
+	// ReasonMessage is the reason given for a kick or a ban, or the client's
+	// own parting message.
+	ReasonMessage string
+	// InvokerName, InvokerUID and InvokerID name who kicked or banned the
+	// client; they are empty otherwise.
+	InvokerName string
+	InvokerUID  string
+	Reason      teamspeak.Reason
+	ID          uint16
+	InvokerID   uint16
+}
+
+// KickedEvent is this client being kicked from its channel or the server.
+type KickedEvent struct {
+	// Message is the reason the invoker gave.
+	Message     string
+	InvokerName string
+	InvokerUID  string
+	// Reason is teamspeak.ReasonKickChannel, ReasonKickServer or
+	// ReasonKickServerBan.
+	Reason    teamspeak.Reason
+	InvokerID uint16
 }
 
 // VoiceData is voice or whisper audio received from another client.

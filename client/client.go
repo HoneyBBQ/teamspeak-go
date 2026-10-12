@@ -141,7 +141,7 @@ type Client struct {
 	onConnected      subscribers[struct{}]
 	onDisconnected   subscribers[error]
 	onPoked          subscribers[PokeEvent]
-	onKicked         subscribers[string]
+	onKicked         subscribers[KickedEvent]
 	onVoiceData      subscribers[VoiceData]
 	status           ClientStatus
 	mu               sync.Mutex
@@ -516,6 +516,9 @@ func (c *Client) handleConnectionClosed(err error) {
 	c.status = StatusDisconnected
 	c.mu.Unlock()
 
+	if err == nil {
+		err = errConnectionClosed
+	}
 	// Announced first, then retried: a caller watching OnDisconnected should
 	// hear about the drop even when a reconnect is already on its way, because
 	// a silent recovery hides an outage.

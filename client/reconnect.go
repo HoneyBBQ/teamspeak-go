@@ -147,10 +147,15 @@ var permanentServerErrors = map[errcode.Code]bool{
 // DefaultShouldRetry reports whether a failure is worth another attempt.
 //
 // Transport failures are retried; so is an unrecognised server error, for the
-// reason given on permanentServerErrors.
+// reason given on permanentServerErrors, and a server that stopped. A kick or
+// a ban is not: someone removed the client on purpose.
 func DefaultShouldRetry(err error, _ int) bool {
 	if err == nil {
 		return true
+	}
+
+	if removed, ok := errors.AsType[*RemovedError](err); ok {
+		return removed.Reason != teamspeak.ReasonKickServer && removed.Reason != teamspeak.ReasonKickServerBan
 	}
 
 	if serverErr, ok := errors.AsType[*teamspeak.ServerError](err); ok {

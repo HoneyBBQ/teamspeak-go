@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -140,47 +141,99 @@ func TestHandleClientLeftView_RemovesFromClients(t *testing.T) {
 	}
 }
 
-func TestHandleClientLeftView_KickSelf_TriggersKicked(t *testing.T) {
+// connectedTestClient is a test client in a live session as clid 5.
+func connectedTestClient(t *testing.T) *Client {
+	t.Helper()
 	c := newTestClient(t)
 	c.mu.Lock()
+	c.status = StatusConnected
 	c.clid = 5
 	c.clients[5] = teamspeak.ClientInfo{ID: 5}
 	c.mu.Unlock()
 
-	kicked := make(chan string, 1)
-	c.OnKicked(func(msg string) { kicked <- msg })
+	return c
+}
 
-	cmd := commands.ParseCommand("notifyclientleftview clid=5 reasonid=5 reasonmsg=banned")
-	c.handleClientLeftView(cmd)
+func TestHandleClientLeftView_KickSelf_TriggersKickedAndEndsTheSession(t *testing.T) {
+	c := connectedTestClient(t)
+	kicked := make(chan KickedEvent, 1)
+	c.OnKicked(func(e KickedEvent) { kicked <- e })
+	disconnected := make(chan error, 1)
+	c.OnDisconnected(func(err error) { disconnected <- err })
 
-	select {
-	case msg := <-kicked:
-		if msg != "banned" {
-			t.Errorf("expected 'banned', got %q", msg)
-		}
-	case <-time.After(time.Second):
-		t.Error("OnKicked not called")
+	c.handleClientLeftView(commands.ParseCommand(
+		`notifyclientleftview clid=5 reasonid=5 reasonmsg=behave invokerid=1 invokername=Admin`))
+
+	if e := receive(t, kicked); e.Message != "behave" || e.InvokerName != "Admin" ||
+		e.Reason != teamspeak.ReasonKickServer {
+		t.Errorf("kicked event = %+v", e)
+	}
+	// Reported at once, with its cause, rather than a minute later as a
+	// timeout with none.
+	removed, ok := errors.AsType[*RemovedError](receive(t, disconnected))
+	if !ok || removed.Reason != teamspeak.ReasonKickServer {
+		t.Errorf("disconnected with %v, want a *RemovedError for the kick", removed)
+	}
+	if c.Status() != StatusDisconnected {
+		t.Errorf("status = %v, want StatusDisconnected", c.Status())
+	}
+	if DefaultShouldRetry(removed, 1) {
+		t.Error("the default policy retries a server kick")
 	}
 }
 
-func TestHandleClientLeftView_NonKickReasonid_NoKickedCallback(t *testing.T) {
-	c := newTestClient(t)
-	c.mu.Lock()
-	c.clid = 5
-	c.clients[5] = teamspeak.ClientInfo{ID: 5}
-	c.mu.Unlock()
+func TestHandleClientLeftView_ServerStop_EndsTheSessionAndIsRetried(t *testing.T) {
+	c := connectedTestClient(t)
+	kicked := make(chan KickedEvent, 1)
+	c.OnKicked(func(e KickedEvent) { kicked <- e })
+	disconnected := make(chan error, 1)
+	c.OnDisconnected(func(err error) { disconnected <- err })
 
-	kicked := make(chan string, 1)
-	c.OnKicked(func(msg string) { kicked <- msg })
+	c.handleClientLeftView(commands.ParseCommand(`notifyclientleftview clid=5 reasonid=11 reasonmsg=restart`))
 
-	// reasonid=8 = normal leave, not a kick
-	cmd := commands.ParseCommand("notifyclientleftview clid=5 reasonid=8 reasonmsg=")
-	c.handleClientLeftView(cmd)
+	err := receive(t, disconnected)
+	if !DefaultShouldRetry(err, 1) {
+		t.Errorf("the default policy gives up on %v; a stopped server comes back", err)
+	}
+	settle(t, c)
+	select {
+	case e := <-kicked:
+		t.Errorf("a server shutdown reported as a kick: %+v", e)
+	default:
+	}
+}
+
+func TestHandleClientMoved_ChannelKickOfSelf_TriggersKicked(t *testing.T) {
+	c := connectedTestClient(t)
+	kicked := make(chan KickedEvent, 1)
+	c.OnKicked(func(e KickedEvent) { kicked <- e })
+
+	c.handleClientMoved(commands.ParseCommand(
+		`notifyclientmoved clid=5 ctid=1 reasonid=4 reasonmsg=out invokerid=1 invokername=Admin`))
+
+	if e := receive(t, kicked); e.Reason != teamspeak.ReasonKickChannel || e.Message != "out" {
+		t.Errorf("kicked event = %+v", e)
+	}
+	if c.Status() != StatusConnected {
+		t.Errorf("status = %v; a channel kick does not end the session", c.Status())
+	}
+}
+
+func TestHandleClientLeftView_OthersLeaving_NoKickedCallback(t *testing.T) {
+	c := connectedTestClient(t)
+	kicked := make(chan KickedEvent, 1)
+	c.OnKicked(func(e KickedEvent) { kicked <- e })
+
+	c.handleClientLeftView(commands.ParseCommand("notifyclientleftview clid=6 reasonid=5 reasonmsg="))
+	settle(t, c)
 
 	select {
 	case <-kicked:
-		t.Error("OnKicked should not be called for normal leave")
-	case <-time.After(50 * time.Millisecond):
+		t.Error("another client's kick reported as ours")
+	default:
+	}
+	if c.Status() != StatusConnected {
+		t.Errorf("status = %v after another client left", c.Status())
 	}
 }
 
