@@ -6,7 +6,7 @@ import (
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
-	"github.com/honeybbq/teamspeak-go/internal/wire"
+	"github.com/honeybbq/teamspeak-go/internal/request"
 )
 
 // Commands only the voice protocol has. ServerQuery has no subscriptions — a
@@ -15,15 +15,15 @@ import (
 // these live on the voice client rather than on the shared Commands.
 
 // GetChannelDescription returns the channel's description, which channellist
-// omits for bandwidth.
+// omits for bandwidth. It fails with teamspeak.ErrNoData if the server answers
+// with no row.
 func (c *Client) GetChannelDescription(ctx context.Context, cid teamspeak.ChannelID) (string, error) {
-	rows, err := c.send(ctx, channelCommand("channelgetdescription", cid))
+	rows, err := c.Send(ctx, channelRequest("channelgetdescription", cid))
 	if err != nil {
 		return "", err
 	}
-
 	if len(rows) == 0 {
-		return "", nil
+		return "", teamspeak.ErrNoData
 	}
 
 	return rows[0]["channel_description"], nil
@@ -32,34 +32,40 @@ func (c *Client) GetChannelDescription(ctx context.Context, cid teamspeak.Channe
 // SubscribeChannel subscribes to a channel: its clients' events and voice
 // arrive without joining it.
 func (c *Client) SubscribeChannel(ctx context.Context, cid teamspeak.ChannelID) error {
-	_, err := c.send(ctx, channelCommand("channelsubscribe", cid))
+	_, err := c.Send(ctx, channelRequest("channelsubscribe", cid))
 
 	return err
 }
 
 // UnsubscribeChannel stops receiving a channel's events.
 func (c *Client) UnsubscribeChannel(ctx context.Context, cid teamspeak.ChannelID) error {
-	_, err := c.send(ctx, channelCommand("channelunsubscribe", cid))
+	_, err := c.Send(ctx, channelRequest("channelunsubscribe", cid))
 
 	return err
 }
 
 // SubscribeAllChannels subscribes to every channel.
 func (c *Client) SubscribeAllChannels(ctx context.Context) error {
-	_, err := c.send(ctx, "channelsubscribeall")
+	_, err := c.Send(ctx, newRequest("channelsubscribeall", nil))
 
 	return err
 }
 
 // UnsubscribeAllChannels stops receiving every channel's events.
 func (c *Client) UnsubscribeAllChannels(ctx context.Context) error {
-	_, err := c.send(ctx, "channelunsubscribeall")
+	_, err := c.Send(ctx, newRequest("channelunsubscribeall", nil))
 
 	return err
 }
 
-func channelCommand(name string, cid teamspeak.ChannelID) string {
-	return wire.BuildCommandOrdered(name, [][2]string{{"cid", strconv.FormatUint(uint64(cid), 10)}})
+// newRequest builds a typed request, so that the voice-only commands pass
+// through the command middleware as the shared ones do.
+func newRequest(command string, params [][2]string) teamspeak.Request {
+	return request.New(command, params).(teamspeak.Request) //nolint:forcetypeassert // New returns a Request
+}
+
+func channelRequest(name string, cid teamspeak.ChannelID) teamspeak.Request {
+	return newRequest(name, [][2]string{{"cid", strconv.FormatUint(uint64(cid), 10)}})
 }
 
 // ChannelID returns the channel the client is currently in, or 0 if that is not

@@ -1,8 +1,10 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -151,5 +153,39 @@ func TestSendsWhileConnectingReturnErrNotConnected(t *testing.T) {
 	}
 	if len(sent) != 0 {
 		t.Errorf("sent %q while connecting", sent)
+	}
+}
+
+// The voice-only commands are typed requests too, so command middleware sees
+// them as it sees the shared ones.
+func TestVoiceOnlyCommandsPassThroughCommandMiddleware(t *testing.T) {
+	var seen []string
+	c := newTestClient(t, WithCommandMiddleware(func(teamspeak.Executor) teamspeak.Executor {
+		return teamspeak.ExecutorFunc(func(_ context.Context, req teamspeak.Request) ([]map[string]string, error) {
+			seen = append(seen, req.Command())
+
+			return []map[string]string{{"channel_description": "hello"}}, nil
+		})
+	}))
+
+	desc, err := c.GetChannelDescription(t.Context(), 7)
+	if err != nil || desc != "hello" {
+		t.Fatalf("GetChannelDescription = %q, %v", desc, err)
+	}
+	for _, call := range []func(context.Context) error{
+		func(ctx context.Context) error { return c.SubscribeChannel(ctx, 7) },
+		func(ctx context.Context) error { return c.UnsubscribeChannel(ctx, 7) },
+		c.SubscribeAllChannels,
+		c.UnsubscribeAllChannels,
+	} {
+		err = call(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{"channelgetdescription", "channelsubscribe", "channelunsubscribe",
+		"channelsubscribeall", "channelunsubscribeall"}
+	if !slices.Equal(seen, want) {
+		t.Errorf("middleware saw %q, want %q", seen, want)
 	}
 }
