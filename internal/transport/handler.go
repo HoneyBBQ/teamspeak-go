@@ -611,10 +611,11 @@ func (h *PacketHandler) decryptPacketData(
 		return &decryptPacketResult{plaintext: plaintext, dummyUsed: true}, true
 	}
 
+	// Decrypted under the generation the window gives the id and no other:
+	// guessing the previous one would accept a packet recorded before the id
+	// wrapped and replayed after, and guessing the next one never decrypted a
+	// packet on TeamSpeak 3 or 6.
 	plaintext, err := h.TsCrypt.Decrypt(byte(p.Type()), p.ID, gen, header, ciphertext, tag, false, unencrypted)
-	if err != nil && !unencrypted {
-		plaintext, gen, err = h.decryptWithGenerationGuess(p, gen, header, ciphertext, tag)
-	}
 	dummyUsed := false
 	if err != nil && !unencrypted && p.Type() == PacketTypeAck {
 		plaintext, err = h.decryptClientEkAck(p, gen, header, ciphertext, tag)
@@ -657,28 +658,6 @@ func (h *PacketHandler) logDecryptFailure(p *Packet, gen uint32, err error) {
 		slog.Uint64("id", uint64(p.ID)),
 		slog.Uint64("gen", uint64(gen)),
 		slog.Any("error", err))
-}
-
-func (h *PacketHandler) decryptWithGenerationGuess(
-	p *Packet, gen uint32, header, ciphertext, tag []byte,
-) ([]byte, uint32, error) {
-	for _, offset := range []int{-1, 1} {
-		guessGen, ok := shiftGeneration(gen, offset)
-		if !ok {
-			continue
-		}
-		plaintext, err := h.TsCrypt.Decrypt(byte(p.Type()), p.ID, guessGen, header, ciphertext, tag, false, false)
-		if err == nil {
-			h.logger.Debug("generation guess succeeded",
-				slog.Uint64("id", uint64(p.ID)),
-				slog.Int("offset", offset),
-				slog.Uint64("new_gen", uint64(guessGen)))
-
-			return plaintext, guessGen, nil
-		}
-	}
-
-	return nil, gen, errDecryptFailed
 }
 
 var errDecryptFailed = errors.New("decrypt failed")
@@ -968,25 +947,6 @@ func updateFragmentState(startSeen bool, flags PacketFlags) (bool, bool) {
 	}
 
 	return startSeen, false
-}
-
-func shiftGeneration(gen uint32, offset int) (uint32, bool) {
-	switch offset {
-	case -1:
-		if gen == 0 {
-			return 0, false
-		}
-
-		return gen - 1, true
-	case 1:
-		if gen == ^uint32(0) {
-			return 0, false
-		}
-
-		return gen + 1, true
-	default:
-		return gen, true
-	}
 }
 
 func advanceQueueWindow(queue map[uint16]*Packet, nextID *uint16, win *GenerationWindow) {

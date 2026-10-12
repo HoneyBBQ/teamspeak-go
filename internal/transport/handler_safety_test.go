@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
 )
 
 // After crypto init the dummy key is public knowledge, so a command sealed
@@ -146,5 +148,47 @@ func TestHandlerDropsUnencryptedCommandsAfterCryptoInit(t *testing.T) {
 	h.handleRawPacket(buildS2CPacket(sig[:], 0, byte(PacketTypeVoice)|unenc, []byte{0, 0, 0, 0, 0, 4, 1}))
 	if *delivered != 1 {
 		t.Fatalf("delivered %d unencrypted voice packets, want 1", *delivered)
+	}
+}
+
+// sealReal seals a server packet with the session key of tc for generation
+// gen, as the server would.
+func sealReal(t *testing.T, tc *crypto.Crypt, id uint16, gen uint32, typeFlagged byte, payload []byte) []byte {
+	t.Helper()
+	header := make([]byte, 3)
+	binary.BigEndian.PutUint16(header, id)
+	header[2] = typeFlagged
+	key, nonce := tc.GetKeyNonce(true, id, gen, typeFlagged&0x0f, false)
+	eax, err := crypto.NewEAX(append([]byte(nil), key...))
+	if err != nil {
+		t.Fatalf("NewEAX: %v", err)
+	}
+	ciphertext, mac, err := eax.Encrypt(nonce, header, payload)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+
+	return append(append(append([]byte{}, mac...), header...), ciphertext...)
+}
+
+// A packet recorded in one generation and replayed once the 16-bit id has
+// wrapped back to it must not decrypt: only the window's own generation is
+// tried, never the previous one nor the next.
+func TestHandlerRefusesAPacketOfAnotherGeneration(t *testing.T) {
+	h, delivered := newFuzzHandler(t, true)
+	h.nextCommandID = 200
+	h.recvWindowCommand.Advance(1<<16 + 200)
+	cmd := byte(PacketTypeCommand) | byte(PacketFlagNewProtocol)
+	payload := []byte("notifytextmessage targetmode=1 msg=replayed invokerid=5")
+
+	h.handleRawPacket(sealReal(t, h.TsCrypt, 200, 0, cmd, payload))
+	h.handleRawPacket(sealReal(t, h.TsCrypt, 200, 2, cmd, payload))
+	if *delivered != 0 {
+		t.Fatalf("delivered %d packets of another generation, want 0", *delivered)
+	}
+
+	h.handleRawPacket(sealReal(t, h.TsCrypt, 200, 1, cmd, payload))
+	if *delivered != 1 {
+		t.Fatalf("delivered %d packets of the current generation, want 1", *delivered)
 	}
 }
