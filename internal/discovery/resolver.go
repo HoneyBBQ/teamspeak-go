@@ -24,6 +24,7 @@ var (
 	errNicknameNotFound  = errors.New("nickname not found")
 	errEmptyResponseBody = errors.New("empty response")
 	errTSDNSNotFound     = errors.New("not found")
+	errResponseTooLarge  = errors.New("lookup answer larger than 8 KiB")
 )
 
 // Endpoints and lifetimes the resolver uses.
@@ -256,8 +257,18 @@ func getDomainList(host string) []string {
 	return list
 }
 
+// maxResponseSize bounds what is read of a TSDNS or nickname lookup answer,
+// which is one address: a server that sends more cannot make the client
+// hold it.
+const maxResponseSize = 8 << 10
+
 func resolveNickname(ctx context.Context, nickname string) (string, error) {
-	lookupURL, err := url.Parse(NicknameLookup)
+	return lookupNickname(ctx, NicknameLookup, nickname)
+}
+
+// lookupNickname asks the nickname service at endpoint for nickname.
+func lookupNickname(ctx context.Context, endpoint, nickname string) (string, error) {
+	lookupURL, err := url.Parse(endpoint)
 	if err != nil {
 		return "", err
 	}
@@ -281,9 +292,12 @@ func resolveNickname(ctx context.Context, nickname string) (string, error) {
 		return "", errNicknameNotFound
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize+1))
 	if err != nil {
 		return "", err
+	}
+	if len(body) > maxResponseSize {
+		return "", errResponseTooLarge
 	}
 
 	lines := strings.Split(string(body), "\n")
@@ -309,7 +323,8 @@ func queryTSDNS(ctx context.Context, tsdnsFullAddr, queryHost string) (string, e
 		return "", err
 	}
 
-	reader := bufio.NewReader(conn)
+	// A line longer than maxResponseSize ends in io.EOF, an error.
+	reader := bufio.NewReader(io.LimitReader(conn, maxResponseSize))
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
