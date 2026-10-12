@@ -29,17 +29,18 @@ const (
 // of the wrong length for its step, or naming a step the server never sends.
 var ErrMalformedInit1 = errors.New("malformed Init1 packet")
 
-// ProcessInit1 returns the client's answer to the server's Init1 packet data,
-// or the packet that starts the exchange for nil data.
+// StartInit1 returns the Init1 packet data that opens the exchange.
+func StartInit1() ([]byte, error) {
+	return buildInit1StartPacket()
+}
+
+// ProcessInit1 returns the client's answer to the server's Init1 packet data.
 //
-// Data the client cannot answer — empty, the wrong length for its step, an
-// unknown step, an RSA puzzle out of range — is an error wrapping
+// Data the client cannot answer — empty (nil included), the wrong length for
+// its step, an unknown step, an RSA puzzle out of range — is an error wrapping
 // ErrMalformedInit1 or the puzzle's own error, never a panic: the bytes come
-// from the network.
+// from the network. StartInit1, not ProcessInit1, opens the exchange.
 func ProcessInit1(tc *crypto.Crypt, data []byte) ([]byte, error) {
-	if data == nil {
-		return buildInit1StartPacket()
-	}
 	if len(data) == 0 {
 		return nil, fmt.Errorf("%w: empty", ErrMalformedInit1)
 	}

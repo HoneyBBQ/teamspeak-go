@@ -255,7 +255,7 @@ func (h *PacketHandler) Start(conn io.ReadWriteCloser) error {
 	go h.resendLoop()
 	go h.pingLoop()
 
-	init1Data, err := handshake.ProcessInit1(h.TsCrypt, nil)
+	init1Data, err := handshake.StartInit1()
 	if err != nil {
 		return err
 	}

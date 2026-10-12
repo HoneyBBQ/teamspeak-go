@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"strings"
 	"testing"
 
@@ -31,14 +32,10 @@ func newTestCrypt(t *testing.T) *crypto.Crypt {
 	return crypto.NewCrypt(id)
 }
 
-func TestProcessInit1Start_NilData(t *testing.T) {
-	tc := newTestCrypt(t)
-	out, err := handshake.ProcessInit1(tc, nil)
+func TestStartInit1(t *testing.T) {
+	out, err := handshake.StartInit1()
 	if err != nil {
-		t.Fatalf("ProcessInit1: %v", err)
-	}
-	if out == nil {
-		t.Fatal("expected non-nil output for nil data (Start)")
+		t.Fatalf("StartInit1: %v", err)
 	}
 	// 21 bytes: 4 (version) + 1 (type 0x00) + 4 (timestamp) + 4 (rand) + 8 (padding)
 	if len(out) != 21 {
@@ -320,5 +317,13 @@ func TestProcessInit1UnknownStep(t *testing.T) {
 	}
 	if err == nil {
 		t.Error("expected an error")
+	}
+}
+
+// nil is data like any other: no data is malformed, not a request to start.
+func TestProcessInit1_NilDataIsMalformed(t *testing.T) {
+	out, err := handshake.ProcessInit1(newTestCrypt(t), nil)
+	if !errors.Is(err, handshake.ErrMalformedInit1) || out != nil {
+		t.Errorf("ProcessInit1(nil) = %x, %v, want ErrMalformedInit1", out, err)
 	}
 }
