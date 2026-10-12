@@ -39,10 +39,10 @@ const reconnectAttemptTimeout = 30 * time.Second
 // this much of a Connect.
 const resolveTimeout = 10 * time.Second
 
-// disconnectTimeout bounds the goodbye Disconnect sends when its context sets
-// no deadline: the server's acknowledgement is a courtesy, and a connection
-// that has already died would otherwise hold Disconnect for a full command
-// timeout.
+// disconnectTimeout bounds the goodbye Disconnect sends, whatever deadline its
+// context sets: the server's acknowledgement is a courtesy, and a connection
+// that has already died would otherwise hold Disconnect for as long as the
+// caller allowed.
 const disconnectTimeout = time.Second
 
 // Status is the state of a client's connection. Later versions may add
@@ -427,8 +427,8 @@ func (c *Client) Connect(ctx context.Context) error {
 
 // Disconnect leaves the server and closes the connection.
 //
-// It says goodbye first, waiting for the server's acknowledgement until ctx is
-// done, or for a second when ctx sets no deadline. The connection is closed
+// It says goodbye first, waiting for the server's acknowledgement for a second
+// at most, or until ctx is done if that is sooner. The connection is closed
 // either way. A Connect still waiting for its handshake returns
 // teamspeak.ErrNotConnected, and so do the commands still waiting for an
 // answer. Disconnect on a client that is not connected does nothing.
@@ -463,12 +463,9 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 	c.logger.InfoContext(ctx, "disconnecting from server")
 
 	if oldStatus == StatusConnected {
-		if _, ok := ctx.Deadline(); !ok {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, disconnectTimeout)
-			defer cancel()
-		}
-		_, _ = c.execOn(ctx, handler, "clientdisconnect reasonmsg=Shutdown")
+		goodbyeCtx, cancel := context.WithTimeout(ctx, disconnectTimeout)
+		_, _ = c.execOn(goodbyeCtx, handler, "clientdisconnect reasonmsg=Shutdown")
+		cancel()
 	}
 
 	err := handler.Close()

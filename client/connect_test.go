@@ -93,3 +93,17 @@ func TestConnect_RefusesASecondConnect(t *testing.T) {
 		t.Errorf("Connect while connecting = %v, want ErrAlreadyConnected", err)
 	}
 }
+
+// The goodbye waits a second at most, even when the caller's context would
+// allow much longer: a server that does not answer it costs no more.
+func TestDisconnect_GoodbyeWaitsASecondAtMost(t *testing.T) {
+	c := newTestClient(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	_ = c.Disconnect(ctx)
+	if took := time.Since(start); took > 1500*time.Millisecond || took < 900*time.Millisecond {
+		t.Errorf("Disconnect took %v, want about a second", took)
+	}
+}
