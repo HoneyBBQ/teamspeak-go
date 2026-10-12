@@ -118,6 +118,11 @@ func (c *Client) OnNotification(handler func(NotificationEvent)) func() {
 // OnConnected registers a handler for the handshake completing, on Connect and
 // on every reconnection. It returns a function that removes the handler.
 //
+// The event is queued as the handshake completes, when Connect returns nil,
+// and delivered on the event goroutine: register the handler before Connect
+// to be sure to hear it. One still queued when a later Connect, or a
+// reconnection, starts is dropped.
+//
 // A panic in handler is recovered and logged at Error with the event type;
 // the other handlers and later events are still delivered.
 func (c *Client) OnConnected(handler func()) func() {
@@ -128,6 +133,10 @@ func (c *Client) OnConnected(handler func()) func() {
 // nil after Disconnect, and the cause otherwise: a failed handshake, ErrTimedOut
 // for a server that stopped answering, or a *RemovedError for a kick, a ban or
 // a server stopping. It returns a function that removes the handler.
+//
+// An event still queued when a new Connect, or a reconnection, starts is
+// dropped rather than delivered: it describes the session before, and would
+// read as the end of the new one.
 //
 // A panic in handler is recovered and logged at Error with the event type;
 // the other handlers and later events are still delivered.
@@ -197,9 +206,19 @@ func (c *Client) emitEvent(evt Event) {
 	c.events.push(run)
 }
 
-// emit queues a lifecycle event, which middleware does not see.
-func emit[E any](c *Client, subs *subscribers[E], name string, evt E) {
-	c.events.push(func() { subs.deliver(c.logger, name, evt, nil) })
+// emit queues a lifecycle event, which middleware does not see, for the
+// session of epoch. It is dropped, not delivered, if a newer connection attempt
+// has started by the time its turn comes: it describes a session that is
+// already over, and would read as the end, or the start, of the new one.
+func emit[E any](c *Client, epoch uint64, subs *subscribers[E], name string, evt E) {
+	c.events.push(func() {
+		if c.epoch.Load() != epoch {
+			c.logger.Debug("dropping a lifecycle event of an earlier session", slog.String("event", name))
+
+			return
+		}
+		subs.deliver(c.logger, name, evt, nil)
+	})
 }
 
 // dispatchEvent hands a server event, as the middleware left it, to its

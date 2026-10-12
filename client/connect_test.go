@@ -247,3 +247,34 @@ func TestDisconnect_JoinsTheOneSayingGoodbye(t *testing.T) {
 		t.Errorf("status = %v, want disconnected", got)
 	}
 }
+
+// A disconnected event still queued when a new Connect starts is dropped: the
+// handlers hear the new attempt's end, never the old session's after it.
+func TestConnect_DropsTheEarlierSessionsQueuedDisconnected(t *testing.T) {
+	c := leavingClient(t)
+	block := make(chan struct{})
+	c.OnTextMessage(func(TextMessageEvent) { <-block })
+	c.emitEvent(TextMessageEvent{}) // holds the queue
+	heard := make(chan error, 4)
+	c.OnDisconnected(func(err error) { heard <- err })
+
+	_ = c.Disconnect(t.Context())
+	ctx, cancel := context.WithCancel(t.Context())
+	connected := make(chan error, 1)
+	go func() { connected <- c.Connect(ctx) }()
+	for c.Status() != StatusConnecting {
+		time.Sleep(time.Millisecond)
+	}
+	close(block)
+	cancel()
+	<-connected
+
+	select {
+	case err := <-heard:
+		if err == nil {
+			t.Fatal("the earlier session's disconnected was delivered after Connect started")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the abandoned attempt's disconnected was not delivered")
+	}
+}

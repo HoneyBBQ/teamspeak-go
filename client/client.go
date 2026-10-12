@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
@@ -212,6 +213,10 @@ type Client struct {
 	stopped bool
 	// leaving is the Disconnect saying goodbye, nil when there is none.
 	leaving *leaving
+	// epoch counts connection attempts. A lifecycle event carries the epoch
+	// it was announced in, and is dropped if a newer attempt has started by
+	// the time it is delivered.
+	epoch atomic.Uint64
 	// disconnects counts Disconnect calls, so a Connect waiting for one to
 	// finish can tell whether another arrived meanwhile.
 	disconnects    uint64
@@ -507,7 +512,7 @@ func (c *Client) finishLeaving(l *leaving, err error) {
 	c.cmdTrack.reset(teamspeak.ErrNotConnected)
 	// Announced here; handleConnectionClosed stays quiet once the status is
 	// already Disconnected, so the handlers hear about it once.
-	emit(c, &c.onDisconnected, "Disconnected", nil)
+	emit(c, c.epoch.Load(), &c.onDisconnected, "Disconnected", nil)
 	c.leaving = nil
 	l.err = err
 	close(l.done)
@@ -700,6 +705,9 @@ func (c *Client) resetForConnectLocked() string {
 		_ = c.handler.Close()
 	}
 	c.handler = c.newHandler()
+	// A new session: lifecycle events still queued for the last one are
+	// dropped.
+	c.epoch.Add(1)
 	// Keep an attempt nobody has resolved yet: something may already be
 	// waiting on it, and must be released by this connection's handshake.
 	if c.attempt.finished() {
@@ -810,10 +818,11 @@ func (c *Client) failConnectionLocked(err error) {
 	}
 	c.status = StatusDisconnected
 	handler := c.handler
+	epoch := c.epoch.Load()
 	c.mu.Unlock()
 
 	_ = handler.Close()
-	emit(c, &c.onDisconnected, "Disconnected", err)
+	emit(c, epoch, &c.onDisconnected, "Disconnected", err)
 }
 
 // handleConnectionClosed ends the session handler h ran, or the current one
@@ -859,6 +868,7 @@ func (c *Client) handleConnectionClosed(h *transport.PacketHandler, err error) {
 		return
 	}
 	c.status = StatusDisconnected
+	epoch := c.epoch.Load()
 	c.mu.Unlock()
 
 	if err == nil {
@@ -867,7 +877,7 @@ func (c *Client) handleConnectionClosed(h *transport.PacketHandler, err error) {
 	// Announced first, then retried: a caller watching OnDisconnected should
 	// hear about the drop even when a reconnect is already on its way, because
 	// a silent recovery hides an outage.
-	emit(c, &c.onDisconnected, "Disconnected", err)
+	emit(c, epoch, &c.onDisconnected, "Disconnected", err)
 
 	go c.scheduleReconnect(err)
 }

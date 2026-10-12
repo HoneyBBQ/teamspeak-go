@@ -142,21 +142,7 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 		return
 	}
 	c.status = StatusConnected
-
-	idStr := ""
-	if v, ok := cmd.Params["aclid"]; ok {
-		idStr = v
-	} else if v, ok := cmd.Params["clid"]; ok {
-		idStr = v
-	}
-
-	if idStr != "" {
-		val, err := strconv.ParseUint(idStr, 10, 16)
-		if err == nil {
-			c.clid = teamspeak.ClientID(val)
-			h.SetClientID(uint16(c.clid))
-		}
-	}
+	c.adoptClientIDLocked(h, cmd.Params)
 
 	// initserver is the only place the server names itself, and it determines
 	// how the server hashes our public key into client_unique_identifier:
@@ -169,6 +155,7 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 
 	c.attempt.finish(nil)
 	selfID := c.clid
+	epoch := c.epoch.Load()
 	c.mu.Unlock()
 
 	c.logger.Info("connected to server", slog.Uint64("self_id", uint64(selfID)))
@@ -185,7 +172,22 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 		}
 	}()
 
-	emit(c, &c.onConnected, "Connected", struct{}{})
+	emit(c, epoch, &c.onConnected, "Connected", struct{}{})
+}
+
+// adoptClientIDLocked takes the client id initserver assigns, from aclid or
+// clid, for the session h runs. The caller holds c.mu.
+func (c *Client) adoptClientIDLocked(h *transport.PacketHandler, initserver map[string]string) {
+	idStr, ok := initserver["aclid"]
+	if !ok {
+		idStr = initserver["clid"]
+	}
+	val, err := strconv.ParseUint(idStr, 10, 16)
+	if err != nil {
+		return
+	}
+	c.clid = teamspeak.ClientID(val)
+	h.SetClientID(uint16(c.clid))
 }
 
 func (c *Client) sendClientInit(h *transport.PacketHandler) {

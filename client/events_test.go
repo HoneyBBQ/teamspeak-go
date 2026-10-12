@@ -147,7 +147,7 @@ func TestEvents_UnsubscribeCoversQueuedEvents(t *testing.T) {
 	called := make(chan TextMessageEvent, 1)
 	unsubscribe := c.OnTextMessage(func(m TextMessageEvent) { called <- m })
 
-	emit(c, &c.onConnected, "Connected", struct{}{}) // holds the queue
+	emit(c, c.epoch.Load(), &c.onConnected, "Connected", struct{}{}) // holds the queue
 	c.emitEvent(TextMessageEvent{Message: "queued"})
 	unsubscribe()
 	close(release)
@@ -381,7 +381,7 @@ func TestEventMiddleware_DoesNotSeeLifecycleEvents(t *testing.T) {
 	connected := make(chan struct{}, 1)
 	c.OnConnected(func() { connected <- struct{}{} })
 
-	emit(c, &c.onConnected, "Connected", struct{}{})
+	emit(c, c.epoch.Load(), &c.onConnected, "Connected", struct{}{})
 	receive(t, connected)
 
 	select {
@@ -552,8 +552,8 @@ func TestHandlerPanicIsLoggedAndDeliveryContinues(t *testing.T) {
 
 	c.emitEvent(PokeEvent{Message: "first"})
 	c.emitEvent(PokeEvent{Message: "second"})
-	emit(c, &c.onDisconnected, "Disconnected", error(nil))
-	emit(c, &c.onConnected, "Connected", struct{}{})
+	emit(c, c.epoch.Load(), &c.onDisconnected, "Disconnected", error(nil))
+	emit(c, c.epoch.Load(), &c.onConnected, "Connected", struct{}{})
 
 	for _, want := range []string{"first", "second", "connected"} {
 		if v := receive(t, got); v != want {
