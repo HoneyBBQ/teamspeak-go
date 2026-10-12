@@ -220,3 +220,41 @@ func TestParseTs5ServerBlockTruncatedPropertyLength(t *testing.T) {
 		t.Error("expected error when property count exceeds available data")
 	}
 }
+
+// ephemeralChain is a version 1 chain of n structurally valid ephemeral
+// blocks: 42 bytes each, zero key and times.
+func ephemeralChain(n int) []byte {
+	const blockLen = 42
+	data := make([]byte, 1+n*blockLen)
+	data[0] = 1
+	for i := range n {
+		data[1+i*blockLen+33] = 32
+	}
+
+	return data
+}
+
+// The servers send 2 (TeamSpeak 3) or 3 (TeamSpeak 6) blocks; every block
+// costs a curve multiplication, so a chain longer than 8 is refused.
+func TestParseLicensesCapsTheChainLength(t *testing.T) {
+	chain, err := handshake.ParseLicenses(ephemeralChain(8))
+	if err != nil || len(chain.Blocks) != 8 {
+		t.Fatalf("8 blocks: %v, err %v", chain, err)
+	}
+	_, err = handshake.ParseLicenses(ephemeralChain(9))
+	if err == nil {
+		t.Fatal("9 blocks parsed, want an error")
+	}
+}
+
+// A block whose declared property length runs past the data is refused.
+func TestParseLicensesRefusesALengthPastTheEnd(t *testing.T) {
+	block := make([]byte, 46)
+	block[33] = 8  // TS5 server
+	block[43] = 1  // one property
+	block[44] = 50 // longer than what follows
+	_, err := handshake.ParseLicenses(append([]byte{1}, block...))
+	if err == nil {
+		t.Fatal("a property past the end parsed, want an error")
+	}
+}

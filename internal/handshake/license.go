@@ -18,7 +18,14 @@ var (
 	errIssuerStringNotTerminated = errors.New("non-null-terminated issuer string")
 	errWrongKeyKindInLicense     = errors.New("wrong key kind in license")
 	errInvalidLicenseBlockType   = errors.New("invalid license block type")
+	errTooManyLicenseBlocks      = errors.New("too many license blocks")
 )
+
+// maxLicenseBlocks is the most blocks a license chain may have. TeamSpeak 3
+// servers were measured sending 2 (server, ephemeral) and TeamSpeak 6 servers
+// 3 (intermediate, server, ephemeral); every block costs a curve
+// multiplication, so a longer chain is refused rather than walked.
+const maxLicenseBlocks = 8
 
 var licenseRootKey = []byte{
 	0xcd, 0x0d, 0xe2, 0xae, 0xd4, 0x63, 0x45, 0x50, 0x9a, 0x7e, 0x3c, 0xfd, 0x8f, 0x68, 0xb3, 0xdc, 0x75, 0x55, 0xb2,
@@ -59,7 +66,9 @@ type blockPayload struct {
 }
 
 // ParseLicenses parses version 1 license data into its blocks. It checks each
-// block's structure, not whether the block is currently valid.
+// block's structure, not whether the block is currently valid. A chain of more
+// than maxLicenseBlocks blocks, or a block whose declared lengths run past the
+// end of the data, is an error.
 func ParseLicenses(data []byte) (*LicenseChain, error) {
 	if len(data) < 1 {
 		return nil, errLicenseTooShort
@@ -71,6 +80,9 @@ func ParseLicenses(data []byte) (*LicenseChain, error) {
 	data = data[1:]
 	res := &LicenseChain{}
 	for len(data) > 0 {
+		if len(res.Blocks) == maxLicenseBlocks {
+			return nil, fmt.Errorf("%w: more than %d", errTooManyLicenseBlocks, maxLicenseBlocks)
+		}
 		block, read, err := parseLicenseBlock(data)
 		if err != nil {
 			return nil, err
