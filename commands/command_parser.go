@@ -30,7 +30,7 @@ func ParseCommand(s string) *Command {
 
 	var rest []string
 
-	if isCommandName(first) {
+	if IsCommandName(first) {
 		cmd.Name = first
 		rest = parts[1:]
 	} else {
@@ -52,9 +52,13 @@ func ParseCommand(s string) *Command {
 	return cmd
 }
 
-// isCommandName reports whether a line's first token is a command name rather
+// IsCommandName reports whether a line's first token is a command name rather
 // than one of a response row's key=value pairs.
-func isCommandName(token string) bool {
+//
+// Everything that splits or parses a line asks this one function, so the
+// parser and the row splitter cannot disagree about where a command's data
+// begins.
+func IsCommandName(token string) bool {
 	if token == "" {
 		return false
 	}
