@@ -4,12 +4,13 @@ package client_test
 
 import (
 	"context"
+	"errors"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/client"
+	"github.com/honeybbq/teamspeak-go/errcode"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/identity"
@@ -198,19 +199,14 @@ func TestIntegration_ReportsHandshakeFailureAndDisconnects(t *testing.T) {
 	)
 	disconnected := make(chan error, 1)
 	rejected.OnDisconnected(func(err error) { disconnected <- err })
-	t.Cleanup(func() { _ = rejected.Disconnect() })
+	t.Cleanup(func() { _ = rejected.Disconnect(context.Background()) })
 
-	err = rejected.Connect()
-	if err != nil {
-		t.Fatalf("Connect: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	err = rejected.WaitConnected(ctx)
+	err = rejected.Connect(ctx)
 	// The cause must be the server's rejection, not the caller's own timeout.
-	if err == nil || !strings.Contains(err.Error(), "password") {
-		t.Fatalf("WaitConnected = %v, want the server's password rejection", err)
+	if !errors.Is(err, errcode.ServerInvalidPassword) {
+		t.Fatalf("Connect = %v, want the server's password rejection", err)
 	}
 	if rejected.Status() != client.StatusDisconnected {
 		t.Errorf("status = %v after a rejected handshake, want StatusDisconnected", rejected.Status())

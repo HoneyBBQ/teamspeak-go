@@ -32,16 +32,12 @@ func TestIntegration_CustomPacketConn(t *testing.T) {
 
 	opts := append(integrationClientOptions(nil), client.WithPacketConn(pc))
 	c := newClient(t, id, addr, "custom-packetconn", opts...)
-	if err := c.Connect(); err != nil {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	if err := c.Connect(ctx); err != nil {
 		t.Fatalf("Connect over a caller-supplied PacketConn: %v", err)
 	}
-	t.Cleanup(func() { _ = c.Disconnect() })
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := c.WaitConnected(ctx); err != nil {
-		t.Fatalf("WaitConnected: %v", err)
-	}
+	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
 
 	if c.ClientID() == 0 {
 		t.Error("expected the server to assign a client id over the custom transport")

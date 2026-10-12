@@ -64,12 +64,9 @@ func (c *Client) Status() ClientStatus {
 	return c.status
 }
 
-// WaitConnected waits for the connection handshake to be completed.
-//
-// It returns nil once the handshake completes. If the attempt fails, it returns
-// the cause, such as the server's error for a rejected password, rather than
-// waiting for ctx to expire. It may be called before or after Connect.
-func (c *Client) WaitConnected(ctx context.Context) error {
+// waitConnected waits for the current connection attempt to complete,
+// returning its cause if it fails.
+func (c *Client) waitConnected(ctx context.Context) error {
 	c.mu.Lock()
 	attempt := c.attempt
 	c.mu.Unlock()

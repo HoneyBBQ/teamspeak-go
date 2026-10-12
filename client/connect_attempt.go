@@ -1,6 +1,6 @@
 package client
 
-// connectAttempt tracks the outcome of one connection attempt for WaitConnected.
+// connectAttempt tracks the outcome of one connection attempt, for Connect.
 //
 // done is closed exactly once, when the handshake either completes or fails.
 // err is written before done is closed and never afterwards, so a reader that

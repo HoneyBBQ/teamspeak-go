@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -19,10 +18,6 @@ import (
 	"github.com/honeybbq/teamspeak-go/errcode"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
-)
-
-var (
-	errCommandTimed = errors.New("command timeout")
 )
 
 type commandResult struct {
@@ -371,7 +366,7 @@ func (c *Client) handleError(cmd *commands.Command) {
 		if serverErr.Code == errcode.ConnectFailedBanned {
 			c.logger.Warn("banned by the server, closing the connection")
 			go func() {
-				disconnectErr := c.Disconnect()
+				disconnectErr := c.Disconnect(context.Background())
 				if disconnectErr != nil {
 					c.logger.Warn("disconnect after fatal error failed", slog.Any("error", disconnectErr))
 				}
@@ -394,22 +389,27 @@ func (c *Client) handleError(cmd *commands.Command) {
 	}
 }
 
-// SendCommandNoWait sends a command without waiting for return_code.
-func (c *Client) SendCommandNoWait(cmd string) error {
-	err := c.throttle.wait(context.Background())
+// ExecNoWait sends a raw command line without waiting for an answer, for the
+// few commands the server answers with nothing at all. ctx bounds only the
+// wait for the flood throttle.
+func (c *Client) ExecNoWait(ctx context.Context, cmd string) error {
+	err := c.throttle.wait(ctx)
 	if err != nil {
 		return err
 	}
-	c.logger.Debug("sending command without waiting", slog.String("raw", cmd))
+	c.logger.DebugContext(ctx, "sending command without waiting", slog.String("command", commandName(cmd)))
 
 	return c.finalCmdHandler(cmd)
 }
 
-// ExecCommand sends a command and waits for its return_code response.
-func (c *Client) ExecCommand(cmd string, timeout time.Duration) error {
-	_, err := c.ExecCommandWithResponse(cmd, timeout)
-
-	return err
+// Exec sends a raw command line and returns the rows that answer it: the
+// escape hatch for a command the typed methods do not cover. The line is sent
+// as given, so its values must already be escaped (commands.Escape) and any
+// channel password already hashed.
+//
+// Without a deadline on ctx the command gives up after defaultCommandTimeout.
+func (c *Client) Exec(ctx context.Context, cmd string) ([]map[string]string, error) {
+	return c.send(ctx, cmd)
 }
 
 // defaultCommandTimeout is how long a command waits for its answer when the
@@ -436,14 +436,6 @@ func (c *Client) send(ctx context.Context, cmd string) ([]map[string]string, err
 		ctx, cancel = context.WithTimeout(ctx, defaultCommandTimeout)
 		defer cancel()
 	}
-
-	return c.execWithResponse(ctx, cmd)
-}
-
-// ExecCommandWithResponse sends a command and waits for its return_code response and data.
-func (c *Client) ExecCommandWithResponse(cmd string, timeout time.Duration) ([]map[string]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 
 	return c.execWithResponse(ctx, cmd)
 }
@@ -500,7 +492,7 @@ func (c *Client) execWithResponse(ctx context.Context, cmd string) ([]map[string
 	case res := <-ch:
 		return res.Data, res.Err
 	case <-ctx.Done():
-		return nil, fmt.Errorf("%w: %s: %w", errCommandTimed, parsed.Name, ctx.Err())
+		return nil, fmt.Errorf("%s: %w", parsed.Name, ctx.Err())
 	}
 }
 
@@ -565,4 +557,12 @@ func parseCode(raw string) errcode.Code {
 	}
 
 	return errcode.Code(code)
+}
+
+// commandName is the name a command line starts with: what the log may say
+// about a command whose parameters can carry secrets.
+func commandName(cmd string) string {
+	name, _, _ := strings.Cut(cmd, " ")
+
+	return name
 }

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"crypto/sha1" //nolint:gosec // SHA-1 used for TS3 HWID/UID format, not security
 	"encoding/base64"
 	"log/slog"
@@ -141,7 +142,7 @@ func (c *Client) handleInitServer(cmd *commands.Command) {
 			"client_input_muted":  "0",
 			"client_output_muted": "0",
 		})
-		_ = c.SendCommandNoWait(updateCmd)
+		_ = c.ExecNoWait(context.Background(), updateCmd)
 	}()
 
 	for _, h := range handlers {

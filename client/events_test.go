@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -164,7 +165,7 @@ func TestUseCommandMiddleware_CanShortCircuit(t *testing.T) {
 	// Re-apply middleware on top of new base.
 	c.UseCommandMiddleware()
 
-	_ = c.SendCommandNoWait("blocked")
+	_ = c.ExecNoWait(context.Background(), "blocked")
 
 	select {
 	case <-sent:

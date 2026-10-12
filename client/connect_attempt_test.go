@@ -43,7 +43,7 @@ func waitWithin(t *testing.T, c *Client, d time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
 
-	return c.WaitConnected(ctx)
+	return c.waitConnected(ctx)
 }
 
 func TestWaitConnected_ReturnsServerErrorInsteadOfTimingOut(t *testing.T) {

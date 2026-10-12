@@ -53,7 +53,7 @@ func TestHandleInitServer_ReleasesWaitConnected(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	err := c.WaitConnected(ctx)
+	err := c.waitConnected(ctx)
 	if err != nil {
 		t.Errorf("WaitConnected after initserver: %v", err)
 	}

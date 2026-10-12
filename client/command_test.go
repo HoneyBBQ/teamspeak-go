@@ -1,6 +1,8 @@
 package client
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -161,17 +163,17 @@ func TestHandleCommand_UndeclaredNamedCommand_IsNotData(t *testing.T) {
 	}
 }
 
-func TestExecCommandWithResponse_Success(t *testing.T) {
+func TestExec_Success(t *testing.T) {
 	c := newTestClient(t)
 
 	go func() {
 		time.Sleep(20 * time.Millisecond)
-		// The command sent by ExecCommandWithResponse contains "return_code=N".
+		// The command Exec sends contains "return_code=N".
 		// Simulate server data row then ok error line with matching return_code.
 		c.handleCommandLines("somekey=someval\nerror id=0 msg=ok return_code=1")
 	}()
 
-	data, err := c.ExecCommandWithResponse("dummycmd", 2*time.Second)
+	data, err := c.Exec(ctxWithin(t, 2*time.Second), "dummycmd")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -180,25 +182,24 @@ func TestExecCommandWithResponse_Success(t *testing.T) {
 	}
 }
 
-func TestExecCommandWithResponse_Timeout(t *testing.T) {
+func TestExec_Timeout(t *testing.T) {
 	c := newTestClient(t)
 
 	start := time.Now()
-	_, err := c.ExecCommandWithResponse("dummycmd", 50*time.Millisecond)
+	_, err := c.Exec(ctxWithin(t, 50*time.Millisecond), "dummycmd")
 	elapsed := time.Since(start)
 
-	if err == nil {
-		t.Error("expected timeout error")
-	}
-	if !strings.Contains(err.Error(), "timeout") {
-		t.Errorf("expected 'timeout' in error, got %v", err)
+	// The context's own error, so the caller tells its deadline from its
+	// cancellation the usual way.
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Exec = %v, want context.DeadlineExceeded", err)
 	}
 	if elapsed < 40*time.Millisecond || elapsed > 500*time.Millisecond {
 		t.Errorf("unexpected elapsed time: %v", elapsed)
 	}
 }
 
-func TestExecCommandWithResponse_ServerError(t *testing.T) {
+func TestExec_ServerError(t *testing.T) {
 	c := newTestClient(t)
 
 	go func() {
@@ -206,7 +207,7 @@ func TestExecCommandWithResponse_ServerError(t *testing.T) {
 		c.handleCommandLines("error id=512 msg=invalid_size return_code=1")
 	}()
 
-	_, err := c.ExecCommandWithResponse("dummycmd", 2*time.Second)
+	_, err := c.Exec(ctxWithin(t, 2*time.Second), "dummycmd")
 	if err == nil {
 		t.Error("expected error from server")
 	}

@@ -92,12 +92,15 @@ type PacketHandler struct {
 	TsCrypt              *crypto.Crypt
 	generationCounter    [9]uint32
 	mu                   sync.Mutex
-	closed               atomic.Bool
-	started              atomic.Bool
-	packetCounter        [9]uint16
-	clientID             uint16
-	nextCommandLowID     uint16
-	nextCommandID        uint16
+	// lifecycleMu orders Start and Close: a Close that races a Start either
+	// sees the connection and closes it, or makes Start refuse it.
+	lifecycleMu      sync.Mutex
+	closed           atomic.Bool
+	started          atomic.Bool
+	packetCounter    [9]uint16
+	clientID         uint16
+	nextCommandLowID uint16
+	nextCommandID    uint16
 }
 
 type resendPacket struct {
@@ -158,8 +161,16 @@ func (h *PacketHandler) Connect(addr string) error {
 // the initial Init1 handshake packet. conn must implement io.ReadWriteCloser
 // with datagram-style semantics (each Write produces one discrete message).
 func (h *PacketHandler) Start(conn io.ReadWriteCloser) error {
+	h.lifecycleMu.Lock()
+	if h.closed.Load() {
+		h.lifecycleMu.Unlock()
+		_ = conn.Close()
+
+		return net.ErrClosed
+	}
 	h.conn = conn
 	h.started.Store(true)
+	h.lifecycleMu.Unlock()
 
 	go h.receiveLoop()
 	go h.processLoop()
@@ -987,12 +998,18 @@ func (h *PacketHandler) IsOpen() bool {
 
 // Close stops the handler and closes its connection.
 func (h *PacketHandler) Close() error {
+	h.lifecycleMu.Lock()
 	if h.closed.Swap(true) {
+		h.lifecycleMu.Unlock()
+
 		return nil
 	}
 	close(h.stopCh)
-	if h.conn != nil {
-		return h.conn.Close()
+	conn := h.conn
+	h.lifecycleMu.Unlock()
+
+	if conn != nil {
+		return conn.Close()
 	}
 
 	return nil

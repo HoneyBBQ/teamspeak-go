@@ -39,16 +39,12 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 	)
 
 	c := newClient(t, id, addr, "go-reconnect", opts...)
-	if err := c.Connect(); err != nil {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	if err := c.Connect(ctx); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	t.Cleanup(func() { _ = c.Disconnect() })
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := c.WaitConnected(ctx); err != nil {
-		t.Fatalf("WaitConnected: %v", err)
-	}
+	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
 
 	firstID := c.ClientID()
 	if firstID == 0 {
@@ -97,17 +93,13 @@ func TestIntegration_NoReconnectAfterExplicitDisconnect(t *testing.T) {
 	)
 
 	c := newClient(t, id, addr, "go-noreconnect", opts...)
-	if err := c.Connect(); err != nil {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	if err := c.Connect(ctx); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := c.WaitConnected(ctx); err != nil {
-		t.Fatalf("WaitConnected: %v", err)
-	}
-
-	if err := c.Disconnect(); err != nil {
+	if err := c.Disconnect(context.Background()); err != nil {
 		t.Fatalf("Disconnect: %v", err)
 	}
 

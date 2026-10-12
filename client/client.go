@@ -17,10 +17,29 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
+// ErrAlreadyConnected reports a Connect on a client that is already connected
+// or connecting.
+var ErrAlreadyConnected = errors.New("already connecting or connected")
+
 var (
-	errAlreadyConnectingOrConnected = errors.New("already connecting or connected")
-	errClosedDuringHandshake        = errors.New("connection closed before the TeamSpeak handshake completed")
+	errClosedDuringHandshake       = errors.New("connection closed before the TeamSpeak handshake completed")
+	errDisconnectedDuringHandshake = fmt.Errorf("%w: Disconnect was called before the handshake completed",
+		teamspeak.ErrNotConnected)
 )
+
+// reconnectAttemptTimeout bounds each reconnection attempt.
+const reconnectAttemptTimeout = 30 * time.Second
+
+// resolveTimeout bounds address resolution, which falls back to the address
+// as given rather than failing, so a slow DNS or TSDNS server costs at most
+// this much of a Connect.
+const resolveTimeout = 10 * time.Second
+
+// disconnectTimeout bounds the goodbye Disconnect sends when its context sets
+// no deadline: the server's acknowledgement is a courtesy, and a connection
+// that has already died would otherwise hold Disconnect for a full command
+// timeout.
+const disconnectTimeout = time.Second
 
 // ClientStatus represents the current connection state of the client.
 type ClientStatus int
@@ -255,56 +274,47 @@ func WithDefaultChannelPassword(password string) Option {
 	})
 }
 
-// Connect starts the UDP session and handshake to the server.
-func (c *Client) Connect() error {
-	c.mu.Lock()
-	c.stopped = false
-	if c.status != StatusDisconnected {
-		c.mu.Unlock()
-
-		return errAlreadyConnectingOrConnected
-	}
-
-	finalAddr := c.resetForConnectLocked()
-
-	c.status = StatusConnecting
-	c.mu.Unlock()
-
-	targetAddr, source := c.resolveConnectTarget(finalAddr)
-	c.logger.Info("connecting to server", slog.String("address", targetAddr), slog.String("source", source))
-
-	c.mu.Lock()
-	packetConn := c.packetConn
-	c.mu.Unlock()
-
-	var err error
-	if packetConn != nil {
-		// The adapter needs the peer address to send to; resolve it the same way
-		// the dialling path would, without opening a socket.
-		remote, resolveErr := net.ResolveUDPAddr("udp", targetAddr)
-		if resolveErr != nil {
-			c.failConnection(resolveErr)
-
-			return resolveErr
-		}
-		err = c.handler.Start(transport.NewPacketConnAdapter(packetConn, remote))
-	} else {
-		err = c.handler.Connect(targetAddr)
-	}
+// Connect connects to the server and returns once the handshake completes.
+//
+// A failed attempt returns its cause, such as the server's error for a
+// rejected password. If ctx is done first, the attempt is abandoned and its
+// error returned. Connect does not retry; WithReconnect only retries a
+// connection that drops after it was established.
+//
+// ctx bounds only the connecting: once Connect returns, the connection lasts
+// until Disconnect or a drop.
+func (c *Client) Connect(ctx context.Context) error {
+	attempt, err := c.start(ctx)
 	if err != nil {
-		// Without this the client stays in StatusConnecting and every later
-		// Connect fails with errAlreadyConnectingOrConnected.
-		c.failConnection(err)
+		return err
 	}
 
-	return err
+	select {
+	case <-attempt.done:
+		return attempt.err
+	case <-ctx.Done():
+		// Abandon the attempt. The handshake may have completed meanwhile, in
+		// which case failConnection leaves the session alone and Connect
+		// reports the connection it made rather than one the caller would
+		// believe had failed.
+		c.failConnection(ctx.Err())
+		<-attempt.done
+
+		return attempt.err
+	}
 }
 
-// Disconnect gracefully closes the connection.
-func (c *Client) Disconnect() error {
+// Disconnect leaves the server and closes the connection.
+//
+// It says goodbye first, waiting for the server's acknowledgement until ctx is
+// done, or for a second when ctx sets no deadline. The connection is closed
+// either way. A Connect still waiting for its handshake returns
+// teamspeak.ErrNotConnected, and so do the commands still waiting for an
+// answer. Disconnect on a client that is not connected does nothing.
+func (c *Client) Disconnect(ctx context.Context) error {
 	c.mu.Lock()
-	// Recorded before anything else: a dropped socket during the shutdown
-	// command below must not be mistaken for an outage worth retrying.
+	// Recorded before anything else: a dropped socket during the goodbye below
+	// must not be mistaken for an outage worth retrying.
 	c.stopped = true
 	oldStatus := c.status
 	if oldStatus == StatusDisconnected {
@@ -313,16 +323,23 @@ func (c *Client) Disconnect() error {
 		return nil
 	}
 	c.status = StatusDisconnected
+	c.attempt.finish(errDisconnectedDuringHandshake)
+	handler := c.handler
 	handlers := c.disconnectedHandlers
 	c.mu.Unlock()
 
-	c.logger.Info("disconnecting from server")
+	c.logger.InfoContext(ctx, "disconnecting from server")
 
 	if oldStatus == StatusConnected {
-		_ = c.ExecCommand("clientdisconnect reasonmsg=Shutdown", 1*time.Second)
+		if _, ok := ctx.Deadline(); !ok {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, disconnectTimeout)
+			defer cancel()
+		}
+		_, _ = c.execWithResponse(ctx, "clientdisconnect reasonmsg=Shutdown")
 	}
 
-	err := c.handler.Close()
+	err := handler.Close()
 	c.cmdTrack.reset(teamspeak.ErrNotConnected)
 	// Invoke disconnected handlers here; handleConnectionClosed skips them once
 	// status is already Disconnected to avoid duplicate callbacks.
@@ -333,6 +350,53 @@ func (c *Client) Disconnect() error {
 	return err
 }
 
+// start resets the session and begins the handshake, returning the attempt
+// that the handshake will resolve.
+func (c *Client) start(ctx context.Context) (*connectAttempt, error) {
+	c.mu.Lock()
+	c.stopped = false
+	if c.status != StatusDisconnected {
+		c.mu.Unlock()
+
+		return nil, ErrAlreadyConnected
+	}
+
+	// The handler resetForConnectLocked wires up reconnects on its own context:
+	// a reconnection outlives the Connect that started the session.
+	finalAddr := c.resetForConnectLocked() //nolint:contextcheck // see above
+	attempt := c.attempt
+
+	c.status = StatusConnecting
+	handler := c.handler
+	packetConn := c.packetConn
+	c.mu.Unlock()
+
+	targetAddr, source := c.resolveConnectTarget(ctx, finalAddr)
+	c.logger.InfoContext(ctx, "connecting to server", slog.String("address", targetAddr), slog.String("source", source))
+
+	var err error
+	if packetConn != nil {
+		// The adapter needs the peer address to send to; resolve it the same way
+		// the dialling path would, without opening a socket.
+		var remote *net.UDPAddr
+		remote, err = net.ResolveUDPAddr("udp", targetAddr)
+		if err == nil {
+			err = handler.Start(transport.NewPacketConnAdapter(packetConn, remote))
+		}
+	} else {
+		err = handler.Connect(targetAddr)
+	}
+	if err != nil {
+		// Without this the client stays in StatusConnecting and every later
+		// Connect fails with ErrAlreadyConnected.
+		c.failConnection(err)
+
+		return nil, err
+	}
+
+	return attempt, nil
+}
+
 func (c *Client) resetForConnectLocked() string {
 	if c.handler != nil {
 		_ = c.handler.Close()
@@ -340,9 +404,8 @@ func (c *Client) resetForConnectLocked() string {
 	id := c.crypt.Identity
 	c.crypt = crypto.NewCrypt(id)
 	c.handler = c.newHandler()
-	// Keep an attempt nobody has resolved yet: a caller that started
-	// WaitConnected before calling Connect is waiting on it, and must be
-	// released by this connection's handshake.
+	// Keep an attempt nobody has resolved yet: something may already be
+	// waiting on it, and must be released by this connection's handshake.
 	if c.attempt.finished() {
 		c.attempt = newConnectAttempt()
 	}
@@ -361,14 +424,14 @@ func (c *Client) resetForConnectLocked() string {
 	return net.JoinHostPort(host, port)
 }
 
-func (c *Client) resolveConnectTarget(fallbackAddr string) (string, string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (c *Client) resolveConnectTarget(ctx context.Context, fallbackAddr string) (string, string) {
+	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
 
 	resolved, err := c.resolver.Resolve(ctx, c.addr)
 	if err != nil || len(resolved) == 0 {
 		// An empty answer used to index resolved[0] and panic.
-		c.logger.Warn("address resolution failed, falling back to direct", slog.Any("error", err))
+		c.logger.WarnContext(ctx, "address resolution failed, falling back to direct", slog.Any("error", err))
 
 		return fallbackAddr, "Fallback"
 	}
@@ -395,13 +458,13 @@ func (c *Client) newHandler() *transport.PacketHandler {
 }
 
 // failConnection ends a connection attempt that can no longer succeed: it
-// records the cause for WaitConnected, closes the transport, and reports the
+// records the cause for Connect to return, closes the transport, and reports the
 // cause to disconnected handlers. It does nothing once the handshake has
 // completed, so it cannot tear down a live session.
 //
 // Without it, a handshake the server rejects (a wrong password, say, which the
 // server answers with an error instead of closing the socket) surfaced only as
-// the caller's own WaitConnected timeout, and the client stayed in
+// the caller's own timeout, and the client stayed in
 // StatusConnecting forever without emitting disconnected.
 func (c *Client) failConnection(err error) {
 	c.mu.Lock()
@@ -522,18 +585,12 @@ func (c *Client) scheduleReconnect(connErr error) {
 	c.logger.Warn("reconnect attempts exhausted", slog.Int("attempts", options.Backoff.MaxAttempts))
 }
 
-// runConnect connects and waits for the handshake, returning the failure of
-// whichever step did not complete.
+// runConnect makes one reconnection attempt.
 func (c *Client) runConnect() error {
-	connectErr := c.Connect()
-	if connectErr != nil {
-		return connectErr
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), reconnectAttemptTimeout)
 	defer cancel()
 
-	return c.WaitConnected(ctx)
+	return c.Connect(ctx)
 }
 
 // beginReconnect claims the reconnect slot, reporting false when reconnection

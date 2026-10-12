@@ -1,10 +1,12 @@
 package client
 
 import (
+	"context"
 	"io"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
@@ -164,3 +166,13 @@ func newTestClientWithPipe(t *testing.T) (*Client, *pipePair) {
 
 // Compile-time guard: PacketHandler.Start must accept an io.ReadWriteCloser.
 var _ = (*transport.PacketHandler)(nil)
+
+// ctxWithin returns a context that expires after d, canceled when the test
+// ends.
+func ctxWithin(t *testing.T, d time.Duration) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), d)
+	t.Cleanup(cancel)
+
+	return ctx
+}

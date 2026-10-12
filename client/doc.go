@@ -3,12 +3,12 @@
 // SDK.
 //
 // Create one with [New] and an identity from the identity package, then
-// [Client.Connect] and [Client.WaitConnected] before sending commands:
+// [Client.Connect], which returns once the handshake completes:
 //
 //	id, err := identity.Generate(ctx, 8)
 //	c, err := client.New(id, "ts.example.com", "bot")
-//	err = c.Connect()
-//	err = c.WaitConnected(ctx)
+//	err = c.Connect(ctx)
+//	defer c.Disconnect(context.WithoutCancel(ctx))
 //	channels, err := c.ListChannels(ctx)
 //
 // The typed commands come from the embedded [teamspeak.Commands]; this package

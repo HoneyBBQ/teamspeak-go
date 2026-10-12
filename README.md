@@ -91,15 +91,10 @@ func main() {
 		fmt.Println("Disconnected:", err)
 	})
 
-	// Connect
-	if err := c.Connect(); err != nil {
-		log.Fatal(err)
-	}
-
-	// Wait until connected
+	// Connect returns once the handshake completes.
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := c.WaitConnected(ctx); err != nil {
+	if err := c.Connect(ctx); err != nil {
 		log.Fatal(err)
 	}
 
@@ -114,7 +109,7 @@ func main() {
 	signal.Notify(sig, os.Interrupt)
 	<-sig
 
-	_ = c.Disconnect()
+	_ = c.Disconnect(context.Background())
 }
 ```
 
@@ -125,9 +120,8 @@ func main() {
 | Method | Description |
 |---|---|
 | `NewClient(identity, addr, nickname, ...opts)` | Create a new client |
-| `Connect()` | Initiate connection to the server |
-| `WaitConnected(ctx)` | Block until the handshake completes |
-| `Disconnect()` | Gracefully disconnect |
+| `Connect(ctx)` | Connect, returning once the handshake completes |
+| `Disconnect(ctx)` | Leave the server and close the connection |
 | `ClientID()` | Our clid, assigned by the server |
 | `ChannelID()` | The channel we are in |
 | `ServerCapabilities()` | Server version, family and uid hash |
@@ -182,8 +176,8 @@ so this is invisible to callers; the measured table is in
 [voice-protocol-responses.md](https://github.com/honeybbq/teamspeak-js/blob/main/docs/voice-protocol-responses.md).
 A refusal is always returned as an error, never as an empty result.
 
-For anything outside the typed set, `ExecCommand` and `ExecCommandWithResponse`
-take a raw command.
+For anything outside the typed set, `Exec(ctx, line)` sends a raw command
+line and returns the rows that answer it.
 
 ### File Transfers
 

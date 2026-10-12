@@ -118,15 +118,9 @@ func requireSharedClient(t *testing.T) *client.Client {
 				}
 			}
 		})
-		err = c.Connect()
-		if err != nil {
-			errSharedClient = err
-
-			return
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		err = c.WaitConnected(ctx)
+		err = c.Connect(ctx)
 		if err != nil {
 			errSharedClient = err
 
@@ -193,13 +187,9 @@ func requireIntegrationPeer(t *testing.T, addr string) *client.Client {
 		}
 		logger := slog.New(slog.NewJSONHandler(&peerLogs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 		peerClient = newClient(t, id, addr, "teamspeak-go-peer", integrationClientOptions(logger)...)
-		errPeer = peerClient.Connect()
-		if errPeer != nil {
-			return
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		errPeer = peerClient.WaitConnected(ctx)
+		errPeer = peerClient.Connect(ctx)
 	})
 	if errPeer != nil {
 		t.Fatalf("peer connection: %v", errPeer)
@@ -211,10 +201,10 @@ func requireIntegrationPeer(t *testing.T, addr string) *client.Client {
 func TestMain(m *testing.M) {
 	code := m.Run()
 	if peerClient != nil {
-		_ = peerClient.Disconnect()
+		_ = peerClient.Disconnect(context.Background())
 	}
 	if sharedClient != nil {
-		_ = sharedClient.Disconnect()
+		_ = sharedClient.Disconnect(context.Background())
 	}
 	os.Exit(code)
 }
@@ -300,22 +290,17 @@ func TestIntegration_Disconnect(t *testing.T) {
 	}
 	c := newClient(t, id, addr, "teamspeak-go-integ-disc", integrationClientOptions(nil)...)
 
-	err = c.Connect()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	err = c.Connect(ctx)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	err = c.WaitConnected(ctx)
-	if err != nil {
-		t.Fatalf("WaitConnected: %v", err)
 	}
 
 	disconnected := make(chan error, 1)
 	c.OnDisconnected(func(e error) { disconnected <- e })
 
-	err = c.Disconnect()
+	err = c.Disconnect(context.Background())
 	if err != nil {
 		t.Logf("Disconnect returned (non-fatal): %v", err)
 	}

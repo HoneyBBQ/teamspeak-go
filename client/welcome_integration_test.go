@@ -24,16 +24,12 @@ func TestIntegration_NoWelcomeContamination(t *testing.T) {
 	}
 
 	c := newClient(t, id, addr, "welcome-contamination", integrationClientOptions(nil)...)
-	if err := c.Connect(); err != nil {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	if err := c.Connect(ctx); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	t.Cleanup(func() { _ = c.Disconnect() })
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := c.WaitConnected(ctx); err != nil {
-		t.Fatalf("WaitConnected: %v", err)
-	}
+	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
 
 	// No settling delay: the point is to ask while the welcome is still
 	// arriving, which is exactly when contamination used to happen.

@@ -146,9 +146,9 @@ func TestSplitCommandRows_NamelessBatches(t *testing.T) {
 	}
 }
 
-func TestExecCommand_RefusesItsOwnReturnCode(t *testing.T) {
+func TestExec_RefusesItsOwnReturnCode(t *testing.T) {
 	c := newTestClient(t)
-	_, err := c.ExecCommandWithResponse("clientlist return_code=9", time.Second)
+	_, err := c.Exec(ctxWithin(t, time.Second), "clientlist return_code=9")
 	if !errors.Is(err, teamspeak.ErrInvalidCommand) {
 		t.Errorf("err = %v, want ErrInvalidCommand", err)
 	}
@@ -156,9 +156,9 @@ func TestExecCommand_RefusesItsOwnReturnCode(t *testing.T) {
 
 // A message body is escaped into one parameter, so text that merely contains
 // "return_code=" is not a return_code. It used to suppress the real one.
-func TestExecCommand_IsNotFooledByReturnCodeText(t *testing.T) {
+func TestExec_IsNotFooledByReturnCodeText(t *testing.T) {
 	sent := captureCommand(t, func(c *Client) error {
-		_, err := c.ExecCommandWithResponse(`sendtextmessage targetmode=3 msg=see\sreturn_code=9`, time.Second)
+		_, err := c.Exec(ctxWithin(t, time.Second), `sendtextmessage targetmode=3 msg=see\sreturn_code=9`)
 
 		return err
 	})
@@ -167,13 +167,13 @@ func TestExecCommand_IsNotFooledByReturnCodeText(t *testing.T) {
 	}
 }
 
-func TestExecCommand_FailsFastWithoutAConnection(t *testing.T) {
+func TestExec_FailsFastWithoutAConnection(t *testing.T) {
 	id, err := identity.Parse(testClientIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := mustNew(t, id, "offline")
-	_, err = c.ExecCommandWithResponse("clientlist", time.Minute)
+	_, err = c.Exec(ctxWithin(t, time.Minute), "clientlist")
 	if !errors.Is(err, teamspeak.ErrNotConnected) {
 		t.Errorf("err = %v, want ErrNotConnected", err)
 	}
