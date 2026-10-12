@@ -332,6 +332,10 @@ func WithLogger(logger *slog.Logger) Option {
 // SetReadDeadline: closing a connection sets pc's read deadline to stop its
 // reader, and the next Connect clears it. pc itself is never closed.
 //
+// ReadFrom must report the server's address as each datagram's source:
+// datagrams from any other source are dropped, so another peer that can reach
+// pc cannot inject packets into the session.
+//
 // The servers ignore a new handshake from the address of a session that ended
 // a few seconds earlier, so a Connect on the same pc right after a Disconnect
 // stalls until that has passed.

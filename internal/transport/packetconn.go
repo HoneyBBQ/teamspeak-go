@@ -16,7 +16,9 @@ var errNoRemoteAddress = errors.New("packet conn adapter has no remote address")
 // The handler's contract is "each Write produces one discrete message", which
 // is what PacketConn already does — it just spells the operations ReadFrom and
 // WriteTo because a PacketConn is unconnected and may serve many peers. The
-// session talks to one peer only, so the addresses are ignored.
+// session talks to one peer only: Write sends to it, and Read drops any
+// datagram from another source, which would otherwise reach the handler as if
+// the server had sent it.
 type packetConnAdapter struct {
 	pc     net.PacketConn
 	remote net.Addr
@@ -52,12 +54,31 @@ func (a *packetConnAdapter) Read(p []byte) (int, error) {
 	if a.closed.Load() {
 		return 0, net.ErrClosed
 	}
-	n, _, err := a.pc.ReadFrom(p)
-	if a.closed.Load() {
-		return 0, net.ErrClosed
+	for {
+		n, from, err := a.pc.ReadFrom(p)
+		if a.closed.Load() {
+			return 0, net.ErrClosed
+		}
+		if err != nil || a.remote == nil || sameAddr(from, a.remote) {
+			return n, err
+		}
+	}
+}
+
+// sameAddr reports whether the source address from is want. UDP addresses
+// compare by IP and port, an IPv4 address equal to its IPv4-mapped IPv6 form;
+// any other address compares by network and string.
+func sameAddr(from, want net.Addr) bool {
+	if from == nil {
+		return false
+	}
+	f, fok := from.(*net.UDPAddr)
+	w, wok := want.(*net.UDPAddr)
+	if fok && wok {
+		return f.AddrPort().Addr().Unmap() == w.AddrPort().Addr().Unmap() && f.Port == w.Port
 	}
 
-	return n, err
+	return from.Network() == want.Network() && from.String() == want.String()
 }
 
 func (a *packetConnAdapter) Write(p []byte) (int, error) {

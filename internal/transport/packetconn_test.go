@@ -157,3 +157,37 @@ func TestPacketConnAdapterCloseUnblocksItsReader(t *testing.T) {
 		t.Errorf("second adapter read %q", got)
 	}
 }
+
+// pc is unconnected, so anyone who can reach it can send to it; only the
+// server's datagrams may reach the session.
+func TestPacketConnAdapterDropsDatagramsFromOtherSources(t *testing.T) {
+	server := listenPacket(t)
+	stranger := listenPacket(t)
+	client := listenPacket(t)
+
+	remote, err := net.ResolveUDPAddr("udp", server.LocalAddr().String())
+	if err != nil {
+		t.Fatalf("ResolveUDPAddr: %v", err)
+	}
+	conn := transport.NewPacketConnAdapter(client, remote)
+	defer func() { _ = conn.Close() }()
+
+	_, err = stranger.WriteTo([]byte("forged"), client.LocalAddr())
+	if err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond) // let the stranger's datagram arrive first
+	_, err = server.WriteTo([]byte("reply"), client.LocalAddr())
+	if err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+
+	buf := make([]byte, 64)
+	n, readErr := conn.Read(buf)
+	if readErr != nil {
+		t.Fatalf("Read: %v", readErr)
+	}
+	if got := string(buf[:n]); got != "reply" {
+		t.Errorf("adapter read %q, want only the server's %q", got, "reply")
+	}
+}
