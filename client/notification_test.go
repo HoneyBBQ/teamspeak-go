@@ -2,6 +2,8 @@ package client
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -430,4 +432,31 @@ func TestHandleNotification_UnknownNotification_NoError(t *testing.T) {
 	c := newTestClient(t)
 	cmd := wire.ParseCommand("notifyunknowncommand foo=bar")
 	c.handleNotification(c.handler, cmd)
+}
+
+// The server renames the client while a caller may be logging it; run with
+// -race, String and LogValue must not read the nickname unguarded.
+func TestClientDescriptionDoesNotRaceARename(t *testing.T) {
+	c := newTestClient(t)
+	c.mu.Lock()
+	c.clid = 7
+	c.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 50 {
+			cmd := fmt.Sprintf("notifycliententerview clid=7 client_nickname=TestBot%d"+
+				" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x", i)
+			c.handleClientEnterView(c.handler, wire.ParseCommand(cmd))
+		}
+	}()
+	for range 50 {
+		_ = c.String()
+		_ = c.LogValue().Resolve()
+	}
+	<-done
+	if got := c.String(); !strings.Contains(got, `"TestBot49"`) {
+		t.Errorf("String() = %s, want the latest nickname", got)
+	}
 }

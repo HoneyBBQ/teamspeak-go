@@ -199,9 +199,10 @@ func (c *Client) buildClientInitCommand(tc *crypto.Crypt) string {
 	hwid := base64.StdEncoding.EncodeToString(hwidSum[:])
 	defaultChannelPassword := c.clientInitOptions.defaultChannelPasswordHash
 	serverPassword := c.clientInitOptions.serverPasswordHash
+	nickname, _ := c.describe()
 
 	return wire.BuildCommandOrdered("clientinit", [][2]string{
-		{"client_nickname", c.nickname},
+		{"client_nickname", nickname},
 		{"client_version", "3.?.? [Build: 5680278000]"},
 		{"client_platform", "Windows"},
 		{"client_input_hardware", "1"},

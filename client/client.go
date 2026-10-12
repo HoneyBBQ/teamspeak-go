@@ -238,7 +238,9 @@ type Client struct {
 // identity's private key, so a client that reaches a log or an error message
 // leaks none of them.
 func (c *Client) String() string {
-	return fmt.Sprintf("teamspeak client %q at %s (%s)", c.nickname, c.addr, c.Status())
+	nickname, status := c.describe()
+
+	return fmt.Sprintf("teamspeak client %q at %s (%s)", nickname, c.addr, status)
 }
 
 // GoString is String, so %#v redacts too.
@@ -246,10 +248,12 @@ func (c *Client) GoString() string { return c.String() }
 
 // LogValue describes the client to log/slog as String does.
 func (c *Client) LogValue() slog.Value {
+	nickname, status := c.describe()
+
 	return slog.GroupValue(
-		slog.String("nickname", c.nickname),
+		slog.String("nickname", nickname),
 		slog.String("address", c.addr),
-		slog.String("status", c.Status().String()),
+		slog.String("status", status.String()),
 	)
 }
 
@@ -457,6 +461,15 @@ func (c *Client) Disconnect(ctx context.Context) error {
 	emit(c, &c.onDisconnected, nil)
 
 	return err
+}
+
+// describe snapshots what String and LogValue show. The nickname changes when
+// the server renames the client, so it is read under the lock.
+func (c *Client) describe() (string, Status) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.nickname, c.status
 }
 
 // connect runs one connection attempt. Only an explicit Connect (fromCaller)
