@@ -49,6 +49,71 @@ func withFastReconnect(c *Client, shouldRetry ShouldRetryFunc) {
 	c.mu.Unlock()
 }
 
+// A drop that arrives while a retry loop still holds the slot, after its
+// handshake completed but before it let go, must be retried when the loop
+// ends rather than lost.
+func TestReconnectRetriesADropThatArrivedWhileALoopRan(t *testing.T) {
+	c := newTestClient(t)
+	asked := make(chan error, 1)
+	withFastReconnect(c, func(err error, _ int) bool {
+		asked <- err
+
+		return false
+	})
+	c.mu.Lock()
+	c.reconnecting = true // a loop that has just reconnected
+	c.status = StatusDisconnected
+	c.mu.Unlock()
+
+	drop := errTestDrop
+	c.scheduleReconnect(drop)
+	select {
+	case err := <-asked:
+		t.Fatalf("a second loop ran alongside the first (asked about %v)", err)
+	default:
+	}
+
+	c.endReconnect()
+	select {
+	case err := <-asked:
+		if !errors.Is(err, drop) {
+			t.Errorf("the restarted loop retried %v, want %v", err, drop)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the drop that arrived while the loop ran was never retried")
+	}
+}
+
+// The note is not acted on once the client is stopped or connected again.
+func TestReconnectPendingDropIsDroppedWhenNoLongerNeeded(t *testing.T) {
+	for name, set := range map[string]func(c *Client){
+		"stopped":   func(c *Client) { c.stopped = true; c.status = StatusDisconnected },
+		"connected": func(c *Client) { c.status = StatusConnected },
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := newTestClient(t)
+			asked := make(chan struct{}, 1)
+			withFastReconnect(c, func(error, int) bool {
+				asked <- struct{}{}
+
+				return false
+			})
+			c.mu.Lock()
+			c.reconnecting = true
+			c.reconnectPending = true
+			set(c)
+			c.mu.Unlock()
+
+			c.endReconnect()
+			select {
+			case <-asked:
+				t.Fatal("a loop started for a drop that no longer needs retrying")
+			case <-time.After(100 * time.Millisecond):
+			}
+		})
+	}
+}
+
 // A Disconnect that lands just before a reconnect attempt takes the lock must
 // not be undone by it.
 func TestReconnectAttemptRefusesAStoppedClient(t *testing.T) {

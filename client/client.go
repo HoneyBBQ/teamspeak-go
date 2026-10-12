@@ -201,6 +201,11 @@ type Client struct {
 	// reconnecting guards against competing retry loops after two failures in
 	// quick succession.
 	reconnecting bool
+	// reconnectPending records a drop that arrived while a retry loop still
+	// held the slot, with its cause, so endReconnect can start another loop
+	// rather than lose it.
+	reconnectPending    bool
+	reconnectPendingErr error
 	// stopped is set by an explicit Disconnect, which must never be undone by a
 	// retry.
 	stopped        bool
@@ -733,7 +738,7 @@ func (c *Client) handleConnectionClosed(h *transport.PacketHandler, err error) {
 // loop shorter than the server's antiflood window bans the IP rather than
 // reconnecting it.
 func (c *Client) scheduleReconnect(connErr error) {
-	options, ok := c.beginReconnect()
+	options, ok := c.beginReconnect(connErr)
 	if !ok {
 		return
 	}
@@ -798,11 +803,20 @@ func (c *Client) runConnect() error {
 
 // beginReconnect claims the reconnect slot, reporting false when reconnection
 // is off, already running, or the client has been stopped deliberately.
-func (c *Client) beginReconnect() (ReconnectOptions, bool) {
+func (c *Client) beginReconnect(connErr error) (ReconnectOptions, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.reconnectOptions == nil || c.reconnecting || c.stopped {
+	if c.reconnectOptions == nil || c.stopped {
+		return ReconnectOptions{}, false
+	}
+	if c.reconnecting {
+		// The running loop may already be past its last look at the status,
+		// for instance between a handshake that succeeded and endReconnect.
+		// Leave a note so the drop is retried once it ends.
+		c.reconnectPending = true
+		c.reconnectPendingErr = connErr
+
 		return ReconnectOptions{}, false
 	}
 	c.reconnecting = true
@@ -810,11 +824,20 @@ func (c *Client) beginReconnect() (ReconnectOptions, bool) {
 	return *c.reconnectOptions, true
 }
 
-// endReconnect releases the slot so a later drop can be retried.
+// endReconnect releases the slot so a later drop can be retried, and retries
+// one that arrived while the loop held it, unless the client is stopped or no
+// longer disconnected.
 func (c *Client) endReconnect() {
 	c.mu.Lock()
 	c.reconnecting = false
+	pending, pendingErr := c.reconnectPending, c.reconnectPendingErr
+	c.reconnectPending, c.reconnectPendingErr = false, nil
+	restart := pending && !c.stopped && c.status == StatusDisconnected
 	c.mu.Unlock()
+
+	if restart {
+		go c.scheduleReconnect(pendingErr)
+	}
 }
 
 // isStopped reports whether an explicit Disconnect has happened.
