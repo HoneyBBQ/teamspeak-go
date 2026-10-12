@@ -127,6 +127,31 @@ func TestHandleClientEnterView_InvalidClidIgnored(t *testing.T) {
 	}
 }
 
+// Enter, leave and move events for clid 0, or none, are no client's and
+// reach no handler.
+func TestClientEventsForClidZeroAreDropped(t *testing.T) {
+	c := newTestClient(t)
+	heard := make(chan string, 3)
+	c.OnClientEnter(func(ClientEnterEvent) { heard <- "enter" })
+	c.OnClientLeave(func(ClientLeaveEvent) { heard <- "leave" })
+	c.OnClientMoved(func(ClientMovedEvent) { heard <- "moved" })
+
+	for _, line := range []string{
+		"notifycliententerview clid=0 client_nickname=X ctid=1",
+		"notifyclientleftview clid=0 reasonid=8",
+		"notifyclientmoved clid=0 ctid=2 reasonid=0",
+		"notifyclientleftview reasonid=8",
+		"notifyclientmoved ctid=2 reasonid=0",
+	} {
+		c.handleCommand(c.handler, line)
+	}
+	select {
+	case got := <-heard:
+		t.Fatalf("a %s event for clid 0 was delivered", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestHandleClientLeftView_RemovesFromClients(t *testing.T) {
 	c := newTestClient(t)
 	c.clients[5] = teamspeak.ClientInfo{ID: 5, Nickname: "Alice"}
