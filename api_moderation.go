@@ -2,6 +2,7 @@ package teamspeak
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -99,7 +100,8 @@ func banDurationArg(d time.Duration) param {
 	return durationArg("time", d, time.Second)
 }
 
-// AddBan adds a ban and returns its id.
+// AddBan adds a ban and returns its id: the server creates one ban, and
+// answers one banid, measured on TeamSpeak 3 and 6.
 func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (BanID, error) {
 	target := optStrArg("ip", opts.IP)
 	if opts.IP == "" && opts.Name == "" && opts.UID == "" {
@@ -129,18 +131,32 @@ type BanClientOptions struct {
 	Duration time.Duration
 }
 
-// BanClient bans a connected client and returns the ban id.
-func (c *Commands) BanClient(ctx context.Context, clid ClientID, opts BanClientOptions) (BanID, error) {
-	row, err := c.queryRow(ctx, "banclient", "banid", []param{
+// BanClient bans a connected client and returns the id of every ban it
+// created: the server bans the client's uid and IP address, and its
+// MyTeamSpeak id when it has one, answering one banid each — two or three in
+// all, measured on TeamSpeak 3 and 6. No ban id at all fails with an error
+// wrapping ErrNoData.
+func (c *Commands) BanClient(ctx context.Context, clid ClientID, opts BanClientOptions) ([]BanID, error) {
+	rows, err := c.query(ctx, "banclient", []param{
 		idArg("clid", clid),
 		banDurationArg(opts.Duration),
 		optStrArg("banreason", opts.Reason),
 	})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	return BanID(fieldUint(row, "banid")), nil
+	ids := make([]BanID, 0, len(rows))
+	for _, row := range rows {
+		if id := fieldUint(row, "banid"); id != 0 {
+			ids = append(ids, BanID(id))
+		}
+	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w: banclient", ErrNoData)
+	}
+
+	return ids, nil
 }
 
 // DeleteBan removes a ban.

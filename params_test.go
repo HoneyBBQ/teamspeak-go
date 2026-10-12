@@ -3,6 +3,7 @@ package teamspeak
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -518,3 +519,13 @@ func TestRequiredRowsFailWithErrNoData(t *testing.T) {
 
 // errOf is the error of a call that also returns a value.
 func errOf[T any](_ T, err error) error { return err }
+
+// The server answers banclient with one banid per ban it created, two or
+// three; BanClient returns them all.
+func TestBanClientReturnsEveryBan(t *testing.T) {
+	s := &script{replies: []reply{{rows: []map[string]string{{"banid": "12"}, {"banid": "13"}, {"banid": "14"}}}}}
+	ids, err := NewCommands(s).BanClient(t.Context(), 7, BanClientOptions{})
+	if err != nil || !slices.Equal(ids, []BanID{12, 13, 14}) {
+		t.Fatalf("BanClient = %v, %v; want [12 13 14]", ids, err)
+	}
+}

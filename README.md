@@ -233,8 +233,9 @@ err = c.SendChannelMessage(ctx, "hello")
 // A permission is named by id or by name; the zero Permission is refused.
 err = c.AddChannelPermission(ctx, cid, teamspeak.PermissionByName("i_channel_needed_join_power"), 50)
 
-// 0 bans permanently; anything else is sent in whole seconds.
-banID, err := c.BanClient(ctx, troll, teamspeak.BanClientOptions{Duration: 10 * time.Minute, Reason: "cool off"})
+// 0 bans permanently; anything else is sent in whole seconds. The server bans
+// the client's uid and IP (and MyTeamSpeak id), so there is one id per ban.
+banIDs, err := c.BanClient(ctx, troll, teamspeak.BanClientOptions{Duration: 10 * time.Minute, Reason: "cool off"})
 
 // The client database is paged; the iterator fetches page after page.
 for entry, err := range c.ClientDatabase(ctx) {
