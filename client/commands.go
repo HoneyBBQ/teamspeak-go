@@ -284,6 +284,11 @@ func (c *Client) handleInit1(h *transport.PacketHandler, data []byte) {
 
 		return
 	}
+	if response == nil {
+		c.logger.Debug("ignoring a second RSA challenge")
+
+		return
+	}
 	err = h.SendPacket(byte(transport.PacketTypeInit1), response, 0)
 	if err != nil {
 		c.logger.Warn("failed to send init1 response", slog.Any("error", err))

@@ -64,7 +64,13 @@ type Crypt struct {
 	Identity *identity.Identity
 	// AlphaTmp is the alpha the client sent in clientinitiv. Only the read
 	// loop touches it.
-	AlphaTmp     []byte
+	AlphaTmp []byte
+	// RSAChallenge is the Init1 RSA challenge the connection answered, and
+	// RSAAnswer the Init1 packet that answered it; nil until then. One
+	// connection answers one challenge. Only the read loop touches them.
+	RSAChallenge []byte
+	// RSAAnswer is the answer to RSAChallenge.
+	RSAAnswer    []byte
 	cachedKeys   map[uint64]KeyNonce
 	ivStruct     []byte
 	fakeSig      [fakeSignatureSize]byte

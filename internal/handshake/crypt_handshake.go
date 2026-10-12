@@ -4,6 +4,7 @@
 package handshake
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
@@ -35,6 +36,12 @@ func StartInit1() ([]byte, error) {
 }
 
 // ProcessInit1 returns the client's answer to the server's Init1 packet data.
+//
+// One RSA challenge is answered per connection, whose Crypt is its own: each
+// costs up to a second of squarings, and a second answer would choose a new
+// alpha behind the clientinitiv already sent. The same challenge again means
+// the answer was lost, and gets the same answer without solving anything; a
+// different one gets none, a nil answer with a nil error.
 //
 // Data the client cannot answer — empty (nil included), the wrong length for
 // its step, an unknown step, an RSA puzzle out of range — is an error wrapping
@@ -123,6 +130,13 @@ func buildInit1Step4Packet(tc *crypto.Crypt, data []byte) ([]byte, error) {
 	if want := initTypeLen + 64 + 64 + 4 + 100; len(data) != want {
 		return nil, wrongLength(3, len(data), want)
 	}
+	if tc.RSAChallenge != nil {
+		if !bytes.Equal(tc.RSAChallenge, data) {
+			return nil, nil
+		}
+
+		return bytes.Clone(tc.RSAAnswer), nil
+	}
 	// Read as unsigned and compared before narrowing, so a level near 2^32
 	// cannot wrap into range on a 32-bit int.
 	rawLevel := binary.BigEndian.Uint32(data[1+128 : 1+128+4])
@@ -155,6 +169,8 @@ func buildInit1Step4Packet(tc *crypto.Crypt, data []byte) ([]byte, error) {
 	copy(sendData[5:5+232], data[1:1+232])
 	copy(sendData[5+232:5+232+64], y)
 	copy(sendData[5+232+64:], cmdBytes)
+	tc.RSAChallenge = bytes.Clone(data)
+	tc.RSAAnswer = bytes.Clone(sendData)
 
 	return sendData, nil
 }

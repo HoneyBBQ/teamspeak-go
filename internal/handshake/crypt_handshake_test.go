@@ -327,3 +327,37 @@ func TestProcessInit1_NilDataIsMalformed(t *testing.T) {
 		t.Errorf("ProcessInit1(nil) = %x, %v, want ErrMalformedInit1", out, err)
 	}
 }
+
+// rsaChallenge is a step-3 Init1 packet: x = seed, n = 7, level 10.
+func rsaChallenge(seed byte) []byte {
+	data := make([]byte, initTypeLen+64+64+4+100)
+	data[0] = 3
+	data[64] = seed
+	data[128] = 7
+	binary.BigEndian.PutUint32(data[129:133], 10)
+
+	return data
+}
+
+// One RSA challenge per connection: the same one again replays the cached
+// answer without choosing a new alpha; a different one gets no answer.
+func TestProcessInit1_AnswersOneRSAChallenge(t *testing.T) {
+	tc := newTestCrypt(t)
+	first, err := handshake.ProcessInit1(tc, rsaChallenge(3))
+	if err != nil || first == nil {
+		t.Fatalf("first challenge: %v, %v", first, err)
+	}
+	alpha := bytes.Clone(tc.AlphaTmp)
+
+	again, err := handshake.ProcessInit1(tc, rsaChallenge(3))
+	if err != nil || !bytes.Equal(again, first) {
+		t.Fatalf("repeated challenge: err %v, same answer %v", err, bytes.Equal(again, first))
+	}
+	other, err := handshake.ProcessInit1(tc, rsaChallenge(5))
+	if err != nil || other != nil {
+		t.Fatalf("different challenge = %v, %v; want no answer", other, err)
+	}
+	if !bytes.Equal(tc.AlphaTmp, alpha) {
+		t.Error("a later challenge changed AlphaTmp")
+	}
+}
