@@ -334,6 +334,16 @@ func (c *Client) handleCommand(h *transport.PacketHandler, s string) {
 	// keys, file transfer keys, temporary passwords and message bodies.
 	c.logger.Debug("processing command", slog.String("name", cmd.Name), slog.Int("params", len(cmd.Params)))
 
+	// Until the shared secret exists, packets are sealed with the public dummy
+	// key, so anyone on the path can forge them. Only the key exchange and an
+	// error are handled then; notifications, data rows and the rest are
+	// dropped.
+	if !h.TsCrypt.InitComplete() && !handledBeforeCryptoInit(cmd.Name) {
+		c.logger.Debug("dropping a command that arrived before crypto init", slog.String("name", cmd.Name))
+
+		return
+	}
+
 	// An empty name means a response row: the server sends data without echoing
 	// the command, so the row belongs to whichever command awaits a result.
 	if cmd.Name == "" {
@@ -376,6 +386,18 @@ func (c *Client) handleCommand(h *transport.PacketHandler, s string) {
 	}
 }
 
+// handledBeforeCryptoInit reports whether a command named name is handled
+// before crypto init completes: the key exchange's two steps, and an error,
+// which may fail the attempt.
+func handledBeforeCryptoInit(name string) bool {
+	switch name {
+	case "clientinitiv", "initivexpand2", "error":
+		return true
+	default:
+		return false
+	}
+}
+
 // receiveNotification hands a notification to the command awaiting it, if
 // any, and then to its handlers.
 func (c *Client) receiveNotification(h *transport.PacketHandler, cmd *wire.Command) {
@@ -411,7 +433,10 @@ func (c *Client) handleError(h *transport.PacketHandler, cmd *wire.Command) {
 		c.logger.Debug("server refused a command",
 			slog.Uint64("code", uint64(serverErr.Code)), slog.String("message", serverErr.Message))
 
-		if serverErr.Code == errcode.ConnectFailedBanned {
+		// Only once crypto init is complete: before it, the error is sealed
+		// with the public dummy key, and a forged ban must not stop the
+		// client for good. It still fails this attempt, below.
+		if serverErr.Code == errcode.ConnectFailedBanned && h.TsCrypt.InitComplete() {
 			c.logger.Warn("banned by the server, closing the connection")
 			go c.disconnectBanned(h)
 		}

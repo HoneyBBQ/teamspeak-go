@@ -409,3 +409,51 @@ func TestHandshakeFailureEndsTheAttemptWithErrHandshake(t *testing.T) {
 		})
 	}
 }
+
+// Before crypto init everything arrives under the public dummy key, so only
+// the key exchange and errors are handled: a forged notification, data row or
+// unknown command is dropped.
+func TestHandleCommand_BeforeCryptoInit_DropsAllButTheKeyExchange(t *testing.T) {
+	c := newHandshakingClient(t)
+	markConnecting(c)
+	heard := make(chan TextMessageEvent, 1)
+	c.OnTextMessage(func(e TextMessageEvent) { heard <- e })
+
+	c.handleCommand(c.handler, "notifytextmessage targetmode=1 msg=forged invokerid=5")
+	c.handleCommand(c.handler, "notifycliententerview clid=9 client_nickname=Forged ctid=1")
+
+	select {
+	case e := <-heard:
+		t.Fatalf("a pre-init notification reached the handlers: %+v", e)
+	case <-time.After(50 * time.Millisecond):
+	}
+	c.mu.Lock()
+	_, known := c.clients[9]
+	c.mu.Unlock()
+	if known {
+		t.Error("a pre-init notifycliententerview was recorded")
+	}
+	if got := c.Status(); got != StatusConnecting {
+		t.Errorf("status = %v, want connecting", got)
+	}
+}
+
+// A ban before crypto init is as forgeable as anything else then: it may end
+// the attempt, but must not stop the client for good.
+func TestHandleError_BanBeforeCryptoInit_FailsTheAttemptOnly(t *testing.T) {
+	c := newHandshakingClient(t)
+	markConnecting(c)
+	attempt := c.attempt
+
+	c.handleCommand(c.handler, "error id=3329 msg=banned")
+
+	select {
+	case <-attempt.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the attempt did not end")
+	}
+	time.Sleep(50 * time.Millisecond) // the ban path runs on its own goroutine
+	if c.isStopped() {
+		t.Error("a pre-init ban stopped the client")
+	}
+}
