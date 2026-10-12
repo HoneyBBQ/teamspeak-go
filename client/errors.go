@@ -28,8 +28,9 @@ var errStopped = errors.New("client was disconnected")
 // ban, or the server stopping. The default reconnect policy retries a server
 // that stopped, but not a kick or a ban.
 type RemovedError struct {
-	// Message is the reason the server or the invoker gave, if any.
-	Message string
+	// ReasonMessage is the reason the server or the invoker gave
+	// (reasonmsg), if any.
+	ReasonMessage string
 	// InvokerName is who removed the client, for a kick or a ban.
 	InvokerName string
 	// Reason is why: teamspeak.ReasonKickServer, ReasonKickServerBan,
@@ -42,8 +43,8 @@ func (e *RemovedError) Error() string {
 	if e.InvokerName != "" {
 		msg += " by " + e.InvokerName
 	}
-	if e.Message != "" {
-		msg += ": " + e.Message
+	if e.ReasonMessage != "" {
+		msg += ": " + e.ReasonMessage
 	}
 
 	return msg

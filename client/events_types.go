@@ -106,10 +106,10 @@ type ClientLeaveEvent struct {
 
 // KickedEvent is this client being kicked from its channel or the server.
 type KickedEvent struct {
-	// Message is the reason the invoker gave.
-	Message     string
-	InvokerName string
-	InvokerUID  teamspeak.UID
+	// ReasonMessage is the reason the invoker gave (reasonmsg), if any.
+	ReasonMessage string
+	InvokerName   string
+	InvokerUID    teamspeak.UID
 	// Reason is teamspeak.ReasonKickChannel, ReasonKickServer or
 	// ReasonKickServerBan.
 	Reason    teamspeak.Reason

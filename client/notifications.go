@@ -122,14 +122,14 @@ func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Comm
 	}
 	if evt.Reason == teamspeak.ReasonKickServer || evt.Reason == teamspeak.ReasonKickServerBan {
 		emit(c, &c.onKicked, "KickedEvent", KickedEvent{
-			Message:     evt.ReasonMessage,
-			InvokerName: evt.InvokerName,
-			InvokerUID:  evt.InvokerUID,
-			Reason:      evt.Reason,
-			InvokerID:   evt.InvokerID,
+			ReasonMessage: evt.ReasonMessage,
+			InvokerName:   evt.InvokerName,
+			InvokerUID:    evt.InvokerUID,
+			Reason:        evt.Reason,
+			InvokerID:     evt.InvokerID,
 		})
 	}
-	c.removedByServer(h, &RemovedError{Message: evt.ReasonMessage, InvokerName: evt.InvokerName, Reason: evt.Reason})
+	c.removedByServer(h, &RemovedError{ReasonMessage: evt.ReasonMessage, InvokerName: evt.InvokerName, Reason: evt.Reason})
 }
 
 // removedByServer ends the session h ran, which the server has ended. The
@@ -176,11 +176,11 @@ func (c *Client) handleClientMoved(h *transport.PacketHandler, cmd *wire.Command
 	// a move, not as leaving view, which is where it used to be looked for.
 	if isSelf && evt.Reason == teamspeak.ReasonKickChannel {
 		emit(c, &c.onKicked, "KickedEvent", KickedEvent{
-			Message:     cmd.Params["reasonmsg"],
-			InvokerName: evt.InvokerName,
-			InvokerUID:  evt.InvokerUID,
-			Reason:      evt.Reason,
-			InvokerID:   evt.InvokerID,
+			ReasonMessage: cmd.Params["reasonmsg"],
+			InvokerName:   evt.InvokerName,
+			InvokerUID:    evt.InvokerUID,
+			Reason:        evt.Reason,
+			InvokerID:     evt.InvokerID,
 		})
 	}
 }

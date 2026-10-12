@@ -155,6 +155,8 @@ The changes from the earlier v1 previews are listed first, under
 | `ClientUpdateOptions.TalkRequest *int32` | `IsRequestingTalk *bool` |
 | `ChannelGroupClientListOptions{ClientDBID, ChannelGroupID}` | `{DatabaseID, GroupID}`, as on `ChannelGroupMembership` |
 | `KickOptions` | `ClientKickOptions` |
+| `KickedEvent.Message`, `RemovedError.Message` | `.ReasonMessage`, as on `ClientLeaveEvent` |
+| `TokenType`, `TokenServerGroup`, `TokenChannelGroup` | `PrivilegeKeyType`, `PrivilegeKeyServerGroup`, `PrivilegeKeyChannelGroup` |
 | `MoveChannel(ctx, cid, parent, order)` | `…, ChannelMoveOptions{Order: order})` |
 | `ListServerGroupClients(ctx, sgid, names, uids)` | `…, ServerGroupClientListOptions{Names, UIDs})` |
 | `ListChannelGroupClients(ctx, cid, dbid, cgid)` | `ListChannelGroupClients(ctx, ChannelGroupClientListOptions{…})` |
@@ -263,7 +265,7 @@ c.OnKicked(func(reason string) { … })
 // v1
 stop := c.OnTextMessage(func(m client.TextMessageEvent) { … })
 defer stop()
-c.OnKicked(func(e client.KickedEvent) { … }) // e.Message, e.Reason, e.InvokerName
+c.OnKicked(func(e client.KickedEvent) { … }) // e.ReasonMessage, e.Reason, e.InvokerName
 ```
 
 `OnClientEnter` receives a `client.ClientEnterEvent`, which embeds

@@ -53,23 +53,23 @@ func (m GroupNameMode) String() string {
 	return enumName(m, groupNameModeNames[:], "name mode")
 }
 
-// TokenType is which kind of group a privilege key grants (token_type).
-type TokenType int
+// PrivilegeKeyType is which kind of group a privilege key grants (token_type).
+type PrivilegeKeyType int
 
 const (
-	// TokenServerGroup grants a server group.
-	TokenServerGroup TokenType = 0
-	// TokenChannelGroup grants a channel group in one channel.
-	TokenChannelGroup TokenType = 1
+	// PrivilegeKeyServerGroup grants a server group.
+	PrivilegeKeyServerGroup PrivilegeKeyType = 0
+	// PrivilegeKeyChannelGroup grants a channel group in one channel.
+	PrivilegeKeyChannelGroup PrivilegeKeyType = 1
 )
 
-var tokenTypeNames = [...]string{
-	TokenServerGroup:  "server group",
-	TokenChannelGroup: "channel group",
+var privilegeKeyTypeNames = [...]string{
+	PrivilegeKeyServerGroup:  "server group",
+	PrivilegeKeyChannelGroup: "channel group",
 }
 
-func (t TokenType) String() string {
-	return enumName(t, tokenTypeNames[:], "token type")
+func (t PrivilegeKeyType) String() string {
+	return enumName(t, privilegeKeyTypeNames[:], "privilege key type")
 }
 
 // ClientType is what kind of connection a client is (client_type).

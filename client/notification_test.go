@@ -166,7 +166,7 @@ func TestHandleClientLeftView_KickSelf_TriggersKickedAndEndsTheSession(t *testin
 	c.handleClientLeftView(c.handler, wire.ParseCommand(
 		`notifyclientleftview clid=5 reasonid=5 reasonmsg=behave invokerid=1 invokername=Admin`))
 
-	if e := receive(t, kicked); e.Message != "behave" || e.InvokerName != "Admin" ||
+	if e := receive(t, kicked); e.ReasonMessage != "behave" || e.InvokerName != "Admin" ||
 		e.Reason != teamspeak.ReasonKickServer {
 		t.Errorf("kicked event = %+v", e)
 	}
@@ -213,7 +213,7 @@ func TestHandleClientMoved_ChannelKickOfSelf_TriggersKicked(t *testing.T) {
 	c.handleClientMoved(c.handler, wire.ParseCommand(
 		`notifyclientmoved clid=5 ctid=1 reasonid=4 reasonmsg=out invokerid=1 invokername=Admin`))
 
-	if e := receive(t, kicked); e.Reason != teamspeak.ReasonKickChannel || e.Message != "out" {
+	if e := receive(t, kicked); e.Reason != teamspeak.ReasonKickChannel || e.ReasonMessage != "out" {
 		t.Errorf("kicked event = %+v", e)
 	}
 	if c.Status() != StatusConnected {

@@ -392,13 +392,13 @@ type PrivilegeKey struct {
 	CreatedAt   time.Time
 	Token       string
 	Description string
-	// ServerGroupID is the group a TokenServerGroup key grants.
+	// ServerGroupID is the group a PrivilegeKeyServerGroup key grants.
 	ServerGroupID ServerGroupID
-	// ChannelGroupID and ChannelID are the group a TokenChannelGroup key
+	// ChannelGroupID and ChannelID are the group a PrivilegeKeyChannelGroup key
 	// grants and the channel it grants it in.
 	ChannelGroupID ChannelGroupID
 	ChannelID      ChannelID
-	Type           TokenType
+	Type           PrivilegeKeyType
 }
 
 // parseKey reads a key. The wire carries the group as token_id1 and the
@@ -407,11 +407,11 @@ type PrivilegeKey struct {
 func parseKey(row map[string]string) PrivilegeKey {
 	key := PrivilegeKey{
 		Token:       fieldStr(row, "token"),
-		Type:        TokenType(fieldInt(row, "token_type")),
+		Type:        PrivilegeKeyType(fieldInt(row, "token_type")),
 		Description: fieldStr(row, "token_description"),
 		CreatedAt:   fieldTime(row, "token_created"),
 	}
-	if key.Type == TokenChannelGroup {
+	if key.Type == PrivilegeKeyChannelGroup {
 		key.ChannelGroupID = ChannelGroupID(fieldUint(row, "token_id1"))
 		key.ChannelID = ChannelID(fieldUint(row, "token_id2"))
 	} else {
@@ -462,13 +462,13 @@ func (opts PrivilegeKeyOptions) keyParams() []param {
 	switch {
 	case serverGroup && !channelGroup:
 		return []param{
-			intArg("tokentype", int64(TokenServerGroup)),
+			intArg("tokentype", int64(PrivilegeKeyServerGroup)),
 			idArg("tokenid1", opts.ServerGroupID),
 			uintArg("tokenid2", 0),
 		}
 	case channelGroup && !serverGroup && opts.ChannelGroupID != 0 && opts.ChannelID != 0:
 		return []param{
-			intArg("tokentype", int64(TokenChannelGroup)),
+			intArg("tokentype", int64(PrivilegeKeyChannelGroup)),
 			idArg("tokenid1", opts.ChannelGroupID),
 			idArg("tokenid2", opts.ChannelID),
 		}

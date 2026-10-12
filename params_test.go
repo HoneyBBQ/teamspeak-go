@@ -288,7 +288,7 @@ func TestEnumStrings(t *testing.T) {
 		{TextMessageTarget(0), "text message target 0"},
 		{LogLevelWarning, "warning"},
 		{CodecOpusMusic, "Opus music"},
-		{TokenChannelGroup, "channel group"},
+		{PrivilegeKeyChannelGroup, "channel group"},
 		{PermissionTargetChannelClient, "channel client"},
 		{PermissionByName("i_client_talk_power"), "i_client_talk_power"},
 		{Permission{}, "no permission"},
