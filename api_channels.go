@@ -338,7 +338,7 @@ type ChannelMatch struct {
 
 // FindChannels returns channels whose name contains pattern.
 func (c *Commands) FindChannels(ctx context.Context, pattern string) ([]ChannelMatch, error) {
-	rows, err := c.query(ctx, "channelfind", []param{strArg("pattern", pattern)})
+	rows, err := c.list(ctx, "channelfind", []param{strArg("pattern", pattern)})
 	if err != nil {
 		return nil, err
 	}

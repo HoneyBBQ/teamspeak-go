@@ -46,7 +46,7 @@ func parseBan(row map[string]string) BanEntry {
 
 // ListBans returns every active ban.
 func (c *Commands) ListBans(ctx context.Context) ([]BanEntry, error) {
-	rows, err := c.query(ctx, "banlist", nil)
+	rows, err := c.list(ctx, "banlist", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +149,7 @@ type Complaint struct {
 // ListComplaints returns the complaints against one client, or against every
 // client for a targetDBID of 0.
 func (c *Commands) ListComplaints(ctx context.Context, targetDBID ClientDBID) ([]Complaint, error) {
-	rows, err := c.query(ctx, "complainlist", []param{optIDArg("tcldbid", targetDBID)})
+	rows, err := c.list(ctx, "complainlist", []param{optIDArg("tcldbid", targetDBID)})
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func parseMessage(row map[string]string) OfflineMessage {
 
 // ListMessages returns offline messages for this client.
 func (c *Commands) ListMessages(ctx context.Context) ([]OfflineMessage, error) {
-	rows, err := c.query(ctx, "messagelist", nil)
+	rows, err := c.list(ctx, "messagelist", nil)
 	if err != nil {
 		return nil, err
 	}

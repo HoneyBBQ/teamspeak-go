@@ -121,7 +121,7 @@ type ChannelGroupMembership struct {
 func (c *Commands) ListChannelGroupClients(
 	ctx context.Context, channelID ChannelID, clientDBID ClientDBID, channelGroupID ChannelGroupID,
 ) ([]ChannelGroupMembership, error) {
-	rows, err := c.query(ctx, "channelgroupclientlist", []param{
+	rows, err := c.list(ctx, "channelgroupclientlist", []param{
 		optIDArg("cid", channelID),
 		optIDArg("cldbid", clientDBID),
 		optIDArg("cgid", channelGroupID),
@@ -220,7 +220,7 @@ type PermissionLocation struct {
 
 // FindPermission returns every place a permission is set.
 func (c *Commands) FindPermission(ctx context.Context, perm Permission) ([]PermissionLocation, error) {
-	rows, err := c.query(ctx, "permfind", []param{permArg(perm)})
+	rows, err := c.list(ctx, "permfind", []param{permArg(perm)})
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +303,7 @@ func parseKey(row map[string]string) PrivilegeKey {
 }
 
 func (c *Commands) listKeys(ctx context.Context, command string) ([]PrivilegeKey, error) {
-	rows, err := c.query(ctx, command, nil)
+	rows, err := c.list(ctx, command, nil)
 	if err != nil {
 		return nil, err
 	}

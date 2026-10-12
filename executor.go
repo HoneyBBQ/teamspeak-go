@@ -2,11 +2,13 @@ package teamspeak
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync/atomic"
 
 	"github.com/honeybbq/teamspeak-go/commands"
+	"github.com/honeybbq/teamspeak-go/errcode"
 )
 
 // Request is a command as the typed commands describe it, before a transport
@@ -102,4 +104,19 @@ func (c *Commands) query(
 	}
 
 	return c.executor.Send(ctx, Request{command: command, params: params, passwords: passwords})
+}
+
+// list sends a command that lists something and returns its rows.
+//
+// The server reports an empty list as error 1281, "database empty result set",
+// rather than as no rows — banlist on a server with no bans, messagelist with
+// no messages — which made every list method fail where it should have
+// returned nothing.
+func (c *Commands) list(ctx context.Context, command string, params []param) ([]map[string]string, error) {
+	rows, err := c.query(ctx, command, params)
+	if errors.Is(err, errcode.DatabaseEmptyResult) {
+		return nil, nil
+	}
+
+	return rows, err
 }

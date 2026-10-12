@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -398,4 +399,40 @@ func TestClientDatabase_StopsWhenTheLoopDoes(t *testing.T) {
 	if len(entries) != 10 || len(s.sent) != 1 {
 		t.Errorf("got %d entries in %d requests, want 10 in 1", len(entries), len(s.sent))
 	}
+}
+
+// The server reports an empty list as error 1281 rather than as no rows, which
+// made every list method fail where it should have returned nothing.
+func TestLists_AnEmptyResultIsNoRowsNotAnError(t *testing.T) {
+	empty := &ServerError{Code: errcode.DatabaseEmptyResult, Message: "database empty result set"}
+	c := NewCommands(&script{replies: []reply{{err: empty}, {err: empty}}})
+
+	bans, err := c.ListBans(t.Context())
+	if err != nil || len(bans) != 0 {
+		t.Errorf("ListBans = %v, %v; want no bans and no error", bans, err)
+	}
+	ids, err := c.FindClientDatabase(t.Context(), "nobody")
+	if err != nil || len(ids) != 0 {
+		t.Errorf("FindClientDatabase = %v, %v; want no ids and no error", ids, err)
+	}
+
+	other := &ServerError{Code: errcode.PermissionsClientInsufficient}
+	_, err = NewCommands(&script{replies: []reply{{err: other}}}).ListBans(t.Context())
+	if !errors.Is(err, errcode.PermissionsClientInsufficient) {
+		t.Errorf("ListBans = %v, want the refusal passed through", err)
+	}
+}
+
+// AddTempPassword used to send an empty pw, believing the server generates
+// the password; it does not.
+func TestAddTempPassword_SendsThePasswordAndRefusesNone(t *testing.T) {
+	line := encoded(t, func(c *Commands) error {
+		return c.AddTempPassword(t.Context(), TempPasswordOptions{Password: "letmein", Duration: time.Hour})
+	})
+	if !strings.Contains(line, "pw=letmein") || !strings.Contains(line, "duration=3600") {
+		t.Errorf("sent %q", line)
+	}
+	refused(t, func(c *Commands) error {
+		return c.AddTempPassword(t.Context(), TempPasswordOptions{Duration: time.Hour})
+	})
 }

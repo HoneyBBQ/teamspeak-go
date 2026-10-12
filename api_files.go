@@ -175,7 +175,7 @@ type ActiveTransfer struct {
 // ListActiveTransfers returns file transfers in progress. Requires the
 // file-transfer-info permission.
 func (c *Commands) ListActiveTransfers(ctx context.Context) ([]ActiveTransfer, error) {
-	rows, err := c.query(ctx, "ftlist", nil)
+	rows, err := c.list(ctx, "ftlist", nil)
 	if err != nil {
 		return nil, err
 	}

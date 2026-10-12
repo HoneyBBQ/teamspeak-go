@@ -2,6 +2,7 @@ package teamspeak
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -316,7 +317,7 @@ func (c *Commands) ListServerGroupClients(
 		params = append(params, boolArg("-uid", true))
 	}
 
-	rows, err := c.query(ctx, "servergroupclientlist", params)
+	rows, err := c.list(ctx, "servergroupclientlist", params)
 	if err != nil {
 		return nil, err
 	}
@@ -419,7 +420,7 @@ type TempPassword struct {
 
 // ListTempPasswords returns the server's temporary passwords.
 func (c *Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error) {
-	rows, err := c.query(ctx, "servertemppasswordlist", nil)
+	rows, err := c.list(ctx, "servertemppasswordlist", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -440,6 +441,9 @@ func (c *Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error
 
 // TempPasswordOptions describe a temporary password to create.
 type TempPasswordOptions struct {
+	// Password is the password itself. The caller chooses it; the server does
+	// not generate one, and an empty one is refused.
+	Password    string
 	Description string
 	// TargetChannelPassword is the target channel's password, "" for none.
 	TargetChannelPassword string
@@ -451,28 +455,22 @@ type TempPasswordOptions struct {
 	TargetChannelID ChannelID
 }
 
-// AddTempPassword creates a temporary password and returns it as the server
-// generated it.
+// AddTempPassword creates a temporary server password.
 //
-// The password itself is not supplied: the server generates it, which is why no
-// password parameter is sent even though the schema names one.
-func (c *Commands) AddTempPassword(ctx context.Context, opts TempPasswordOptions) (string, error) {
-	rows, err := c.query(ctx, "servertemppasswordadd", []param{
-		strArg("pw", ""),
+// It used to send an empty pw on the belief, stated here, that the server
+// generates the password; it does not, so every call created an empty one.
+func (c *Commands) AddTempPassword(ctx context.Context, opts TempPasswordOptions) error {
+	if opts.Password == "" {
+		return fmt.Errorf("%w: a temporary password needs a password", ErrInvalidCommand)
+	}
+
+	return c.exec(ctx, "servertemppasswordadd", []param{
+		strArg("pw", opts.Password),
 		strArg("desc", opts.Description),
 		durationArg("duration", opts.Duration, time.Second),
 		idArg("tcid", opts.TargetChannelID),
 		strArg("tcpw", opts.TargetChannelPassword),
 	}, "tcpw")
-	if err != nil {
-		return "", err
-	}
-
-	if len(rows) == 0 {
-		return "", nil
-	}
-
-	return fieldStr(rows[0], "pw_clear"), nil
 }
 
 // DeleteTempPassword removes a temporary password.

@@ -205,7 +205,7 @@ type ClientMatch struct {
 
 // FindClients returns clients whose nickname contains pattern.
 func (c *Commands) FindClients(ctx context.Context, pattern string) ([]ClientMatch, error) {
-	rows, err := c.query(ctx, "clientfind", []param{strArg("pattern", pattern)})
+	rows, err := c.list(ctx, "clientfind", []param{strArg("pattern", pattern)})
 	if err != nil {
 		return nil, err
 	}
@@ -316,16 +316,18 @@ func (c *Commands) ClientDatabase(ctx context.Context) iter.Seq2[ClientDatabaseE
 	}
 }
 
-// FindClientDatabase returns database records matching pattern.
-func (c *Commands) FindClientDatabase(ctx context.Context, pattern string) ([]ClientDatabaseEntry, error) {
-	rows, err := c.query(ctx, "clientdbfind", []param{strArg("pattern", pattern)})
+// FindClientDatabase returns the database ids of the records whose nickname
+// matches pattern, which may use % as a wildcard. The server answers with ids
+// only, so it used to return records whose every other field was empty.
+func (c *Commands) FindClientDatabase(ctx context.Context, pattern string) ([]ClientDBID, error) {
+	rows, err := c.list(ctx, "clientdbfind", []param{strArg("pattern", pattern)})
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]ClientDatabaseEntry, 0, len(rows))
+	out := make([]ClientDBID, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, parseDatabaseEntry(row))
+		out = append(out, ClientDBID(fieldUint(row, "cldbid")))
 	}
 
 	return out, nil
@@ -342,7 +344,11 @@ func (c *Commands) GetClientDatabaseInfo(ctx context.Context, clientDBID ClientD
 		return ClientDatabaseEntry{}, ErrNoData
 	}
 
-	return parseDatabaseEntry(rows[0]), nil
+	// The answer does not repeat the id it was asked about.
+	entry := parseDatabaseEntry(rows[0])
+	entry.DatabaseID = clientDBID
+
+	return entry, nil
 }
 
 // ClientDatabaseEditOptions change a persistent client record. Only the fields
