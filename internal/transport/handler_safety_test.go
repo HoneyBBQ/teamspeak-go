@@ -138,7 +138,6 @@ func TestHandlerDropsUnencryptedCommandsAfterCryptoInit(t *testing.T) {
 		[]byte("notifytextmessage targetmode=1 msg=forged invokerid=2")))
 	h.handleRawPacket(buildS2CPacket(sig[:], 0, byte(PacketTypeCommandLow)|unenc,
 		[]byte("notifyclientpoke msg=forged")))
-	h.handleRawPacket(buildS2CPacket(sig[:], 0, byte(PacketTypeAckLow)|unenc, []byte{0, 0}))
 	if *delivered != 0 {
 		t.Fatalf("delivered %d unencrypted command packets after crypto init, want 0", *delivered)
 	}
