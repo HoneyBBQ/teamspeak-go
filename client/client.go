@@ -90,6 +90,7 @@ type ResolvedAddr struct {
 // AddrResolver resolves a TeamSpeak server address to host:port endpoints.
 // Implementations may replace the default chain (SRV, TSDNS, direct).
 type AddrResolver interface {
+	// Resolve returns the addresses to try for addr, in order.
 	Resolve(ctx context.Context, addr string) ([]ResolvedAddr, error)
 }
 

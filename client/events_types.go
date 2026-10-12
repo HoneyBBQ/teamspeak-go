@@ -57,36 +57,56 @@ type NotificationEvent struct {
 
 // TextMessageEvent is an incoming notifytextmessage payload.
 type TextMessageEvent struct {
+	// InvokerName is the sender's nickname (invokername).
 	InvokerName string
-	InvokerUID  teamspeak.UID
-	Message     string
+	// InvokerUID is the sender's identity (invokeruid), or as this client last
+	// saw it when the server leaves it out.
+	InvokerUID teamspeak.UID
+	// Message is the message's text (msg).
+	Message string
 	// InvokerGroups are the sender's server groups, as this client last saw
 	// them.
 	InvokerGroups []teamspeak.ServerGroupID
-	TargetMode    teamspeak.TextMessageTarget
+	// TargetMode is whether the message went to a client, a channel or the
+	// server (targetmode).
+	TargetMode teamspeak.TextMessageTarget
 	// TargetID is the client a private message was sent to. Channel and
 	// server messages carry no target, so it is 0 for them.
-	TargetID  teamspeak.ClientID
+	TargetID teamspeak.ClientID
+	// InvokerID is the sender's client id (invokerid).
 	InvokerID teamspeak.ClientID
 }
 
 // ClientMovedEvent is emitted when a client changes channel (notifyclientmoved).
 type ClientMovedEvent struct {
-	InvokerName     string
-	InvokerUID      teamspeak.UID
+	// InvokerName is who moved the client (invokername); empty when it moved
+	// itself.
+	InvokerName string
+	// InvokerUID is the identity of who moved the client (invokeruid); empty
+	// when it moved itself.
+	InvokerUID teamspeak.UID
+	// TargetChannelID is the channel the client moved to (ctid).
 	TargetChannelID teamspeak.ChannelID
-	Reason          teamspeak.Reason
+	// Reason is why it moved (reasonid): ReasonMoved for a move by someone,
+	// ReasonKickChannel for a channel kick, ReasonNone for its own.
+	Reason teamspeak.Reason
 	// ClientID is the client that moved.
-	ClientID  teamspeak.ClientID
+	ClientID teamspeak.ClientID
+	// InvokerID is the client id of who moved the client (invokerid); 0 when it
+	// moved itself.
 	InvokerID teamspeak.ClientID
 }
 
 // PokeEvent is emitted when this client is poked (notifyclientpoke).
 type PokeEvent struct {
+	// InvokerName is the poker's nickname (invokername).
 	InvokerName string
-	InvokerUID  teamspeak.UID
-	Message     string
-	InvokerID   teamspeak.ClientID
+	// InvokerUID is the poker's identity (invokeruid).
+	InvokerUID teamspeak.UID
+	// Message is the poke's text (msg).
+	Message string
+	// InvokerID is the poker's client id (invokerid).
+	InvokerID teamspeak.ClientID
 }
 
 // ClientLeaveEvent is emitted when a client leaves view (notifyclientleftview).
@@ -97,10 +117,15 @@ type ClientLeaveEvent struct {
 	// InvokerName, InvokerUID and InvokerID name who kicked or banned the
 	// client; they are empty otherwise.
 	InvokerName string
-	InvokerUID  teamspeak.UID
-	Reason      teamspeak.Reason
+	// InvokerUID is the identity of who kicked or banned the client
+	// (invokeruid).
+	InvokerUID teamspeak.UID
+	// Reason is why the client left (reasonid): a disconnect, a kick, a ban, a
+	// timeout, or leaving view.
+	Reason teamspeak.Reason
 	// ClientID is the client that left.
-	ClientID  teamspeak.ClientID
+	ClientID teamspeak.ClientID
+	// InvokerID is the client id of who kicked or banned the client (invokerid).
 	InvokerID teamspeak.ClientID
 }
 
@@ -108,17 +133,24 @@ type ClientLeaveEvent struct {
 type KickedEvent struct {
 	// ReasonMessage is the reason the invoker gave (reasonmsg), if any.
 	ReasonMessage string
-	InvokerName   string
-	InvokerUID    teamspeak.UID
+	// InvokerName is who kicked this client (invokername).
+	InvokerName string
+	// InvokerUID is the identity of who kicked this client (invokeruid).
+	InvokerUID teamspeak.UID
 	// Reason is teamspeak.ReasonKickChannel, ReasonKickServer or
 	// ReasonKickServerBan.
-	Reason    teamspeak.Reason
+	Reason teamspeak.Reason
+	// InvokerID is the client id of who kicked this client (invokerid).
 	InvokerID teamspeak.ClientID
 }
 
 // VoiceDataEvent is voice or whisper audio received from another client.
 type VoiceDataEvent struct {
-	Data     []byte
+	// Data is the encoded audio, one frame in Codec. Each handler gets its own
+	// copy.
+	Data []byte
+	// ClientID is the client speaking.
 	ClientID teamspeak.ClientID
-	Codec    teamspeak.Codec
+	// Codec is the codec Data is encoded in.
+	Codec teamspeak.Codec
 }

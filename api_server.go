@@ -16,16 +16,30 @@ import (
 
 // ServerGroup is a server group as servergrouplist reports it.
 type ServerGroup struct {
-	Name              string
-	ID                ServerGroupID
-	IconID            IconID
-	SortID            int32
-	Type              GroupType
-	NameMode          GroupNameMode
-	ModifyPower       int32
-	MemberAddPower    int32
+	// Name is the group's name (name).
+	Name string
+	// ID is the group's id (sgid).
+	ID ServerGroupID
+	// IconID is the group's icon, or 0 for none (iconid).
+	IconID IconID
+	// SortID orders the group among the others (sortid).
+	SortID int32
+	// Type is whether the group is a template, a regular group or a query group
+	// (type).
+	Type GroupType
+	// NameMode is where the client shows the group's name beside a member's
+	// (namemode).
+	NameMode GroupNameMode
+	// ModifyPower is the power needed to change the group (n_modifyp).
+	ModifyPower int32
+	// MemberAddPower is the power needed to add a member (n_member_addp).
+	MemberAddPower int32
+	// MemberRemovePower is the power needed to remove a member
+	// (n_member_removep).
 	MemberRemovePower int32
-	SavedInDatabase   bool
+	// SavedInDatabase reports a permanent group, one the server keeps across
+	// restarts (savedb).
+	SavedInDatabase bool
 }
 
 func parseServerGroup(row map[string]string) ServerGroup {
@@ -129,9 +143,13 @@ func stringParams(settings Properties) []param {
 
 // Binding is one active IP binding.
 type Binding struct {
+	// Subsystem is what the binding serves: "voice", "query" or "filetransfer"
+	// (subsystem).
 	Subsystem string
-	IP        string
-	Port      uint16
+	// IP is the address bound (ip).
+	IP string
+	// Port is the port bound (port).
+	Port uint16
 }
 
 // BindingListOptions are ListBindings' optional parameters.
@@ -167,9 +185,12 @@ func (c *Commands) ListBindings(ctx context.Context, opts BindingListOptions) ([
 
 // BuildVersion is the server's build information.
 type BuildVersion struct {
-	Version  string
+	// Version is the server's version (version).
+	Version string
+	// Platform is the operating system the server runs on (platform).
 	Platform string
-	Build    uint64
+	// Build is the server's build number (build).
+	Build uint64
 }
 
 // GetVersion returns the server's build version.
@@ -248,23 +269,31 @@ func (c *Commands) WhoAmI(ctx context.Context) (WhoAmI, error) {
 type ServerConnectionInfo struct {
 	// FileTransferBandwidthSent and FileTransferBandwidthReceived are the
 	// file transfer bandwidth (connection_filetransfer_bandwidth_*).
-	FileTransferBandwidthSent     uint64
+	FileTransferBandwidthSent uint64
+	// FileTransferBandwidthReceived is the inbound file transfer bandwidth.
 	FileTransferBandwidthReceived uint64
 	// FileTransferBytesSent and FileTransferBytesReceived are the file
 	// transfer totals (connection_filetransfer_bytes_*_total).
-	FileTransferBytesSent     uint64
+	FileTransferBytesSent uint64
+	// FileTransferBytesReceived is the inbound file transfer total.
 	FileTransferBytesReceived uint64
 	// PacketsSent, BytesSent, PacketsReceived and BytesReceived are the
 	// totals (connection_*_total).
-	PacketsSent     uint64
-	BytesSent       uint64
+	PacketsSent uint64
+	// BytesSent is the total of bytes sent.
+	BytesSent uint64
+	// PacketsReceived is the total of packets received.
 	PacketsReceived uint64
-	BytesReceived   uint64
+	// BytesReceived is the total of bytes received.
+	BytesReceived uint64
 	// The bandwidth over the last second and minute
 	// (connection_bandwidth_*_last_*_total).
-	BandwidthSentLastSecond     uint64
-	BandwidthSentLastMinute     uint64
+	BandwidthSentLastSecond uint64
+	// BandwidthSentLastMinute is the outbound bandwidth over the last minute.
+	BandwidthSentLastMinute uint64
+	// BandwidthReceivedLastSecond is the inbound bandwidth over the last second.
 	BandwidthReceivedLastSecond uint64
+	// BandwidthReceivedLastMinute is the inbound bandwidth over the last minute.
 	BandwidthReceivedLastMinute uint64
 	// ConnectedTime is how long the virtual server has been running
 	// (connection_connected_time, in seconds here).
@@ -396,8 +425,13 @@ func (c *Commands) RemoveClientFromServerGroup(
 
 // ServerGroupClient is one member of a server group.
 type ServerGroupClient struct {
-	Nickname   string
-	UID        UID
+	// Nickname is the member's nickname (client_nickname); "" unless the list
+	// asked for Names.
+	Nickname string
+	// UID is the member's identity (client_unique_identifier); "" unless the
+	// list asked for UIDs.
+	UID UID
+	// DatabaseID is the member's database id (cldbid).
 	DatabaseID ClientDBID
 }
 
@@ -442,8 +476,10 @@ func (c *Commands) ListServerGroupClients(
 
 // ServerGroupRef is a group a client belongs to.
 type ServerGroupRef struct {
+	// Name is the group's name (name).
 	Name string
-	ID   ServerGroupID
+	// ID is the group's id (sgid).
+	ID ServerGroupID
 }
 
 // GetServerGroupsByClient returns the server groups a client belongs to.
@@ -522,9 +558,12 @@ func (c *Commands) DeleteServerGroupPermission(
 // data, which they may need to store, so json.Marshal includes it.
 type TempPassword struct {
 	// Start and End are when the password is valid from and until.
-	Start       time.Time
-	End         time.Time
-	Password    string
+	Start time.Time
+	// End is when the password stops being valid.
+	End time.Time
+	// Password is the password itself (pw_clear).
+	Password string
+	// Description is the password's description (desc).
 	Description string
 	// TargetChannelID is the channel a client joining with the password lands
 	// in, or 0 for the default channel.
@@ -576,7 +615,8 @@ func (c *Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error
 type TempPasswordOptions struct {
 	// Password is the password itself. The caller chooses it; the server does
 	// not generate one, and an empty one is refused.
-	Password    string
+	Password string
+	// Description is shown in the password list (desc).
 	Description string
 	// TargetChannelPassword is the target channel's password, "" for none.
 	TargetChannelPassword string

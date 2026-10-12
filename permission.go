@@ -45,6 +45,8 @@ func (p Permission) IsZero() bool {
 	return p.name == "" && p.id == 0
 }
 
+// String returns the permission's name if it has one, its id otherwise, and
+// "no permission" for the zero Permission.
 func (p Permission) String() string {
 	switch {
 	case p.name != "":

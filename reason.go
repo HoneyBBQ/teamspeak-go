@@ -49,6 +49,8 @@ var reasonNames = [...]string{
 	ReasonServerShutdown: "server shut down",
 }
 
+// String returns the reason's name, or "reason N" for a value this version
+// does not know.
 func (r Reason) String() string {
 	if r >= 0 && int(r) < len(reasonNames) {
 		return reasonNames[r]

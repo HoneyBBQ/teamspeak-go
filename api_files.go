@@ -25,9 +25,12 @@ type FileOptions struct {
 
 // FileEntry is one entry of a directory listing.
 type FileEntry struct {
+	// ModifiedAt is when the entry was last changed (datetime).
 	ModifiedAt time.Time
-	Name       string
-	Size       uint64
+	// Name is the entry's name, without its directory (name).
+	Name string
+	// Size is the file's size in bytes (size); 0 for a directory.
+	Size uint64
 	// IsDirectory reports a directory. The listing sends type=0 for a
 	// directory and type=1 for a file; GetFileInfo's answer carries no type,
 	// so there it is always false.
@@ -170,22 +173,33 @@ func (c *Commands) StopFileTransfer(
 
 // ActiveTransfer is a file transfer in progress.
 type ActiveTransfer struct {
-	Path     string
-	Name     string
-	Sender   string
-	Size     uint64
+	// Path is the directory the file is in (path).
+	Path string
+	// Name is the file's name (name).
+	Name string
+	// Sender is the transfer's sender, as the server names it (sender).
+	Sender string
+	// Size is the file's size in bytes (size).
+	Size uint64
+	// SizeDone is how many bytes have been transferred (sizedone).
 	SizeDone uint64
 	// Runtime is how long the transfer has been running, reported in whole
 	// seconds.
-	Runtime              time.Duration
+	Runtime time.Duration
+	// ClientFileTransferID is the id the transferring client chose
+	// (clientftfid).
 	ClientFileTransferID ClientFileTransferID
+	// ServerFileTransferID is the id the server assigned (serverftfid).
 	ServerFileTransferID ServerFileTransferID
-	ClientID             ClientID
+	// ClientID is the client transferring the file (clid).
+	ClientID ClientID
 	// Status is the transfer's state as the server reports it (status). The
 	// server's values are not documented, so it is the number sent.
 	Status int
 	// CurrentSpeed and AverageSpeed are in bytes per second.
 	CurrentSpeed float32
+	// AverageSpeed is the average speed since the transfer began
+	// (average_speed).
 	AverageSpeed float32
 }
 

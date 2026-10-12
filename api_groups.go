@@ -11,16 +11,30 @@ import (
 
 // ChannelGroup is a channel group as channelgrouplist reports it.
 type ChannelGroup struct {
-	Name              string
-	ID                ChannelGroupID
-	IconID            IconID
-	SortID            int32
-	Type              GroupType
-	NameMode          GroupNameMode
-	ModifyPower       int32
-	MemberAddPower    int32
+	// Name is the group's name (name).
+	Name string
+	// ID is the group's id (cgid).
+	ID ChannelGroupID
+	// IconID is the group's icon, or 0 for none (iconid).
+	IconID IconID
+	// SortID orders the group among the others (sortid).
+	SortID int32
+	// Type is whether the group is a template, a regular group or a query group
+	// (type).
+	Type GroupType
+	// NameMode is where the client shows the group's name beside a member's
+	// (namemode).
+	NameMode GroupNameMode
+	// ModifyPower is the power needed to change the group (n_modifyp).
+	ModifyPower int32
+	// MemberAddPower is the power needed to add a member (n_member_addp).
+	MemberAddPower int32
+	// MemberRemovePower is the power needed to remove a member
+	// (n_member_removep).
 	MemberRemovePower int32
-	SavedInDatabase   bool
+	// SavedInDatabase reports a permanent group, one the server keeps across
+	// restarts (savedb).
+	SavedInDatabase bool
 }
 
 func parseChannelGroup(row map[string]string) ChannelGroup {
@@ -121,9 +135,12 @@ func (c *Commands) CopyChannelGroup(
 
 // ChannelGroupMembership is which channel group a client holds in a channel.
 type ChannelGroupMembership struct {
-	ChannelID  ChannelID
+	// ChannelID is the channel the group is held in (cid).
+	ChannelID ChannelID
+	// DatabaseID is the database id of the client holding it (cldbid).
 	DatabaseID ClientDBID
-	GroupID    ChannelGroupID
+	// GroupID is the channel group held (cgid).
+	GroupID ChannelGroupID
 }
 
 // ChannelGroupClientListOptions filter ListChannelGroupClients. A 0 field
@@ -270,12 +287,24 @@ func (c *Commands) GetPermissionIDByName(ctx context.Context, name string) (Perm
 // The others are 0. A row whose target is none of these is left out of the
 // results.
 type PermissionLocation struct {
-	ServerGroupID  ServerGroupID
-	ClientDBID     ClientDBID
-	ChannelID      ChannelID
+	// ServerGroupID is the server group the permission is set on, for
+	// PermissionTargetServerGroup.
+	ServerGroupID ServerGroupID
+	// ClientDBID is the client the permission is set on, for
+	// PermissionTargetClient and PermissionTargetChannelClient.
+	ClientDBID ClientDBID
+	// ChannelID is the channel the permission is set in, for
+	// PermissionTargetChannel, PermissionTargetChannelGroup and
+	// PermissionTargetChannelClient.
+	ChannelID ChannelID
+	// ChannelGroupID is the channel group the permission is set on, for
+	// PermissionTargetChannelGroup.
 	ChannelGroupID ChannelGroupID
-	Permission     PermissionID
-	Target         PermissionTarget
+	// Permission is the permission found (p).
+	Permission PermissionID
+	// Target is what kind of thing the permission is set on (t), which says
+	// which of the ids above are set.
+	Target PermissionTarget
 }
 
 // parseLocation reads a location from the wire's t, id1 and id2, whose
@@ -389,16 +418,22 @@ func (c *Commands) ResetPermissions(ctx context.Context) error {
 // and log/slog safely. encoding/json does not: the token is the caller's own
 // data, which they may need to store, so json.Marshal includes it.
 type PrivilegeKey struct {
-	CreatedAt   time.Time
-	Token       string
+	// CreatedAt is when the key was created (token_created).
+	CreatedAt time.Time
+	// Token is the key itself, which UsePrivilegeKey redeems (token).
+	Token string
+	// Description is the key's description (token_description).
 	Description string
 	// ServerGroupID is the group a PrivilegeKeyServerGroup key grants.
 	ServerGroupID ServerGroupID
 	// ChannelGroupID and ChannelID are the group a PrivilegeKeyChannelGroup key
 	// grants and the channel it grants it in.
 	ChannelGroupID ChannelGroupID
-	ChannelID      ChannelID
-	Type           PrivilegeKeyType
+	// ChannelID is the channel a PrivilegeKeyChannelGroup key grants its group
+	// in.
+	ChannelID ChannelID
+	// Type is which kind of group the key grants (token_type).
+	Type PrivilegeKeyType
 }
 
 // parseKey reads a key. The wire carries the group as token_id1 and the
@@ -446,10 +481,14 @@ func (c *Commands) ListPrivilegeKeys(ctx context.Context) ([]PrivilegeKey, error
 // ErrInvalidCommand.
 type PrivilegeKeyOptions struct {
 	// Description is shown in the key list; "" sends none.
-	Description    string
-	ServerGroupID  ServerGroupID
+	Description string
+	// ServerGroupID is the server group the key grants, for a server group key.
+	ServerGroupID ServerGroupID
+	// ChannelGroupID is the channel group the key grants, for a channel group
+	// key.
 	ChannelGroupID ChannelGroupID
-	ChannelID      ChannelID
+	// ChannelID is the channel a channel group key grants its group in.
+	ChannelID ChannelID
 }
 
 // keyParams encodes the group a key grants. The wire form is a type and two

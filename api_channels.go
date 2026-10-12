@@ -18,11 +18,15 @@ import (
 type Channel struct {
 	// UID is the channel's unique identifier (channel_unique_identifier),
 	// which the server assigns once; empty when the server does not send it.
-	UID         ChannelUID
-	Name        string
-	Topic       string
+	UID ChannelUID
+	// Name is the channel's name (channel_name).
+	Name string
+	// Topic is the topic shown under the name (channel_topic).
+	Topic string
+	// Description is the channel description (channel_description).
 	Description string
-	ID          ChannelID
+	// ID is the channel's id (cid).
+	ID ChannelID
 	// ParentID is the channel this one sits under, or 0 at the top level.
 	//
 	// channellist names this cpid and channelinfo names it pid — the same value
@@ -30,15 +34,25 @@ type Channel struct {
 	ParentID ChannelID
 	// Order is the channel this one is sorted after, among its siblings, or 0
 	// for the first: channel_order is a channel id, not a position.
-	Order           ChannelID
-	IconID          IconID
-	Codec           Codec
-	CodecQuality    int32
-	MaxClients      int32
+	Order ChannelID
+	// IconID is the channel's icon, or 0 for none (channel_icon_id).
+	IconID IconID
+	// Codec is the channel's voice codec (channel_codec).
+	Codec Codec
+	// CodecQuality is the codec's quality, 0 to 10 (channel_codec_quality).
+	CodecQuality int32
+	// MaxClients is how many clients may be in the channel (channel_maxclients).
+	MaxClients int32
+	// NeededTalkPower is the talk power a client needs to speak here
+	// (channel_needed_talk_power).
 	NeededTalkPower int32
-	IsDefault       bool
-	IsPermanent     bool
-	HasPassword     bool
+	// IsDefault reports the channel new clients land in (channel_flag_default).
+	IsDefault bool
+	// IsPermanent reports a channel that survives a server restart
+	// (channel_flag_permanent).
+	IsPermanent bool
+	// HasPassword reports a password-protected channel (channel_flag_password).
+	HasPassword bool
 }
 
 func parseChannel(row map[string]string) Channel {
@@ -300,9 +314,14 @@ type PermissionEntry struct {
 	// sent it — by id, since the lists are requested without -permsid. It can
 	// be passed straight back to the matching Delete command.
 	Permission Permission
-	Value      int32
-	Negated    bool
-	Skip       bool
+	// Value is the permission's value (permvalue).
+	Value int32
+	// Negated makes the lowest value among the client's groups win instead of
+	// the highest (permnegated).
+	Negated bool
+	// Skip makes the value override channel and channel group permissions
+	// (permskip).
+	Skip bool
 }
 
 func parsePermission(row map[string]string) PermissionEntry {
@@ -398,8 +417,10 @@ func (c *Commands) DeleteChannelClientPermission(
 
 // ChannelMatch is one row of a channelfind result.
 type ChannelMatch struct {
+	// Name is the channel's name (channel_name).
 	Name string
-	ID   ChannelID
+	// ID is the channel's id (cid).
+	ID ChannelID
 }
 
 // FindChannels returns channels whose name contains pattern.

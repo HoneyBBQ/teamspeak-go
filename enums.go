@@ -26,6 +26,8 @@ var groupTypeNames = [...]string{
 	GroupQuery:    "query",
 }
 
+// String returns the group type's name, or "group type N" for a value this version does
+// not know.
 func (t GroupType) String() string {
 	return enumName(t, groupTypeNames[:], "group type")
 }
@@ -49,6 +51,8 @@ var groupNameModeNames = [...]string{
 	GroupNameAfter:  "after nickname",
 }
 
+// String returns the group name mode's name, or "name mode N" for a value this version does
+// not know.
 func (m GroupNameMode) String() string {
 	return enumName(m, groupNameModeNames[:], "name mode")
 }
@@ -68,6 +72,8 @@ var privilegeKeyTypeNames = [...]string{
 	PrivilegeKeyChannelGroup: "channel group",
 }
 
+// String returns the privilege key type's name, or "privilege key type N" for a value this version does
+// not know.
 func (t PrivilegeKeyType) String() string {
 	return enumName(t, privilegeKeyTypeNames[:], "privilege key type")
 }
@@ -88,6 +94,8 @@ var clientTypeNames = [...]string{
 	ClientTypeQuery: "query",
 }
 
+// String returns the client type's name, or "client type N" for a value this version does
+// not know.
 func (t ClientType) String() string {
 	return enumName(t, clientTypeNames[:], "client type")
 }
@@ -121,6 +129,8 @@ var codecNames = [...]string{
 	CodecOpusMusic:          "Opus music",
 }
 
+// String returns the codec's name, or "codec N" for a value this version does
+// not know.
 func (c Codec) String() string {
 	return enumName(c, codecNames[:], "codec")
 }
@@ -150,6 +160,8 @@ var permissionTargetNames = [...]string{
 	PermissionTargetChannelClient: "channel client",
 }
 
+// String returns the permission target's name, or "permission target N" for a value this version does
+// not know.
 func (t PermissionTarget) String() string {
 	return enumName(t, permissionTargetNames[:], "permission target")
 }

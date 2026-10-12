@@ -13,18 +13,30 @@ import (
 // BanEntry is a ban as banlist reports it.
 type BanEntry struct {
 	// Created is when the ban was made.
-	Created      time.Time
-	IP           string
-	Name         string
-	UID          UID
+	Created time.Time
+	// IP is the regular expression the ban matches addresses with (ip); "" if it
+	// matches none.
+	IP string
+	// Name is the regular expression the ban matches nicknames with (name); ""
+	// if it matches none.
+	Name string
+	// UID is the client identity the ban matches (uid); "" if it matches none.
+	UID UID
+	// LastNickname is the banned client's nickname when the ban was made
+	// (lastnickname).
 	LastNickname string
-	InvokerName  string
-	InvokerUID   UID
-	Reason       string
-	ID           BanID
+	// InvokerName is who made the ban (invokername).
+	InvokerName string
+	// InvokerUID is the identity of who made the ban (invokeruid).
+	InvokerUID UID
+	// Reason is the reason given for the ban (reason).
+	Reason string
+	// ID identifies the ban, for DeleteBan (banid).
+	ID BanID
 	// Duration is how long the ban lasts from Created, in whole seconds; 0
 	// is a permanent ban.
-	Duration          time.Duration
+	Duration time.Duration
+	// InvokerDatabaseID is the database id of who made the ban (invokercldbid).
 	InvokerDatabaseID ClientDBID
 }
 
@@ -63,9 +75,12 @@ func (c *Commands) ListBans(ctx context.Context) ([]BanEntry, error) {
 // against a client's address and nickname. At least one of IP, Name or UID
 // must be set; a ban matching nothing is refused with ErrInvalidCommand.
 type BanOptions struct {
-	IP   string
+	// IP is a regular expression matched against a client's address (ip).
+	IP string
+	// Name is a regular expression matched against a client's nickname (name).
 	Name string
-	UID  UID
+	// UID is a client identity to ban (uid).
+	UID UID
 	// Reason is shown to the banned client; "" sends none.
 	Reason string
 	// Duration is how long the ban lasts, sent in whole seconds. 0 is a
@@ -143,12 +158,18 @@ func (c *Commands) DeleteAllBans(ctx context.Context) error {
 // Complaint is one client's complaint against another.
 type Complaint struct {
 	// Timestamp is when the complaint was filed.
-	Timestamp        time.Time
-	TargetName       string
-	FromName         string
-	Message          string
+	Timestamp time.Time
+	// TargetName is the nickname of the client complained about (tname).
+	TargetName string
+	// FromName is the nickname of the client who complained (fname).
+	FromName string
+	// Message is the complaint's text (message).
+	Message string
+	// TargetDatabaseID is the database id of the client complained about
+	// (tcldbid).
 	TargetDatabaseID ClientDBID
-	FromDatabaseID   ClientDBID
+	// FromDatabaseID is the database id of the client who complained (fcldbid).
+	FromDatabaseID ClientDBID
 }
 
 // ComplaintListOptions are ListComplaints' optional parameters.
@@ -208,11 +229,15 @@ type OfflineMessage struct {
 	// Timestamp is when the message was sent.
 	Timestamp time.Time
 	// UID is the sender's.
-	UID     UID
+	UID UID
+	// Subject is the message's subject (subject).
 	Subject string
+	// Message is the message's body (message).
 	Message string
-	ID      MessageID
-	IsRead  bool
+	// ID identifies the message (msgid).
+	ID MessageID
+	// IsRead reports whether the message has been read (flag_read).
+	IsRead bool
 }
 
 func parseMessage(row map[string]string) OfflineMessage {
@@ -288,6 +313,8 @@ var textMessageTargetNames = [...]string{
 	TextMessageTargetServer:  "server",
 }
 
+// String returns the text message target's name, or "text message target N" for a value this version does
+// not know.
 func (t TextMessageTarget) String() string {
 	return enumName(t, textMessageTargetNames[:], "text message target")
 }
@@ -353,12 +380,15 @@ var logLevelNames = [...]string{
 	LogLevelInfo:    "info",
 }
 
+// String returns the log level's name, or "log level N" for a value this version does
+// not know.
 func (l LogLevel) String() string {
 	return enumName(l, logLevelNames[:], "log level")
 }
 
 // LogPage is one read of the server log.
 type LogPage struct {
+	// Lines are the log lines read, oldest first unless the read was reversed.
 	Lines []string
 	// LastPosition is the byte offset the read stopped at. Pass it as the next
 	// read's BeginPosition to continue from there.

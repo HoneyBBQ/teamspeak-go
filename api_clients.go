@@ -42,14 +42,23 @@ func parseClient(row map[string]string) ClientInfo {
 type ClientListOptions struct {
 	// OmitUID drops -uid from the request.
 	OmitUID bool
-	Away    bool
-	Voice   bool
-	Groups  bool
-	Times   bool
-	Info    bool
+	// Away adds whether each client is away and its message (-away).
+	Away bool
+	// Voice adds each client's mute, talk and recording state (-voice).
+	Voice bool
+	// Groups adds each client's server and channel groups (-groups).
+	Groups bool
+	// Times adds when each client was created, last connected and last active
+	// (-times).
+	Times bool
+	// Info adds each client's version and platform (-info).
+	Info bool
+	// Country adds each client's country (-country).
 	Country bool
-	IP      bool
-	Badges  bool
+	// IP adds each client's address (-ip).
+	IP bool
+	// Badges adds each client's badges (-badges).
+	Badges bool
 }
 
 // ListClients returns every client currently connected, with the optional
@@ -200,8 +209,11 @@ func (c *Commands) UpdateClient(ctx context.Context, opts ClientUpdateOptions) e
 // fields you set are sent: a pointer to "" clears the description, while nil
 // leaves it alone.
 type ClientEditOptions struct {
+	// Description is the client's description (client_description).
 	Description *string
-	IsTalker    *bool
+	// IsTalker grants or revokes talk power in a moderated channel
+	// (client_is_talker).
+	IsTalker *bool
 }
 
 // EditClient changes another client's editable attributes.
@@ -223,8 +235,10 @@ func (c *Commands) PokeClient(ctx context.Context, clid ClientID, message string
 
 // ClientMatch is one row of a clientfind result.
 type ClientMatch struct {
+	// Nickname is the client's nickname (client_nickname).
 	Nickname string
-	ID       ClientID
+	// ID is the client's id (clid).
+	ID ClientID
 }
 
 // FindClients returns clients whose nickname contains pattern.
@@ -263,12 +277,19 @@ type ClientDatabaseEntry struct {
 	// Created is when the client first connected.
 	Created time.Time
 	// LastConnected is when the client last connected.
-	LastConnected    time.Time
-	UID              UID
-	Nickname         string
-	Description      string
-	LastIP           string
-	DatabaseID       ClientDBID
+	LastConnected time.Time
+	// UID is the client's identity (client_unique_identifier).
+	UID UID
+	// Nickname is the client's nickname when last seen (client_nickname).
+	Nickname string
+	// Description is the client's description (client_description).
+	Description string
+	// LastIP is the address the client last connected from (client_lastip).
+	LastIP string
+	// DatabaseID is the client's database id (cldbid).
+	DatabaseID ClientDBID
+	// TotalConnections is how often the client has connected
+	// (client_totalconnections).
 	TotalConnections uint64
 }
 
@@ -379,8 +400,10 @@ func (c *Commands) GetClientDatabaseInfo(ctx context.Context, clientDBID ClientD
 // you set are sent: a pointer to "" clears the description, while nil leaves
 // it alone.
 type ClientDatabaseEditOptions struct {
+	// Description is the client's description (client_description).
 	Description *string
-	Nickname    *string
+	// Nickname is the nickname the record holds (client_nickname).
+	Nickname *string
 }
 
 // EditClientDatabase changes a persistent client record.

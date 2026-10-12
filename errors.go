@@ -49,6 +49,8 @@ type ServerError struct {
 	FailedPermID PermissionID
 }
 
+// Error reports the server's message, or the code's description when the
+// server sent none, with the extra message and the code.
 func (e *ServerError) Error() string {
 	msg := e.Message
 	if msg == "" {

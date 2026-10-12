@@ -24,6 +24,8 @@ const fileTransferDialTimeout = 10 * time.Second
 // It is the shape of net.Dialer and of golang.org/x/net/proxy's ContextDialer,
 // so either can be passed as it is. network is always "tcp".
 type FileTransferDialer interface {
+	// DialContext connects to address over network, as net.Dialer.DialContext
+	// does.
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
 }
 

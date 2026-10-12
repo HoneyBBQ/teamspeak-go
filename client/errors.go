@@ -38,6 +38,7 @@ type RemovedError struct {
 	Reason teamspeak.Reason
 }
 
+// Error says why and by whom the client was removed, with the reason given.
 func (e *RemovedError) Error() string {
 	msg := "removed from the server: " + e.Reason.String()
 	if e.InvokerName != "" {

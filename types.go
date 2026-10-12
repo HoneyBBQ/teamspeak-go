@@ -22,25 +22,39 @@ type ClientInfo struct {
 	// Created, LastConnected and IdleTime are reported only by ListClients
 	// with ClientListOptions.Times; otherwise they are zero.
 	//
-	// Created is when the client first connected to this server, and
-	// LastConnected when it last did before this session.
-	Created       time.Time
+	// Created is when the client first connected to this server.
+	Created time.Time
+	// LastConnected is when the client last connected before this session.
 	LastConnected time.Time
 	// IdleTime is how long since the client last did anything, reported in
 	// milliseconds (client_idle_time).
 	IdleTime time.Duration
+	// Nickname is the client's nickname (client_nickname).
 	Nickname string
-	UID      UID
+	// UID is the client's identity (client_unique_identifier); "" when
+	// ListClients ran with OmitUID.
+	UID UID
 	// ServerGroups are the group ids this client holds. Ids rather than names:
 	// the server sends ids, and resolving them costs a separate call.
-	ServerGroups   []ServerGroupID
-	ChannelID      ChannelID
+	ServerGroups []ServerGroupID
+	// ChannelID is the channel the client is in (cid, or ctid when it entered
+	// view).
+	ChannelID ChannelID
+	// ChannelGroupID is the client's channel group in that channel
+	// (client_channel_group_id).
 	ChannelGroupID ChannelGroupID
-	Type           ClientType
-	ID             ClientID
-	IsAway         bool
-	IsRecording    bool
-	IsTalker       bool
+	// Type is whether the client is a voice client or a ServerQuery connection
+	// (client_type).
+	Type ClientType
+	// ID is the client's id for this session (clid); it changes on every
+	// connection.
+	ID ClientID
+	// IsAway reports a client marked away (client_away).
+	IsAway bool
+	// IsRecording reports a client that is recording (client_is_recording).
+	IsRecording bool
+	// IsTalker reports a client granted talk power (client_is_talker).
+	IsTalker bool
 }
 
 // FileUploadInfo represents the information received when an upload is initialized.
@@ -49,11 +63,19 @@ type ClientInfo struct {
 // and log/slog safely. encoding/json does not: the file transfer key is the caller's own
 // data, which they may need to store, so json.Marshal includes it.
 type FileUploadInfo struct {
-	FileTransferKey      string
-	SeekPosition         uint64
+	// FileTransferKey is the key that authorizes the transfer on the file
+	// transfer port (ftkey).
+	FileTransferKey string
+	// SeekPosition is where the upload resumes, in bytes; 0 for a new file
+	// (seekpos).
+	SeekPosition uint64
+	// ClientFileTransferID is the id the client chose for the transfer
+	// (clientftfid).
 	ClientFileTransferID ClientFileTransferID
+	// ServerFileTransferID is the id the server assigned (serverftfid).
 	ServerFileTransferID ServerFileTransferID
-	Port                 uint16
+	// Port is the file transfer port to connect to (port).
+	Port uint16
 }
 
 // FileDownloadInfo represents the information received when a download is initialized.
@@ -62,11 +84,18 @@ type FileUploadInfo struct {
 // and log/slog safely. encoding/json does not: the file transfer key is the caller's own
 // data, which they may need to store, so json.Marshal includes it.
 type FileDownloadInfo struct {
-	FileTransferKey      string
-	Size                 uint64
+	// FileTransferKey is the key that authorizes the transfer on the file
+	// transfer port (ftkey).
+	FileTransferKey string
+	// Size is how many bytes the download will send (size).
+	Size uint64
+	// ClientFileTransferID is the id the client chose for the transfer
+	// (clientftfid).
 	ClientFileTransferID ClientFileTransferID
+	// ServerFileTransferID is the id the server assigned (serverftfid).
 	ServerFileTransferID ServerFileTransferID
-	Port                 uint16
+	// Port is the file transfer port to connect to (port).
+	Port uint16
 }
 
 // String describes the negotiation without its key, which is what lets anyone
