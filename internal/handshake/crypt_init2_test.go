@@ -8,6 +8,7 @@ import (
 	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
+	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 )
 
 type cryptoInit2Fixtures struct {
@@ -50,7 +51,7 @@ func buildCryptoInit2Fixtures(t *testing.T) cryptoInit2Fixtures {
 	license := base64.StdEncoding.EncodeToString(licenseBytes)
 
 	// Proof: server signs the license data.
-	sig, err := crypto.Sign(serverID.PrivateKey, licenseBytes)
+	sig, err := crypto.Sign(identitykey.PrivateKey(serverID), licenseBytes)
 	if err != nil {
 		t.Fatalf("Sign proof: %v", err)
 	}

@@ -271,7 +271,7 @@ func TestHandleClientMoved_TriggersCallback(t *testing.T) {
 
 	select {
 	case e := <-moved:
-		if e.ID != 3 || e.TargetChannelID != 20 {
+		if e.ClientID != 3 || e.TargetChannelID != 20 {
 			t.Errorf("unexpected event: %+v", e)
 		}
 	case <-time.After(time.Second):
@@ -285,8 +285,8 @@ func TestHandleTextMessage_CallsCallback(t *testing.T) {
 	c.clients[2] = teamspeak.ClientInfo{ID: 2, UID: "invokeruid"}
 	c.mu.Unlock()
 
-	msgs := make(chan TextMessage, 1)
-	c.OnTextMessage(func(m TextMessage) { msgs <- m })
+	msgs := make(chan TextMessageEvent, 1)
+	c.OnTextMessage(func(m TextMessageEvent) { msgs <- m })
 
 	cmd := commands.ParseCommand(
 		"notifytextmessage targetmode=1 target=7 invokerid=2 " +
@@ -316,8 +316,8 @@ func TestHandleTextMessage_FallbackToClientCacheUID(t *testing.T) {
 	c.clients[99] = teamspeak.ClientInfo{ID: 99, UID: "cacheduid"}
 	c.mu.Unlock()
 
-	msgs := make(chan TextMessage, 1)
-	c.OnTextMessage(func(m TextMessage) { msgs <- m })
+	msgs := make(chan TextMessageEvent, 1)
+	c.OnTextMessage(func(m TextMessageEvent) { msgs <- m })
 
 	cmd := commands.ParseCommand("notifytextmessage targetmode=2 invokerid=99 invokername=Unknown msg=hi")
 	c.handleTextMessage(cmd)
@@ -338,8 +338,8 @@ func TestHandleTextMessage_FallbackToClientCacheUID(t *testing.T) {
 func TestHandleTextMessage_MissingInvoker_NoUID(t *testing.T) {
 	c := newTestClient(t)
 
-	msgs := make(chan TextMessage, 1)
-	c.OnTextMessage(func(m TextMessage) { msgs <- m })
+	msgs := make(chan TextMessageEvent, 1)
+	c.OnTextMessage(func(m TextMessageEvent) { msgs <- m })
 
 	cmd := commands.ParseCommand("notifytextmessage targetmode=2 invokerid=99 invokername=Unknown msg=hi")
 	c.handleTextMessage(cmd)

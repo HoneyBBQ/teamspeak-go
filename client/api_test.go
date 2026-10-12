@@ -18,13 +18,12 @@ var errCaptured = errors.New("captured")
 func captureCommand(t *testing.T, fn func(*Client) error) string {
 	t.Helper()
 	var sent string
-	c := newTestClient(t, WithCommandMiddleware(func(_ func(string) error) func(string) error {
-		return func(cmd string) error {
-			sent = cmd
+	c := newTestClient(t)
+	c.wireHook = func(line string) error {
+		sent = line
 
-			return errCaptured
-		}
-	}))
+		return errCaptured
+	}
 	err := fn(c)
 	if !errors.Is(err, errCaptured) {
 		t.Fatalf("expected the captured sentinel, got %v", err)

@@ -22,10 +22,37 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+
+	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 )
+
+// init hands the private key to this module's own crypto, which needs it to
+// sign and agree keys, without exporting it.
+func init() { //nolint:gochecknoinits // the only way to share it with internal/ without exporting it
+	identitykey.Register(func(v any) *ecdsa.PrivateKey {
+		id, ok := v.(*Identity)
+		if !ok || id == nil {
+			return nil
+		}
+
+		return id.privateKey
+	})
+}
 
 // ErrInvalidFormat reports an identity string Parse cannot read.
 var ErrInvalidFormat = errors.New("invalid identity format")
+
+// ErrInvalidLevel reports a security level outside 0 to MaxSecurityLevel.
+var ErrInvalidLevel = errors.New("invalid security level")
+
+// ErrNotSerializable is returned by MarshalJSON and MarshalText: an identity
+// holds a private key, so it is stored only through Export, deliberately.
+var ErrNotSerializable = errors.New("an identity is not marshalled; store Export's result instead")
+
+// MaxSecurityLevel is the highest security level there is: the level counts
+// zero bits of a SHA-1 digest, which has 160.
+const MaxSecurityLevel = 160
 
 const (
 	decimalBase             = 10
@@ -37,33 +64,49 @@ const (
 	bitsPerByte             = 8
 )
 
-// Identity is a TeamSpeak client identity.
+// Identity is a TeamSpeak client identity. It is immutable: UpgradeToLevel
+// returns a new one.
 //
-// Its String and LogValue methods never reveal the private key, so an identity
-// that reaches a log or an error message does not leak; Export is the one way
-// to get the secret form, for storing it.
+// Its private key is not exposed. String, GoString, LogValue and formatting
+// with %v never reveal it, and MarshalJSON and MarshalText refuse with
+// ErrNotSerializable, so an identity that reaches a log, an error message or
+// an encoder does not leak; Export is the one way to get the secret form, for
+// storing it. The zero Identity has no key: it formats safely, and New and
+// Connect refuse it.
 type Identity struct {
-	PrivateKey *ecdsa.PrivateKey
-	Offset     uint64
+	privateKey *ecdsa.PrivateKey
+	publicKey  string
+	offset     uint64
 }
 
-// Generate creates an identity at the given security level.
+// Generate creates an identity at the given security level, 0 to
+// MaxSecurityLevel.
 //
 // Each level doubles the expected work, so a high level can take a long time;
 // ctx bounds it.
 func Generate(ctx context.Context, level int) (*Identity, error) {
+	err := checkLevel(level)
+	if err != nil {
+		return nil, err
+	}
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
 	}
-	id := &Identity{PrivateKey: priv}
 
-	err = id.UpgradeToLevel(ctx, level)
-	if err != nil {
-		return nil, err
+	return newIdentity(priv, 0).UpgradeToLevel(ctx, level)
+}
+
+func newIdentity(priv *ecdsa.PrivateKey, offset uint64) *Identity {
+	return &Identity{privateKey: priv, publicKey: encodePublicKey(priv), offset: offset}
+}
+
+func checkLevel(level int) error {
+	if level < 0 || level > MaxSecurityLevel {
+		return fmt.Errorf("%w: %d is not between 0 and %d", ErrInvalidLevel, level, MaxSecurityLevel)
 	}
 
-	return id, nil
+	return nil
 }
 
 // Parse reads an identity from the form Export writes.
@@ -95,35 +138,80 @@ func Parse(s string) (*Identity, error) {
 		}
 	}
 
-	return &Identity{PrivateKey: priv, Offset: offset}, nil
+	return newIdentity(priv, offset), nil
 }
 
 // Export returns the identity in the form Parse reads, private key included.
-// Store it as you would a password.
+// Store it as you would a password. An identity without a key exports as "".
 func (id *Identity) Export() string {
-	d, err := id.PrivateKey.Bytes()
+	if !id.hasKey() {
+		return ""
+	}
+	d, err := id.privateKey.Bytes()
 	if err != nil {
-		return ":" + strconv.FormatUint(id.Offset, decimalBase)
+		return ""
 	}
 
-	return base64.StdEncoding.EncodeToString(d) + ":" + strconv.FormatUint(id.Offset, decimalBase)
+	return base64.StdEncoding.EncodeToString(d) + ":" + strconv.FormatUint(id.offset, decimalBase)
 }
 
-// String describes the identity without its private key. It used to return the
-// key itself, so formatting an identity with %v leaked it.
-func (id *Identity) String() string {
-	return "identity " + id.UID(UIDSHA1) + " (private key redacted)"
+// Offset returns the counter that, hashed with the public key, sets the
+// security level.
+func (id *Identity) Offset() uint64 {
+	if id == nil {
+		return 0
+	}
+
+	return id.offset
 }
+
+// String describes the identity by its TeamSpeak 3 UID, without its private
+// key.
+func (id *Identity) String() string {
+	if !id.hasKey() {
+		return "identity (none)"
+	}
+
+	return "identity " + string(id.UID(UIDSHA1)) + " (private key redacted)"
+}
+
+// GoString is String, so %#v redacts too.
+func (id *Identity) GoString() string { return id.String() }
 
 // LogValue keeps the private key out of structured logs.
 func (id *Identity) LogValue() slog.Value {
-	return slog.GroupValue(slog.String("uid_sha1", id.UID(UIDSHA1)), slog.Int("level", id.SecurityLevel()))
+	if !id.hasKey() {
+		return slog.StringValue("identity (none)")
+	}
+
+	return slog.GroupValue(slog.String("uid_sha1", string(id.UID(UIDSHA1))), slog.Int("level", id.SecurityLevel()))
+}
+
+// MarshalJSON refuses with ErrNotSerializable; store Export's result instead.
+func (id *Identity) MarshalJSON() ([]byte, error) {
+	return nil, ErrNotSerializable
+}
+
+// MarshalText refuses with ErrNotSerializable; store Export's result instead.
+func (id *Identity) MarshalText() ([]byte, error) {
+	return nil, ErrNotSerializable
 }
 
 // PublicKey returns the public key in TeamSpeak's encoding: base64 DER of the
-// curve point.
+// curve point. An identity without a key returns "".
 func (id *Identity) PublicKey() string {
-	pubBytes, err := id.PrivateKey.PublicKey.Bytes()
+	if id == nil {
+		return ""
+	}
+
+	return id.publicKey
+}
+
+func encodePublicKey(priv *ecdsa.PrivateKey) string {
+	if priv == nil {
+		return ""
+	}
+	pubBytes, err := priv.PublicKey.Bytes()
 	if err != nil {
 		return ""
 	}
@@ -153,41 +241,64 @@ func (id *Identity) PublicKey() string {
 	return base64.StdEncoding.EncodeToString(bytes)
 }
 
-// UID returns the identity's unique identifier under the given algorithm.
-func (id *Identity) UID(algorithm UIDAlgorithm) string {
+// UID returns the identity's unique identifier under the given algorithm. An
+// identity without a key returns "".
+func (id *Identity) UID(algorithm UIDAlgorithm) teamspeak.UID {
+	if !id.hasKey() {
+		return ""
+	}
+
 	return UID(id.PublicKey(), algorithm)
 }
 
 // SecurityLevel is the number of trailing zero bits in SHA-1 of the public key
-// followed by the offset.
+// followed by the offset; 0 for an identity without a key.
 func (id *Identity) SecurityLevel() int {
+	if !id.hasKey() {
+		return 0
+	}
 	h := sha1.New() //nolint:gosec // the protocol's own security-level hash
 	h.Write([]byte(id.PublicKey()))
 	var numBuf [sha1NumBufSize]byte
-	h.Write(strconv.AppendUint(numBuf[:0], id.Offset, decimalBase))
+	h.Write(strconv.AppendUint(numBuf[:0], id.offset, decimalBase))
 
 	return countTrailingZeros(h.Sum(nil))
 }
 
-// UpgradeToLevel advances the offset until the security level reaches level.
-func (id *Identity) UpgradeToLevel(ctx context.Context, level int) error {
+// UpgradeToLevel returns an identity with the same key and the lowest offset,
+// from this one's on, that reaches level; id itself is unchanged. A level
+// outside 0 to MaxSecurityLevel is refused with ErrInvalidLevel, and ctx
+// bounds the search.
+func (id *Identity) UpgradeToLevel(ctx context.Context, level int) (*Identity, error) {
+	err := checkLevel(level)
+	if err != nil {
+		return nil, err
+	}
+	if !id.hasKey() {
+		return nil, fmt.Errorf("%w: no private key", ErrInvalidFormat)
+	}
 	prefix := []byte(id.PublicKey())
 	h := sha1.New() //nolint:gosec // the protocol's own security-level hash
 	var numBuf [sha1NumBufSize]byte
+	offset := id.offset
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, ctx.Err()
 		default:
 		}
 		h.Reset()
 		h.Write(prefix)
-		h.Write(strconv.AppendUint(numBuf[:0], id.Offset, decimalBase))
+		h.Write(strconv.AppendUint(numBuf[:0], offset, decimalBase))
 		if countTrailingZeros(h.Sum(nil)) >= level {
-			return nil
+			return &Identity{privateKey: id.privateKey, publicKey: id.publicKey, offset: offset}, nil
 		}
-		id.Offset++
+		offset++
 	}
+}
+
+func (id *Identity) hasKey() bool {
+	return id != nil && id.privateKey != nil
 }
 
 // countTrailingZeros counts zero bits from the least significant bit of the
@@ -212,6 +323,8 @@ func countTrailingZeros(data []byte) int {
 }
 
 // UIDAlgorithm names the hash a server uses for client_unique_identifier.
+// Later versions may add algorithms; a switch over them should have a default
+// case.
 //
 // TeamSpeak 3 hashes the public key with SHA-1 (20 bytes); TeamSpeak 6 switched
 // to SHA-256 (32 bytes). The algorithm is not negotiated on the wire, so a
@@ -238,15 +351,15 @@ func UIDAlgorithmForVersion(version string) UIDAlgorithm {
 }
 
 // UID returns the unique identifier of a public key, in TeamSpeak's encoding,
-// under the given algorithm.
-func UID(publicKey string, algorithm UIDAlgorithm) string {
+// under the given algorithm. Any algorithm other than UIDSHA256 is SHA-1.
+func UID(publicKey string, algorithm UIDAlgorithm) teamspeak.UID {
 	if algorithm == UIDSHA256 {
 		sum := sha256.Sum256([]byte(publicKey))
 
-		return base64.StdEncoding.EncodeToString(sum[:])
+		return teamspeak.UID(base64.StdEncoding.EncodeToString(sum[:]))
 	}
 
 	sum := sha1.Sum([]byte(publicKey)) //nolint:gosec // TeamSpeak 3's uid hash
 
-	return base64.StdEncoding.EncodeToString(sum[:])
+	return teamspeak.UID(base64.StdEncoding.EncodeToString(sum[:]))
 }

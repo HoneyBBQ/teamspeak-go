@@ -11,6 +11,7 @@ import (
 
 	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
+	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
@@ -108,7 +109,7 @@ func (c *Client) buildClientEkProof(h *transport.PacketHandler, publicKey []byte
 		betaBytes = betaBytes[:54]
 	}
 	copy(toSign[32:], betaBytes)
-	sign, err := crypto.Sign(h.TsCrypt.Identity.PrivateKey, toSign)
+	sign, err := crypto.Sign(identitykey.PrivateKey(h.TsCrypt.Identity), toSign)
 	if err != nil {
 		c.logger.Error("failed to sign clientek proof", slog.Any("error", err))
 
@@ -200,7 +201,7 @@ func (c *Client) buildClientInitCommand(tc *crypto.Crypt) string {
 		{"client_server_password", serverPassword},
 		{"client_meta_data", ""},
 		{"client_version_sign", "DX5NIYLvfJEUjuIbCidnoeozxIDRRkpq3I9vVMBmE9L2qnekOoBzSenkzsg2lC9CMv8K5hkEzhr2TYUYSwUXCg=="},
-		{"client_key_offset", strconv.FormatUint(tc.Identity.Offset, 10)},
+		{"client_key_offset", strconv.FormatUint(tc.Identity.Offset(), 10)},
 		{"client_nickname_phonetic", ""},
 		{"client_default_token", ""},
 		{"hwid", hwid},

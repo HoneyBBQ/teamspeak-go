@@ -42,3 +42,7 @@ type ServerID uint64
 // The hash depends on the server — SHA-1 on TS3, SHA-256 on TS6 — so the same
 // identity has a different UID on each.
 type UID string
+
+// ChannelUID is a channel's unique identifier (channel_unique_identifier), a
+// string the server assigns. TeamSpeak 6 sends it; TeamSpeak 3 does not.
+type ChannelUID string

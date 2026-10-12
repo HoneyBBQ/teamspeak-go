@@ -67,17 +67,17 @@ func (c *Client) ServerCapabilities() ServerCapabilities {
 	return c.capabilities
 }
 
-// UniqueIdentifier returns our own client_unique_identifier, hashed with the
+// UID returns our own client_unique_identifier, hashed with the
 // algorithm the connected server uses.
 //
 // TS3 uses SHA-1 and TS6 SHA-256, so this reads the algorithm learned during
 // initserver rather than assuming one: comparing a hard-coded SHA-1 UID to a
 // TS6 server silently never matches.
-func (c *Client) UniqueIdentifier() teamspeak.UID {
+func (c *Client) UID() teamspeak.UID {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return teamspeak.UID(identity.UID(c.identity.PublicKey(), c.uidAlgorithm))
+	return identity.UID(c.identity.PublicKey(), c.uidAlgorithm)
 }
 
 // ClientID returns the id the server assigned this session, or 0 before it

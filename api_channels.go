@@ -16,11 +16,13 @@ import (
 
 // Channel is a channel as channellist or channelinfo reports it.
 type Channel struct {
-	UniqueIdentifier string
-	Name             string
-	Topic            string
-	Description      string
-	ID               ChannelID
+	// UID is the channel's unique identifier (channel_unique_identifier),
+	// which the server assigns once; empty when the server does not send it.
+	UID         ChannelUID
+	Name        string
+	Topic       string
+	Description string
+	ID          ChannelID
 	// ParentID is the channel this one sits under, or 0 at the top level.
 	//
 	// channellist names this cpid and channelinfo names it pid — the same value
@@ -46,21 +48,21 @@ func parseChannel(row map[string]string) Channel {
 	}
 
 	return Channel{
-		ID:               ChannelID(fieldUint(row, "cid")),
-		ParentID:         ChannelID(parent),
-		Name:             fieldStr(row, "channel_name"),
-		Topic:            fieldStr(row, "channel_topic"),
-		Description:      fieldStr(row, "channel_description"),
-		Order:            ChannelID(fieldUint(row, "channel_order")),
-		HasPassword:      fieldBool(row, "channel_flag_password"),
-		IsDefault:        fieldBool(row, "channel_flag_default"),
-		IsPermanent:      fieldBool(row, "channel_flag_permanent"),
-		Codec:            Codec(min(fieldUint(row, "channel_codec"), math.MaxUint8)),
-		CodecQuality:     fieldInt32(row, "channel_codec_quality"),
-		MaxClients:       fieldInt32(row, "channel_maxclients"),
-		NeededTalkPower:  fieldInt32(row, "channel_needed_talk_power"),
-		IconID:           fieldIconID(row, "channel_icon_id"),
-		UniqueIdentifier: fieldStr(row, "channel_unique_identifier"),
+		ID:              ChannelID(fieldUint(row, "cid")),
+		ParentID:        ChannelID(parent),
+		Name:            fieldStr(row, "channel_name"),
+		Topic:           fieldStr(row, "channel_topic"),
+		Description:     fieldStr(row, "channel_description"),
+		Order:           ChannelID(fieldUint(row, "channel_order")),
+		HasPassword:     fieldBool(row, "channel_flag_password"),
+		IsDefault:       fieldBool(row, "channel_flag_default"),
+		IsPermanent:     fieldBool(row, "channel_flag_permanent"),
+		Codec:           Codec(min(fieldUint(row, "channel_codec"), math.MaxUint8)),
+		CodecQuality:    fieldInt32(row, "channel_codec_quality"),
+		MaxClients:      fieldInt32(row, "channel_maxclients"),
+		NeededTalkPower: fieldInt32(row, "channel_needed_talk_power"),
+		IconID:          fieldIconID(row, "channel_icon_id"),
+		UID:             ChannelUID(fieldStr(row, "channel_unique_identifier")),
 	}
 }
 

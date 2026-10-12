@@ -86,6 +86,15 @@ type Executor interface {
 	Send(ctx context.Context, req Request) ([]map[string]string, error)
 }
 
+// ExecutorFunc adapts a function to Executor, the way http.HandlerFunc adapts
+// one to http.Handler; command middleware is written with it.
+type ExecutorFunc func(ctx context.Context, req Request) ([]map[string]string, error)
+
+// Send calls f.
+func (f ExecutorFunc) Send(ctx context.Context, req Request) ([]map[string]string, error) {
+	return f(ctx, req)
+}
+
 // Commands are the typed commands, shared by every connection able to execute
 // a command. Clients embed them, which is how a client gains its methods.
 type Commands struct {
@@ -94,8 +103,13 @@ type Commands struct {
 	fileTransferID atomic.Uint32
 }
 
-// NewCommands returns the typed commands running on executor.
+// NewCommands returns the typed commands running on executor. A nil executor
+// is a programming error, and panics.
 func NewCommands(executor Executor) *Commands {
+	if executor == nil {
+		panic("teamspeak: NewCommands needs an Executor")
+	}
+
 	return &Commands{executor: executor}
 }
 

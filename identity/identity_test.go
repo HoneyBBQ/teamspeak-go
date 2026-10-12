@@ -3,6 +3,8 @@ package identity
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -43,8 +45,8 @@ func TestIdentityExportRoundtrip(t *testing.T) {
 	if id.Export() != id2.Export() {
 		t.Errorf("exported identity mismatch: %q vs %q", id.Export(), id2.Export())
 	}
-	if id.Offset != id2.Offset {
-		t.Errorf("Offset mismatch: %d vs %d", id.Offset, id2.Offset)
+	if id.Offset() != id2.Offset() {
+		t.Errorf("Offset mismatch: %d vs %d", id.Offset(), id2.Offset())
 	}
 }
 
@@ -79,12 +81,19 @@ func TestIdentityUpgradeToLevel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = id.UpgradeToLevel(context.Background(), 1)
+	before := id.Export()
+	upgraded, err := id.UpgradeToLevel(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("UpgradeToLevel(1) failed: %v", err)
 	}
-	if id.SecurityLevel() < 1 {
-		t.Errorf("SecurityLevel after upgrade = %d, want >= 1", id.SecurityLevel())
+	if upgraded.SecurityLevel() < 1 {
+		t.Errorf("SecurityLevel after upgrade = %d, want >= 1", upgraded.SecurityLevel())
+	}
+	if id.Export() != before {
+		t.Error("UpgradeToLevel changed the identity it was called on")
+	}
+	if upgraded.PublicKey() != id.PublicKey() {
+		t.Error("the upgraded identity has a different key")
 	}
 }
 
@@ -95,7 +104,7 @@ func TestIdentityUpgradeCtxCancelled(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
-	err = id.UpgradeToLevel(ctx, 100)
+	_, err = id.UpgradeToLevel(ctx, 100)
 	if err == nil {
 		t.Error("expected context cancellation error")
 	}
@@ -158,5 +167,60 @@ func TestUID_UsesTheRequestedAlgorithm(t *testing.T) {
 	// The no-argument form stays TS3-compatible for existing callers.
 	if got := UID(pub, UIDSHA1); got != sha1UID {
 		t.Errorf("default UID = %q, want the SHA-1 one %q", got, sha1UID)
+	}
+}
+
+func TestIdentityRefusesLevelsPastSHA1(t *testing.T) {
+	id, err := Generate(t.Context(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, level := range []int{-1, MaxSecurityLevel + 1} {
+		_, err = id.UpgradeToLevel(t.Context(), level)
+		if !errors.Is(err, ErrInvalidLevel) {
+			t.Errorf("UpgradeToLevel(%d) = %v, want ErrInvalidLevel", level, err)
+		}
+		_, err = Generate(t.Context(), level)
+		if !errors.Is(err, ErrInvalidLevel) {
+			t.Errorf("Generate(%d) = %v, want ErrInvalidLevel", level, err)
+		}
+	}
+}
+
+func TestIdentityRefusesToMarshal(t *testing.T) {
+	id, err := Generate(t.Context(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := json.Marshal(struct {
+		ID *Identity `json:"id"`
+	}{id})
+	if !errors.Is(err, ErrNotSerializable) {
+		t.Errorf("json.Marshal = %s, %v; want ErrNotSerializable", out, err)
+	}
+	secret, _, _ := strings.Cut(id.Export(), ":")
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
+		for _, v := range []any{id, *id} {
+			if got := fmt.Sprintf(verb, v); strings.Contains(got, secret) {
+				t.Errorf("%T with %s leaks the key: %s", v, verb, got)
+			}
+		}
+	}
+}
+
+func TestZeroIdentityDoesNotPanic(t *testing.T) {
+	var zero Identity
+	var nilID *Identity
+	for _, id := range []*Identity{&zero, nilID} {
+		_ = id.String()
+		_ = fmt.Sprintf("%v", id)
+		slog.New(slog.DiscardHandler).Info("x", slog.Any("id", id))
+		if id.PublicKey() != "" || id.UID(UIDSHA1) != "" || id.Export() != "" || id.SecurityLevel() != 0 {
+			t.Errorf("an identity without a key reports key material")
+		}
+		_, err := id.UpgradeToLevel(t.Context(), 1)
+		if err == nil {
+			t.Error("UpgradeToLevel on an identity without a key succeeded")
+		}
 	}
 }

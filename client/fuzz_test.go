@@ -33,7 +33,7 @@ func FuzzHandleCommandLines(f *testing.F) {
 			t.Fatalf("New: %v", err)
 		}
 		markConnecting(c)
-		c.OnVoiceData(func(VoiceData) {})
+		c.OnVoiceData(func(VoiceDataEvent) {})
 		c.handleCommandLines(c.handler, data)
 		c.handlePacket(c.handler, &transport.Packet{
 			TypeFlagged: byte(transport.PacketTypeVoice),

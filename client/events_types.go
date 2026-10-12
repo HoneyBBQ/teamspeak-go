@@ -2,9 +2,9 @@ package client
 
 import teamspeak "github.com/honeybbq/teamspeak-go"
 
-// Event is a server event as event middleware sees it: a TextMessage,
-// ClientEnterEvent, ClientLeftViewEvent, ClientMovedEvent, PokeEvent,
-// VoiceData or RawNotification. A middleware tells them apart with a type
+// Event is a server event as event middleware sees it: a TextMessageEvent,
+// ClientEnterEvent, ClientLeaveEvent, ClientMovedEvent, PokeEvent,
+// VoiceDataEvent or NotificationEvent. A middleware tells them apart with a type
 // switch.
 //
 // The set is closed — the method is unexported — because the client delivers
@@ -20,13 +20,13 @@ type Event interface {
 	serverEvent()
 }
 
-func (TextMessage) serverEvent()         {}
-func (ClientEnterEvent) serverEvent()    {}
-func (ClientLeftViewEvent) serverEvent() {}
-func (ClientMovedEvent) serverEvent()    {}
-func (PokeEvent) serverEvent()           {}
-func (VoiceData) serverEvent()           {}
-func (RawNotification) serverEvent()     {}
+func (TextMessageEvent) serverEvent()  {}
+func (ClientEnterEvent) serverEvent()  {}
+func (ClientLeaveEvent) serverEvent()  {}
+func (ClientMovedEvent) serverEvent()  {}
+func (PokeEvent) serverEvent()         {}
+func (VoiceDataEvent) serverEvent()    {}
+func (NotificationEvent) serverEvent() {}
 
 // ClientEnterEvent is emitted when a client enters view
 // (notifycliententerview): on connecting, for everyone already there, and
@@ -40,14 +40,14 @@ type ClientEnterEvent struct {
 	teamspeak.ClientInfo
 }
 
-// RawNotification is a notification exactly as the server sent it: its name,
+// NotificationEvent is a notification exactly as the server sent it: its name,
 // such as "notifychanneledited", and its parameters, unescaped.
 //
 // It is the escape hatch for a notification the SDK does not model. Every
 // notification is delivered as one, after the typed event it produces, if
-// any. A batched notification arrives as one RawNotification per row, with
+// any. A batched notification arrives as one NotificationEvent per row, with
 // the fields the server left out of later rows filled in.
-type RawNotification struct {
+type NotificationEvent struct {
 	// Params are the notification's parameters. Each handler gets its own
 	// copy.
 	Params map[string]string
@@ -55,8 +55,8 @@ type RawNotification struct {
 	Name string
 }
 
-// TextMessage is an incoming notifytextmessage payload.
-type TextMessage struct {
+// TextMessageEvent is an incoming notifytextmessage payload.
+type TextMessageEvent struct {
 	InvokerName string
 	InvokerUID  teamspeak.UID
 	Message     string
@@ -76,8 +76,9 @@ type ClientMovedEvent struct {
 	InvokerUID      teamspeak.UID
 	TargetChannelID teamspeak.ChannelID
 	Reason          teamspeak.Reason
-	ID              teamspeak.ClientID
-	InvokerID       teamspeak.ClientID
+	// ClientID is the client that moved.
+	ClientID  teamspeak.ClientID
+	InvokerID teamspeak.ClientID
 }
 
 // PokeEvent is emitted when this client is poked (notifyclientpoke).
@@ -88,8 +89,8 @@ type PokeEvent struct {
 	InvokerID   teamspeak.ClientID
 }
 
-// ClientLeftViewEvent is emitted when a client leaves view (notifyclientleftview).
-type ClientLeftViewEvent struct {
+// ClientLeaveEvent is emitted when a client leaves view (notifyclientleftview).
+type ClientLeaveEvent struct {
 	// ReasonMessage is the reason given for a kick or a ban, or the client's
 	// own parting message.
 	ReasonMessage string
@@ -98,8 +99,9 @@ type ClientLeftViewEvent struct {
 	InvokerName string
 	InvokerUID  teamspeak.UID
 	Reason      teamspeak.Reason
-	ID          teamspeak.ClientID
-	InvokerID   teamspeak.ClientID
+	// ClientID is the client that left.
+	ClientID  teamspeak.ClientID
+	InvokerID teamspeak.ClientID
 }
 
 // KickedEvent is this client being kicked from its channel or the server.
@@ -114,8 +116,8 @@ type KickedEvent struct {
 	InvokerID teamspeak.ClientID
 }
 
-// VoiceData is voice or whisper audio received from another client.
-type VoiceData struct {
+// VoiceDataEvent is voice or whisper audio received from another client.
+type VoiceDataEvent struct {
 	Data     []byte
 	ClientID teamspeak.ClientID
 	Codec    teamspeak.Codec

@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 
 	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 )
 
 var (
@@ -222,10 +223,10 @@ func (tc *Crypt) SetSharedSecret(alpha, beta, sharedKey []byte) error {
 }
 
 func (tc *Crypt) getSharedSecret(pub *ecdsa.PublicKey) ([]byte, error) {
-	if tc.Identity == nil || tc.Identity.PrivateKey == nil {
+	priv := identitykey.PrivateKey(tc.Identity)
+	if priv == nil {
 		return nil, errNoPrivateKey
 	}
-	priv := tc.Identity.PrivateKey
 	privECDH, err := priv.ECDH()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errSharedSecretCompute, err)

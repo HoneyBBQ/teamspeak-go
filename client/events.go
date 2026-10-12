@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
@@ -26,7 +27,7 @@ import (
 
 // OnTextMessage registers a handler for incoming text messages. It returns a
 // function that removes the handler.
-func (c *Client) OnTextMessage(handler func(TextMessage)) func() {
+func (c *Client) OnTextMessage(handler func(TextMessageEvent)) func() {
 	return c.onTextMessage.add(handler)
 }
 
@@ -38,7 +39,7 @@ func (c *Client) OnClientEnter(handler func(ClientEnterEvent)) func() {
 
 // OnClientLeave registers a handler for clients leaving view. It returns a
 // function that removes the handler.
-func (c *Client) OnClientLeave(handler func(ClientLeftViewEvent)) func() {
+func (c *Client) OnClientLeave(handler func(ClientLeaveEvent)) func() {
 	return c.onClientLeave.add(handler)
 }
 
@@ -69,7 +70,7 @@ func (c *Client) OnClientMoved(handler func(ClientMovedEvent)) func() {
 // of any kind are waiting for the handlers, incoming voice is discarded until
 // they catch up, and the client logs a warning, at most once every ten
 // seconds, with how much it dropped. Every other event is always delivered.
-func (c *Client) OnVoiceData(handler func(VoiceData)) func() {
+func (c *Client) OnVoiceData(handler func(VoiceDataEvent)) func() {
 	return c.onVoiceData.add(handler)
 }
 
@@ -77,7 +78,7 @@ func (c *Client) OnVoiceData(handler func(VoiceData)) func() {
 // as it arrived: the way to hear one the SDK does not model. It runs after the
 // typed handlers for the same notification. It returns a function that removes
 // the handler.
-func (c *Client) OnNotification(handler func(RawNotification)) func() {
+func (c *Client) OnNotification(handler func(NotificationEvent)) func() {
 	return c.onNotification.add(handler)
 }
 
@@ -95,10 +96,15 @@ func (c *Client) OnDisconnected(handler func(err error)) func() {
 	return c.onDisconnected.add(handler)
 }
 
-// buildMiddlewareChains wraps the event dispatch in the configured
-// middleware. It runs once, in New: the chains are read on every
+// buildMiddlewareChains wraps the typed commands and the event dispatch in
+// the configured middleware. It runs once, in New: the chains are read on every
 // command and event, so changing them afterwards would race with both.
 func (c *Client) buildMiddlewareChains() {
+	c.executor = teamspeak.ExecutorFunc(c.sendRequest)
+	for _, middleware := range slices.Backward(c.cmdMiddlewares) {
+		c.executor = middleware(c.executor)
+	}
+
 	c.evtChain = c.dispatchEvent
 	for _, middleware := range slices.Backward(c.eventMiddlewares) {
 		c.evtChain = middleware(c.evtChain)
@@ -128,22 +134,22 @@ func (c *Client) connectedHandler() *transport.PacketHandler {
 	return c.handler
 }
 
-// sendLine sends a command line on h, through the command middleware.
+// sendLine sends a command line on h.
 func (c *Client) sendLine(h *transport.PacketHandler, line string) error {
-	send := func(l string) error {
-		return notConnected(h.SendPacket(byte(transport.PacketTypeCommand), []byte(l), 0))
-	}
-	for _, middleware := range slices.Backward(c.cmdMiddlewares) {
-		send = middleware(send)
+	if c.wireHook != nil {
+		err := c.wireHook(line)
+		if err != nil {
+			return err
+		}
 	}
 
-	return send(line)
+	return notConnected(h.SendPacket(byte(transport.PacketTypeCommand), []byte(line), 0))
 }
 
 // emitEvent queues a server event. The middleware runs on the delivery
 // goroutine too, so a slow middleware does not stall the read loop either.
 func (c *Client) emitEvent(evt Event) {
-	if _, voice := evt.(VoiceData); voice {
+	if _, voice := evt.(VoiceDataEvent); voice {
 		c.events.pushVoice(func() { c.evtChain(evt) }, c.logger)
 
 		return
@@ -160,8 +166,8 @@ func emit[E any](c *Client, subs *subscribers[E], evt E) {
 // handlers.
 func (c *Client) dispatchEvent(evt Event) {
 	switch e := evt.(type) {
-	case TextMessage:
-		c.onTextMessage.deliver(e, func(m TextMessage) TextMessage {
+	case TextMessageEvent:
+		c.onTextMessage.deliver(e, func(m TextMessageEvent) TextMessageEvent {
 			m.InvokerGroups = slices.Clone(m.InvokerGroups)
 
 			return m
@@ -172,20 +178,20 @@ func (c *Client) dispatchEvent(evt Event) {
 
 			return enter
 		})
-	case ClientLeftViewEvent:
+	case ClientLeaveEvent:
 		c.onClientLeave.deliver(e, nil)
 	case ClientMovedEvent:
 		c.onClientMoved.deliver(e, nil)
 	case PokeEvent:
 		c.onPoked.deliver(e, nil)
-	case VoiceData:
-		c.onVoiceData.deliver(e, func(v VoiceData) VoiceData {
+	case VoiceDataEvent:
+		c.onVoiceData.deliver(e, func(v VoiceDataEvent) VoiceDataEvent {
 			v.Data = slices.Clone(v.Data)
 
 			return v
 		})
-	case RawNotification:
-		c.onNotification.deliver(e, func(n RawNotification) RawNotification {
+	case NotificationEvent:
+		c.onNotification.deliver(e, func(n NotificationEvent) NotificationEvent {
 			n.Params = maps.Clone(n.Params)
 
 			return n

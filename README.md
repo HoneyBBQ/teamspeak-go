@@ -87,7 +87,7 @@ func main() {
 		fmt.Println("Connected to server!")
 	})
 
-	c.OnTextMessage(func(msg client.TextMessage) {
+	c.OnTextMessage(func(msg client.TextMessageEvent) {
 		fmt.Printf("[%s]: %s\n", msg.InvokerName, msg.Message)
 	})
 
@@ -131,7 +131,7 @@ func main() {
 | `ClientID() teamspeak.ClientID` | Our clid, assigned by the server |
 | `ChannelID() teamspeak.ChannelID` | The channel we are in |
 | `ServerCapabilities()` | What the server said about itself in the handshake: version, family, uid hash, name, icon, banner and welcome message |
-| `UniqueIdentifier() teamspeak.UID` | Our own uid, hashed as the server does |
+| `UID() teamspeak.UID` | Our own uid, hashed as the server does |
 
 ### Events
 
@@ -139,13 +139,13 @@ func main() {
 |---|---|
 | `OnConnected(func())` | Fires when fully connected |
 | `OnDisconnected(func(error))` | Fires on disconnect |
-| `OnTextMessage(func(TextMessage))` | Fires on text messages |
+| `OnTextMessage(func(TextMessageEvent))` | Fires on text messages |
 | `OnClientEnter(func(ClientEnterEvent))` | Fires when a client comes into view; the event embeds its `teamspeak.ClientInfo` |
-| `OnClientLeave(func(ClientLeftViewEvent))` | Fires when a client leaves |
+| `OnClientLeave(func(ClientLeaveEvent))` | Fires when a client leaves |
 | `OnClientMoved(func(ClientMovedEvent))` | Fires when a client moves channels |
 | `OnPoked(func(PokeEvent))` | Fires when the bot is poked |
-| `OnVoiceData(func(VoiceData))` | Fires for each audio frame another client sends |
-| `OnNotification(func(RawNotification))` | Fires for every notification, as the server sent it |
+| `OnVoiceData(func(VoiceDataEvent))` | Fires for each audio frame another client sends |
+| `OnNotification(func(NotificationEvent))` | Fires for every notification, as the server sent it |
 | `OnKicked(func(KickedEvent))` | Fires when the bot is kicked from its channel or the server |
 
 Each `On` method returns a function that removes the handler. Handlers run one
@@ -159,7 +159,7 @@ after the typed event it produced, one per row for a batched one. Each handler
 gets its own copy of the parameters.
 
 ```go
-c.OnNotification(func(n client.RawNotification) {
+c.OnNotification(func(n client.NotificationEvent) {
 	if n.Name == "notifychanneledited" {
 		fmt.Println("channel", n.Params["cid"], "edited")
 	}
@@ -171,14 +171,14 @@ c.OnNotification(func(n client.RawNotification) {
 Event middleware sees every server event before its handlers do — the events
 above except connected, disconnected and kicked, which report the connection
 itself and bypass it. It receives a `client.Event`, which is one of
-`TextMessage`, `ClientEnterEvent`, `ClientLeftViewEvent`, `ClientMovedEvent`,
-`PokeEvent`, `VoiceData` or `RawNotification`; it may pass the event on,
+`TextMessageEvent`, `ClientEnterEvent`, `ClientLeaveEvent`, `ClientMovedEvent`,
+`PokeEvent`, `VoiceDataEvent` or `NotificationEvent`; it may pass the event on,
 replace it, or drop it by not calling `next`.
 
 ```go
 ignoreCommands := func(next func(client.Event)) func(client.Event) {
 	return func(evt client.Event) {
-		if msg, ok := evt.(client.TextMessage); ok && strings.HasPrefix(msg.Message, "!") {
+		if msg, ok := evt.(client.TextMessageEvent); ok && strings.HasPrefix(msg.Message, "!") {
 			return // dropped: no handler sees it
 		}
 		next(evt)

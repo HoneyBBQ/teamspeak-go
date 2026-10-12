@@ -49,7 +49,7 @@ func ExampleClient_OnTextMessage() {
 		log.Fatal(err)
 	}
 
-	stop := c.OnTextMessage(func(msg client.TextMessage) {
+	stop := c.OnTextMessage(func(msg client.TextMessageEvent) {
 		fmt.Printf("%s: %s\n", msg.InvokerName, msg.Message)
 	})
 	// No further messages reach the handler once stop returns.
@@ -90,7 +90,7 @@ func ExampleClient_ListChannels() { //nolint:testableexamples // connects to a s
 func ExampleWithEventMiddleware() {
 	ignoreCommands := func(next func(client.Event)) func(client.Event) {
 		return func(evt client.Event) {
-			if msg, ok := evt.(client.TextMessage); ok && strings.HasPrefix(msg.Message, "!") {
+			if msg, ok := evt.(client.TextMessageEvent); ok && strings.HasPrefix(msg.Message, "!") {
 				return
 			}
 			next(evt)
@@ -120,7 +120,7 @@ func ExampleClient_OnNotification() {
 		log.Fatal(err)
 	}
 
-	c.OnNotification(func(n client.RawNotification) {
+	c.OnNotification(func(n client.NotificationEvent) {
 		if n.Name == "notifychanneledited" {
 			fmt.Println("channel", n.Params["cid"], "edited")
 		}

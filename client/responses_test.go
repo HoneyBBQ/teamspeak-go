@@ -169,13 +169,12 @@ func TestFlags_AreSentBare(t *testing.T) {
 // echoed clientftfid, so two negotiations must not share one.
 func TestInitFileUpload_GivesEachNegotiationItsOwnID(t *testing.T) {
 	ids := make([]string, 0, 2)
-	c := newTestClient(t, WithCommandMiddleware(func(_ func(string) error) func(string) error {
-		return func(cmd string) error {
-			ids = append(ids, commands.ParseCommand(cmd).Params["clientftfid"])
+	c := newTestClient(t)
+	c.wireHook = func(line string) error {
+		ids = append(ids, commands.ParseCommand(line).Params["clientftfid"])
 
-			return errCaptured
-		}
-	}))
+		return errCaptured
+	}
 	_, _ = c.InitFileUpload(t.Context(), 1, "/a", 3, "", true)
 	_, _ = c.InitFileUpload(t.Context(), 1, "/b", 3, "", true)
 

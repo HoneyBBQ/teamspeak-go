@@ -393,7 +393,7 @@ func (c *Client) receiveNotification(h *transport.PacketHandler, cmd *commands.C
 	// not free. A copy because the command tracker hands the same map to the
 	// command that asked for it.
 	if c.onNotification.any() || len(c.eventMiddlewares) > 0 {
-		c.emitEvent(RawNotification{Name: cmd.Name, Params: maps.Clone(cmd.Params)})
+		c.emitEvent(NotificationEvent{Name: cmd.Name, Params: maps.Clone(cmd.Params)})
 	}
 }
 
@@ -467,15 +467,21 @@ func (c *Client) Exec(ctx context.Context, cmd string) ([]map[string]string, err
 // caller's context sets no deadline.
 const defaultCommandTimeout = 10 * time.Second
 
-// Send executes a typed command; it is the Executor the embedded Commands run
-// on.
+// Send executes a typed command, through the command middleware; it is the
+// Executor the client's typed commands run on.
 //
 // Channel passwords are hashed here because that is this protocol's rule: the
 // voice protocol expects base64(sha1(password)), where ServerQuery takes the
-// password itself. Without a deadline on ctx the command gives up after
-// defaultCommandTimeout, since an answer that never comes would otherwise hold
-// the caller forever.
+// password itself. Without a deadline on ctx the command gives up after ten
+// seconds, since an answer that never comes would otherwise hold the caller
+// forever.
 func (c *Client) Send(ctx context.Context, req teamspeak.Request) ([]map[string]string, error) {
+	return c.executor.Send(ctx, req)
+}
+
+// sendRequest is the executor the command middleware wraps: it encodes the
+// request for the voice protocol and sends it.
+func (c *Client) sendRequest(ctx context.Context, req teamspeak.Request) ([]map[string]string, error) {
 	return c.send(ctx, req.Encode(prepareClientPassword))
 }
 
@@ -557,7 +563,7 @@ func (c *Client) execOn(ctx context.Context, h *transport.PacketHandler, cmd str
 }
 
 // handleVoicePacket parses an incoming voice or whisper packet and dispatches a
-// VoiceData event.
+// VoiceDataEvent event.
 //
 // Server-to-client layout differs from what the client sends: the server
 // prepends the speaker's client ID, so the payload is
@@ -583,7 +589,7 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 		return
 	}
 
-	vd := VoiceData{
+	vd := VoiceDataEvent{
 		ClientID: speakerID,
 		Codec:    teamspeak.Codec(p.Data[4]),
 		Data:     append([]byte(nil), p.Data[5:]...),

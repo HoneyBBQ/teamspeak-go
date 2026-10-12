@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"strings"
@@ -38,10 +39,10 @@ func settle(t *testing.T, c *Client) {
 
 func TestOnTextMessage_RegistersHandler(t *testing.T) {
 	c := newTestClient(t)
-	called := make(chan TextMessage, 1)
-	c.OnTextMessage(func(m TextMessage) { called <- m })
+	called := make(chan TextMessageEvent, 1)
+	c.OnTextMessage(func(m TextMessageEvent) { called <- m })
 
-	c.emitEvent(TextMessage{Message: "hi"})
+	c.emitEvent(TextMessageEvent{Message: "hi"})
 
 	if m := receive(t, called); m.Message != "hi" {
 		t.Errorf("got %q, want hi", m.Message)
@@ -50,13 +51,13 @@ func TestOnTextMessage_RegistersHandler(t *testing.T) {
 
 func TestOnClientLeave_RegistersHandler(t *testing.T) {
 	c := newTestClient(t)
-	called := make(chan ClientLeftViewEvent, 1)
-	c.OnClientLeave(func(e ClientLeftViewEvent) { called <- e })
+	called := make(chan ClientLeaveEvent, 1)
+	c.OnClientLeave(func(e ClientLeaveEvent) { called <- e })
 
-	c.emitEvent(ClientLeftViewEvent{ID: 5})
+	c.emitEvent(ClientLeaveEvent{ClientID: 5})
 
-	if e := receive(t, called); e.ID != 5 {
-		t.Errorf("got ID %d, want 5", e.ID)
+	if e := receive(t, called); e.ClientID != 5 {
+		t.Errorf("got ID %d, want 5", e.ClientID)
 	}
 }
 
@@ -83,10 +84,10 @@ func TestMultipleHandlers_AllCalled(t *testing.T) {
 	c := newTestClient(t)
 	a := make(chan struct{}, 1)
 	b := make(chan struct{}, 1)
-	c.OnTextMessage(func(TextMessage) { a <- struct{}{} })
-	c.OnTextMessage(func(TextMessage) { b <- struct{}{} })
+	c.OnTextMessage(func(TextMessageEvent) { a <- struct{}{} })
+	c.OnTextMessage(func(TextMessageEvent) { b <- struct{}{} })
 
-	c.emitEvent(TextMessage{Message: "test"})
+	c.emitEvent(TextMessageEvent{Message: "test"})
 
 	receive(t, a)
 	receive(t, b)
@@ -120,15 +121,15 @@ func TestEvents_ArriveInOrder(t *testing.T) {
 
 func TestEvents_UnsubscribeStopsDelivery(t *testing.T) {
 	c := newTestClient(t)
-	called := make(chan TextMessage, 2)
-	unsubscribe := c.OnTextMessage(func(m TextMessage) { called <- m })
+	called := make(chan TextMessageEvent, 2)
+	unsubscribe := c.OnTextMessage(func(m TextMessageEvent) { called <- m })
 
-	c.emitEvent(TextMessage{Message: "first"})
+	c.emitEvent(TextMessageEvent{Message: "first"})
 	receive(t, called)
 
 	unsubscribe()
 	unsubscribe() // a second call is harmless
-	c.emitEvent(TextMessage{Message: "second"})
+	c.emitEvent(TextMessageEvent{Message: "second"})
 	settle(t, c)
 
 	select {
@@ -143,11 +144,11 @@ func TestEvents_UnsubscribeCoversQueuedEvents(t *testing.T) {
 	c := newTestClient(t)
 	release := make(chan struct{})
 	c.OnConnected(func() { <-release })
-	called := make(chan TextMessage, 1)
-	unsubscribe := c.OnTextMessage(func(m TextMessage) { called <- m })
+	called := make(chan TextMessageEvent, 1)
+	unsubscribe := c.OnTextMessage(func(m TextMessageEvent) { called <- m })
 
 	emit(c, &c.onConnected, struct{}{}) // holds the queue
-	c.emitEvent(TextMessage{Message: "queued"})
+	c.emitEvent(TextMessageEvent{Message: "queued"})
 	unsubscribe()
 	close(release)
 	settle(t, c)
@@ -164,13 +165,13 @@ func TestEvents_UnsubscribeCoversQueuedEvents(t *testing.T) {
 func TestEvents_ABlockedHandlerDoesNotBlockTheProducer(t *testing.T) {
 	c := newTestClient(t)
 	release := make(chan struct{})
-	c.OnTextMessage(func(TextMessage) { <-release })
+	c.OnTextMessage(func(TextMessageEvent) { <-release })
 	defer close(release)
 
 	done := make(chan struct{})
 	go func() {
 		for range 100 {
-			c.emitEvent(TextMessage{})
+			c.emitEvent(TextMessageEvent{})
 		}
 		close(done)
 	}()
@@ -180,13 +181,13 @@ func TestEvents_ABlockedHandlerDoesNotBlockTheProducer(t *testing.T) {
 func TestEvents_EachHandlerGetsItsOwnCopy(t *testing.T) {
 	c := newTestClient(t)
 	seen := make(chan []teamspeak.ServerGroupID, 2)
-	c.OnTextMessage(func(m TextMessage) {
+	c.OnTextMessage(func(m TextMessageEvent) {
 		m.InvokerGroups[0] = 99
 		seen <- m.InvokerGroups
 	})
-	c.OnTextMessage(func(m TextMessage) { seen <- m.InvokerGroups })
+	c.OnTextMessage(func(m TextMessageEvent) { seen <- m.InvokerGroups })
 
-	c.emitEvent(TextMessage{InvokerGroups: []teamspeak.ServerGroupID{1, 2}})
+	c.emitEvent(TextMessageEvent{InvokerGroups: []teamspeak.ServerGroupID{1, 2}})
 
 	receive(t, seen)
 	if second := receive(t, seen); second[0] != 1 {
@@ -194,77 +195,93 @@ func TestEvents_EachHandlerGetsItsOwnCopy(t *testing.T) {
 	}
 }
 
-func TestCommandMiddleware_InterceptsCommands(t *testing.T) {
-	intercepted := make(chan string, 1)
-	c := newTestClient(t, WithCommandMiddleware(func(next func(string) error) func(string) error {
-		return func(cmd string) error {
-			intercepted <- cmd
+func TestCommandMiddleware_SeesTypedCommands(t *testing.T) {
+	seen := make(chan string, 1)
+	var sawDeadline bool
+	c := newTestClient(t, WithCommandMiddleware(func(next teamspeak.Executor) teamspeak.Executor {
+		return teamspeak.ExecutorFunc(func(ctx context.Context, req teamspeak.Request) ([]map[string]string, error) {
+			seen <- req.Command()
+			_, sawDeadline = ctx.Deadline()
 
-			return next(cmd)
-		}
+			return next.Send(ctx, req)
+		})
 	}))
+	c.wireHook = func(string) error { return errCaptured }
 
-	err := c.sendLine(c.handler, "test cmd")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	_, err := c.ListChannels(ctx)
+	if !errors.Is(err, errCaptured) {
+		t.Fatalf("ListChannels = %v, want the wire hook's error", err)
 	}
-	if cmd := receive(t, intercepted); cmd != "test cmd" {
-		t.Errorf("got %q, want test cmd", cmd)
+	if got := receive(t, seen); got != "channellist" {
+		t.Errorf("middleware saw %q, want channellist", got)
+	}
+	if !sawDeadline {
+		t.Error("middleware did not see the caller's context")
 	}
 }
 
 func TestCommandMiddleware_ChainOrder(t *testing.T) {
 	var order []string
-	c := newTestClient(t, WithCommandMiddleware(
-		func(next func(string) error) func(string) error {
-			return func(cmd string) error {
-				order = append(order, "first")
+	record := func(name string) CommandMiddleware {
+		return func(next teamspeak.Executor) teamspeak.Executor {
+			return teamspeak.ExecutorFunc(func(ctx context.Context, req teamspeak.Request) ([]map[string]string, error) {
+				order = append(order, name)
 
-				return next(cmd)
-			}
-		},
-		func(next func(string) error) func(string) error {
-			return func(cmd string) error {
-				order = append(order, "second")
+				return next.Send(ctx, req)
+			})
+		}
+	}
+	c := newTestClient(t, WithCommandMiddleware(record("first"), record("second")))
+	c.wireHook = func(string) error { return errCaptured }
 
-				return next(cmd)
-			}
-		},
-	))
-
-	_ = c.sendLine(c.handler, "x")
+	_, _ = c.ListChannels(t.Context())
 
 	if !slices.Equal(order, []string{"first", "second"}) {
 		t.Errorf("middleware order = %v, want first, second", order)
 	}
 }
 
-func TestCommandMiddleware_CanShortCircuit(t *testing.T) {
-	reached := false
-	c := newTestClient(t,
-		WithCommandMiddleware(func(next func(string) error) func(string) error {
-			return func(cmd string) error {
-				if cmd == "blocked" {
-					return nil // don't call next
-				}
+// A middleware can answer a command itself: the caller gets its rows at once,
+// and nothing reaches the wire.
+func TestCommandMiddleware_CanAnswerACommand(t *testing.T) {
+	c := newTestClient(t, WithCommandMiddleware(func(teamspeak.Executor) teamspeak.Executor {
+		return teamspeak.ExecutorFunc(func(context.Context, teamspeak.Request) ([]map[string]string, error) {
+			return []map[string]string{{"cid": "7", "channel_name": "Cached"}}, nil
+		})
+	}))
+	c.wireHook = func(string) error {
+		t.Error("an answered command reached the wire")
 
-				return next(cmd)
-			}
-		}),
-		WithCommandMiddleware(func(func(string) error) func(string) error {
-			return func(string) error {
-				reached = true
-
-				return nil
-			}
-		}),
-	)
-
-	_ = c.ExecNoWait(context.Background(), "blocked")
-
-	if reached {
-		t.Error("short-circuited command reached the next middleware")
+		return errCaptured
 	}
+
+	start := time.Now()
+	channels, err := c.ListChannels(t.Context())
+	if err != nil {
+		t.Fatalf("ListChannels: %v", err)
+	}
+	if len(channels) != 1 || channels[0].Name != "Cached" {
+		t.Errorf("channels = %+v, want the middleware's answer", channels)
+	}
+	if time.Since(start) > time.Second {
+		t.Error("an answered command waited for the server")
+	}
+}
+
+// Raw lines do not pass through the typed middleware.
+func TestCommandMiddleware_DoesNotSeeRawLines(t *testing.T) {
+	c := newTestClient(t, WithCommandMiddleware(func(next teamspeak.Executor) teamspeak.Executor {
+		return teamspeak.ExecutorFunc(func(ctx context.Context, req teamspeak.Request) ([]map[string]string, error) {
+			t.Errorf("middleware saw raw %q", req.Command())
+
+			return next.Send(ctx, req)
+		})
+	}))
+	c.wireHook = func(string) error { return errCaptured }
+
+	_ = c.ExecNoWait(t.Context(), "clientupdate")
 }
 
 func TestEventMiddleware_InterceptsEvents(t *testing.T) {
@@ -276,9 +293,9 @@ func TestEventMiddleware_InterceptsEvents(t *testing.T) {
 		}
 	}))
 
-	c.emitEvent(TextMessage{Message: "intercepted"})
+	c.emitEvent(TextMessageEvent{Message: "intercepted"})
 
-	if m, ok := receive(t, intercepted).(TextMessage); !ok || m.Message != "intercepted" {
+	if m, ok := receive(t, intercepted).(TextMessageEvent); !ok || m.Message != "intercepted" {
 		t.Errorf("unexpected event: %v", m)
 	}
 }
@@ -286,16 +303,16 @@ func TestEventMiddleware_InterceptsEvents(t *testing.T) {
 func TestEventMiddleware_CanFilter(t *testing.T) {
 	c := newTestClient(t, WithEventMiddleware(func(next func(Event)) func(Event) {
 		return func(evt Event) {
-			if _, ok := evt.(TextMessage); ok {
+			if _, ok := evt.(TextMessageEvent); ok {
 				return // drop
 			}
 			next(evt)
 		}
 	}))
-	reached := make(chan TextMessage, 1)
-	c.OnTextMessage(func(m TextMessage) { reached <- m })
+	reached := make(chan TextMessageEvent, 1)
+	c.OnTextMessage(func(m TextMessageEvent) { reached <- m })
 
-	c.emitEvent(TextMessage{Message: "filtered"})
+	c.emitEvent(TextMessageEvent{Message: "filtered"})
 	settle(t, c)
 
 	select {
@@ -308,17 +325,17 @@ func TestEventMiddleware_CanFilter(t *testing.T) {
 func TestEventMiddleware_CanReplace(t *testing.T) {
 	c := newTestClient(t, WithEventMiddleware(func(next func(Event)) func(Event) {
 		return func(evt Event) {
-			if m, ok := evt.(TextMessage); ok {
+			if m, ok := evt.(TextMessageEvent); ok {
 				m.Message = strings.ToUpper(m.Message)
 				evt = m
 			}
 			next(evt)
 		}
 	}))
-	reached := make(chan TextMessage, 1)
-	c.OnTextMessage(func(m TextMessage) { reached <- m })
+	reached := make(chan TextMessageEvent, 1)
+	c.OnTextMessage(func(m TextMessageEvent) { reached <- m })
 
-	c.emitEvent(TextMessage{Message: "quiet"})
+	c.emitEvent(TextMessageEvent{Message: "quiet"})
 
 	if m := receive(t, reached); m.Message != "QUIET" {
 		t.Errorf("handler got %q, want the middleware's replacement", m.Message)
@@ -380,13 +397,13 @@ func TestOnNotification_FollowsTheTypedEvent(t *testing.T) {
 	c := newTestClient(t)
 	var mu sync.Mutex
 	var order []string
-	c.OnTextMessage(func(TextMessage) {
+	c.OnTextMessage(func(TextMessageEvent) {
 		mu.Lock()
 		order = append(order, "typed")
 		mu.Unlock()
 	})
-	raw := make(chan RawNotification, 2)
-	c.OnNotification(func(n RawNotification) {
+	raw := make(chan NotificationEvent, 2)
+	c.OnNotification(func(n NotificationEvent) {
 		mu.Lock()
 		order = append(order, "raw")
 		mu.Unlock()
@@ -411,11 +428,11 @@ func TestOnNotification_FollowsTheTypedEvent(t *testing.T) {
 	}
 }
 
-// A batched notification is one RawNotification per row.
+// A batched notification is one NotificationEvent per row.
 func TestOnNotification_SplitsRows(t *testing.T) {
 	c := newTestClient(t)
-	raw := make(chan RawNotification, 2)
-	c.OnNotification(func(n RawNotification) { raw <- n })
+	raw := make(chan NotificationEvent, 2)
+	c.OnNotification(func(n NotificationEvent) { raw <- n })
 
 	c.handleCommandLines(c.handler, "notifychanneledited cid=1 reasonid=10|cid=2")
 
@@ -430,9 +447,9 @@ func TestOnNotification_SplitsRows(t *testing.T) {
 // One handler editing its params must not change what the next one sees.
 func TestOnNotification_CopiesParamsPerHandler(t *testing.T) {
 	c := newTestClient(t)
-	c.OnNotification(func(n RawNotification) { n.Params["a"] = "changed" })
+	c.OnNotification(func(n NotificationEvent) { n.Params["a"] = "changed" })
 	got := make(chan string, 1)
-	c.OnNotification(func(n RawNotification) { got <- n.Params["a"] })
+	c.OnNotification(func(n NotificationEvent) { got <- n.Params["a"] })
 
 	c.handleCommandLines(c.handler, "notifysomething a=1")
 
@@ -443,10 +460,10 @@ func TestOnNotification_CopiesParamsPerHandler(t *testing.T) {
 
 // Raw notifications pass through event middleware like every server event.
 func TestOnNotification_PassesThroughMiddleware(t *testing.T) {
-	seen := make(chan RawNotification, 1)
+	seen := make(chan NotificationEvent, 1)
 	c := newTestClient(t, WithEventMiddleware(func(next func(Event)) func(Event) {
 		return func(evt Event) {
-			if n, ok := evt.(RawNotification); ok {
+			if n, ok := evt.(NotificationEvent); ok {
 				seen <- n
 			}
 			next(evt)

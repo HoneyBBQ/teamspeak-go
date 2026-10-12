@@ -93,8 +93,8 @@ func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *commands.
 		return
 	}
 	reasonID, _ := parseIntValue(cmd.Params["reasonid"])
-	evt := ClientLeftViewEvent{
-		ID:            clid,
+	evt := ClientLeaveEvent{
+		ClientID:      clid,
 		Reason:        teamspeak.Reason(reasonID),
 		ReasonMessage: cmd.Params["reasonmsg"],
 		InvokerID:     parseClientID(cmd.Params["invokerid"]),
@@ -150,7 +150,7 @@ func (c *Client) handleClientMoved(cmd *commands.Command) {
 	c.mu.Unlock()
 
 	evt := ClientMovedEvent{
-		ID:              clid,
+		ClientID:        clid,
 		TargetChannelID: ctid,
 		Reason:          teamspeak.Reason(reasonID),
 		InvokerID:       parseClientID(cmd.Params["invokerid"]),
@@ -174,7 +174,7 @@ func (c *Client) handleClientMoved(cmd *commands.Command) {
 
 func (c *Client) handleTextMessage(cmd *commands.Command) {
 	targetMode, _ := parseIntValue(cmd.Params["targetmode"])
-	msg := TextMessage{
+	msg := TextMessageEvent{
 		TargetMode:  teamspeak.TextMessageTarget(targetMode),
 		TargetID:    parseClientID(cmd.Params["target"]),
 		InvokerID:   parseClientID(cmd.Params["invokerid"]),

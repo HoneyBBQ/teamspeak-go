@@ -114,7 +114,7 @@ func requireSharedClient(t *testing.T) *client.Client {
 			// Compare via the client rather than a precomputed UID: the hash
 			// depends on the server version (TS3 SHA-1, TS6 SHA-256), which is
 			// only known once the handshake has read initserver.
-			if info.UID != "" && info.UID == c.UniqueIdentifier() {
+			if info.UID != "" && info.UID == c.UID() {
 				select {
 				case sharedClientEnter <- info:
 				default:
@@ -435,7 +435,7 @@ func TestIntegration_GetClientInfo(t *testing.T) {
 // Text messages
 // ---------------------------------------------------------------------------
 
-// The typed TextMessage has to carry what the raw notification did: the
+// The typed TextMessageEvent has to carry what the raw notification did: the
 // target, which channel and server messages lack, and the sender's uid. The
 // raw notification arrives through OnNotification, which this also checks
 // live.
@@ -453,14 +453,14 @@ func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 	senderUID := teamspeak.UID(strings.TrimSpace(senderInfo["client_unique_identifier"]))
 
 	probeText := fmt.Sprintf("cursor-probe-%d", time.Now().UTC().UnixNano())
-	received := make(chan client.TextMessage, 1)
-	defer receiver.OnTextMessage(func(msg client.TextMessage) {
+	received := make(chan client.TextMessageEvent, 1)
+	defer receiver.OnTextMessage(func(msg client.TextMessageEvent) {
 		if msg.Message == probeText {
 			received <- msg
 		}
 	})()
-	raw := make(chan client.RawNotification, 1)
-	defer receiver.OnNotification(func(n client.RawNotification) {
+	raw := make(chan client.NotificationEvent, 1)
+	defer receiver.OnNotification(func(n client.NotificationEvent) {
 		if n.Name == "notifytextmessage" && n.Params["msg"] == probeText {
 			raw <- n
 		}

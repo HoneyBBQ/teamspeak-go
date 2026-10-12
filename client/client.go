@@ -16,6 +16,7 @@ import (
 	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
 	"github.com/honeybbq/teamspeak-go/internal/discovery"
+	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
@@ -106,8 +107,15 @@ func (d defaultResolver) Resolve(ctx context.Context, addr string) ([]ResolvedAd
 	return out, nil
 }
 
-// CommandMiddleware wraps the final command sender; it may alter or drop commands.
-type CommandMiddleware func(next func(string) error) func(string) error
+// CommandMiddleware wraps the typed commands' executor. It sees each request —
+// its name with Request.Command, never its parameters' secrets in a log line —
+// and the caller's context, and returns the rows or an error: so it can
+// observe a command, time it, retry it, or answer it itself without calling
+// next.
+//
+// Exec and ExecNoWait, which send a raw line, and the commands the client
+// sends on its own during the handshake and Disconnect do not pass through it.
+type CommandMiddleware func(next teamspeak.Executor) teamspeak.Executor
 
 // EventMiddleware wraps the delivery of server events. It may observe an
 // event, pass on a different one in its place, or drop it by not calling next.
@@ -141,10 +149,18 @@ func redacted(secret string) string {
 	return "redacted"
 }
 
-// Client is the TeamSpeak 3 client.
+// typedCommands names teamspeak.Commands under an unexported name, so the
+// embedded field promotes the typed commands as the client's methods but
+// cannot be replaced from outside.
+type typedCommands = teamspeak.Commands
+
+// Client is a TeamSpeak client speaking the voice protocol, for TeamSpeak 3
+// and TeamSpeak 6 servers.
+//
+// The typed commands of teamspeak.Commands — ListChannels, MoveClient and the
+// rest — are its methods, running on Send.
 type Client struct {
-	// Commands are the typed commands, running on this client's Send.
-	*teamspeak.Commands
+	*typedCommands
 
 	resolver AddrResolver
 	identity *identity.Identity
@@ -180,19 +196,25 @@ type Client struct {
 	// stopped is set by an explicit Disconnect, which must never be undone by a
 	// retry.
 	stopped          bool
-	cmdMiddlewares   []CommandMiddleware
+	cmdMiddlewares []CommandMiddleware
+	// executor is the command middleware wrapped around the client's own
+	// executor; Send runs requests through it.
+	executor teamspeak.Executor
+	// wireHook, when set, sees every encoded line before it is sent and may
+	// stop it with an error. A seam for tests.
+	wireHook         func(line string) error
 	eventMiddlewares []EventMiddleware
 	events           eventQueue
-	onTextMessage    subscribers[TextMessage]
+	onTextMessage    subscribers[TextMessageEvent]
 	onClientEnter    subscribers[ClientEnterEvent]
-	onClientLeave    subscribers[ClientLeftViewEvent]
+	onClientLeave    subscribers[ClientLeaveEvent]
 	onClientMoved    subscribers[ClientMovedEvent]
 	onConnected      subscribers[struct{}]
 	onDisconnected   subscribers[error]
 	onPoked          subscribers[PokeEvent]
 	onKicked         subscribers[KickedEvent]
-	onVoiceData      subscribers[VoiceData]
-	onNotification   subscribers[RawNotification]
+	onVoiceData      subscribers[VoiceDataEvent]
+	onNotification   subscribers[NotificationEvent]
 	status           Status
 	mu               sync.Mutex
 	clid             teamspeak.ClientID
@@ -227,7 +249,7 @@ var ErrInvalidConfig = errors.New("invalid client configuration")
 // addr is a host, host:port, or a TeamSpeak nickname resolved through SRV and
 // TSDNS records.
 func New(id *identity.Identity, addr, nickname string, options ...Option) (*Client, error) {
-	if id == nil || id.PrivateKey == nil {
+	if identitykey.PrivateKey(id) == nil {
 		return nil, fmt.Errorf("%w: no identity", ErrInvalidConfig)
 	}
 	if addr == "" {
@@ -249,7 +271,7 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 		attempt:  newConnectAttempt(),
 	}
 
-	c.Commands = teamspeak.NewCommands(c)
+	c.typedCommands = teamspeak.NewCommands(c)
 
 	for _, opt := range options {
 		opt.apply(c)
@@ -318,7 +340,8 @@ func WithResolver(r AddrResolver) Option {
 	})
 }
 
-// WithCommandMiddleware wraps every outgoing command, outermost first.
+// WithCommandMiddleware wraps every typed command, outermost first. See
+// CommandMiddleware for what it sees and what it does not.
 func WithCommandMiddleware(mw ...CommandMiddleware) Option {
 	return optionFunc(func(c *Client) {
 		c.cmdMiddlewares = append(c.cmdMiddlewares, mw...)

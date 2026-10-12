@@ -10,6 +10,7 @@ import (
 	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
+	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 	"github.com/oasisprotocol/curve25519-voi/curve"
 	"github.com/oasisprotocol/curve25519-voi/curve/scalar"
 )
@@ -211,11 +212,11 @@ func TestSignAndVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := []byte("the message to sign")
-	sig, err := crypto.Sign(id.PrivateKey, data)
+	sig, err := crypto.Sign(identitykey.PrivateKey(id), data)
 	if err != nil {
 		t.Fatalf("Sign failed: %v", err)
 	}
-	if !crypto.VerifySign(&id.PrivateKey.PublicKey, data, sig) {
+	if !crypto.VerifySign(&identitykey.PrivateKey(id).PublicKey, data, sig) {
 		t.Error("VerifySign returned false for valid signature")
 	}
 }
@@ -226,8 +227,8 @@ func TestVerifySignFailsOnTamperedData(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := []byte("original")
-	sig, _ := crypto.Sign(id.PrivateKey, data)
-	if crypto.VerifySign(&id.PrivateKey.PublicKey, append(data, 'X'), sig) {
+	sig, _ := crypto.Sign(identitykey.PrivateKey(id), data)
+	if crypto.VerifySign(&identitykey.PrivateKey(id).PublicKey, append(data, 'X'), sig) {
 		t.Error("VerifySign should fail for tampered data")
 	}
 }
@@ -238,9 +239,9 @@ func TestVerifySignFailsOnTamperedSig(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := []byte("original")
-	sig, _ := crypto.Sign(id.PrivateKey, data)
+	sig, _ := crypto.Sign(identitykey.PrivateKey(id), data)
 	sig[0] ^= 0xFF
-	if crypto.VerifySign(&id.PrivateKey.PublicKey, data, sig) {
+	if crypto.VerifySign(&identitykey.PrivateKey(id).PublicKey, data, sig) {
 		t.Error("VerifySign should fail for tampered signature")
 	}
 }

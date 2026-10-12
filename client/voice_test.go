@@ -20,8 +20,8 @@ func voicePacket(speakerID uint16, codec byte, audio []byte) *transport.Packet {
 
 func TestHandleVoicePacket_DispatchesSpeakerAndAudio(t *testing.T) {
 	c := newTestClient(t)
-	got := make(chan VoiceData, 1)
-	c.OnVoiceData(func(vd VoiceData) { got <- vd })
+	got := make(chan VoiceDataEvent, 1)
+	c.OnVoiceData(func(vd VoiceDataEvent) { got <- vd })
 
 	audio := []byte{0xaa, 0xbb, 0xcc}
 	c.handleVoicePacket(voicePacket(42, 5, audio))
@@ -42,8 +42,8 @@ func TestHandleVoicePacket_IgnoresOwnAudio(t *testing.T) {
 	c.clid = 7
 	c.mu.Unlock()
 
-	got := make(chan VoiceData, 1)
-	c.OnVoiceData(func(vd VoiceData) { got <- vd })
+	got := make(chan VoiceDataEvent, 1)
+	c.OnVoiceData(func(vd VoiceDataEvent) { got <- vd })
 
 	c.handleVoicePacket(voicePacket(7, 5, []byte{1, 2}))
 
@@ -56,7 +56,7 @@ func TestHandleVoicePacket_IgnoresOwnAudio(t *testing.T) {
 
 func TestHandleVoicePacket_IgnoresTruncatedPackets(t *testing.T) {
 	c := newTestClient(t)
-	c.OnVoiceData(func(VoiceData) { t.Error("handler called for a truncated packet") })
+	c.OnVoiceData(func(VoiceDataEvent) { t.Error("handler called for a truncated packet") })
 
 	c.handleVoicePacket(&transport.Packet{Data: []byte{0, 1, 2}})
 	time.Sleep(100 * time.Millisecond)
