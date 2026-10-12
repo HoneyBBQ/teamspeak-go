@@ -75,6 +75,41 @@ before v1.0.0.
   which carry password hashes and privilege keys. `identity.Identity`'s
   `String` and `LogValue` never include its private key.
 
+### Security
+
+- Nothing a network peer sends can crash or hang the client. Packet parsing,
+  decryption, reassembly, QuickLZ, every handshake step and command handling
+  are bounds-checked, and a panic below the read loop closes the connection
+  with a cause instead of the process. Fuzz tests cover each entry point.
+  Before the handshake completes, a step the client cannot use ends `Connect`
+  with an error wrapping `client.ErrHandshake`.
+- QuickLZ refused nothing: a three-byte header could panic, and a nine-byte
+  one allocate 2 GiB. Declared sizes are capped at 1 MiB, as is a command
+  reassembled from fragments.
+- The public dummy key is accepted only before crypto init (and, once, for
+  the server's Ack of `clientek`); a forged command under it was taken for
+  the server's. Init1 is ignored once the handshake is complete, and its RSA
+  puzzle is capped at 100000 squarings.
+- `initserver` after `Disconnect`, or on a replaced connection, can no longer
+  bring the client back to connected.
+- Logs carry a command's name and parameter count, never its parameters or a
+  message body. The client keeps only the hashes of its passwords; `*Client`,
+  `Request`, the transfer infos, `PrivilegeKey` and `TempPassword` format
+  without secrets. `identity.Identity` cannot be marshalled.
+
+### Lifecycle
+
+- Sending before `Connect` or between reconnects returns
+  `teamspeak.ErrNotConnected`; `SendVoice`, `SendWhisper` and `ExecNoWait`
+  panicked.
+- With `WithPacketConn`, a closed connection's reader stops (its read deadline
+  is set), so a reconnect on the same `PacketConn` is its only reader.
+- Connect's dial honours its context. The handler and crypto state are read
+  under one lock and are per connection; the live reconnect test sends
+  commands concurrently under `-race`.
+- Voice is dropped, with a rate-limited warning, while more than 256 event
+  deliveries are waiting; other events are always delivered.
+
 ### Added
 
 - `errcode`: every server error code by name.
@@ -92,13 +127,60 @@ The server info and raw notifications follow the
 
 ## Migrating from v0.2 and v0.3
 
+The changes from the earlier v1 previews are listed first, under
+[Changes in the last preview](#changes-in-the-last-preview).
+
+### Changes in the last preview
+
+| Before | Now |
+| --- | --- |
+| `id.PrivateKey`, `id.Offset` | unexported; `id.Offset()`, `id.Export()` |
+| `err = id.UpgradeToLevel(ctx, n)` | `id, err = id.UpgradeToLevel(ctx, n)` (a new identity; `n` ≤ 160) |
+| `identity.UID(pk, alg)` returns `string` | returns `teamspeak.UID` |
+| `c.UniqueIdentifier()` | `c.UID()` |
+| `Channel.UniqueIdentifier string` | `Channel.UID teamspeak.ChannelUID` |
+| `client.TextMessage`, `VoiceData`, `RawNotification`, `ClientLeftViewEvent` | `TextMessageEvent`, `VoiceDataEvent`, `NotificationEvent`, `ClientLeaveEvent` |
+| `ClientMovedEvent.ID`, `ClientLeftViewEvent.ID` | `.ClientID` |
+| `CommandMiddleware func(func(string) error) func(string) error` | `func(next teamspeak.Executor) teamspeak.Executor`, with `teamspeak.ExecutorFunc` |
+| `ListClients(ctx)` | `ListClients(ctx, teamspeak.ClientListOptions{})` |
+| `MoveClient(ctx, clid, cid, pw)` | `MoveClient(ctx, clid, cid, ClientMoveOptions{Password: pw})` |
+| `KickClient(ctx, clid, reason, msg)` | `KickClient(ctx, clid, reason, KickOptions{ReasonMessage: msg})` |
+| `BanClient(ctx, clid, d, reason)` | `BanClient(ctx, clid, BanClientOptions{Duration: d, Reason: reason})` |
+| `AddClientPermission(ctx, dbid, p, v, skip)` | `…, ClientPermissionOptions{Skip: skip})` |
+| `DeleteChannel(ctx, cid, force)`, `DeleteServerGroup`, `DeleteChannelGroup` | `ChannelDeleteOptions{Force}`, `GroupDeleteOptions{Force}` |
+| `MoveChannel(ctx, cid, parent, order)` | `…, ChannelMoveOptions{Order: order})` |
+| `ListServerGroupClients(ctx, sgid, names, uids)` | `…, ServerGroupClientListOptions{Names, UIDs})` |
+| `ListChannelGroupClients(ctx, cid, dbid, cgid)` | `ListChannelGroupClients(ctx, ChannelGroupClientListOptions{…})` |
+| `ListComplaints(ctx, dbid)`, `ListBindings(ctx, sub)` | `ComplaintListOptions{TargetDatabaseID}`, `BindingListOptions{Subsystem}` |
+| `ListFiles`, `GetFileInfo`, `DeleteFile`, `CreateDirectory` taking `pw` | `FileOptions{Password: pw}` |
+| `InitFileUpload(ctx, cid, path, size, pw, overwrite)` | `…, size, FileUploadOptions{Password, Overwrite, Resume})` |
+| `InitFileDownload(ctx, cid, path, pw, seek)` | `…, path, FileDownloadOptions{Password, SeekPosition})` |
+| `StopFileTransfer(ctx, id, remove)` | `…, FileTransferStopOptions{RemovePartialFile: remove})` |
+| `RenameFileOptions` | `FileRenameOptions` |
+| ban, message and transfer ids as `uint64`/`uint16` | `BanID`, `MessageID`, `ClientFileTransferID`, `ServerFileTransferID` |
+| `Binding.Port int`, `SortID uint64` | `uint16`, `int32` |
+| `PermissionLocation{ID1, ID2}` | `ServerGroupID`, `ClientDBID`, `ChannelID`, `ChannelGroupID`, set by `Target` |
+| `WhoAmI`, `GetConnectionInfo` → `map[string]string` | `teamspeak.WhoAmI`, `teamspeak.ServerConnectionInfo` |
+| `ListPermissions`, `GetPermissionOverview` → maps | `[]PermissionInfo`, `[]PermissionOverviewEntry` |
+| `GetServerInfo`, `GetClientInfo`, `GetHostInfo`, `GetInstanceInfo` → `map[string]string` | `teamspeak.Properties` (the same map, named) |
+| `ListTokens`, `AddToken`, `DeleteToken`, `UseToken` | the `PrivilegeKey` methods |
+| `ReconnectOptions{Enabled: true, …}` | `WithReconnect(ReconnectOptions{…})` alone |
+| `commands.ParseCommand`, `BuildCommand`, `Command`, … | internal; `commands` keeps `Escape` and `Unescape` |
+| a dot-less address looked up at named.myteamspeak.com | resolved as a host; opt in with `client.WithNicknameLookup()` |
+| `ServerFamilyUnknown == "unknown"` | the zero value `""`; `String()` still says "unknown" |
+| `c.Commands = …` | not assignable; the typed commands are still the client's methods |
+
+A deleted file list is now sent the way the server reads it, so
+`DeleteFile` with several paths deletes them all instead of failing with
+2054.
+
 ### Imports
 
 | v0.x | v1 |
 | --- | --- |
 | `teamspeak.NewClient`, `teamspeak.With…` | `client.New`, `client.With…` |
 | `crypto.GenerateIdentity`, `crypto.IdentityFromString` | `identity.Generate(ctx, level)`, `identity.Parse` |
-| `crypto.GetUidFromPublicKey` | `identity.UID(publicKey, identity.UIDSHA1)` |
+| `crypto.GetUidFromPublicKey` | `identity.UID(publicKey, identity.UIDSHA1)`, a `teamspeak.UID` |
 | `transport`, `handshake`, `crypto`, `discovery` | internal; no replacement |
 
 ### Connecting
@@ -132,7 +214,7 @@ err = c.ClientMove(clid, 5, "")
 
 // v1
 channels, err := c.ListChannels(ctx)
-err = c.MoveClient(ctx, clid, teamspeak.ChannelID(5), "")
+err = c.MoveClient(ctx, clid, teamspeak.ChannelID(5), teamspeak.ClientMoveOptions{})
 ```
 
 Raw commands:
@@ -172,7 +254,7 @@ c.OnTextMessage(func(m teamspeak.TextMessage) { … })
 c.OnKicked(func(reason string) { … })
 
 // v1
-stop := c.OnTextMessage(func(m client.TextMessage) { … })
+stop := c.OnTextMessage(func(m client.TextMessageEvent) { … })
 defer stop()
 c.OnKicked(func(e client.KickedEvent) { … }) // e.Message, e.Reason, e.InvokerName
 ```
@@ -184,10 +266,14 @@ c.OnKicked(func(e client.KickedEvent) { … }) // e.Message, e.Reason, e.Invoker
 Middleware is set when the client is built, with `client.WithCommandMiddleware`
 and `client.WithEventMiddleware`; `UseCommandMiddleware` and
 `UseEventMiddleware` are gone, since changing a chain while commands run raced.
-Event middleware receives a `client.Event`.
+Event middleware receives a `client.Event`. Command middleware wraps the typed
+commands rather than the wire: it receives and returns a `teamspeak.Executor`,
+sees the request and the caller's context, and can answer a command itself.
+Raw `Exec` lines bypass it.
 
 ### Reconnecting
 
+`WithReconnect` turns reconnection on; `ReconnectOptions` has no `Enabled`.
 `client.DefaultBackoffPolicy` is a function, and `BackoffDelay(policy,
 attempt, random)` is `policy.Delay(attempt)`. A zero `Jitter` now means the
 default; a negative one turns jitter off.
@@ -200,7 +286,7 @@ info, err := c.FileTransferInitUpload(cid, "/a.txt", "", size, true) // password
 err = teamspeak.UploadFileData(host, info, r)
 
 // v1
-info, err := c.InitFileUpload(ctx, cid, "/a.txt", size, "", true)
+info, err := c.InitFileUpload(ctx, cid, "/a.txt", size, teamspeak.FileUploadOptions{Overwrite: true})
 err = teamspeak.UploadFileData(ctx, host, info, r, nil)
 ```
 

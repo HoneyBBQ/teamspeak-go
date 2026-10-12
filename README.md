@@ -144,7 +144,7 @@ func main() {
 | `OnClientLeave(func(ClientLeaveEvent))` | Fires when a client leaves |
 | `OnClientMoved(func(ClientMovedEvent))` | Fires when a client moves channels |
 | `OnPoked(func(PokeEvent))` | Fires when the bot is poked |
-| `OnVoiceData(func(VoiceDataEvent))` | Fires for each audio frame another client sends |
+| `OnVoiceData(func(VoiceDataEvent))` | Fires for each audio frame another client sends; dropped, with a warning, while more than 256 deliveries are waiting |
 | `OnNotification(func(NotificationEvent))` | Fires for every notification, as the server sent it |
 | `OnKicked(func(KickedEvent))` | Fires when the bot is kicked from its channel or the server |
 
@@ -223,14 +223,16 @@ cid, err := c.CreateChannel(ctx, teamspeak.ChannelCreateOptions{
 	ChannelFlagPermanent: new(true),
 })
 
-err = c.MoveClient(ctx, c.ClientID(), cid, "channel-password")
+// Required arguments are positional; everything optional is one options
+// struct, the last argument.
+err = c.MoveClient(ctx, c.ClientID(), cid, teamspeak.ClientMoveOptions{Password: "channel-password"})
 err = c.SendChannelMessage(ctx, "hello")
 
 // A permission is named by id or by name; the zero Permission is refused.
 err = c.AddChannelPermission(ctx, cid, teamspeak.PermissionByName("i_channel_needed_join_power"), 50)
 
 // 0 bans permanently; anything else is sent in whole seconds.
-banID, err := c.BanClient(ctx, troll, 10*time.Minute, "cool off")
+banID, err := c.BanClient(ctx, troll, teamspeak.BanClientOptions{Duration: 10 * time.Minute, Reason: "cool off"})
 
 // The client database is paged; the iterator fetches page after page.
 for entry, err := range c.ClientDatabase(ctx) {
@@ -265,14 +267,14 @@ line and returns the rows that answer it.
 
 | Method | Description |
 |---|---|
-| `ListFiles(cid, path, pw)` | Directory listing; `cid` is a `teamspeak.ChannelID` |
-| `GetFileInfo(cid, path, pw)` | Size and timestamp of one file |
-| `DeleteFile(cid, paths, pw)` | Delete one or more files |
-| `CreateDirectory(cid, dir, pw)` | Create a directory |
-| `RenameFile(cid, old, new, opts)` | Rename or move a file |
-| `StopFileTransfer(id, delete)` | Cancel a running transfer |
+| `ListFiles(cid, path, FileOptions)` | Directory listing; `cid` is a `teamspeak.ChannelID` |
+| `GetFileInfo(cid, path, FileOptions)` | Size and timestamp of one file |
+| `DeleteFile(cid, paths, FileOptions)` | Delete one or more files in one command |
+| `CreateDirectory(cid, dir, FileOptions)` | Create a directory |
+| `RenameFile(cid, old, new, FileRenameOptions)` | Rename or move a file |
+| `StopFileTransfer(id, FileTransferStopOptions)` | Cancel a running transfer |
 | `ListActiveTransfers()` | Transfers in progress |
-| `InitFileUpload(...)` / `InitFileDownload(...)` | Negotiate a transfer; pass the result to `UploadFileData` / `DownloadFileData` |
+| `InitFileUpload(cid, path, size, FileUploadOptions)` / `InitFileDownload(cid, path, FileDownloadOptions)` | Negotiate a transfer; pass the result to `UploadFileData` / `DownloadFileData` |
 | `teamspeak.UploadFileData(ctx, host, info, reader, dialer)` | Transfer file data to the server |
 | `teamspeak.DownloadFileData(ctx, host, info, writer, dialer)` | Receive file data from the server |
 | `teamspeak.DialFileTransfer(ctx, host, port, key, dialer)` | Open the transfer connection yourself |
@@ -286,7 +288,8 @@ is a `teamspeak.FileTransferDialer` — anything with
 10 second connect timeout.
 
 ```go
-upload, err := c.InitFileUpload(ctx, cid, "/notes.txt", uint64(len(data)), "", true)
+upload, err := c.InitFileUpload(ctx, cid, "/notes.txt", uint64(len(data)),
+	teamspeak.FileUploadOptions{Overwrite: true})
 if err != nil {
 	return err
 }
@@ -300,16 +303,18 @@ err = teamspeak.UploadFileData(ctx, host, upload, bytes.NewReader(data), nil)
 id, err := identity.Generate(ctx, 8)
 
 // Export for storage — this includes the private key, so store it like a
-// password. String() and slog never print the key.
+// password. The key is not otherwise reachable: String, %v, slog never
+// print it, and json.Marshal refuses an identity.
 exported := id.Export()
 
 // Read a previously exported identity
 id, err = identity.Parse(exported)
 
-// Raise the security level (CPU-intensive; ctx bounds it)
+// Raise the security level (CPU-intensive; ctx bounds it). Identities are
+// immutable: this returns a new one. Levels go up to 160.
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 defer cancel()
-err = id.UpgradeToLevel(ctx, 10)
+id, err = id.UpgradeToLevel(ctx, 10)
 ```
 
 ### Options
@@ -318,7 +323,7 @@ err = id.UpgradeToLevel(ctx, 10)
 c, err := client.New(id, "ts.example.com", "Bot",
 	client.WithLogger(slog.Default()), // silent without it
 	client.WithResolver(customResolver),
-	client.WithCommandMiddleware(loggingMiddleware),
+	client.WithCommandMiddleware(timeCommands),
 	client.WithEventMiddleware(filterMiddleware),
 	client.WithServerPassword(os.Getenv("TEAMSPEAK_SERVER_PASSWORD")),
 	client.WithDefaultChannel("Lobby"),
@@ -326,9 +331,35 @@ c, err := client.New(id, "ts.example.com", "Bot",
 )
 ```
 
+Command middleware wraps the typed commands. It sees each request and the
+caller's context, and returns the rows or an error, so it can time, retry or
+answer a command itself. Raw `Exec` and `ExecNoWait` lines, and the commands
+the client sends on its own during the handshake, do not pass through it.
+
+```go
+timeCommands := func(next teamspeak.Executor) teamspeak.Executor {
+	return teamspeak.ExecutorFunc(func(ctx context.Context, req teamspeak.Request) ([]map[string]string, error) {
+		start := time.Now()
+		rows, err := next.Send(ctx, req)
+		slog.Debug("command", "name", req.Command(), "took", time.Since(start), "err", err)
+
+		return rows, err
+	})
+}
+```
+
+`WithNicknameLookup()` resolves a dot-less address as a MyTeamSpeak nickname
+at named.myteamspeak.com first. It is off by default, since the lookup tells
+MyTeamSpeak which server you are connecting to; without it a dot-less address
+is resolved like any host.
+
+`WithPacketConn(pc)` runs the session over your own `net.PacketConn`. The
+client never closes it: ending a connection sets its read deadline to stop the
+reader, and the next `Connect` clears it.
+
 Connection auth options:
 
-- `WithServerPassword(password)` accepts the plain-text server password and sends the TeamSpeak protocol hash during `clientinit`
+- `WithServerPassword(password)` accepts the plain-text server password, keeps only the TeamSpeak protocol hash, and sends it during `clientinit`
 - `WithDefaultChannel(channel)` requests a default channel during `clientinit`
 - `WithDefaultChannelPassword(password)` accepts the plain-text channel password and sends the TeamSpeak protocol hash for the configured default channel
 
@@ -338,7 +369,7 @@ A refusal from the server is a `*teamspeak.ServerError`. It matches its code
 from the `errcode` package and `teamspeak.ErrServer` with `errors.Is`:
 
 ```go
-err := c.MoveClient(ctx, c.ClientID(), cid, "wrong")
+err := c.MoveClient(ctx, c.ClientID(), cid, teamspeak.ClientMoveOptions{Password: "wrong"})
 switch {
 case errors.Is(err, errcode.ChannelInvalidPassword):
 	// ask for the password again
@@ -346,6 +377,14 @@ case errors.Is(err, teamspeak.ErrNotConnected):
 	// the connection is gone
 }
 ```
+
+## Compatibility
+
+From v1.0.0 the module follows semantic versioning. Minor releases may add
+members to `Status`, `ServerFamily`, `identity.UIDAlgorithm`, the set of
+`client.Event` types and the enumerations (`GroupType`, `Codec`, `Reason` and
+the rest), and the server may send values this module does not name, so a
+`switch` over any of them should have a default case.
 
 ## Architecture
 
