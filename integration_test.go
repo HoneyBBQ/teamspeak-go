@@ -129,10 +129,15 @@ func requireSharedClient(t *testing.T) *teamspeak.Client {
 	return sharedClient
 }
 
-func skipOnPermErr(t *testing.T, err error) {
+// requireNoErr fails the test on any error.
+//
+// It used to skip on a permission error instead. The fixture grants what the
+// suite needs, so a refusal is a failure; skipping is how a suite passes while
+// testing nothing.
+func requireNoErr(t *testing.T, err error) {
 	t.Helper()
-	if err != nil && strings.Contains(err.Error(), "insufficient") {
-		t.Skipf("skipping — server returned permission error: %v", err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -317,7 +322,7 @@ func TestIntegration_ListClients(t *testing.T) {
 	c := requireSharedClient(t)
 
 	clients, err := c.ListClients()
-	skipOnPermErr(t, err)
+	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListClients: %v", err)
 	}
@@ -344,7 +349,7 @@ func TestIntegration_ListChannels(t *testing.T) {
 	c := requireSharedClient(t)
 
 	channels, err := c.ListChannels()
-	skipOnPermErr(t, err)
+	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
 	}
@@ -362,13 +367,13 @@ func TestIntegration_JoinsConfiguredDefaultChannel(t *testing.T) {
 	c := requireSharedClient(t)
 
 	channels, err := c.ListChannels()
-	skipOnPermErr(t, err)
+	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
 	}
 
 	clients, err := c.ListClients()
-	skipOnPermErr(t, err)
+	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListClients: %v", err)
 	}
@@ -405,7 +410,7 @@ func TestIntegration_GetClientInfo(t *testing.T) {
 	c := requireSharedClient(t)
 
 	info, err := c.GetClientInfo(c.ClientID())
-	skipOnPermErr(t, err)
+	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("GetClientInfo: %v", err)
 	}

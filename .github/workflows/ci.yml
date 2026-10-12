@@ -80,6 +80,9 @@ jobs:
           - 9987:9987/udp
           - 10011:10011
           - 10080:10080
+          # File transfer: the server hands out this port with each transfer
+          # key, so it must be reachable at the same number from the runner.
+          - 30033:30033
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

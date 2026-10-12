@@ -17,7 +17,7 @@ func TestIntegration_ListChannelsExposesOrder(t *testing.T) {
 	c := requireSharedClient(t)
 
 	channels, err := c.ListChannels()
-	skipOnPermErr(t, err)
+	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestIntegration_ClientMoveIntoPasswordProtectedChannel(t *testing.T) {
 	c := requireSharedClient(t)
 
 	channels, err := c.ListChannels()
-	skipOnPermErr(t, err)
+	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
 	}

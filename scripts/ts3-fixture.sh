@@ -318,6 +318,14 @@ servergroupaddperm sgid=$DEFAULT_GROUP permsid=b_virtualserver_info_view permval
 servergroupaddperm sgid=$DEFAULT_GROUP permsid=b_client_info_view permvalue=1 permnegated=0 permskip=0
 servergroupaddperm sgid=$DEFAULT_GROUP permsid=b_client_remoteaddress_view permvalue=1 permnegated=0 permskip=0
 servergroupaddperm sgid=$DEFAULT_GROUP permsid=i_client_whisper_power permvalue=100 permnegated=0 permskip=0
+servergroupaddperm sgid=$DEFAULT_GROUP permsid=b_virtualserver_servergroup_list permvalue=1 permnegated=0 permskip=0
+servergroupaddperm sgid=$DEFAULT_GROUP permsid=b_channel_create_temporary permvalue=1 permnegated=0 permskip=0
+servergroupaddperm sgid=$DEFAULT_GROUP permsid=b_channel_delete_temporary permvalue=1 permnegated=0 permskip=0
+servergroupaddperm sgid=$DEFAULT_GROUP permsid=b_channel_delete_flag_force permvalue=1 permnegated=0 permskip=0
+servergroupaddperm sgid=$DEFAULT_GROUP permsid=i_ft_file_upload_power permvalue=100 permnegated=0 permskip=0
+servergroupaddperm sgid=$DEFAULT_GROUP permsid=i_ft_file_download_power permvalue=100 permnegated=0 permskip=0
+servergroupaddperm sgid=$DEFAULT_GROUP permsid=i_ft_file_browse_power permvalue=100 permnegated=0 permskip=0
+servergroupaddperm sgid=$DEFAULT_GROUP permsid=i_ft_file_delete_power permvalue=100 permnegated=0 permskip=0
 COMMANDS
 
 # Read back what the tests will read. Provisioning that quietly did nothing is

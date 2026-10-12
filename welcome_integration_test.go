@@ -39,7 +39,7 @@ func TestIntegration_NoWelcomeContamination(t *testing.T) {
 	// No settling delay: the point is to ask while the welcome is still
 	// arriving, which is exactly when contamination used to happen.
 	channels, err := c.ListChannels()
-	skipOnPermErr(t, err)
+	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
 	}
