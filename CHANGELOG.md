@@ -147,6 +147,7 @@ The changes from the earlier v1 previews are listed first, under
 | `KickClient(ctx, clid, reason, msg)` | `KickClient(ctx, clid, reason, KickOptions{ReasonMessage: msg})` |
 | `BanClient(ctx, clid, d, reason)` | `BanClient(ctx, clid, BanClientOptions{Duration: d, Reason: reason})` |
 | `AddClientPermission(ctx, dbid, p, v, skip)` | `…, ClientPermissionOptions{Skip: skip})` |
+| `AddServerGroupPermission(ctx, sgid, ServerGroupPermission{Permission, Value, Negated, Skip})` | `AddServerGroupPermission(ctx, sgid, perm, value, ServerGroupPermissionOptions{Negated, Skip})` |
 | `DeleteChannel(ctx, cid, force)`, `DeleteServerGroup`, `DeleteChannelGroup` | `ChannelDeleteOptions{Force}`, `GroupDeleteOptions{Force}` |
 | `MoveChannel(ctx, cid, parent, order)` | `…, ChannelMoveOptions{Order: order})` |
 | `ListServerGroupClients(ctx, sgid, names, uids)` | `…, ServerGroupClientListOptions{Names, UIDs})` |

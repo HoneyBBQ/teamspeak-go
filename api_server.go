@@ -481,24 +481,27 @@ func (c *Commands) ListServerGroupPermissions(
 	return out, nil
 }
 
-// ServerGroupPermission is one permission to set on a server group.
-type ServerGroupPermission struct {
-	Permission Permission
-	Value      int32
-	Negated    bool
-	Skip       bool
+// ServerGroupPermissionOptions are AddServerGroupPermission's optional
+// parameters. Both are always sent, false unless set.
+type ServerGroupPermissionOptions struct {
+	// Negated makes the lowest value among the client's groups win instead of
+	// the highest (permnegated).
+	Negated bool
+	// Skip makes the value override the client's channel and channel group
+	// permissions (permskip).
+	Skip bool
 }
 
 // AddServerGroupPermission sets a permission on a server group.
 func (c *Commands) AddServerGroupPermission(
-	ctx context.Context, serverGroupID ServerGroupID, perm ServerGroupPermission,
+	ctx context.Context, serverGroupID ServerGroupID, perm Permission, value int32, opts ServerGroupPermissionOptions,
 ) error {
 	return c.exec(ctx, "servergroupaddperm", []param{
 		idArg("sgid", serverGroupID),
-		permArg(perm.Permission),
-		intArg("permvalue", int64(perm.Value)),
-		boolArg("permnegated", perm.Negated),
-		boolArg("permskip", perm.Skip),
+		permArg(perm),
+		intArg("permvalue", int64(value)),
+		boolArg("permnegated", opts.Negated),
+		boolArg("permskip", opts.Skip),
 	})
 }
 

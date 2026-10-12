@@ -203,7 +203,7 @@ func TestPermission_ZeroIsRefused(t *testing.T) {
 		return err
 	})
 	refused(t, func(c *Commands) error {
-		return c.AddServerGroupPermission(t.Context(), 6, ServerGroupPermission{Value: 1})
+		return c.AddServerGroupPermission(t.Context(), 6, Permission{}, 1, ServerGroupPermissionOptions{})
 	})
 }
 
