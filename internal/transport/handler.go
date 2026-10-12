@@ -591,6 +591,13 @@ func (h *PacketHandler) decryptPacketData(
 	p *Packet, header, ciphertext, tag []byte,
 ) (*decryptPacketResult, bool) {
 	unencrypted := (p.Flags() & PacketFlagUnencrypted) != 0
+	if unencrypted && !mayArriveUnencrypted(p.Type()) {
+		h.logger.Debug("unencrypted packet of an encrypted type, dropping it",
+			slog.Uint64("type", uint64(p.Type())),
+			slog.Uint64("id", uint64(p.ID)))
+
+		return nil, false
+	}
 	gen := h.resolvePacketGeneration(p)
 
 	if !h.TsCrypt.InitComplete() {
@@ -620,6 +627,28 @@ func (h *PacketHandler) decryptPacketData(
 	}
 
 	return &decryptPacketResult{plaintext: plaintext, dummyUsed: dummyUsed}, true
+}
+
+// mayArriveUnencrypted reports whether a packet of type t is accepted with the
+// Unencrypted flag. Such a packet is authenticated only by the fake
+// signature, which every plaintext ping and voice packet shows to anyone on
+// the path, so the flag is honoured only where both TeamSpeak 3 and 6 were
+// measured to use it: Init1 before crypto init, and voice, whisper, ping, pong
+// and Ack after it. An Ack carries nothing but a packet ID, so a forged one
+// can at most stop a resend, which dropping the packet would do anyway.
+// Commands, CommandLow and AckLow are never sent unencrypted; one that claims
+// to be is dropped, so text messages, kicks and command answers cannot be
+// forged.
+func mayArriveUnencrypted(t PacketType) bool {
+	switch t {
+	case PacketTypeVoice, PacketTypeVoiceWhisper, PacketTypePing, PacketTypePong,
+		PacketTypeAck, PacketTypeInit1:
+		return true
+	case PacketTypeCommand, PacketTypeCommandLow, PacketTypeAckLow:
+		return false
+	default:
+		return false
+	}
 }
 
 func (h *PacketHandler) logDecryptFailure(p *Packet, gen uint32, err error) {

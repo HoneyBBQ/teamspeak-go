@@ -124,3 +124,28 @@ func TestHandlerIgnoresInit1AfterCryptoInit(t *testing.T) {
 		t.Fatalf("delivered %d Init1 packets after crypto init, want 0", *delivered)
 	}
 }
+
+// The fake signature that authenticates unencrypted packets is on every
+// plaintext ping and voice packet, so anyone on the path can attach it. A
+// command claiming to be unencrypted must not be delivered, or such a peer
+// could forge text messages, kicks and command answers.
+func TestHandlerDropsUnencryptedCommandsAfterCryptoInit(t *testing.T) {
+	h, delivered := newFuzzHandler(t, true)
+	sig := h.TsCrypt.FakeSignature()
+	unenc := byte(PacketFlagUnencrypted)
+
+	h.handleRawPacket(buildS2CPacket(sig[:], 0, byte(PacketTypeCommand)|unenc,
+		[]byte("notifytextmessage targetmode=1 msg=forged invokerid=2")))
+	h.handleRawPacket(buildS2CPacket(sig[:], 0, byte(PacketTypeCommandLow)|unenc,
+		[]byte("notifyclientpoke msg=forged")))
+	h.handleRawPacket(buildS2CPacket(sig[:], 0, byte(PacketTypeAckLow)|unenc, []byte{0, 0}))
+	if *delivered != 0 {
+		t.Fatalf("delivered %d unencrypted command packets after crypto init, want 0", *delivered)
+	}
+
+	// Voice is sent unencrypted by the servers and must still arrive.
+	h.handleRawPacket(buildS2CPacket(sig[:], 0, byte(PacketTypeVoice)|unenc, []byte{0, 0, 0, 0, 0, 4, 1}))
+	if *delivered != 1 {
+		t.Fatalf("delivered %d unencrypted voice packets, want 1", *delivered)
+	}
+}
