@@ -103,11 +103,11 @@ func TestCryptoInit2_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CryptoInit2 failed: %v", err)
 	}
-	if !f.tc.CryptoInitComplete {
-		t.Error("expected CryptoInitComplete to be true after CryptoInit2")
+	if !f.tc.InitComplete() {
+		t.Error("expected InitComplete to be true after CryptoInit2")
 	}
-	if len(f.tc.IvStruct) == 0 {
-		t.Error("expected IvStruct to be populated")
+	if f.tc.FakeSignature() == [8]byte{} {
+		t.Error("expected the fake signature to be derived")
 	}
 }
 

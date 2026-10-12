@@ -9,10 +9,22 @@ var (
 	errQlzDataTooShort          = errors.New("data too short")
 	errQlzUnsupportedLevel      = errors.New("only QuickLZ level 1 is supported")
 	errQlzDataTooShortForHeader = errors.New("data too short for header")
+	errQlzTooLarge              = errors.New("declared decompressed size exceeds the limit")
+	errQlzTruncated             = errors.New("compressed data ends before the declared size")
+	errQlzBadReference          = errors.New("back-reference outside the decompressed data")
 )
 
 // TableSize is the QuickLZ level-1 hash table size.
 const TableSize = 4096
+
+// MaxDecompressedSize is the largest payload Decompress produces; a block
+// declaring more is refused before anything is allocated.
+//
+// The largest command the servers send is the permission list, about 21 KiB
+// decompressed on TeamSpeak 3 and 6. A reassembled command is bounded by the
+// receive window to about 500 KiB compressed, so 1 MiB leaves a wide margin
+// for real traffic while keeping a forged header from allocating gigabytes.
+const MaxDecompressedSize = 1 << 20
 
 // Qlz decompresses QuickLZ level 1, the compression TeamSpeak uses for
 // command payloads. Its hash table is reused between calls, so a Qlz is not
@@ -33,6 +45,8 @@ func NewQlz() *Qlz {
 	return &Qlz{}
 }
 
+// getDecompressedSize reads the declared size from a header whose length
+// parseQlzHeader has already checked.
 func getDecompressedSize(data []byte) int {
 	if (data[0] & 0x02) != 0 {
 		return int(binary.LittleEndian.Uint32(data[5:9]))
@@ -42,20 +56,29 @@ func getDecompressedSize(data []byte) int {
 }
 
 // Decompress returns the data a QuickLZ level 1 block holds, with a 3- or
-// 9-byte header; a block stored uncompressed is copied out. Any other level
-// is rejected with an error.
+// 9-byte header; a block stored uncompressed is copied out. Any other level, a
+// declared size over MaxDecompressedSize, data that ends early and a
+// back-reference outside the output are rejected with an error.
 func (q *Qlz) Decompress(data []byte) ([]byte, error) {
 	headerLen, decompressedSize, flags, err := parseQlzHeader(data)
 	if err != nil {
 		return nil, err
 	}
-	dest := make([]byte, decompressedSize)
+	if decompressedSize > MaxDecompressedSize {
+		return nil, errQlzTooLarge
+	}
 
 	if (flags & 0x01) == 0 {
+		if len(data)-headerLen < decompressedSize {
+			return nil, errQlzTruncated
+		}
+		dest := make([]byte, decompressedSize)
 		copy(dest, data[headerLen:headerLen+decompressedSize])
 
 		return dest, nil
 	}
+
+	dest := make([]byte, decompressedSize)
 
 	for i := range q.hashtable {
 		q.hashtable[i] = 0
@@ -66,19 +89,26 @@ func (q *Qlz) Decompress(data []byte) ([]byte, error) {
 		sourcePos: headerLen,
 	}
 
-	for q.ensureControl(data, &state) {
+	for {
+		if !q.ensureControl(data, &state) {
+			return nil, errQlzTruncated
+		}
 		if (state.control & 1) != 0 {
-			if !q.processReference(data, dest, &state) {
-				break
+			err = q.processReference(data, dest, &state)
+			if err != nil {
+				return nil, err
 			}
-		} else {
-			if q.processLiteral(data, dest, decompressedSize, &state) {
-				break
-			}
+
+			continue
+		}
+		done, err := q.processLiteral(data, dest, decompressedSize, &state)
+		if err != nil {
+			return nil, err
+		}
+		if done {
+			return dest, nil
 		}
 	}
-
-	return dest, nil
 }
 
 func parseQlzHeader(data []byte) (int, int, byte, error) {
@@ -114,10 +144,10 @@ func (q *Qlz) ensureControl(data []byte, st *qlzState) bool {
 	return true
 }
 
-func (q *Qlz) processReference(data, dest []byte, st *qlzState) bool {
+func (q *Qlz) processReference(data, dest []byte, st *qlzState) error {
 	st.control >>= 1
 	if st.sourcePos+2 > len(data) {
-		return false
+		return errQlzTruncated
 	}
 	b1 := data[st.sourcePos]
 	b2 := data[st.sourcePos+1]
@@ -129,39 +159,45 @@ func (q *Qlz) processReference(data, dest []byte, st *qlzState) bool {
 		matchlen += 2
 	} else {
 		if st.sourcePos >= len(data) {
-			return false
+			return errQlzTruncated
 		}
 		matchlen = int(data[st.sourcePos])
 		st.sourcePos++
 	}
 
+	// A reference copies from output already written, possibly overlapping
+	// what it writes, so it must start before the current position and end
+	// within the declared size.
 	offset := q.hashtable[hash]
+	if offset >= st.destPos || st.destPos+matchlen > len(dest) {
+		return errQlzBadReference
+	}
 	for i := range matchlen {
-		if st.destPos < len(dest) && offset+i < st.destPos {
-			dest[st.destPos] = dest[offset+i]
-			st.destPos++
-		}
+		dest[st.destPos] = dest[offset+i]
+		st.destPos++
 	}
 
 	end := st.destPos + 1 - matchlen
 	q.updateHashtable(dest, &st.nextHashed, end)
 	st.nextHashed = st.destPos
 
-	return true
+	return nil
 }
 
-func (q *Qlz) processLiteral(data, dest []byte, decompressedSize int, st *qlzState) bool {
+// processLiteral copies one literal, or every remaining one once the output is
+// within ten bytes of its end, reporting whether the output is complete.
+func (q *Qlz) processLiteral(data, dest []byte, decompressedSize int, st *qlzState) (bool, error) {
 	if st.destPos >= max(decompressedSize, 10)-10 {
 		for st.destPos < decompressedSize {
 			if st.control == 1 {
 				st.sourcePos += 4
 				if st.sourcePos > len(data) {
-					break
+					return false, errQlzTruncated
 				}
 				st.control = binary.LittleEndian.Uint32(data[st.sourcePos-4 : st.sourcePos])
 			}
 			if st.sourcePos >= len(data) {
-				break
+				return false, errQlzTruncated
 			}
 			dest[st.destPos] = data[st.sourcePos]
 			st.destPos++
@@ -169,10 +205,10 @@ func (q *Qlz) processLiteral(data, dest []byte, decompressedSize int, st *qlzSta
 			st.control >>= 1
 		}
 
-		return true
+		return true, nil
 	}
-	if st.sourcePos >= len(data) || st.destPos >= len(dest) {
-		return true
+	if st.sourcePos >= len(data) {
+		return false, errQlzTruncated
 	}
 	dest[st.destPos] = data[st.sourcePos]
 	st.destPos++
@@ -184,7 +220,7 @@ func (q *Qlz) processLiteral(data, dest []byte, decompressedSize int, st *qlzSta
 		st.nextHashed = end
 	}
 
-	return false
+	return false, nil
 }
 
 func (q *Qlz) updateHashtable(dest []byte, nextHashed *int, end int) {

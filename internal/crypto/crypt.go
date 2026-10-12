@@ -11,19 +11,23 @@ import (
 	"crypto/sha512"
 	"encoding/asn1"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
 	"sync"
+	"sync/atomic"
 
 	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 var (
 	errRSAChallengeOutRange = errors.New("RSA challenge level out of range")
+	errRSAChallengeShort    = errors.New("RSA challenge too short")
+	errRSAChallengeModulus  = errors.New("RSA challenge modulus is zero")
 	errInvalidPublicPoint   = errors.New("invalid public key point encoding")
 	errSharedSecretCompute  = errors.New("failed to compute ECDH shared secret")
+	errSharedSecretLength   = errors.New("alpha, beta and the shared secret do not fit together")
+	errNoPrivateKey         = errors.New("identity has no private key")
 )
 
 const (
@@ -33,26 +37,38 @@ const (
 	p256PointPrefix         = 0x04
 	p256UncompressedKeySize = 65
 	rsaChallengeBlockSize   = 64
-	maxRSAChallengeLevel    = 1000000
-	packetTypeMask          = 0x0F
-	generationIDShift       = 32
-	fromServerShift         = 40
-	fakeSignatureSize       = 8
-	ivAlphaSize             = 10
-	sha1NumBufSize          = 20
-	bitsPerByte             = 8
+	// MaxRSAChallengeLevel is the most squarings SolveRsaChallenge performs.
+	// TeamSpeak 3 and 6 servers both ask for 10000; ten times that is still a
+	// fraction of a second, where a forged Init1 asking for millions would
+	// hold the connection's read loop for much longer.
+	MaxRSAChallengeLevel = 100000
+	packetTypeMask       = 0x0F
+	generationIDShift    = 32
+	fromServerShift      = 40
+	fakeSignatureSize    = 8
+	ivAlphaSize          = 10
+	sha1NumBufSize       = 20
+	bitsPerByte          = 8
 )
 
 // Crypt holds a connection's crypto state: the identity it authenticates with,
 // the IV struct agreed in the handshake, and the keys derived from it.
+//
+// The handshake writes the state on the connection's read loop while packets
+// are sent from other goroutines, so the IV struct, the fake signature and the
+// key cache are guarded by a mutex, and whether the handshake has completed is
+// an atomic flag.
 type Crypt struct {
-	Identity           *identity.Identity
-	CachedKeys         map[uint64]KeyNonce
-	IvStruct           []byte
-	FakeSignature      []byte
-	AlphaTmp           []byte
-	keyMu              sync.Mutex
-	CryptoInitComplete bool
+	// Identity is the identity the connection authenticates with.
+	Identity *identity.Identity
+	// AlphaTmp is the alpha the client sent in clientinitiv. Only the read
+	// loop touches it.
+	AlphaTmp     []byte
+	cachedKeys   map[uint64]KeyNonce
+	ivStruct     []byte
+	fakeSig      [fakeSignatureSize]byte
+	keyMu        sync.Mutex
+	initComplete atomic.Bool
 }
 
 // KeyNonce is a derived AES key and EAX nonce for one direction, packet type
@@ -79,21 +95,44 @@ func makeCacheKey(fromServer bool, packetType byte, generationID uint32) uint64 
 // packets use the protocol's fixed dummy key.
 func NewCrypt(id *identity.Identity) *Crypt {
 	return &Crypt{
-		Identity:      id,
-		FakeSignature: make([]byte, fakeSignatureSize),
-		CachedKeys:    make(map[uint64]KeyNonce),
+		Identity:   id,
+		cachedKeys: make(map[uint64]KeyNonce),
 	}
+}
+
+// InitComplete reports whether the handshake has agreed a shared secret, after
+// which packets are encrypted with keys derived from it instead of the fixed
+// dummy key.
+func (tc *Crypt) InitComplete() bool {
+	return tc.initComplete.Load()
+}
+
+// FakeSignature returns the MAC that authenticates unencrypted packets: zero
+// until the handshake completes, then derived from the IV struct.
+func (tc *Crypt) FakeSignature() [fakeSignatureSize]byte {
+	tc.keyMu.Lock()
+	defer tc.keyMu.Unlock()
+
+	return tc.fakeSig
 }
 
 // SolveRsaChallenge solves the Init1 step 4 puzzle: y = x^(2^level) mod n,
 // with x and n the two 64-byte numbers at data[offset:], returned as 64
-// big-endian bytes. The server uses it as a proof of work against floods.
+// big-endian bytes. The server uses it as a proof of work against floods. A
+// level above MaxRSAChallengeLevel, data too short to hold x and n, and a zero
+// n are refused.
 func (tc *Crypt) SolveRsaChallenge(data []byte, offset int, level int) ([]byte, error) {
-	if level < 0 || level > maxRSAChallengeLevel {
-		return nil, errRSAChallengeOutRange
+	if level < 0 || level > MaxRSAChallengeLevel {
+		return nil, fmt.Errorf("%w: %d", errRSAChallengeOutRange, level)
+	}
+	if offset < 0 || len(data)-offset < 2*rsaChallengeBlockSize {
+		return nil, errRSAChallengeShort
 	}
 	x := new(big.Int).SetBytes(data[offset : offset+rsaChallengeBlockSize])
 	n := new(big.Int).SetBytes(data[offset+rsaChallengeBlockSize : offset+2*rsaChallengeBlockSize])
+	if n.Sign() == 0 {
+		return nil, errRSAChallengeModulus
+	}
 
 	// y = x^(2^level) mod n via repeated squaring.
 	y := new(big.Int).Set(x)
@@ -133,56 +172,59 @@ func (tc *Crypt) InitCrypto(alpha, beta, omega string) error {
 	if err != nil {
 		return err
 	}
-	sharedSecret := tc.getSharedSecret(serverPubKey)
-	if len(sharedSecret) == 0 {
-		return errSharedSecretCompute
+	sharedSecret, err := tc.getSharedSecret(serverPubKey)
+	if err != nil {
+		return err
 	}
 
 	return tc.SetSharedSecret(alphaBytes, betaBytes, sharedSecret)
 }
 
 // SetSharedSecret builds the IV struct by XORing alpha and beta into sharedKey,
-// derives the fake signature from it, and marks crypto as initialised.
+// derives the fake signature from it, and marks crypto as initialised. alpha
+// must be 10 bytes and sharedKey at least as long as the IV struct, 10 bytes
+// plus beta; anything else is refused, since the values come from the server.
 func (tc *Crypt) SetSharedSecret(alpha, beta, sharedKey []byte) error {
-	tc.IvStruct = make([]byte, ivAlphaSize+len(beta))
+	if len(alpha) != ivAlphaSize || len(beta) == 0 || ivAlphaSize+len(beta) > len(sharedKey) {
+		return errSharedSecretLength
+	}
+	ivStruct := make([]byte, ivAlphaSize+len(beta))
 	for i := range alpha {
-		tc.IvStruct[i] = sharedKey[i] ^ alpha[i]
+		ivStruct[i] = sharedKey[i] ^ alpha[i]
 	}
 	for i := range beta {
-		tc.IvStruct[ivAlphaSize+i] = sharedKey[ivAlphaSize+i] ^ beta[i]
+		ivStruct[ivAlphaSize+i] = sharedKey[ivAlphaSize+i] ^ beta[i]
 	}
 
-	h := sha1.New()
-	h.Write(tc.IvStruct)
-	copy(tc.FakeSignature, h.Sum(nil)[:fakeSignatureSize])
+	sum := sha1.Sum(ivStruct)
 
-	tc.CryptoInitComplete = true
+	tc.keyMu.Lock()
+	tc.ivStruct = ivStruct
+	copy(tc.fakeSig[:], sum[:fakeSignatureSize])
+	clear(tc.cachedKeys)
+	tc.keyMu.Unlock()
+
+	tc.initComplete.Store(true)
 
 	return nil
 }
 
-// DebugCryptoState returns the IV struct's length and the fake signature in
-// hex, enough to compare crypto state in logs without exposing the IV struct.
-func (tc *Crypt) DebugCryptoState() (int, string) {
-	if len(tc.IvStruct) == 0 {
-		return 0, ""
+func (tc *Crypt) getSharedSecret(pub *ecdsa.PublicKey) ([]byte, error) {
+	if tc.Identity == nil || tc.Identity.PrivateKey == nil {
+		return nil, errNoPrivateKey
 	}
-
-	return len(tc.IvStruct), hex.EncodeToString(tc.FakeSignature)
-}
-
-func (tc *Crypt) getSharedSecret(pub *ecdsa.PublicKey) []byte {
-	privECDH, err := tc.Identity.PrivateKey.ECDH()
+	priv := tc.Identity.PrivateKey
+	privECDH, err := priv.ECDH()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("%w: %w", errSharedSecretCompute, err)
 	}
 	pubECDH, err := pub.ECDH()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("%w: %w", errSharedSecretCompute, err)
 	}
 	keyArr, err := privECDH.ECDH(pubECDH)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("%w: %w", errSharedSecretCompute, err)
 	}
 	if len(keyArr) > p256ScalarSize {
 		keyArr = keyArr[len(keyArr)-p256ScalarSize:]
@@ -191,10 +233,9 @@ func (tc *Crypt) getSharedSecret(pub *ecdsa.PublicKey) []byte {
 		copy(aligned[p256ScalarSize-len(keyArr):], keyArr)
 		keyArr = aligned
 	}
-	h := sha1.New()
-	h.Write(keyArr)
+	sum := sha1.Sum(keyArr)
 
-	return h.Sum(nil)
+	return sum[:], nil
 }
 
 // Hash512 returns the SHA-512 digest of data; license blocks are hashed with it.

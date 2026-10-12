@@ -69,9 +69,9 @@ func (tc *Crypt) GetKeyNonce(
 	cacheKey := makeCacheKey(fromServer, packetType, generationID)
 
 	tc.keyMu.Lock()
-	kn, ok := tc.CachedKeys[cacheKey]
+	kn, ok := tc.cachedKeys[cacheKey]
 	if !ok {
-		tmpToHash := make([]byte, hashInputMetaSize+len(tc.IvStruct))
+		tmpToHash := make([]byte, hashInputMetaSize+len(tc.ivStruct))
 		if fromServer {
 			tmpToHash[0] = serverSaltByte
 		} else {
@@ -79,7 +79,7 @@ func (tc *Crypt) GetKeyNonce(
 		}
 		tmpToHash[1] = packetType & packetTypeMask
 		binary.BigEndian.PutUint32(tmpToHash[2:6], generationID)
-		copy(tmpToHash[6:], tc.IvStruct)
+		copy(tmpToHash[6:], tc.ivStruct)
 
 		hash := sha256.Sum256(tmpToHash)
 		kn = KeyNonce{
@@ -87,7 +87,7 @@ func (tc *Crypt) GetKeyNonce(
 			Nonce: append([]byte(nil), hash[keySizeBytes:2*keySizeBytes]...),
 			Gen:   generationID,
 		}
-		tc.CachedKeys[cacheKey] = kn
+		tc.cachedKeys[cacheKey] = kn
 	}
 	tc.keyMu.Unlock()
 
@@ -121,7 +121,9 @@ func (tc *Crypt) Encrypt(
 	}
 
 	if unencrypted {
-		return plaintext, tc.FakeSignature, nil
+		sig := tc.FakeSignature()
+
+		return plaintext, sig[:], nil
 	}
 
 	key, nonce := tc.GetKeyNonce(false, packetID, generationID, packetType, dummy)
@@ -149,8 +151,12 @@ func (tc *Crypt) Decrypt(
 		return ciphertext, nil
 	}
 
+	if len(tag) < fakeSignatureSize {
+		return nil, ErrFakeSignatureMismatch
+	}
 	if unencrypted {
-		if subtle.ConstantTimeCompare(tag[:fakeSignatureSize], tc.FakeSignature) != 1 {
+		sig := tc.FakeSignature()
+		if subtle.ConstantTimeCompare(tag[:fakeSignatureSize], sig[:]) != 1 {
 			return nil, ErrFakeSignatureMismatch
 		}
 

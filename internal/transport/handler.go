@@ -8,8 +8,10 @@
 package transport
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -59,7 +61,18 @@ var (
 	ErrNoWhisperTargets = errors.New("whisper requires at least one target client")
 	// ErrTooManyWhisperTargets is returned when a whisper names more than 32 clients.
 	ErrTooManyWhisperTargets = errors.New("whisper supports at most 32 target clients")
+	// ErrNotOpen is returned by a send on a handler that has not started or
+	// has closed.
+	ErrNotOpen = errors.New("connection is not open")
+	// ErrPacketHandling is the cause a handler closes with when handling a
+	// received packet panicked: the connection's state can no longer be
+	// trusted.
+	ErrPacketHandling = errors.New("handling a received packet failed")
 )
+
+// MaxReassembledSize caps a command reassembled from fragments; a larger one is
+// dropped. It matches MaxDecompressedSize, for the reasons given there.
+const MaxReassembledSize = MaxDecompressedSize
 
 var bufPool = sync.Pool{
 	New: func() any {
@@ -116,8 +129,10 @@ type PacketHandler struct {
 	OnAck                func(id uint16)
 	OnPacket             func(p *Packet)
 	TsCrypt              *crypto.Crypt
-	generationCounter    [9]uint32
-	mu                   sync.Mutex
+	// readerDone is closed when the receive loop has stopped reading.
+	readerDone        chan struct{}
+	generationCounter [9]uint32
+	mu                sync.Mutex
 	// lifecycleMu orders Start and Close: a Close that races a Start either
 	// sees the connection and closes it, or makes Start refuse it.
 	lifecycleMu   sync.Mutex
@@ -125,7 +140,13 @@ type PacketHandler struct {
 	started       atomic.Bool
 	packetCounter [9]uint16
 	// clientID is written once the server assigns it and read on every send.
-	clientID         atomic.Uint32
+	clientID atomic.Uint32
+	// clientEkID is the id of the last Command sent with the dummy key, or -1.
+	// The server acknowledges that packet — clientek, the last one before the
+	// shared secret exists — with the dummy key even though the client has
+	// already switched to the real one, so its Ack is the one packet the dummy
+	// key is accepted for once crypto init is complete.
+	clientEkID       atomic.Int32
 	nextCommandLowID uint16
 	nextCommandID    uint16
 }
@@ -150,7 +171,8 @@ func NewPacketHandler(tsCrypt *crypto.Crypt, logger *slog.Logger) *PacketHandler
 		logger = slog.Default()
 	}
 
-	return &PacketHandler{
+	h := &PacketHandler{
+		readerDone:           make(chan struct{}),
 		TsCrypt:              tsCrypt,
 		logger:               logger,
 		ackManager:           make(map[uint32]*resendPacket),
@@ -164,6 +186,9 @@ func NewPacketHandler(tsCrypt *crypto.Crypt, logger *slog.Logger) *PacketHandler
 		commandLowQueue:      make(map[uint16]*Packet),
 		lastMessageReceived:  time.Now(),
 	}
+	h.clientEkID.Store(-1)
+
+	return h
 }
 
 // SetClientID sets the client id the server assigned, which every packet the
@@ -172,18 +197,36 @@ func (h *PacketHandler) SetClientID(id uint16) {
 	h.clientID.Store(uint32(id))
 }
 
-// Connect resolves addr as a UDP address, dials it, and calls Start.
-func (h *PacketHandler) Connect(addr string) error {
-	udpAddr, err := net.ResolveUDPAddr("udp", addr)
-	if err != nil {
-		return err
-	}
-	conn, err := net.DialUDP("udp", nil, udpAddr)
+// Connect resolves and dials addr over UDP, both bounded by ctx, and calls
+// Start. A handler closed while the socket was opening closes the socket
+// instead of starting on it.
+func (h *PacketHandler) Connect(ctx context.Context, addr string) error {
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(ctx, "udp", addr)
 	if err != nil {
 		return err
 	}
 
 	return h.Start(conn)
+}
+
+// WaitReaderStopped waits, until ctx is done, for a closed handler's receive
+// loop to stop reading from its connection. A handler that never started
+// returns at once.
+//
+// A connection that outlives the handler — a caller's PacketConn — must not
+// be read by two handlers at once, or the old one takes datagrams meant for
+// the new.
+func (h *PacketHandler) WaitReaderStopped(ctx context.Context) error {
+	if !h.started.Load() {
+		return nil
+	}
+	select {
+	case <-h.readerDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Start attaches conn to the handler, launches background goroutines, and sends
@@ -197,6 +240,12 @@ func (h *PacketHandler) Start(conn io.ReadWriteCloser) error {
 
 		return net.ErrClosed
 	}
+	h.mu.Lock()
+	h.packetCounter[PacketTypeCommand]++
+	h.packetCounter[PacketTypeInit1] = 101
+	h.mu.Unlock()
+	// conn is written once, before started: a sender that sees started set
+	// sees conn too.
 	h.conn = conn
 	h.started.Store(true)
 	h.lifecycleMu.Unlock()
@@ -206,19 +255,23 @@ func (h *PacketHandler) Start(conn io.ReadWriteCloser) error {
 	go h.resendLoop()
 	go h.pingLoop()
 
-	h.packetCounter[PacketTypeCommand]++
-	h.packetCounter[PacketTypeInit1] = 101
-
-	init1Data := handshake.ProcessInit1(h.TsCrypt, nil)
+	init1Data, err := handshake.ProcessInit1(h.TsCrypt, nil)
+	if err != nil {
+		return err
+	}
 
 	return h.SendPacket(byte(PacketTypeInit1), init1Data, 0)
 }
 
 // SendPacket sends data as one packet of type pType, splitting a command
 // payload too large for one datagram into fragments. Until the crypto
-// handshake completes it encrypts with the protocol's fixed dummy key.
+// handshake completes it encrypts with the protocol's fixed dummy key. On a
+// handler that is not open it returns ErrNotOpen.
 func (h *PacketHandler) SendPacket(pType byte, data []byte, flags byte) error {
-	dummy := !h.TsCrypt.CryptoInitComplete
+	if !h.IsOpen() {
+		return ErrNotOpen
+	}
+	dummy := !h.TsCrypt.InitComplete()
 
 	// Fragment non-voice command payloads larger than one UDP frame (487 B body).
 	if len(data) > 487 && pType != 0 && pType != 1 {
@@ -274,6 +327,9 @@ func (h *PacketHandler) sendPacket(pType byte, data []byte, flags byte, dummy bo
 	if err != nil {
 		return err
 	}
+	if dummy && !unencrypted && pType == byte(PacketTypeCommand) {
+		h.clientEkID.Store(int32(pID))
+	}
 
 	final := getPooledBytes(&bufPool, tagSize+headerSize+len(ciphertext))
 	defer putPooledBytes(&bufPool, final)
@@ -316,6 +372,7 @@ func (h *PacketHandler) receiveLoop() {
 		buf := getPooledBytes(&bufPool, udpReadBufferSize)
 		n, err := h.conn.Read(buf)
 		if err != nil {
+			close(h.readerDone)
 			putPooledBytes(&bufPool, buf)
 			select {
 			case <-h.stopCh:
@@ -347,10 +404,31 @@ func (h *PacketHandler) processLoop() {
 		case <-h.stopCh:
 			return
 		case pb := <-h.packetProcessCh:
-			h.handleRawPacket(pb.buf[:pb.n])
+			h.handleRawPacketSafely(pb.buf[:pb.n])
 			putPooledBytes(&bufPool, pb.buf)
+			if h.closed.Load() {
+				return
+			}
 		}
 	}
+}
+
+// handleRawPacketSafely handles one datagram, turning a panic anywhere below —
+// parsing, decryption, reassembly, decompression or OnPacket — into a closed
+// connection whose cause wraps ErrPacketHandling, rather than a crashed
+// process.
+func (h *PacketHandler) handleRawPacketSafely(raw []byte) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		h.logger.Error("handling a received packet panicked, closing the connection",
+			slog.Any("panic", r), slog.Int("length", len(raw)))
+		_ = h.closeWith(fmt.Errorf("%w: %v", ErrPacketHandling, r))
+	}()
+
+	h.handleRawPacket(raw)
 }
 
 func (h *PacketHandler) handleRawPacket(raw []byte) {
@@ -362,13 +440,23 @@ func (h *PacketHandler) handleRawPacket(raw []byte) {
 	header := raw[8:11]
 	ciphertext := raw[11:]
 	p := parseServerPacket(header)
+	if p.Type() > PacketTypeInit1 {
+		return
+	}
+	// Init1 belongs to the handshake; once a shared secret exists, a late or
+	// replayed one could only restart what has finished.
+	if p.Type() == PacketTypeInit1 && h.TsCrypt.InitComplete() {
+		return
+	}
 	p.ReceivedAt = time.Now()
-	h.markMessageReceived()
 
 	decrypted, ok := h.decryptPacketData(p, header, ciphertext, tag)
 	if !ok {
 		return
 	}
+	// Only a packet that authenticates counts as hearing from the server;
+	// noise must not keep a dead connection from timing out.
+	h.markMessageReceived()
 	p.Data = decrypted.plaintext
 
 	if p.Type() == PacketTypePing {
@@ -409,15 +497,32 @@ func (h *PacketHandler) handlePacketQueue(p *Packet) {
 		return
 	}
 
+	// Delivered outside the lock, so OnPacket may send.
+	for _, ready := range h.takeReadyCommands(p) {
+		if h.OnPacket != nil {
+			h.OnPacket(ready)
+		}
+	}
+}
+
+// takeReadyCommands queues a received command packet and returns, in order,
+// every command that is now complete: reassembled and decompressed.
+func (h *PacketHandler) takeReadyCommands(p *Packet) []*Packet {
 	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	pType := p.Type()
 	var queue map[uint16]*Packet
 	var nextID *uint16
+	var win *GenerationWindow
 	if pType == PacketTypeCommand {
 		queue = h.commandQueue
 		nextID = &h.nextCommandID
+		win = h.recvWindowCommand
 	} else {
 		queue = h.commandLowQueue
 		nextID = &h.nextCommandLowID
+		win = h.recvWindowCommandLow
 	}
 
 	queue[p.ID] = p
@@ -425,6 +530,7 @@ func (h *PacketHandler) handlePacketQueue(p *Packet) {
 	// If the expected ID never arrives, skip it once a newer fragment has stalled long enough.
 	h.fastForwardMissingPackets(pType, queue, nextID)
 
+	var ready []*Packet
 	for {
 		packet, ok := queue[*nextID]
 		if !ok {
@@ -433,27 +539,17 @@ func (h *PacketHandler) handlePacketQueue(p *Packet) {
 			break
 		}
 
-		var win *GenerationWindow
-		if pType == PacketTypeCommand {
-			win = h.recvWindowCommand
-		} else {
-			win = h.recvWindowCommandLow
-		}
-
-		reassembled, complete := h.tryReassemble(packet, queue, nextID, win)
-		if !complete {
+		reassembled, consumed := h.tryReassemble(packet, queue, nextID, win)
+		if !consumed {
 			break
 		}
-
-		h.tryDecompressPacket(reassembled)
-
-		if h.OnPacket != nil {
-			h.mu.Unlock()
-			h.OnPacket(reassembled)
-			h.mu.Lock()
+		if reassembled == nil || !h.tryDecompressPacket(reassembled) {
+			continue
 		}
+		ready = append(ready, reassembled)
 	}
-	h.mu.Unlock()
+
+	return ready
 }
 
 func parseServerPacket(header []byte) *Packet {
@@ -495,24 +591,43 @@ func (h *PacketHandler) decryptPacketData(
 	p *Packet, header, ciphertext, tag []byte,
 ) (*decryptPacketResult, bool) {
 	unencrypted := (p.Flags() & PacketFlagUnencrypted) != 0
-	dummy := !h.TsCrypt.CryptoInitComplete
-	dummyUsed := dummy
 	gen := h.resolvePacketGeneration(p)
 
-	plaintext, err := h.TsCrypt.Decrypt(byte(p.Type()), p.ID, gen, header, ciphertext, tag, dummy, unencrypted)
-	if err != nil && !dummy && !unencrypted {
+	if !h.TsCrypt.InitComplete() {
+		plaintext, err := h.TsCrypt.Decrypt(byte(p.Type()), p.ID, gen, header, ciphertext, tag, true, unencrypted)
+		if err != nil {
+			h.logDecryptFailure(p, gen, err)
+
+			return nil, false
+		}
+
+		return &decryptPacketResult{plaintext: plaintext, dummyUsed: true}, true
+	}
+
+	plaintext, err := h.TsCrypt.Decrypt(byte(p.Type()), p.ID, gen, header, ciphertext, tag, false, unencrypted)
+	if err != nil && !unencrypted {
 		plaintext, gen, err = h.decryptWithGenerationGuess(p, gen, header, ciphertext, tag)
 	}
-	if err != nil && !dummy {
-		plaintext, dummyUsed, err = h.decryptWithDummyFallback(
-			p, gen, header, ciphertext, tag, unencrypted, plaintext, dummyUsed, err,
-		)
+	dummyUsed := false
+	if err != nil && !unencrypted && p.Type() == PacketTypeAck {
+		plaintext, err = h.decryptClientEkAck(p, gen, header, ciphertext, tag)
+		dummyUsed = err == nil
 	}
 	if err != nil {
+		h.logDecryptFailure(p, gen, err)
+
 		return nil, false
 	}
 
 	return &decryptPacketResult{plaintext: plaintext, dummyUsed: dummyUsed}, true
+}
+
+func (h *PacketHandler) logDecryptFailure(p *Packet, gen uint32, err error) {
+	h.logger.Debug("packet decryption failed, dropping it",
+		slog.Uint64("type", uint64(p.Type())),
+		slog.Uint64("id", uint64(p.ID)),
+		slog.Uint64("gen", uint64(gen)),
+		slog.Any("error", err))
 }
 
 func (h *PacketHandler) decryptWithGenerationGuess(
@@ -539,28 +654,27 @@ func (h *PacketHandler) decryptWithGenerationGuess(
 
 var errDecryptFailed = errors.New("decrypt failed")
 
-func (h *PacketHandler) decryptWithDummyFallback(
-	p *Packet, gen uint32, header, ciphertext, tag []byte, unencrypted bool,
-	plaintext []byte, dummyUsed bool, decryptErr error,
-) ([]byte, bool, error) {
-	switch p.Type() {
-	case PacketTypeCommand, PacketTypeCommandLow, PacketTypeAck:
-		plaintext, decryptErr = h.TsCrypt.Decrypt(byte(p.Type()), p.ID, gen, header, ciphertext, tag, true, unencrypted)
-		if decryptErr == nil {
-			return plaintext, true, nil
-		}
-	case PacketTypeVoice, PacketTypeVoiceWhisper, PacketTypePing, PacketTypePong, PacketTypeAckLow, PacketTypeInit1:
-		// No dummy fallback path required.
-	default:
-		// Unknown packet type.
+// decryptClientEkAck accepts the one dummy-key packet that arrives after crypto
+// init completes: the server's Ack for clientek, measured on TeamSpeak 3 and
+// 6. Anything else under the dummy key, including an Ack for another packet,
+// is refused; the dummy key is public.
+func (h *PacketHandler) decryptClientEkAck(
+	p *Packet, gen uint32, header, ciphertext, tag []byte,
+) ([]byte, error) {
+	pending := h.clientEkID.Load()
+	if pending < 0 {
+		return nil, errDecryptFailed
 	}
-	h.logger.Debug("packet decryption failed",
-		slog.Uint64("type", uint64(p.Type())),
-		slog.Uint64("id", uint64(p.ID)),
-		slog.Uint64("gen", uint64(gen)),
-		slog.Any("error", decryptErr))
+	plaintext, err := h.TsCrypt.Decrypt(byte(p.Type()), p.ID, gen, header, ciphertext, tag, true, false)
+	if err != nil {
+		return nil, err
+	}
+	if len(plaintext) < ackDataSize || int32(binary.BigEndian.Uint16(plaintext)) != pending {
+		return nil, errDecryptFailed
+	}
+	h.clientEkID.CompareAndSwap(pending, -1)
 
-	return plaintext, dummyUsed, decryptErr
+	return plaintext, nil
 }
 
 func (h *PacketHandler) handleCommandWindowAndAck(p *Packet, dummyUsed bool) bool {
@@ -632,6 +746,11 @@ func (h *PacketHandler) updatePostReceiveState(p *Packet) {
 			slog.Uint64("target_type", uint64(targetType)),
 			slog.Uint64("id", uint64(ackID)))
 		delete(h.ackManager, (targetType<<16)|uint32(ackID))
+		if targetType == uint32(PacketTypeCommand) {
+			// Acknowledged under the real key: the dummy-key Ack is no
+			// longer due.
+			h.clientEkID.CompareAndSwap(int32(ackID), -1)
+		}
 	}
 }
 
@@ -675,27 +794,31 @@ func (h *PacketHandler) logQueueBacklog(pType PacketType, queue map[uint16]*Pack
 		slog.Int("backlog_size", len(queue)))
 }
 
-func (h *PacketHandler) tryDecompressPacket(packet *Packet) {
+// tryDecompressPacket decompresses a packet that is flagged compressed,
+// reporting false for one that does not decompress, which is dropped.
+func (h *PacketHandler) tryDecompressPacket(packet *Packet) bool {
 	if (packet.Flags() & PacketFlagCompressed) == 0 {
-		return
+		return true
 	}
 	qlz := NewQlz()
 	decompressed, err := qlz.Decompress(packet.Data)
 	if err != nil {
-		h.logger.Debug("decompression failed",
+		h.logger.Debug("decompression failed, dropping the packet",
 			slog.Uint64("id", uint64(packet.ID)),
 			slog.Any("error", err))
 
-		return
+		return false
 	}
-	h.logger.Debug("decompressed packet successfully",
-		slog.Uint64("id", uint64(packet.ID)),
-		slog.Int("old_len", len(packet.Data)),
-		slog.Int("new_len", len(decompressed)))
 	packet.Data = decompressed
 	packet.TypeFlagged &= ^byte(PacketFlagCompressed)
+
+	return true
 }
 
+// tryReassemble takes the command starting at nextID off the queue: the packet
+// itself, or the fragments it starts joined into one. It reports false when
+// the fragments are not all there yet. A reassembled command larger than
+// MaxReassembledSize is taken off the queue and dropped: it is returned as nil.
 func (h *PacketHandler) tryReassemble(
 	startPacket *Packet, queue map[uint16]*Packet, nextID *uint16, win *GenerationWindow,
 ) (*Packet, bool) {
@@ -710,10 +833,17 @@ func (h *PacketHandler) tryReassemble(
 		return nil, false
 	}
 
-	h.logger.Debug("reassembling fragmented packet",
-		slog.Uint64("start_id", uint64(*nextID)),
-		slog.Int("fragments", len(fragments)),
-		slog.Int("total_size", totalSize))
+	if totalSize > MaxReassembledSize {
+		h.logger.Debug("reassembled packet too large, dropping it",
+			slog.Uint64("start_id", uint64(*nextID)),
+			slog.Int("fragments", len(fragments)),
+			slog.Int("total_size", totalSize))
+		for range fragments {
+			advanceQueueWindow(queue, nextID, win)
+		}
+
+		return nil, true
+	}
 
 	combined := make([]byte, totalSize)
 	pos := 0
@@ -846,7 +976,7 @@ func (h *PacketHandler) pingLoop() {
 		case <-h.stopCh:
 			return
 		case <-ticker.C:
-			if h.TsCrypt.CryptoInitComplete {
+			if h.TsCrypt.InitComplete() {
 				_ = h.SendPacket(byte(PacketTypePing), []byte{}, byte(PacketFlagUnencrypted))
 			}
 		}
@@ -912,7 +1042,7 @@ func (h *PacketHandler) doResend(rp *resendPacket, now time.Time) {
 		}
 
 		unencrypted := (rp.packet.Flags()&PacketFlagUnencrypted != 0)
-		dummy := !h.TsCrypt.CryptoInitComplete
+		dummy := !h.TsCrypt.InitComplete()
 		header := rp.packet.BuildC2SHeader()
 		h.logger.Debug("resending packet",
 			slog.Uint64("type", uint64(rp.packet.Type())),
@@ -934,10 +1064,14 @@ func (h *PacketHandler) doResend(rp *resendPacket, now time.Time) {
 }
 
 // SendVoicePacket sends one unencrypted Voice packet carrying an audio frame
-// in codec. Voice is never acknowledged or resent.
+// in codec. Voice is never acknowledged or resent. On a handler that is not
+// open it returns ErrNotOpen.
 //
 // Payload layout: u16 voice packet ID, u8 codec, then the frame.
 func (h *PacketHandler) SendVoicePacket(data []byte, codec byte) error {
+	if !h.IsOpen() {
+		return ErrNotOpen
+	}
 	h.mu.Lock()
 	pID := h.packetCounter[PacketTypeVoice]
 	pGen := h.generationCounter[PacketTypeVoice]
@@ -967,7 +1101,8 @@ func (h *PacketHandler) SendVoicePacket(data []byte, codec byte) error {
 
 	final := getPooledBytes(&bufPool, tagSize+headerSize+payloadLen)
 
-	copy(final[0:8], h.TsCrypt.FakeSignature)
+	fakeSig := h.TsCrypt.FakeSignature()
+	copy(final[0:8], fakeSig[:])
 	copy(final[8:13], header)
 	copy(final[13:], voicePayload)
 
@@ -980,16 +1115,15 @@ func (h *PacketHandler) SendVoicePacket(data []byte, codec byte) error {
 }
 
 // SendWhisperPacket sends an unencrypted VoiceWhisper packet to up to 32 clients,
-// regardless of which channel they are in.
+// regardless of which channel they are in. On a handler that is not open it
+// returns ErrNotOpen.
 //
 // Payload layout: u16 voice packet ID, u8 codec, u8 channel target count (always
 // 0 here), u8 client target count, one u16 per client ID, then the Opus frame.
 func (h *PacketHandler) SendWhisperPacket(data []byte, targetClientIDs []uint16, codec byte) error {
-	if len(targetClientIDs) == 0 {
-		return ErrNoWhisperTargets
-	}
-	if len(targetClientIDs) > maxWhisperTargets {
-		return ErrTooManyWhisperTargets
+	err := h.checkWhisper(targetClientIDs)
+	if err != nil {
+		return err
 	}
 
 	h.mu.Lock()
@@ -1024,13 +1158,27 @@ func (h *PacketHandler) SendWhisperPacket(data []byte, targetClientIDs []uint16,
 	}
 
 	final := make([]byte, tagSize+headerSize+payloadLen)
-	copy(final[0:8], h.TsCrypt.FakeSignature)
+	fakeSig := h.TsCrypt.FakeSignature()
+	copy(final[0:8], fakeSig[:])
 	copy(final[8:13], p.BuildC2SHeader())
 	copy(final[13:], payload)
 
-	_, err := h.conn.Write(final)
+	_, err = h.conn.Write(final)
 
 	return err
+}
+
+func (h *PacketHandler) checkWhisper(targetClientIDs []uint16) error {
+	switch {
+	case len(targetClientIDs) == 0:
+		return ErrNoWhisperTargets
+	case len(targetClientIDs) > maxWhisperTargets:
+		return ErrTooManyWhisperTargets
+	case !h.IsOpen():
+		return ErrNotOpen
+	default:
+		return nil
+	}
 }
 
 // IsOpen reports whether there is a live connection to send on.

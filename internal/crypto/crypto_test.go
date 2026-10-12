@@ -42,11 +42,7 @@ func TestGetKeyNonce(t *testing.T) {
 
 	ivStruct, _ := hex.DecodeString(ivStructHex)
 
-	tc := &crypto.Crypt{
-		IvStruct:           ivStruct,
-		CryptoInitComplete: true,
-		CachedKeys:         make(map[uint64]crypto.KeyNonce),
-	}
+	tc := crypto.NewCryptForTest(ivStruct, nil)
 
 	key, nonce := tc.GetKeyNonce(false, 2, 0, 2, false)
 
@@ -301,9 +297,22 @@ func TestSolveRsaChallengeNegativeLevel(t *testing.T) {
 
 func TestSolveRsaChallengeLevelTooHigh(t *testing.T) {
 	tc := crypto.NewCrypt(nil)
-	_, err := tc.SolveRsaChallenge(make([]byte, 128), 0, 1000001)
+	_, err := tc.SolveRsaChallenge(make([]byte, 128), 0, crypto.MaxRSAChallengeLevel+1)
 	if err == nil {
-		t.Error("expected error for level > 1000000")
+		t.Error("expected error for a level above MaxRSAChallengeLevel")
+	}
+}
+
+func TestSolveRsaChallengeRejectsMalformedInput(t *testing.T) {
+	tc := crypto.NewCrypt(nil)
+	_, err := tc.SolveRsaChallenge(make([]byte, 127), 0, 1)
+	if err == nil {
+		t.Error("expected error for data too short to hold x and n")
+	}
+	// A zero modulus would divide by zero.
+	_, err = tc.SolveRsaChallenge(make([]byte, 128), 0, 1)
+	if err == nil {
+		t.Error("expected error for a zero modulus")
 	}
 }
 
@@ -313,11 +322,11 @@ func TestNewCrypt(t *testing.T) {
 	if tc == nil {
 		t.Fatal("expected non-nil Crypt")
 	}
-	if len(tc.FakeSignature) != 8 {
-		t.Errorf("FakeSignature length = %d, want 8", len(tc.FakeSignature))
+	if tc.FakeSignature() != [8]byte{} {
+		t.Errorf("FakeSignature before the handshake = %x, want zero", tc.FakeSignature())
 	}
-	if tc.CachedKeys == nil {
-		t.Error("CachedKeys should be initialized")
+	if tc.InitComplete() {
+		t.Error("a new Crypt should not be initialised")
 	}
 }
 
@@ -330,31 +339,38 @@ func TestSetSharedSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetSharedSecret failed: %v", err)
 	}
-	if !tc.CryptoInitComplete {
-		t.Error("CryptoInitComplete should be true")
+	if !tc.InitComplete() {
+		t.Error("InitComplete should be true")
 	}
-	if len(tc.IvStruct) != 20 {
-		t.Errorf("IvStruct length = %d, want 20", len(tc.IvStruct))
+	if tc.IVStructLenForTest() != 20 {
+		t.Errorf("IvStruct length = %d, want 20", tc.IVStructLenForTest())
 	}
-}
-
-func TestDebugCryptoStateEmpty(t *testing.T) {
-	tc := crypto.NewCrypt(nil)
-	length, hexStr := tc.DebugCryptoState()
-	if length != 0 || hexStr != "" {
-		t.Errorf("empty Crypt: DebugCryptoState() = (%d, %q), want (0, \"\")", length, hexStr)
+	if tc.FakeSignature() == [8]byte{} {
+		t.Error("FakeSignature should be derived from the IV struct")
 	}
 }
 
-func TestDebugCryptoStateAfterSetSharedSecret(t *testing.T) {
-	tc := crypto.NewCrypt(nil)
-	_ = tc.SetSharedSecret(make([]byte, 10), make([]byte, 10), make([]byte, 20))
-	length, hexStr := tc.DebugCryptoState()
-	if length == 0 {
-		t.Error("IvStruct should be non-empty after SetSharedSecret")
+func TestSetSharedSecretRejectsMismatchedLengths(t *testing.T) {
+	cases := []struct {
+		name                   string
+		alpha, beta, sharedKey int
+	}{
+		{"short alpha", 9, 10, 20},
+		{"long alpha", 11, 10, 20},
+		{"beta past the shared key", 10, 11, 20},
+		{"no beta", 10, 0, 20},
 	}
-	if len(hexStr) == 0 {
-		t.Error("FakeSignature hex should be non-empty")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := crypto.NewCrypt(nil)
+			err := c.SetSharedSecret(make([]byte, tc.alpha), make([]byte, tc.beta), make([]byte, tc.sharedKey))
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if c.InitComplete() {
+				t.Error("a refused secret must not complete the handshake")
+			}
+		})
 	}
 }
 
@@ -389,10 +405,7 @@ func TestDecryptInit1Passthrough(t *testing.T) {
 }
 
 func TestEncryptDecryptUnencrypted(t *testing.T) {
-	tc := &crypto.Crypt{
-		FakeSignature: []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
-		CachedKeys:    make(map[uint64]crypto.KeyNonce),
-	}
+	tc := crypto.NewCryptForTest(nil, []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08})
 	plaintext := []byte("voice packet data")
 	header := []byte{0x00, 0x01, 0x02}
 	ct, mac, err := tc.Encrypt(0, 5, 0, header, plaintext, false, true)
@@ -402,7 +415,7 @@ func TestEncryptDecryptUnencrypted(t *testing.T) {
 	if !bytes.Equal(ct, plaintext) {
 		t.Error("unencrypted: ciphertext should equal plaintext")
 	}
-	if !bytes.Equal(mac, tc.FakeSignature) {
+	if sig := tc.FakeSignature(); !bytes.Equal(mac, sig[:]) {
 		t.Error("unencrypted: MAC should equal FakeSignature")
 	}
 	pt, err := tc.Decrypt(0, 5, 0, header, ct, mac, false, true)
@@ -415,10 +428,7 @@ func TestEncryptDecryptUnencrypted(t *testing.T) {
 }
 
 func TestDecryptUnencryptedBadSignature(t *testing.T) {
-	tc := &crypto.Crypt{
-		FakeSignature: []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
-		CachedKeys:    make(map[uint64]crypto.KeyNonce),
-	}
+	tc := crypto.NewCryptForTest(nil, []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08})
 	badTag := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 	_, err := tc.Decrypt(0, 1, 0, nil, []byte("data"), badTag, false, true)
 	if err == nil {
@@ -429,10 +439,7 @@ func TestDecryptUnencryptedBadSignature(t *testing.T) {
 func TestEncryptDecryptEAXRoundtripDummy(t *testing.T) {
 	// dummy=true uses fixed key/nonce; both Encrypt and Decrypt use the same
 	// dummy key so the roundtrip is self-consistent.
-	tc := &crypto.Crypt{
-		FakeSignature: make([]byte, 8),
-		CachedKeys:    make(map[uint64]crypto.KeyNonce),
-	}
+	tc := crypto.NewCrypt(nil)
 	plaintext := []byte("hello encrypted world")
 	header := []byte{0x00, 0x01, 0x02, 0x03, 0x04}
 	ct, mac, err := tc.Encrypt(2, 42, 0, header, plaintext, true, false)
@@ -500,14 +507,14 @@ func TestInitCrypto(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitCrypto failed: %v", err)
 	}
-	if !tc.CryptoInitComplete {
-		t.Error("expected CryptoInitComplete to be true")
+	if !tc.InitComplete() {
+		t.Error("expected InitComplete to be true")
 	}
 	// IvStruct = 10 (alpha len) + len(betaBytes)
 	betaBytes, _ := base64.StdEncoding.DecodeString(beta)
 	expectedLen := 10 + len(betaBytes)
-	if len(tc.IvStruct) != expectedLen {
-		t.Errorf("IvStruct length = %d, want %d", len(tc.IvStruct), expectedLen)
+	if tc.IVStructLenForTest() != expectedLen {
+		t.Errorf("IvStruct length = %d, want %d", tc.IVStructLenForTest(), expectedLen)
 	}
 }
 

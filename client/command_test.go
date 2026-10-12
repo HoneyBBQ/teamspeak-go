@@ -13,7 +13,7 @@ import (
 func TestHandleCommandLines_Empty(t *testing.T) {
 	c := newTestClient(t)
 	// Must not panic.
-	c.handleCommandLines("")
+	c.handleCommandLines(c.handler, "")
 }
 
 func TestHandleCommandLines_NewlineSeparated(t *testing.T) {
@@ -27,7 +27,7 @@ func TestHandleCommandLines_NewlineSeparated(t *testing.T) {
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
 	line2 := "notifycliententerview clid=2 client_nickname=B" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=y"
-	c.handleCommandLines(line1 + "\n" + line2)
+	c.handleCommandLines(c.handler, line1+"\n"+line2)
 
 	for i := range 2 {
 		select {
@@ -45,7 +45,7 @@ func TestHandleCommandLines_NullByteSeparated(t *testing.T) {
 
 	line := "notifycliententerview clid=3 client_nickname=C" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=z"
-	c.handleCommandLines(line + "\x00")
+	c.handleCommandLines(c.handler, line+"\x00")
 
 	select {
 	case <-entered:
@@ -61,7 +61,7 @@ func TestHandleCommand_Notify_Routed(t *testing.T) {
 
 	line := "notifycliententerview clid=4 client_nickname=D" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=d"
-	c.handleCommand(line)
+	c.handleCommand(c.handler, line)
 
 	select {
 	case <-entered:
@@ -75,7 +75,7 @@ func TestHandleCommand_Error_NoReturnCode_NoResolve(t *testing.T) {
 	rc, ch := c.cmdTrack.register(nil, "", false)
 
 	// error without a matching return_code should not resolve our tracker.
-	c.handleCommand("error id=1 msg=fail")
+	c.handleCommand(c.handler, "error id=1 msg=fail")
 
 	select {
 	case <-ch:
@@ -89,7 +89,7 @@ func TestHandleCommand_Error_WithReturnCode_Resolves(t *testing.T) {
 	c := newTestClient(t)
 	rc, ch := c.cmdTrack.register(nil, "", false)
 
-	c.handleCommand("error id=0 msg=ok return_code=" + mustUint32Str(rc))
+	c.handleCommand(c.handler, "error id=0 msg=ok return_code="+mustUint32Str(rc))
 
 	select {
 	case result := <-ch:
@@ -105,7 +105,7 @@ func TestHandleCommand_Error_NonZeroID_ReturnsError(t *testing.T) {
 	c := newTestClient(t)
 	rc, ch := c.cmdTrack.register(nil, "", false)
 
-	c.handleCommand("error id=256 msg=notfound return_code=" + mustUint32Str(rc))
+	c.handleCommand(c.handler, "error id=256 msg=notfound return_code="+mustUint32Str(rc))
 
 	select {
 	case result := <-ch:
@@ -126,8 +126,8 @@ func TestHandleCommand_DataCollectedBeforeError(t *testing.T) {
 
 	// In the real TeamSpeak flow, nameless data rows arrive before the "error"
 	// response.
-	c.handleCommand("key=val")
-	c.handleCommand("error id=0 msg=ok return_code=" + mustUint32Str(rc))
+	c.handleCommand(c.handler, "key=val")
+	c.handleCommand(c.handler, "error id=0 msg=ok return_code="+mustUint32Str(rc))
 
 	select {
 	case result := <-ch:
@@ -145,8 +145,8 @@ func TestHandleCommand_UndeclaredNamedCommand_IsNotData(t *testing.T) {
 	c := newTestClient(t)
 	rc, ch := c.cmdTrack.register(nil, "", false)
 
-	c.handleCommand("unknowncmd foo=bar baz=qux")
-	c.handleCommand("error id=0 msg=ok return_code=" + mustUint32Str(rc))
+	c.handleCommand(c.handler, "unknowncmd foo=bar baz=qux")
+	c.handleCommand(c.handler, "error id=0 msg=ok return_code="+mustUint32Str(rc))
 
 	select {
 	case result := <-ch:
@@ -165,7 +165,7 @@ func TestExec_Success(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 		// The command Exec sends contains "return_code=N".
 		// Simulate server data row then ok error line with matching return_code.
-		c.handleCommandLines("somekey=someval\nerror id=0 msg=ok return_code=1")
+		c.handleCommandLines(c.handler, "somekey=someval\nerror id=0 msg=ok return_code=1")
 	}()
 
 	data, err := c.Exec(ctxWithin(t, 2*time.Second), "dummycmd")
@@ -199,7 +199,7 @@ func TestExec_ServerError(t *testing.T) {
 
 	go func() {
 		time.Sleep(20 * time.Millisecond)
-		c.handleCommandLines("error id=512 msg=invalid_size return_code=1")
+		c.handleCommandLines(c.handler, "error id=512 msg=invalid_size return_code=1")
 	}()
 
 	_, err := c.Exec(ctxWithin(t, 2*time.Second), "dummycmd")

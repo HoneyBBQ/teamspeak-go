@@ -33,7 +33,10 @@ func newTestCrypt(t *testing.T) *crypto.Crypt {
 
 func TestProcessInit1Start_NilData(t *testing.T) {
 	tc := newTestCrypt(t)
-	out := handshake.ProcessInit1(tc, nil)
+	out, err := handshake.ProcessInit1(tc, nil)
+	if err != nil {
+		t.Fatalf("ProcessInit1: %v", err)
+	}
 	if out == nil {
 		t.Fatal("expected non-nil output for nil data (Start)")
 	}
@@ -52,7 +55,10 @@ func TestProcessInit1Start_NilData(t *testing.T) {
 
 func TestProcessInit1Start_RestartByte(t *testing.T) {
 	tc := newTestCrypt(t)
-	out := handshake.ProcessInit1(tc, []byte{0x7F})
+	out, err := handshake.ProcessInit1(tc, []byte{0x7F})
+	if err != nil {
+		t.Fatalf("ProcessInit1: %v", err)
+	}
 	if out == nil {
 		t.Fatal("expected non-nil output for 0x7F restart byte")
 	}
@@ -76,7 +82,10 @@ func TestProcessInit1Step0(t *testing.T) {
 	// bytes 9-12: tsRand (LittleEndian) — will be echoed back BigEndian at output offset 17
 	binary.LittleEndian.PutUint32(input[9:13], 0xDEADBEEF)
 
-	out := handshake.ProcessInit1(tc, input)
+	out, err := handshake.ProcessInit1(tc, input)
+	if err != nil {
+		t.Fatalf("ProcessInit1: %v", err)
+	}
 	if out == nil {
 		t.Fatal("expected non-nil output for step 0")
 	}
@@ -99,9 +108,12 @@ func TestProcessInit1Step0(t *testing.T) {
 
 func TestProcessInit1Step0_WrongLength(t *testing.T) {
 	tc := newTestCrypt(t)
-	out := handshake.ProcessInit1(tc, []byte{0x00, 0x01}) // only 2 bytes
+	out, err := handshake.ProcessInit1(tc, []byte{0x00, 0x01}) // only 2 bytes
 	if out != nil {
 		t.Error("expected nil output for wrong-length step 0")
+	}
+	if err == nil {
+		t.Error("expected an error")
 	}
 }
 
@@ -116,7 +128,10 @@ func TestProcessInit1Step1(t *testing.T) {
 		input[i] = byte(i)
 	}
 
-	out := handshake.ProcessInit1(tc, input)
+	out, err := handshake.ProcessInit1(tc, input)
+	if err != nil {
+		t.Fatalf("ProcessInit1: %v", err)
+	}
 	if out == nil {
 		t.Fatal("expected non-nil output for step 1")
 	}
@@ -138,9 +153,12 @@ func TestProcessInit1Step1(t *testing.T) {
 
 func TestProcessInit1Step1_WrongLength(t *testing.T) {
 	tc := newTestCrypt(t)
-	out := handshake.ProcessInit1(tc, []byte{0x01}) // only 1 byte
+	out, err := handshake.ProcessInit1(tc, []byte{0x01}) // only 1 byte
 	if out != nil {
 		t.Error("expected nil output for wrong-length step 1")
+	}
+	if err == nil {
+		t.Error("expected an error")
 	}
 }
 
@@ -151,7 +169,10 @@ func TestProcessInit1Step2(t *testing.T) {
 	input := make([]byte, 25)
 	input[0] = 0x02
 
-	out := handshake.ProcessInit1(tc, input)
+	out, err := handshake.ProcessInit1(tc, input)
+	if err != nil {
+		t.Fatalf("ProcessInit1: %v", err)
+	}
 	if out == nil {
 		t.Fatal("expected non-nil output for step 2")
 	}
@@ -177,9 +198,12 @@ func TestProcessInit1Step2(t *testing.T) {
 
 func TestProcessInit1Step2_WrongLength(t *testing.T) {
 	tc := newTestCrypt(t)
-	out := handshake.ProcessInit1(tc, []byte{0x02, 0x00}) // too short
+	out, err := handshake.ProcessInit1(tc, []byte{0x02, 0x00}) // too short
 	if out != nil {
 		t.Error("expected nil output for wrong-length step 2")
+	}
+	if err == nil {
+		t.Error("expected an error")
 	}
 }
 
@@ -205,7 +229,10 @@ func TestProcessInit1Step3_Level0(t *testing.T) {
 	tc := newTestCrypt(t)
 	input := buildStep3Input()
 
-	out := handshake.ProcessInit1(tc, input)
+	out, err := handshake.ProcessInit1(tc, input)
+	if err != nil {
+		t.Fatalf("ProcessInit1: %v", err)
+	}
 	if out == nil {
 		t.Fatal("expected non-nil output for step 3 with level=0")
 	}
@@ -262,27 +289,36 @@ func assertStep3ClientInitIV(t *testing.T, tc *crypto.Crypt, out []byte) {
 
 func TestProcessInit1Step3_WrongLength(t *testing.T) {
 	tc := newTestCrypt(t)
-	out := handshake.ProcessInit1(tc, []byte{0x03, 0x00}) // too short
+	out, err := handshake.ProcessInit1(tc, []byte{0x03, 0x00}) // too short
 	if out != nil {
 		t.Error("expected nil output for wrong-length step 3")
+	}
+	if err == nil {
+		t.Error("expected an error")
 	}
 }
 
 func TestProcessInit1Step3_LevelOutOfRange(t *testing.T) {
 	tc := newTestCrypt(t)
 	input := buildStep3Input()
-	// Set level = 2000000 (exceeds the 1000000 limit)
+	// Set level = 2000000 (exceeds MaxRSAChallengeLevel)
 	binary.BigEndian.PutUint32(input[1+128:1+132], 2000000)
-	out := handshake.ProcessInit1(tc, input)
+	out, err := handshake.ProcessInit1(tc, input)
 	if out != nil {
 		t.Error("expected nil output for RSA level out of range")
+	}
+	if err == nil {
+		t.Error("expected an error")
 	}
 }
 
 func TestProcessInit1UnknownStep(t *testing.T) {
 	tc := newTestCrypt(t)
-	out := handshake.ProcessInit1(tc, []byte{0x05})
+	out, err := handshake.ProcessInit1(tc, []byte{0x05})
 	if out != nil {
 		t.Error("expected nil output for unknown step byte")
+	}
+	if err == nil {
+		t.Error("expected an error")
 	}
 }

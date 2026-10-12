@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -14,8 +15,9 @@ import (
 
 func TestHandleInitServer_SetsStatusConnected(t *testing.T) {
 	c := newTestClient(t)
+	markConnecting(c)
 
-	c.handleCommand("initserver aclid=7 virtualserver_name=TestServer")
+	c.handleCommand(c.handler, "initserver aclid=7 virtualserver_name=TestServer")
 
 	c.mu.Lock()
 	status := c.status
@@ -32,8 +34,9 @@ func TestHandleInitServer_SetsStatusConnected(t *testing.T) {
 
 func TestHandleInitServer_FallsBackToClid(t *testing.T) {
 	c := newTestClient(t)
+	markConnecting(c)
 
-	c.handleCommand("initserver clid=42 virtualserver_name=X")
+	c.handleCommand(c.handler, "initserver clid=42 virtualserver_name=X")
 
 	c.mu.Lock()
 	clid := c.clid
@@ -46,8 +49,9 @@ func TestHandleInitServer_FallsBackToClid(t *testing.T) {
 
 func TestHandleInitServer_ReleasesWaitConnected(t *testing.T) {
 	c := newTestClient(t)
+	markConnecting(c)
 
-	c.handleCommand("initserver aclid=3 virtualserver_name=X")
+	c.handleCommand(c.handler, "initserver aclid=3 virtualserver_name=X")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -59,11 +63,12 @@ func TestHandleInitServer_ReleasesWaitConnected(t *testing.T) {
 
 func TestHandleInitServer_TriggersOnConnected(t *testing.T) {
 	c := newTestClient(t)
+	markConnecting(c)
 
 	connected := make(chan struct{}, 1)
 	c.OnConnected(func() { connected <- struct{}{} })
 
-	c.handleCommand("initserver aclid=1")
+	c.handleCommand(c.handler, "initserver aclid=1")
 
 	select {
 	case <-connected:
@@ -72,19 +77,55 @@ func TestHandleInitServer_TriggersOnConnected(t *testing.T) {
 	}
 }
 
-func TestHandleInitServer_CalledTwice_StillConnected(t *testing.T) {
+func TestHandleInitServer_CalledTwice_IgnoresTheSecond(t *testing.T) {
 	c := newTestClient(t)
+	markConnecting(c)
 
-	c.handleCommand("initserver aclid=1")
-	c.handleCommand("initserver aclid=2")
+	c.handleCommand(c.handler, "initserver aclid=1")
+	c.handleCommand(c.handler, "initserver aclid=2")
 
 	c.mu.Lock()
 	clid := c.clid
+	status := c.status
 	c.mu.Unlock()
 
-	if clid != 2 {
-		t.Errorf("expected clid=2 after second initserver, got %d", clid)
+	if status != StatusConnected {
+		t.Errorf("expected StatusConnected, got %v", status)
 	}
+	if clid != 1 {
+		t.Errorf("expected the first initserver's clid=1 to stand, got %d", clid)
+	}
+}
+
+// An initserver arriving after Disconnect must not bring the client back.
+func TestHandleInitServer_AfterDisconnect_StaysDisconnected(t *testing.T) {
+	c := newTestClient(t)
+	markConnecting(c)
+	connected := make(chan struct{}, 1)
+	c.OnConnected(func() { connected <- struct{}{} })
+
+	err := c.Disconnect(t.Context())
+	if err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+	c.handleCommand(c.handler, "initserver aclid=5")
+
+	if got := c.Status(); got != StatusDisconnected {
+		t.Errorf("status after a late initserver = %v, want disconnected", got)
+	}
+	select {
+	case <-connected:
+		t.Error("OnConnected ran for an initserver after Disconnect")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// markConnecting puts the client in the state Connect leaves it in while the
+// handshake runs.
+func markConnecting(c *Client) {
+	c.mu.Lock()
+	c.status = StatusConnecting
+	c.mu.Unlock()
 }
 
 // handleHandshakeInitIV (old path)
@@ -93,7 +134,7 @@ func TestHandleHandshakeInitIV_InvalidAlpha_NoSendClientInit(t *testing.T) {
 	c := newTestClient(t)
 	// Invalid base64 for alpha: InitCrypto fails, handleHandshakeInitIV returns.
 	// Must not panic.
-	c.handleCommand("clientinitiv alpha=!!! beta=AAAAAAAAAA omega=")
+	c.handleCommand(c.handler, "clientinitiv alpha=!!! beta=AAAAAAAAAA omega=")
 }
 
 func TestHandleHandshakeInitIV_ValidParams_SendsClientInit(t *testing.T) {
@@ -103,7 +144,6 @@ func TestHandleHandshakeInitIV_ValidParams_SendsClientInit(t *testing.T) {
 	_ = readFromPipe(t, serverConn)
 
 	// Wire OnPacket so that the handler routes Init1 packets to handlePacket.
-	c.handler.OnPacket = c.handlePacket
 	c.handler.OnClosed = func(error) {}
 
 	// A valid old-style handshake: alpha + beta are 10-byte base64, omega is the
@@ -111,8 +151,8 @@ func TestHandleHandshakeInitIV_ValidParams_SendsClientInit(t *testing.T) {
 	// (InitCrypto only validates format, not that it comes from a server).
 	pubKey := c.crypt.Identity.PublicKey()
 
-	cmd := "clientinitiv alpha=AAAAAAAAAA== beta=AAAAAAAAAA== omega=" + pubKey
-	c.handleCommand(cmd)
+	cmd := "clientinitiv alpha=AAAAAAAAAAAAAA== beta=AAAAAAAAAAAAAA== omega=" + pubKey
+	c.handleCommand(c.handler, cmd)
 
 	// After successful InitCrypto, sendClientInit is called and a Command packet
 	// (type 2) is sent through the handler. The payload is encrypted.
@@ -132,13 +172,13 @@ func TestHandleHandshakeInitIV_ValidParams_SendsClientInit(t *testing.T) {
 func TestHandleHandshakeExpand2_InvalidBeta_NoSendClientInit(t *testing.T) {
 	c := newTestClient(t)
 	// Invalid base64 for beta: DecodeString fails, returns early.
-	c.handleCommand("initivexpand2 l= omega= proof= beta=!!!")
+	c.handleCommand(c.handler, "initivexpand2 l= omega= proof= beta=!!!")
 }
 
 func TestBuildClientInitCommand_DefaultAuthFieldsAreEmpty(t *testing.T) {
 	c := newTestClient(t)
 
-	cmd := commands.ParseCommand(c.buildClientInitCommand())
+	cmd := commands.ParseCommand(c.buildClientInitCommand(c.crypt))
 	if cmd == nil {
 		t.Fatal("expected clientinit command")
 	}
@@ -168,7 +208,7 @@ func TestBuildClientInitCommand_IncludesConfiguredHandshakeCredentials(t *testin
 		WithDefaultChannelPassword("channel secret"),
 	)
 
-	cmd := commands.ParseCommand(c.buildClientInitCommand())
+	cmd := commands.ParseCommand(c.buildClientInitCommand(c.crypt))
 	if cmd == nil {
 		t.Fatal("expected clientinit command")
 	}
@@ -202,7 +242,7 @@ func TestBuildClientInitCommand_PreservesCredentialFieldOrder(t *testing.T) {
 		WithDefaultChannelPassword("channel secret"),
 	)
 
-	raw := c.buildClientInitCommand()
+	raw := c.buildClientInitCommand(c.crypt)
 	defaultChannelIndex := indexOfOrFail(t, raw, "client_default_channel=Lobby\\sAlpha")
 	defaultChannelPasswordIndex := indexOfOrFail(
 		t,
@@ -225,7 +265,6 @@ func TestBuildClientInitCommand_PreservesCredentialFieldOrder(t *testing.T) {
 
 func TestHandlePacket_Init1_Step0_SendsStep1(t *testing.T) {
 	c, serverConn := newTestClientWithPipe(t)
-	c.handler.OnPacket = c.handlePacket
 	c.handler.OnClosed = func(error) {}
 
 	// Drain initial C2S Init1 from Start().
@@ -271,7 +310,7 @@ func TestHandlePacket_CommandType_RoutedToHandleCommandLines(t *testing.T) {
 		TypeFlagged: 0x02, // PacketTypeCommand
 		Data:        []byte(enterLine),
 	}
-	c.handlePacket(p)
+	c.handlePacket(c.handler, p)
 
 	select {
 	case <-entered:
@@ -315,4 +354,42 @@ func indexOfOrFail(t *testing.T, s string, needle string) int {
 	}
 
 	return idx
+}
+
+// A handshake step the client cannot use ends the attempt at once, with a
+// cause wrapping ErrHandshake, instead of leaving Connect to time out.
+func TestHandshakeFailureEndsTheAttemptWithErrHandshake(t *testing.T) {
+	cases := map[string]func(c *Client){
+		"malformed init1": func(c *Client) {
+			c.handleInit1(c.handler, []byte{0x09})
+		},
+		"empty init1": func(c *Client) {
+			c.handleInit1(c.handler, []byte{})
+		},
+		"initivexpand2 with a bad license": func(c *Client) {
+			c.crypt.AlphaTmp = make([]byte, 10)
+			c.handleCommand(c.handler, "initivexpand2 l=AQ== beta=AAAA omega=AAAA proof=AAAA")
+		},
+	}
+	for name, step := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := newTestClient(t)
+			markConnecting(c)
+			attempt := c.attempt
+
+			step(c)
+
+			select {
+			case <-attempt.done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("the attempt did not end")
+			}
+			if !errors.Is(attempt.err, ErrHandshake) {
+				t.Fatalf("attempt ended with %v, want ErrHandshake", attempt.err)
+			}
+			if got := c.Status(); got != StatusDisconnected {
+				t.Errorf("status = %v, want disconnected", got)
+			}
+		})
+	}
 }

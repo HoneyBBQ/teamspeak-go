@@ -1,0 +1,126 @@
+package transport
+
+import (
+	"encoding/binary"
+	"errors"
+	"testing"
+	"time"
+)
+
+// After crypto init the dummy key is public knowledge, so a command sealed
+// with it must not be taken for one from the server.
+func TestHandlerDropsDummyKeyCommandsAfterCryptoInit(t *testing.T) {
+	h, delivered := newFuzzHandler(t, true)
+
+	h.handleRawPacket(sealDummy(t, 0, byte(PacketTypeCommand), []byte("initserver aclid=1")))
+	h.handleRawPacket(sealDummy(t, 0, byte(PacketTypeCommandLow), []byte("notifyclientpoke msg=x")))
+
+	if *delivered != 0 {
+		t.Fatalf("delivered %d dummy-key commands after crypto init, want 0", *delivered)
+	}
+}
+
+// The servers acknowledge clientek, the last command sent before the shared
+// secret exists, with the dummy key; that one Ack is accepted, once.
+func TestHandlerAcceptsOnlyTheClientEkAckUnderTheDummyKey(t *testing.T) {
+	h, _ := newFuzzHandler(t, false)
+	err := h.SendPacket(byte(PacketTypeCommand), []byte("clientek ek=x proof=y"), 0)
+	if err != nil {
+		t.Fatalf("SendPacket: %v", err)
+	}
+	clientEk := uint16(h.clientEkID.Load())
+	err = h.TsCrypt.SetSharedSecret(make([]byte, 10), make([]byte, 54), make([]byte, 64))
+	if err != nil {
+		t.Fatalf("SetSharedSecret: %v", err)
+	}
+
+	ackOf := func(id uint16) []byte {
+		data := make([]byte, 2)
+		binary.BigEndian.PutUint16(data, id)
+
+		return data
+	}
+	var acked []uint16
+	h.OnPacket = func(p *Packet) {
+		if p.Type() == PacketTypeAck {
+			acked = append(acked, binary.BigEndian.Uint16(p.Data))
+		}
+	}
+
+	h.handleRawPacket(sealDummy(t, 0, byte(PacketTypeAck), ackOf(clientEk+1)))
+	h.handleRawPacket(sealDummy(t, 1, byte(PacketTypeAck), ackOf(clientEk)))
+	h.handleRawPacket(sealDummy(t, 2, byte(PacketTypeAck), ackOf(clientEk)))
+
+	if len(acked) != 1 || acked[0] != clientEk {
+		t.Fatalf("accepted dummy-key acks %v, want exactly one for clientek (%d)", acked, clientEk)
+	}
+}
+
+func TestHandlerRefusesSendsWhenNotOpen(t *testing.T) {
+	h := NewPacketHandler(newFuzzCrypt(t), nil)
+
+	err := h.SendPacket(byte(PacketTypeCommand), []byte("x"), 0)
+	if !errors.Is(err, ErrNotOpen) {
+		t.Errorf("SendPacket before Start = %v, want ErrNotOpen", err)
+	}
+	err = h.SendVoicePacket([]byte{1}, 4)
+	if !errors.Is(err, ErrNotOpen) {
+		t.Errorf("SendVoicePacket before Start = %v, want ErrNotOpen", err)
+	}
+	err = h.SendWhisperPacket([]byte{1}, []uint16{1}, 4)
+	if !errors.Is(err, ErrNotOpen) {
+		t.Errorf("SendWhisperPacket before Start = %v, want ErrNotOpen", err)
+	}
+}
+
+func TestHandlerDropsCommandsThatDoNotDecompress(t *testing.T) {
+	h, delivered := newFuzzHandler(t, false)
+
+	// Compressed, but a stored block declaring more bytes than it holds.
+	flags := byte(PacketTypeCommand) | byte(PacketFlagCompressed)
+	h.handleRawPacket(sealDummy(t, 0, flags, []byte{0x04, 0x00, 200}))
+	h.handleRawPacket(sealDummy(t, 1, byte(PacketTypeCommand), []byte("after")))
+
+	if *delivered != 1 {
+		t.Fatalf("delivered %d commands, want only the one after the bad block", *delivered)
+	}
+}
+
+// A panic while handling a packet closes the connection with a cause instead
+// of taking the process down.
+func TestHandlerClosesWithACauseWhenHandlingPanics(t *testing.T) {
+	h, serverConn := newTestHandler(t)
+	_ = readPacket(t, serverConn)
+
+	closed := make(chan error, 1)
+	h.OnClosed = func(err error) { closed <- err }
+	h.OnPacket = func(*Packet) { panic("boom") }
+
+	_, err := serverConn.Write(buildDummyEncryptedS2CCommand(t, 0, byte(PacketTypeCommand), []byte("x")))
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	select {
+	case err := <-closed:
+		if !errors.Is(err, ErrPacketHandling) {
+			t.Fatalf("closed with %v, want ErrPacketHandling", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not close after a panic")
+	}
+	if h.IsOpen() {
+		t.Error("handler still open after a panic")
+	}
+}
+
+// Init1 is the handshake's; once a shared secret exists it is not delivered.
+func TestHandlerIgnoresInit1AfterCryptoInit(t *testing.T) {
+	h, delivered := newFuzzHandler(t, true)
+
+	h.handleRawPacket(buildS2CPacket([]byte("TS3INIT1"), 101, byte(PacketTypeInit1), []byte{0x7F}))
+
+	if *delivered != 0 {
+		t.Fatalf("delivered %d Init1 packets after crypto init, want 0", *delivered)
+	}
+}

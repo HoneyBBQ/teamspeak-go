@@ -75,6 +75,9 @@ func (e *EAX) Encrypt(nonce, header, plaintext []byte) ([]byte, []byte, error) {
 // Decrypt verifies tag over nonce, header and ciphertext in constant time and
 // only then decrypts; a bad tag returns ErrEAXTagMismatch.
 func (e *EAX) Decrypt(nonce, header, ciphertext, tag []byte) ([]byte, error) {
+	if len(tag) < eaxTagSize {
+		return nil, ErrEAXTagMismatch
+	}
 	nStar, _ := e.cmac(eaxTagByte0, nonce)
 	hStar, _ := e.cmac(eaxTagByte1, header)
 	cStar, _ := e.cmac(eaxTagByte2, ciphertext)

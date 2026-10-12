@@ -7,6 +7,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"math"
 	"time"
 
@@ -23,13 +25,29 @@ const (
 	initStepLen    = 21
 )
 
-// ProcessInit1 handles the TS3INIT1 handshake steps.
-func ProcessInit1(tc *crypto.Crypt, data []byte) []byte {
-	if data == nil || (len(data) >= 1 && data[0] == 0x7F) {
+// ErrMalformedInit1 reports an Init1 packet the client cannot answer: empty,
+// of the wrong length for its step, or naming a step the server never sends.
+var ErrMalformedInit1 = errors.New("malformed Init1 packet")
+
+// ProcessInit1 returns the client's answer to the server's Init1 packet data,
+// or the packet that starts the exchange for nil data.
+//
+// Data the client cannot answer — empty, the wrong length for its step, an
+// unknown step, an RSA puzzle out of range — is an error wrapping
+// ErrMalformedInit1 or the puzzle's own error, never a panic: the bytes come
+// from the network.
+func ProcessInit1(tc *crypto.Crypt, data []byte) ([]byte, error) {
+	if data == nil {
 		return buildInit1StartPacket()
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("%w: empty", ErrMalformedInit1)
 	}
 
 	switch data[0] {
+	case 0x7F:
+		// The server asks to start over.
+		return buildInit1StartPacket()
 	case 0:
 		return buildInit1Step1Packet(data)
 	case 1:
@@ -39,11 +57,15 @@ func ProcessInit1(tc *crypto.Crypt, data []byte) []byte {
 	case 3:
 		return buildInit1Step4Packet(tc, data)
 	default:
-		return nil
+		return nil, fmt.Errorf("%w: unknown step %d", ErrMalformedInit1, data[0])
 	}
 }
 
-func buildInit1StartPacket() []byte {
+func wrongLength(step byte, got, want int) error {
+	return fmt.Errorf("%w: step %d is %d bytes, want %d", ErrMalformedInit1, step, got, want)
+}
+
+func buildInit1StartPacket() ([]byte, error) {
 	sendData := make([]byte, initVersionLen+initTypeLen+4+4+8)
 	binary.BigEndian.PutUint32(sendData[0:4], InitVersion)
 	sendData[4] = 0x00
@@ -53,39 +75,39 @@ func buildInit1StartPacket() []byte {
 	binary.BigEndian.PutUint32(sendData[5:9], uint32(nowUnix))
 	_, err := rand.Read(sendData[9:13])
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	return sendData
+	return sendData, nil
 }
 
-func buildInit1Step1Packet(data []byte) []byte {
+func buildInit1Step1Packet(data []byte) ([]byte, error) {
 	if len(data) != initStepLen {
-		return nil
+		return nil, wrongLength(0, len(data), initStepLen)
 	}
 	sendData := make([]byte, initTypeLen+16+4)
 	sendData[0] = 0x01
 	tsRand := binary.LittleEndian.Uint32(data[initVersionLen+initTypeLen+4 : initVersionLen+initTypeLen+8])
 	binary.BigEndian.PutUint32(sendData[initTypeLen+16:initTypeLen+16+4], tsRand)
 
-	return sendData
+	return sendData, nil
 }
 
-func buildInit1Step2Packet(data []byte) []byte {
+func buildInit1Step2Packet(data []byte) ([]byte, error) {
 	if len(data) != initStepLen {
-		return nil
+		return nil, wrongLength(1, len(data), initStepLen)
 	}
 	sendData := make([]byte, initVersionLen+initTypeLen+16+4)
 	binary.BigEndian.PutUint32(sendData[0:4], InitVersion)
 	sendData[4] = 0x02
 	copy(sendData[5:25], data[1:21])
 
-	return sendData
+	return sendData, nil
 }
 
-func buildInit1Step3Packet(data []byte) []byte {
-	if len(data) != initVersionLen+initTypeLen+16+4 {
-		return nil
+func buildInit1Step3Packet(data []byte) ([]byte, error) {
+	if want := initVersionLen + initTypeLen + 16 + 4; len(data) != want {
+		return nil, wrongLength(2, len(data), want)
 	}
 	sendData := make([]byte, initTypeLen+64+64+4+100)
 	sendData[0] = 0x03
@@ -93,23 +115,29 @@ func buildInit1Step3Packet(data []byte) []byte {
 	sendData[initTypeLen+64+64-1] = 1
 	binary.BigEndian.PutUint32(sendData[initTypeLen+64+64:initTypeLen+64+64+4], 1)
 
-	return sendData
+	return sendData, nil
 }
 
-func buildInit1Step4Packet(tc *crypto.Crypt, data []byte) []byte {
-	if len(data) != initTypeLen+64+64+4+100 {
-		return nil
+func buildInit1Step4Packet(tc *crypto.Crypt, data []byte) ([]byte, error) {
+	if want := initTypeLen + 64 + 64 + 4 + 100; len(data) != want {
+		return nil, wrongLength(3, len(data), want)
 	}
-	level := int(binary.BigEndian.Uint32(data[1+128 : 1+128+4]))
-	y, err := tc.SolveRsaChallenge(data, 1, level)
+	// Read as unsigned and compared before narrowing, so a level near 2^32
+	// cannot wrap into range on a 32-bit int.
+	rawLevel := binary.BigEndian.Uint32(data[1+128 : 1+128+4])
+	if rawLevel > crypto.MaxRSAChallengeLevel {
+		return nil, fmt.Errorf("%w: RSA challenge level %d is above %d",
+			ErrMalformedInit1, rawLevel, crypto.MaxRSAChallengeLevel)
+	}
+	y, err := tc.SolveRsaChallenge(data, 1, int(rawLevel))
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	tc.AlphaTmp = make([]byte, 10)
 	_, err = rand.Read(tc.AlphaTmp)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	cmd := commands.BuildCommandOrdered("clientinitiv", [][2]string{
@@ -127,5 +155,5 @@ func buildInit1Step4Packet(tc *crypto.Crypt, data []byte) []byte {
 	copy(sendData[5+232:5+232+64], y)
 	copy(sendData[5+232+64:], cmdBytes)
 
-	return sendData
+	return sendData, nil
 }

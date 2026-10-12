@@ -391,8 +391,8 @@ func TestOnNotification_FollowsTheTypedEvent(t *testing.T) {
 		raw <- n
 	})
 
-	c.handleCommandLines(`notifytextmessage targetmode=3 msg=hello\sthere invokerid=7`)
-	c.handleCommandLines("notifysomethingnew a=1")
+	c.handleCommandLines(c.handler, `notifytextmessage targetmode=3 msg=hello\sthere invokerid=7`)
+	c.handleCommandLines(c.handler, "notifysomethingnew a=1")
 
 	first := receive(t, raw)
 	if first.Name != "notifytextmessage" || first.Params["msg"] != "hello there" {
@@ -415,7 +415,7 @@ func TestOnNotification_SplitsRows(t *testing.T) {
 	raw := make(chan RawNotification, 2)
 	c.OnNotification(func(n RawNotification) { raw <- n })
 
-	c.handleCommandLines("notifychanneledited cid=1 reasonid=10|cid=2")
+	c.handleCommandLines(c.handler, "notifychanneledited cid=1 reasonid=10|cid=2")
 
 	if n := receive(t, raw); n.Params["cid"] != "1" {
 		t.Errorf("row 0 = %v", n.Params)
@@ -432,7 +432,7 @@ func TestOnNotification_CopiesParamsPerHandler(t *testing.T) {
 	got := make(chan string, 1)
 	c.OnNotification(func(n RawNotification) { got <- n.Params["a"] })
 
-	c.handleCommandLines("notifysomething a=1")
+	c.handleCommandLines(c.handler, "notifysomething a=1")
 
 	if v := receive(t, got); v != "1" {
 		t.Errorf("second handler saw a=%q, want 1", v)
@@ -451,7 +451,7 @@ func TestOnNotification_PassesThroughMiddleware(t *testing.T) {
 		}
 	}))
 
-	c.handleCommandLines("notifysomething a=1")
+	c.handleCommandLines(c.handler, "notifysomething a=1")
 
 	if n := receive(t, seen); n.Name != "notifysomething" {
 		t.Errorf("middleware saw %+v", n)
@@ -461,7 +461,7 @@ func TestOnNotification_PassesThroughMiddleware(t *testing.T) {
 // Nobody listening, no middleware: nothing to build.
 func TestOnNotification_NotBuiltWithoutAnyone(t *testing.T) {
 	c := newTestClient(t)
-	c.handleCommandLines("notifysomething a=1")
+	c.handleCommandLines(c.handler, "notifysomething a=1")
 
 	c.events.mu.Lock()
 	queued := len(c.events.pending) + boolToInt(c.events.running)
@@ -484,7 +484,7 @@ func TestOnClientEnter_GroupsAreTheEventsOwn(t *testing.T) {
 	c := newTestClient(t)
 	c.OnClientEnter(func(e ClientEnterEvent) { e.ServerGroups[0] = 99 })
 
-	c.handleCommandLines("notifycliententerview clid=5 client_nickname=a client_servergroups=6,7")
+	c.handleCommandLines(c.handler, "notifycliententerview clid=5 client_nickname=a client_servergroups=6,7")
 	settle(t, c)
 
 	c.mu.Lock()

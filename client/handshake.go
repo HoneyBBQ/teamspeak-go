@@ -15,48 +15,61 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
-func (c *Client) handleHandshakeInitIV(cmd *commands.Command) {
-	c.logger.Info("received crypto negotiation")
-	alpha := cmd.Params["alpha"]
-	beta := cmd.Params["beta"]
-	omega := cmd.Params["omega"]
+// handleHandshakeInitIV completes the legacy key exchange. Once a shared
+// secret exists a repeat is ignored: replacing the keys mid-session would end
+// it.
+func (c *Client) handleHandshakeInitIV(h *transport.PacketHandler, cmd *commands.Command) {
+	if h.TsCrypt.InitComplete() {
+		c.logger.Debug("ignoring clientinitiv after the key exchange")
 
-	err := c.crypt.InitCrypto(alpha, beta, omega)
+		return
+	}
+	c.logger.Info("received crypto negotiation")
+
+	err := h.TsCrypt.InitCrypto(cmd.Params["alpha"], cmd.Params["beta"], cmd.Params["omega"])
 	if err != nil {
-		c.logger.Error("failed to initialize crypto", slog.Any("error", err))
+		c.failHandshake(h, err)
 
 		return
 	}
 
 	c.logger.Info("crypto initialized, sending clientinit")
-	c.sendClientInit()
+	c.sendClientInit(h)
 }
 
-func (c *Client) handleHandshakeExpand2(cmd *commands.Command) {
+// handleHandshakeExpand2 completes the key exchange: it answers with clientek,
+// checks the server's license chain and derives the shared secret. Once one
+// exists a repeat is ignored.
+func (c *Client) handleHandshakeExpand2(h *transport.PacketHandler, cmd *commands.Command) {
+	if h.TsCrypt.InitComplete() {
+		c.logger.Debug("ignoring initivexpand2 after the key exchange")
+
+		return
+	}
 	c.logger.Info("received initivexpand2")
-	c.handler.ReceivedFinalInitAck()
+	h.ReceivedFinalInitAck()
 	license := cmd.Params["l"]
 	omega := cmd.Params["omega"]
 	proof := cmd.Params["proof"]
 	beta := cmd.Params["beta"]
 
-	privateKey, err := c.sendClientEkPacket(beta)
+	privateKey, err := c.sendClientEkPacket(h, beta)
 	if err != nil {
-		c.logger.Warn("failed to send clientek", slog.Any("error", err))
+		c.failHandshake(h, err)
 
 		return
 	}
 
-	err = handshake.CryptoInit2(c.crypt, license, omega, proof, beta, privateKey)
+	err = handshake.CryptoInit2(h.TsCrypt, license, omega, proof, beta, privateKey)
 	if err != nil {
-		c.logger.Error("crypto init2 failed", slog.Any("error", err))
+		c.failHandshake(h, err)
 
 		return
 	}
-	c.sendClientInit()
+	c.sendClientInit(h)
 }
 
-func (c *Client) sendClientEkPacket(beta string) ([]byte, error) {
+func (c *Client) sendClientEkPacket(h *transport.PacketHandler, beta string) ([]byte, error) {
 	publicKey, privateKey, err := crypto.GenerateTemporaryKey()
 	if err != nil {
 		c.logger.Error("failed to generate temporary key", slog.Any("error", err))
@@ -65,7 +78,7 @@ func (c *Client) sendClientEkPacket(beta string) ([]byte, error) {
 	}
 	ekBase64 := base64.StdEncoding.EncodeToString(publicKey)
 
-	clientProof, err := c.buildClientEkProof(publicKey, beta)
+	clientProof, err := c.buildClientEkProof(h, publicKey, beta)
 	if err != nil {
 		return nil, err
 	}
@@ -73,8 +86,8 @@ func (c *Client) sendClientEkPacket(beta string) ([]byte, error) {
 		{"ek", ekBase64},
 		{"proof", clientProof},
 	})
-	c.logger.Debug("sending clientek", slog.String("ek", ekBase64))
-	err = c.handler.SendPacket(byte(transport.PacketTypeCommand), []byte(clientEk), 0)
+	c.logger.Debug("sending clientek")
+	err = h.SendPacket(byte(transport.PacketTypeCommand), []byte(clientEk), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +95,7 @@ func (c *Client) sendClientEkPacket(beta string) ([]byte, error) {
 	return privateKey, nil
 }
 
-func (c *Client) buildClientEkProof(publicKey []byte, beta string) (string, error) {
+func (c *Client) buildClientEkProof(h *transport.PacketHandler, publicKey []byte, beta string) (string, error) {
 	betaBytes, err := base64.StdEncoding.DecodeString(beta)
 	if err != nil {
 		c.logger.Error("failed to decode beta", slog.Any("error", err))
@@ -95,7 +108,7 @@ func (c *Client) buildClientEkProof(publicKey []byte, beta string) (string, erro
 		betaBytes = betaBytes[:54]
 	}
 	copy(toSign[32:], betaBytes)
-	sign, err := crypto.Sign(c.crypt.Identity.PrivateKey, toSign)
+	sign, err := crypto.Sign(h.TsCrypt.Identity.PrivateKey, toSign)
 	if err != nil {
 		c.logger.Error("failed to sign clientek proof", slog.Any("error", err))
 
@@ -105,8 +118,18 @@ func (c *Client) buildClientEkProof(publicKey []byte, beta string) (string, erro
 	return base64.StdEncoding.EncodeToString(sign), nil
 }
 
-func (c *Client) handleInitServer(cmd *commands.Command) {
+// handleInitServer completes the connection. It does so only for the current
+// handler's attempt still in progress: an initserver that arrives after
+// Disconnect, or on a connection already replaced, must not bring the client
+// back to connected.
+func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *commands.Command) {
 	c.mu.Lock()
+	if c.handler != h || c.status != StatusConnecting {
+		c.mu.Unlock()
+		c.logger.Debug("ignoring initserver outside a connection attempt")
+
+		return
+	}
 	c.status = StatusConnected
 
 	idStr := ""
@@ -120,7 +143,7 @@ func (c *Client) handleInitServer(cmd *commands.Command) {
 		val, err := strconv.ParseUint(idStr, 10, 16)
 		if err == nil {
 			c.clid = teamspeak.ClientID(val)
-			c.handler.SetClientID(uint16(c.clid))
+			h.SetClientID(uint16(c.clid))
 		}
 	}
 
@@ -134,9 +157,10 @@ func (c *Client) handleInitServer(cmd *commands.Command) {
 	}
 
 	c.attempt.finish(nil)
+	selfID := c.clid
 	c.mu.Unlock()
 
-	c.logger.Info("connected to server", slog.Uint64("self_id", uint64(c.clid)))
+	c.logger.Info("connected to server", slog.Uint64("self_id", uint64(selfID)))
 
 	go func() {
 		updateCmd := commands.BuildCommand("clientupdate", map[string]string{
@@ -149,16 +173,16 @@ func (c *Client) handleInitServer(cmd *commands.Command) {
 	emit(c, &c.onConnected, struct{}{})
 }
 
-func (c *Client) sendClientInit() {
-	cmd := c.buildClientInitCommand()
-	err := c.handler.SendPacket(byte(transport.PacketTypeCommand), []byte(cmd), 0)
+func (c *Client) sendClientInit(h *transport.PacketHandler) {
+	cmd := c.buildClientInitCommand(h.TsCrypt)
+	err := h.SendPacket(byte(transport.PacketTypeCommand), []byte(cmd), 0)
 	if err != nil {
 		c.logger.Warn("failed to send clientinit", slog.Any("error", err))
 	}
 }
 
-func (c *Client) buildClientInitCommand() string {
-	pubKeyBase64 := c.crypt.Identity.PublicKey()
+func (c *Client) buildClientInitCommand(tc *crypto.Crypt) string {
+	pubKeyBase64 := tc.Identity.PublicKey()
 	// HWID matches TS3 client UID format: base64(SHA1(publicKeyBase64))
 	hwidSum := sha1.Sum([]byte(pubKeyBase64)) //nolint:gosec
 	hwid := base64.StdEncoding.EncodeToString(hwidSum[:])
@@ -176,7 +200,7 @@ func (c *Client) buildClientInitCommand() string {
 		{"client_server_password", serverPassword},
 		{"client_meta_data", ""},
 		{"client_version_sign", "DX5NIYLvfJEUjuIbCidnoeozxIDRRkpq3I9vVMBmE9L2qnekOoBzSenkzsg2lC9CMv8K5hkEzhr2TYUYSwUXCg=="},
-		{"client_key_offset", strconv.FormatUint(c.crypt.Identity.Offset, 10)},
+		{"client_key_offset", strconv.FormatUint(tc.Identity.Offset, 10)},
 		{"client_nickname_phonetic", ""},
 		{"client_default_token", ""},
 		{"hwid", hwid},

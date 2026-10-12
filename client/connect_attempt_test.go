@@ -51,7 +51,7 @@ func TestWaitConnected_ReturnsServerErrorInsteadOfTimingOut(t *testing.T) {
 	disconnected := make(chan error, 1)
 	c.OnDisconnected(func(err error) { disconnected <- err })
 
-	c.handleCommand(`error id=1028 msg=invalid\sserver\spassword`)
+	c.handleCommand(c.handler, `error id=1028 msg=invalid\sserver\spassword`)
 
 	err := waitWithin(t, c, time.Second)
 	if err == nil || errors.Is(err, context.DeadlineExceeded) ||
@@ -78,7 +78,7 @@ func TestWaitConnected_ReturnsServerErrorInsteadOfTimingOut(t *testing.T) {
 
 func TestWaitConnected_LaterWaitersSeeTheSameFailure(t *testing.T) {
 	c := connectingClient(t)
-	c.handleCommand(`error id=1028 msg=invalid\sserver\spassword`)
+	c.handleCommand(c.handler, `error id=1028 msg=invalid\sserver\spassword`)
 
 	err := waitWithin(t, c, time.Second)
 	if err == nil || !strings.Contains(err.Error(), "invalid server password") {
@@ -88,10 +88,10 @@ func TestWaitConnected_LaterWaitersSeeTheSameFailure(t *testing.T) {
 
 func TestWaitConnected_ErrorAfterConnectDoesNotDisconnect(t *testing.T) {
 	c := connectingClient(t)
-	c.handleCommand("initserver aclid=3 virtualserver_name=X")
+	c.handleCommand(c.handler, "initserver aclid=3 virtualserver_name=X")
 
 	// An ordinary command failure on a live session.
-	c.handleCommand(`error id=768 msg=invalid\schannelID return_code=99`)
+	c.handleCommand(c.handler, `error id=768 msg=invalid\schannelID return_code=99`)
 
 	c.mu.Lock()
 	status := c.status
@@ -112,7 +112,7 @@ func TestWaitConnected_CalledBeforeConnectIsReleasedByTheHandshake(t *testing.T)
 	time.Sleep(50 * time.Millisecond) // let the waiter grab the attempt
 
 	reconnect(t, c)
-	c.handleCommand("initserver aclid=3 virtualserver_name=X")
+	c.handleCommand(c.handler, "initserver aclid=3 virtualserver_name=X")
 
 	err := <-result
 	if err != nil {
@@ -122,7 +122,7 @@ func TestWaitConnected_CalledBeforeConnectIsReleasedByTheHandshake(t *testing.T)
 
 func TestReconnectStartsAFreshAttemptAfterAFailure(t *testing.T) {
 	c := connectingClient(t)
-	c.handleCommand(`error id=1028 msg=invalid\sserver\spassword`)
+	c.handleCommand(c.handler, `error id=1028 msg=invalid\sserver\spassword`)
 
 	reconnect(t, c)
 

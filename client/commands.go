@@ -251,26 +251,21 @@ func (t *commandTracker) reset(err error) {
 	t.welcomeComplete = false
 }
 
-func (c *Client) handlePacket(p *transport.Packet) {
-	c.logger.Debug("received packet", slog.Uint64("type", uint64(p.Type())), slog.Int("length", len(p.Data)))
+// handlePacket handles a packet handler h received. A packet from a handler
+// that a later Connect has already replaced is dropped: its connection, and
+// the crypto state it carries, are no longer the client's.
+func (c *Client) handlePacket(h *transport.PacketHandler, p *transport.Packet) {
+	if c.currentHandler() != h {
+		return
+	}
 	switch p.Type() {
 	case transport.PacketTypeInit1:
-		c.logger.Debug("processing init1 packet")
-		response := handshake.ProcessInit1(c.crypt, p.Data)
-		if response != nil {
-			c.logger.Debug("sending init1 response")
-			err := c.handler.SendPacket(byte(transport.PacketTypeInit1), response, 0)
-			if err != nil {
-				c.logger.Warn("failed to send init1 response", slog.Any("error", err))
-			}
-		}
+		c.handleInit1(h, p.Data)
 	case transport.PacketTypeCommand, transport.PacketTypeCommandLow:
 		if len(p.Data) == 0 {
 			return
 		}
-		dataStr := string(p.Data)
-		c.logger.Debug("received command data", slog.String("data", dataStr))
-		c.handleCommandLines(dataStr)
+		c.handleCommandLines(h, string(p.Data))
 	case transport.PacketTypeVoice, transport.PacketTypeVoiceWhisper:
 		c.handleVoicePacket(p)
 	case transport.PacketTypePing, transport.PacketTypePong, transport.PacketTypeAck, transport.PacketTypeAckLow:
@@ -278,7 +273,40 @@ func (c *Client) handlePacket(p *transport.Packet) {
 	}
 }
 
-func (c *Client) handleCommandLines(s string) {
+// handleInit1 answers a step of the Init1 exchange. Once the shared secret
+// exists the exchange is over, and a late or replayed Init1 is ignored.
+func (c *Client) handleInit1(h *transport.PacketHandler, data []byte) {
+	if h.TsCrypt.InitComplete() {
+		return
+	}
+	response, err := handshake.ProcessInit1(h.TsCrypt, data)
+	if err != nil {
+		c.failHandshake(h, err)
+
+		return
+	}
+	err = h.SendPacket(byte(transport.PacketTypeInit1), response, 0)
+	if err != nil {
+		c.logger.Warn("failed to send init1 response", slog.Any("error", err))
+	}
+}
+
+// failHandshake ends a connection attempt whose handshake cannot go on, with a
+// cause wrapping ErrHandshake. Once connected there is no handshake left to
+// fail, and the step is dropped instead.
+func (c *Client) failHandshake(h *transport.PacketHandler, err error) {
+	c.mu.Lock()
+	if c.handler != h || c.status != StatusConnecting {
+		c.mu.Unlock()
+		c.logger.Debug("ignoring a handshake step outside a handshake", slog.Any("error", err))
+
+		return
+	}
+	c.logger.Error("handshake failed", slog.Any("error", err))
+	c.failConnectionLocked(fmt.Errorf("%w: %w", ErrHandshake, err))
+}
+
+func (c *Client) handleCommandLines(h *transport.PacketHandler, s string) {
 	if s == "" {
 		return
 	}
@@ -289,7 +317,7 @@ func (c *Client) handleCommandLines(s string) {
 			if part != "" {
 				rows := wire.SplitRows(part)
 				for _, row := range rows {
-					c.handleCommand(row)
+					c.handleCommand(h, row)
 				}
 			}
 			start = i + 1
@@ -297,13 +325,15 @@ func (c *Client) handleCommandLines(s string) {
 	}
 }
 
-func (c *Client) handleCommand(s string) {
+func (c *Client) handleCommand(h *transport.PacketHandler, s string) {
 	cmd := commands.ParseCommand(s)
 	if cmd == nil {
 		return
 	}
 
-	c.logger.Debug("processing command", slog.String("name", cmd.Name), slog.Any("params", cmd.Params))
+	// The name and the parameter count only: parameters carry privilege
+	// keys, file transfer keys, temporary passwords and message bodies.
+	c.logger.Debug("processing command", slog.String("name", cmd.Name), slog.Int("params", len(cmd.Params)))
 
 	// An empty name means a response row: the server sends data without echoing
 	// the command, so the row belongs to whichever command awaits a result.
@@ -331,11 +361,11 @@ func (c *Client) handleCommand(s string) {
 
 	switch cmd.Name {
 	case "clientinitiv":
-		c.handleHandshakeInitIV(cmd)
+		c.handleHandshakeInitIV(h, cmd)
 	case "initivexpand2":
-		c.handleHandshakeExpand2(cmd)
+		c.handleHandshakeExpand2(h, cmd)
 	case "initserver":
-		c.handleInitServer(cmd)
+		c.handleInitServer(h, cmd)
 	case "error":
 		c.handleError(cmd)
 	default:
@@ -343,7 +373,7 @@ func (c *Client) handleCommand(s string) {
 		// it answers a command only if that command declared it — not merely
 		// by arriving while one is in flight.
 		c.cmdTrack.collect(cmd.Params, cmd.Name)
-		c.logger.Debug("unhandled or data command", slog.String("name", cmd.Name), slog.Any("params", cmd.Params))
+		c.logger.Debug("unhandled or data command", slog.String("name", cmd.Name), slog.Int("params", len(cmd.Params)))
 	}
 }
 

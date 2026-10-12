@@ -153,7 +153,11 @@ func parseBlockPayload(blockType licenseBlockType, data []byte, minBlockLen int)
 }
 
 func parseIntermediatePayload(data []byte) (blockPayload, error) {
-	issuer, read, err := readNullString(data[46:])
+	const issuerStart = 46
+	if len(data) < issuerStart {
+		return blockPayload{}, errLicenseTooShort
+	}
+	issuer, read, err := readNullString(data[issuerStart:])
 	if err != nil {
 		return blockPayload{}, err
 	}
@@ -162,7 +166,11 @@ func parseIntermediatePayload(data []byte) (blockPayload, error) {
 }
 
 func parseServerPayload(data []byte) (blockPayload, error) {
-	issuer, read, err := readNullString(data[47:])
+	const issuerStart = 47
+	if len(data) < issuerStart {
+		return blockPayload{}, errLicenseTooShort
+	}
+	issuer, read, err := readNullString(data[issuerStart:])
 	if err != nil {
 		return blockPayload{}, err
 	}
@@ -175,6 +183,9 @@ func parseServerPayload(data []byte) (blockPayload, error) {
 }
 
 func parseTs5ServerPayload(data []byte, minBlockLen int) (blockPayload, error) {
+	if len(data) < 44 {
+		return blockPayload{}, errLicenseTooShort
+	}
 	propertyCount := int(data[43])
 	pos := 44
 	properties := make([][]byte, 0, propertyCount)

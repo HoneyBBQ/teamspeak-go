@@ -407,7 +407,7 @@ func (c *Client) start(ctx context.Context) (*connectAttempt, error) {
 			err = handler.Start(transport.NewPacketConnAdapter(packetConn, remote))
 		}
 	} else {
-		err = handler.Connect(targetAddr)
+		err = handler.Connect(ctx, targetAddr)
 	}
 	if err != nil {
 		// Without this the client stays in StatusConnecting and every later
@@ -474,7 +474,9 @@ func (c *Client) resolveConnectTarget(ctx context.Context, fallbackAddr string) 
 // later Connect already replaced cannot tear down the new connection.
 func (c *Client) newHandler() *transport.PacketHandler {
 	h := transport.NewPacketHandler(c.crypt, c.logger)
-	h.OnPacket = c.handlePacket
+	h.OnPacket = func(p *transport.Packet) {
+		c.handlePacket(h, p)
+	}
 	h.OnClosed = func(err error) {
 		c.handleConnectionClosed(h, err)
 	}
@@ -550,8 +552,11 @@ func (c *Client) handleConnectionClosed(h *transport.PacketHandler, err error) {
 	if c.status == StatusConnecting {
 		// The socket closed before the handshake finished: a failed attempt,
 		// not the end of a live session.
-		if err == nil {
+		switch {
+		case err == nil:
 			err = errClosedDuringHandshake
+		case errors.Is(err, transport.ErrPacketHandling):
+			err = fmt.Errorf("%w: %w", ErrHandshake, err)
 		}
 		c.failConnectionLocked(err)
 

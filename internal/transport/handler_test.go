@@ -442,7 +442,7 @@ func TestHandlerSendVoicePacket_Format(t *testing.T) {
 	}
 
 	// Tag bytes 0-7 should be FakeSignature (all zeros for unused crypto state).
-	fakeSig := h.TsCrypt.FakeSignature
+	fakeSig := h.TsCrypt.FakeSignature()
 	for i, b := range fakeSig {
 		if pkt[i] != b {
 			t.Errorf("tag[%d]: expected 0x%02x (FakeSignature), got 0x%02x", i, b, pkt[i])
