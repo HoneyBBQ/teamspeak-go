@@ -418,6 +418,15 @@ type TempPassword struct {
 	TargetChannelID ChannelID
 }
 
+// String describes the password without the password itself.
+func (p TempPassword) String() string {
+	return fmt.Sprintf("{Description:%q TargetChannelID:%d Start:%v End:%v Password:redacted}",
+		p.Description, p.TargetChannelID, p.Start, p.End)
+}
+
+// GoString is String, so %#v redacts too.
+func (p TempPassword) GoString() string { return p.String() }
+
 // ListTempPasswords returns the server's temporary passwords.
 func (c *Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error) {
 	rows, err := c.list(ctx, "servertemppasswordlist", nil)

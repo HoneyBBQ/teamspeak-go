@@ -192,12 +192,10 @@ func (c *Client) handleTextMessage(cmd *commands.Command) {
 	}
 	c.mu.Unlock()
 
+	// Not the message itself: a message body is the sender's, not the log's.
 	c.logger.Debug("text message received",
 		slog.String("target_mode", msg.TargetMode.String()),
-		slog.String("invoker_id", cmd.Params["invokerid"]),
-		slog.String("invoker_name", cmd.Params["invokername"]),
-		slog.String("invoker_uid", string(msg.InvokerUID)),
-		slog.String("message", cmd.Params["msg"]))
+		slog.Uint64("invoker_id", uint64(msg.InvokerID)))
 
 	c.emitEvent(msg)
 }
@@ -210,10 +208,7 @@ func (c *Client) handleClientPoke(cmd *commands.Command) {
 		Message:     cmd.Params["msg"],
 	}
 
-	c.logger.Debug("client poked",
-		slog.String("invoker_name", evt.InvokerName),
-		slog.String("invoker_uid", string(evt.InvokerUID)),
-		slog.String("message", evt.Message))
+	c.logger.Debug("client poked", slog.Uint64("invoker_id", uint64(evt.InvokerID)))
 
 	c.emitEvent(evt)
 }

@@ -1,6 +1,9 @@
 package teamspeak
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // ClientInfo is a connected client, as clientlist or notifycliententerview
 // reports one.
@@ -50,3 +53,24 @@ type FileDownloadInfo struct {
 	ServerFileTransferID uint16
 	Port                 uint16
 }
+
+// String describes the negotiation without its key, which is what lets anyone
+// holding it transfer the file.
+func (i FileUploadInfo) String() string {
+	return fmt.Sprintf(
+		"{Port:%d SeekPosition:%d ClientFileTransferID:%d ServerFileTransferID:%d FileTransferKey:redacted}",
+		i.Port, i.SeekPosition, i.ClientFileTransferID, i.ServerFileTransferID)
+}
+
+// GoString is String, so %#v redacts too.
+func (i FileUploadInfo) GoString() string { return i.String() }
+
+// String describes the negotiation without its key, which is what lets anyone
+// holding it transfer the file.
+func (i FileDownloadInfo) String() string {
+	return fmt.Sprintf("{Port:%d Size:%d ClientFileTransferID:%d ServerFileTransferID:%d FileTransferKey:redacted}",
+		i.Port, i.Size, i.ClientFileTransferID, i.ServerFileTransferID)
+}
+
+// GoString is String, so %#v redacts too.
+func (i FileDownloadInfo) GoString() string { return i.String() }

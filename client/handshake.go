@@ -186,8 +186,8 @@ func (c *Client) buildClientInitCommand(tc *crypto.Crypt) string {
 	// HWID matches TS3 client UID format: base64(SHA1(publicKeyBase64))
 	hwidSum := sha1.Sum([]byte(pubKeyBase64)) //nolint:gosec
 	hwid := base64.StdEncoding.EncodeToString(hwidSum[:])
-	defaultChannelPassword := prepareClientPassword(c.clientInitOptions.defaultChannelPassword)
-	serverPassword := prepareClientPassword(c.clientInitOptions.serverPassword)
+	defaultChannelPassword := c.clientInitOptions.defaultChannelPasswordHash
+	serverPassword := c.clientInitOptions.serverPasswordHash
 
 	return commands.BuildCommandOrdered("clientinit", [][2]string{
 		{"client_nickname", c.nickname},

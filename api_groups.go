@@ -2,6 +2,7 @@ package teamspeak
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -408,3 +409,13 @@ func (c *Commands) UsePrivilegeKey(ctx context.Context, token string) error {
 func (c *Commands) UseToken(ctx context.Context, token string) error {
 	return c.exec(ctx, "tokenuse", []param{strArg("token", token)})
 }
+
+// String describes the key without the token itself, which grants the group
+// to whoever redeems it.
+func (k PrivilegeKey) String() string {
+	return fmt.Sprintf("{Type:%v ServerGroupID:%d ChannelGroupID:%d ChannelID:%d Description:%q Token:redacted}",
+		k.Type, k.ServerGroupID, k.ChannelGroupID, k.ChannelID, k.Description)
+}
+
+// GoString is String, so %#v redacts too.
+func (k PrivilegeKey) GoString() string { return k.String() }

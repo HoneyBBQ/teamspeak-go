@@ -113,10 +113,32 @@ type CommandMiddleware func(next func(string) error) func(string) error
 // event, pass on a different one in its place, or drop it by not calling next.
 type EventMiddleware func(next func(Event)) func(Event)
 
+// clientInitOptions are what clientinit sends besides the identity. The
+// passwords are held only as the hashes the voice protocol sends,
+// base64(sha1(password)), computed once when the option is applied: the
+// plaintext is never kept.
 type clientInitOptions struct {
-	serverPassword         string
-	defaultChannel         string
-	defaultChannelPassword string
+	serverPasswordHash         string
+	defaultChannel             string
+	defaultChannelPasswordHash string
+}
+
+// String describes the options without the password hashes, which the
+// server accepts as the passwords themselves.
+func (o clientInitOptions) String() string {
+	return fmt.Sprintf("{defaultChannel:%q serverPassword:%s defaultChannelPassword:%s}",
+		o.defaultChannel, redacted(o.serverPasswordHash), redacted(o.defaultChannelPasswordHash))
+}
+
+// GoString is String, so %#v redacts too.
+func (o clientInitOptions) GoString() string { return o.String() }
+
+func redacted(secret string) string {
+	if secret == "" {
+		return "none"
+	}
+
+	return "redacted"
 }
 
 // Client is the TeamSpeak 3 client.
@@ -147,8 +169,10 @@ type Client struct {
 	capabilities ServerCapabilities
 	// packetConn, when set, replaces the UDP socket the transport would
 	// otherwise dial. It is the seam for proxies, tunnels and tests.
-	packetConn        net.PacketConn
-	clientInitOptions clientInitOptions
+	packetConn net.PacketConn
+	// clientInitOptions is behind a pointer so that even a Client value
+	// printed field by field shows an address, not the password hashes.
+	clientInitOptions *clientInitOptions
 	reconnectOptions  ReconnectOptions
 	// reconnecting guards against competing retry loops after two failures in
 	// quick succession.
@@ -174,6 +198,26 @@ type Client struct {
 	clid             teamspeak.ClientID
 }
 
+// String describes the client by its address, nickname and status. It, and
+// GoString and LogValue, never include the passwords, their hashes or the
+// identity's private key, so a client that reaches a log or an error message
+// leaks none of them.
+func (c *Client) String() string {
+	return fmt.Sprintf("teamspeak client %q at %s (%s)", c.nickname, c.addr, c.Status())
+}
+
+// GoString is String, so %#v redacts too.
+func (c *Client) GoString() string { return c.String() }
+
+// LogValue describes the client to log/slog as String does.
+func (c *Client) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("nickname", c.nickname),
+		slog.String("address", c.addr),
+		slog.String("status", c.Status().String()),
+	)
+}
+
 // ErrInvalidConfig reports a client New cannot build as configured.
 var ErrInvalidConfig = errors.New("invalid client configuration")
 
@@ -191,8 +235,9 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 	}
 
 	c := &Client{
-		identity: id,
-		status:   StatusDisconnected,
+		identity:          id,
+		clientInitOptions: &clientInitOptions{},
+		status:            StatusDisconnected,
 		// Silent unless the application asks: a library has no business
 		// writing to the application's default logger.
 		logger:   slog.New(slog.DiscardHandler),
@@ -292,7 +337,7 @@ func WithEventMiddleware(mw ...EventMiddleware) Option {
 // WithServerPassword sets the server password sent when connecting.
 func WithServerPassword(password string) Option {
 	return optionFunc(func(c *Client) {
-		c.clientInitOptions.serverPassword = password
+		c.clientInitOptions.serverPasswordHash = prepareClientPassword(password)
 	})
 }
 
@@ -306,7 +351,7 @@ func WithDefaultChannel(channel string) Option {
 // WithDefaultChannelPassword sets the default channel's password.
 func WithDefaultChannelPassword(password string) Option {
 	return optionFunc(func(c *Client) {
-		c.clientInitOptions.defaultChannelPassword = password
+		c.clientInitOptions.defaultChannelPasswordHash = prepareClientPassword(password)
 	})
 }
 

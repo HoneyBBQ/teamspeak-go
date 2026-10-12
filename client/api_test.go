@@ -2,10 +2,12 @@ package client
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/identity"
 )
 
@@ -92,5 +94,29 @@ func TestSendsWithoutAConnectionReturnErrNotConnected(t *testing.T) {
 	err = c.ExecNoWait(t.Context(), "clientupdate")
 	if !errors.Is(err, teamspeak.ErrNotConnected) {
 		t.Errorf("ExecNoWait = %v, want ErrNotConnected", err)
+	}
+}
+
+func TestClientFormattingHidesPasswords(t *testing.T) {
+	id, err := identity.Parse(testClientIdentity)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	c := mustNew(t, id, "bot", WithServerPassword("server-s3cret"), WithDefaultChannelPassword("chan-s3cret"))
+	secrets := []string{"server-s3cret", "chan-s3cret", prepareClientPassword("server-s3cret"),
+		prepareClientPassword("chan-s3cret"), id.Export()}
+	for _, verb := range []string{"%v", "%+v", "%#v"} {
+		for _, v := range []any{c, c.clientInitOptions, *c.clientInitOptions} {
+			out := fmt.Sprintf(verb, v)
+			for _, secret := range secrets {
+				if strings.Contains(out, secret) {
+					t.Errorf("%T with %s leaks %q", v, verb, secret)
+				}
+			}
+		}
+	}
+	wantHash := commands.Escape(prepareClientPassword("server-s3cret"))
+	if !strings.Contains(c.buildClientInitCommand(c.handler.TsCrypt), wantHash) {
+		t.Error("clientinit no longer carries the server password hash")
 	}
 }

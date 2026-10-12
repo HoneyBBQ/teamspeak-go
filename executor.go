@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync/atomic"
 
@@ -29,6 +30,23 @@ type Request struct {
 // Command returns the command's name.
 func (r Request) Command() string {
 	return r.command
+}
+
+// String returns the command's name only: parameters carry passwords,
+// privilege keys and message bodies, so a request printed with %v, %+v or
+// %#v, or logged, shows none of them.
+func (r Request) String() string {
+	return r.command
+}
+
+// GoString is String, so %#v redacts too.
+func (r Request) GoString() string {
+	return r.command
+}
+
+// LogValue logs the command's name only, as String does.
+func (r Request) LogValue() slog.Value {
+	return slog.StringValue(r.command)
 }
 
 // Encode renders the request as a command line. encodePassword is the

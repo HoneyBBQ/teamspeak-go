@@ -100,6 +100,18 @@ func NewCrypt(id *identity.Identity) *Crypt {
 	}
 }
 
+// String describes the crypt without its keys.
+func (tc *Crypt) String() string {
+	if tc.InitComplete() {
+		return "crypt (initialised, keys redacted)"
+	}
+
+	return "crypt (dummy key)"
+}
+
+// GoString is String, so %#v redacts too.
+func (tc *Crypt) GoString() string { return tc.String() }
+
 // InitComplete reports whether the handshake has agreed a shared secret, after
 // which packets are encrypted with keys derived from it instead of the fixed
 // dummy key.
