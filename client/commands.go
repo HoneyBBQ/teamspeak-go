@@ -227,6 +227,14 @@ func (t *commandTracker) settleLocked(rc uint32, p *pendingCommand, result comma
 	p.result <- result
 }
 
+// discardBuffered drops the rows held since the previous error, which an
+// error naming no command has just closed.
+func (t *commandTracker) discardBuffered() {
+	t.mu.Lock()
+	t.buffer = nil
+	t.mu.Unlock()
+}
+
 // signalWelcomeComplete marks the end of the server's welcome sequence and
 // discards whatever was held while it was still arriving.
 func (t *commandTracker) signalWelcomeComplete() {
@@ -447,11 +455,15 @@ func (c *Client) handleError(h *transport.PacketHandler, cmd *wire.Command) {
 		}
 	}
 
-	if rcStr != "" {
-		rc, parseErr := strconv.ParseUint(rcStr, 10, 32)
-		if parseErr == nil {
-			c.cmdTrack.resolve(uint32(rc), err, c.ClientID())
-		}
+	// An error closes the answer the rows since the previous one belong to,
+	// whether or not it names the command: without a return_code, as for
+	// clientinit, the rows were no command's and are dropped, rather than
+	// handed to the next command answered.
+	rc, parseErr := strconv.ParseUint(rcStr, 10, 32)
+	if rcStr != "" && parseErr == nil {
+		c.cmdTrack.resolve(uint32(rc), err, c.ClientID())
+	} else {
+		c.cmdTrack.discardBuffered()
 	}
 
 	// A server error before the handshake completed is the connection failure

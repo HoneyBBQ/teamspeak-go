@@ -139,6 +139,27 @@ func TestHandleCommand_DataCollectedBeforeError(t *testing.T) {
 	}
 }
 
+// An error naming no command closes the rows before it all the same: they
+// were its answer, not the next command's.
+func TestHandleCommand_ErrorWithoutReturnCode_DropsTheRowsBeforeIt(t *testing.T) {
+	c := newTestClient(t)
+	rc, ch := c.cmdTrack.register(nil, "", false)
+
+	c.handleCommand(c.handler, "stale=row")
+	c.handleCommand(c.handler, "error id=0 msg=ok")
+	c.handleCommand(c.handler, "key=val")
+	c.handleCommand(c.handler, "error id=0 msg=ok return_code="+mustUint32Str(rc))
+
+	select {
+	case result := <-ch:
+		if len(result.Data) != 1 || result.Data[0]["key"] != "val" {
+			t.Errorf("data = %v, want only key=val", result.Data)
+		}
+	case <-time.After(time.Second):
+		t.Error("not resolved")
+	}
+}
+
 // A named line answers a command only if the command declared it; arriving
 // while the command is in flight is not enough.
 func TestHandleCommand_UndeclaredNamedCommand_IsNotData(t *testing.T) {
