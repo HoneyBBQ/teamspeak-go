@@ -107,3 +107,48 @@ func TestDisconnect_GoodbyeWaitsASecondAtMost(t *testing.T) {
 		t.Errorf("Disconnect took %v, want about a second", took)
 	}
 }
+
+// stuckResolver records the deadline it is given and then ignores its
+// context, as a careless custom resolver might.
+type stuckResolver struct {
+	deadline chan time.Time
+	release  chan struct{}
+}
+
+func (r stuckResolver) Resolve(ctx context.Context, _ string) ([]ResolvedAddr, error) {
+	d, _ := ctx.Deadline()
+	r.deadline <- d
+	<-r.release
+
+	return nil, nil
+}
+
+// A custom resolver gets the resolution budget as its context's deadline, and
+// is not waited for past the caller's context even if it ignores its own.
+func TestConnect_BoundsACustomResolver(t *testing.T) {
+	id, err := identity.Parse(testClientIdentity)
+	if err != nil {
+		t.Fatalf("identity: %v", err)
+	}
+	r := stuckResolver{deadline: make(chan time.Time, 1), release: make(chan struct{})}
+	defer close(r.release)
+	c := mustNew(t, id, "TestBot", WithResolver(r))
+
+	// No deadline of the caller's, so the resolver's is the budget's own.
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	time.AfterFunc(200*time.Millisecond, cancel)
+	start := time.Now()
+	err = c.Connect(ctx)
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("Connect took %v with a resolver that never answers", took)
+	}
+	if err == nil {
+		t.Fatal("Connect succeeded")
+	}
+	deadline := <-r.deadline
+	want := start.Add(resolveTimeout)
+	if deadline.Before(want.Add(-time.Second)) || deadline.After(want.Add(time.Second)) {
+		t.Errorf("resolver deadline = %v, want within %v of the start", deadline, resolveTimeout)
+	}
+}

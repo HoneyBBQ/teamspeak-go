@@ -34,9 +34,9 @@ var (
 // reconnectAttemptTimeout bounds each reconnection attempt.
 const reconnectAttemptTimeout = 30 * time.Second
 
-// resolveTimeout bounds address resolution, which falls back to the address
-// as given rather than failing, so a slow DNS or TSDNS server costs at most
-// this much of a Connect.
+// resolveTimeout bounds address resolution, the default chain or a
+// WithResolver one, which falls back to the address as given rather than
+// failing, so a slow DNS or TSDNS server costs at most this much of a Connect.
 const resolveTimeout = 10 * time.Second
 
 // disconnectTimeout bounds the goodbye Disconnect sends, whatever deadline its
@@ -636,11 +636,31 @@ func (c *Client) resetForConnectLocked() string {
 	return net.JoinHostPort(host, port)
 }
 
+// resolveConnectTarget resolves the client's address within resolveTimeout,
+// the budget for the whole of resolution. The resolver — the default chain or
+// the caller's own — gets a context with that deadline, and is not waited for
+// past it even if it ignores the context.
 func (c *Client) resolveConnectTarget(ctx context.Context, fallbackAddr string) (string, string) {
 	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
 
-	resolved, err := c.resolver.Resolve(ctx, c.addr)
+	type answer struct {
+		err      error
+		resolved []ResolvedAddr
+	}
+	answered := make(chan answer, 1)
+	go func() {
+		resolved, err := c.resolver.Resolve(ctx, c.addr)
+		answered <- answer{resolved: resolved, err: err}
+	}()
+	var resolved []ResolvedAddr
+	var err error
+	select {
+	case a := <-answered:
+		resolved, err = a.resolved, a.err
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
 	if err != nil || len(resolved) == 0 {
 		// An empty answer used to index resolved[0] and panic.
 		c.logger.WarnContext(ctx, "address resolution failed, falling back to direct", slog.Any("error", err))
