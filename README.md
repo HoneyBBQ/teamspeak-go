@@ -42,6 +42,9 @@ go get github.com/honeybbq/teamspeak-go
 
 Requires **Go 1.26** or later.
 
+Upgrading from v0.x? Every signature changed for 1.0; [CHANGELOG.md](CHANGELOG.md)
+lists what changed and how to migrate.
+
 ## Quick Start
 
 ```go
