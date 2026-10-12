@@ -105,7 +105,7 @@ func (c *Client) Send(ctx context.Context, req teamspeak.Request) ([]map[string]
 }
 
 // Exec sends a raw command line and returns the rows that answer it. The line
-// is sent as given, so its values must already be escaped (wire.Escape).
+// is sent as given, so its values must already be escaped (commands.Escape).
 //
 // Without a deadline on ctx the command gives up after defaultCommandTimeout.
 func (c *Client) Exec(ctx context.Context, line string) ([]map[string]string, error) {
