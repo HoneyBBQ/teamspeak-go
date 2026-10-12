@@ -278,3 +278,62 @@ func TestConnect_DropsTheEarlierSessionsQueuedDisconnected(t *testing.T) {
 		t.Fatal("the abandoned attempt's disconnected was not delivered")
 	}
 }
+
+// An address that cannot be one fails Connect with ErrInvalidAddress before
+// anything starts: no socket, no attempt, no disconnected event, no retry.
+func TestConnect_RefusesAnInvalidAddress(t *testing.T) {
+	id, err := identity.Parse(testClientIdentity)
+	if err != nil {
+		t.Fatalf("identity: %v", err)
+	}
+	for _, addr := range []string{
+		"127.0.0.1:70000", "127.0.0.1:0", "[::1]:99999", "  ", "bad host:9987", "127.0.0.1:abc", ":9987",
+		"a:b:c", "host/path",
+	} {
+		var c *Client
+		c, err = New(id, addr, "TestBot", WithResolver(fixedResolver("127.0.0.1:9")))
+		if err != nil {
+			t.Fatalf("New(%q): %v", addr, err)
+		}
+		heard := make(chan error, 1)
+		c.OnDisconnected(func(err error) { heard <- err })
+
+		err = c.Connect(t.Context())
+		if !errors.Is(err, ErrInvalidAddress) {
+			t.Errorf("Connect(%q) = %v, want ErrInvalidAddress", addr, err)
+		}
+		if DefaultShouldRetry(err, 1) {
+			t.Errorf("DefaultShouldRetry(%q's error) = true", addr)
+		}
+		if got := c.Status(); got != StatusDisconnected {
+			t.Errorf("%q: status = %v", addr, got)
+		}
+		select {
+		case e := <-heard:
+			t.Errorf("%q: disconnected announced (%v)", addr, e)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	for _, addr := range []string{"127.0.0.1", "[::1]:9987", "::1", "fe80::1%en0", "ts.example.com:1", "nickname"} {
+		err = validateAddress(addr)
+		if err != nil {
+			t.Errorf("validateAddress(%q) = %v", addr, err)
+		}
+	}
+}
+
+// A resolver's answer is held to the same rule.
+func TestConnect_RefusesAnInvalidResolvedAddress(t *testing.T) {
+	id, err := identity.Parse(testClientIdentity)
+	if err != nil {
+		t.Fatalf("identity: %v", err)
+	}
+	c := mustNew(t, id, "TestBot", WithResolver(fixedResolver("127.0.0.1:0")))
+	err = c.Connect(t.Context())
+	if !errors.Is(err, ErrInvalidAddress) {
+		t.Fatalf("Connect = %v, want ErrInvalidAddress", err)
+	}
+	if got := c.Status(); got != StatusDisconnected {
+		t.Errorf("status = %v", got)
+	}
+}

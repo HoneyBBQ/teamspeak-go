@@ -160,10 +160,14 @@ var permanentServerErrors = map[errcode.Code]bool{
 // (3331), a wrong server or channel password (1028, 781), or insufficient
 // permissions (2568). Others, such as 521 for a session the server has not yet
 // reaped, clear themselves. A kick or a ban is not retried: someone removed
-// the client on purpose.
+// the client on purpose. Nor is ErrInvalidAddress: an address that cannot be
+// one stays that way.
 func DefaultShouldRetry(err error, _ int) bool {
 	if err == nil {
 		return true
+	}
+	if errors.Is(err, ErrInvalidAddress) {
+		return false
 	}
 
 	if removed, ok := errors.AsType[*RemovedError](err); ok {

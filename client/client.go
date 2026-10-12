@@ -8,9 +8,11 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
@@ -596,27 +598,18 @@ func (c *Client) connect(ctx context.Context, fromCaller bool) error {
 // otherwise a stopped client is refused with errStopped, checked under the
 // same lock Disconnect takes so that one landing just before cannot be undone.
 func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, *transport.PacketHandler, error) {
+	// Checked before anything changes: an address that can never work leaves
+	// the client as it was, with no attempt to announce the end of.
+	err := validateAddress(c.addr)
+	if err != nil {
+		return nil, nil, err
+	}
 	c.mu.Lock()
-	// A Disconnect still saying goodbye finishes first, so the old session is
-	// closed, and its end announced, before the new one starts. A Disconnect
-	// called meanwhile wins.
-	err := c.waitLeavingLocked(ctx)
+	err = c.mayStartLocked(ctx, fromCaller)
 	if err != nil {
 		c.mu.Unlock()
 
 		return nil, nil, err
-	}
-	if fromCaller {
-		c.stopped = false
-	} else if c.stopped {
-		c.mu.Unlock()
-
-		return nil, nil, errStopped
-	}
-	if c.status != StatusDisconnected {
-		c.mu.Unlock()
-
-		return nil, nil, ErrAlreadyConnected
 	}
 
 	// The handler resetForConnectLocked wires up reconnects on its own context:
@@ -633,10 +626,10 @@ func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, *
 	targetAddr, source := c.resolveConnectTarget(ctx, finalAddr)
 	c.logger.InfoContext(ctx, "connecting to server", slog.String("address", targetAddr), slog.String("source", source))
 
-	if packetConn != nil {
-		err = startOnPacketConn(ctx, previous, handler, packetConn, targetAddr)
-	} else {
-		err = handler.Connect(ctx, targetAddr)
+	// A resolver's answer is checked as the caller's address is.
+	err = validateAddress(targetAddr)
+	if err == nil {
+		err = open(ctx, previous, handler, packetConn, targetAddr)
 	}
 	if err != nil {
 		// Without this the client stays in StatusConnecting and every later
@@ -654,6 +647,40 @@ func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, *
 	}
 
 	return attempt, handler, nil
+}
+
+// mayStartLocked reports whether a connection attempt may start, with the
+// lock held, waiting first for a Disconnect still saying goodbye: the old
+// session is closed, and its end announced, before the new one starts, and a
+// Disconnect called meanwhile wins. fromCaller clears an earlier Disconnect;
+// otherwise a stopped client is refused with errStopped.
+func (c *Client) mayStartLocked(ctx context.Context, fromCaller bool) error {
+	err := c.waitLeavingLocked(ctx)
+	if err != nil {
+		return err
+	}
+	if fromCaller {
+		c.stopped = false
+	} else if c.stopped {
+		return errStopped
+	}
+	if c.status != StatusDisconnected {
+		return ErrAlreadyConnected
+	}
+
+	return nil
+}
+
+// open starts handler on the caller's PacketConn, if there is one, or on a
+// socket dialled to targetAddr.
+func open(
+	ctx context.Context, previous, handler *transport.PacketHandler, packetConn net.PacketConn, targetAddr string,
+) error {
+	if packetConn != nil {
+		return startOnPacketConn(ctx, previous, handler, packetConn, targetAddr)
+	}
+
+	return handler.Connect(ctx, targetAddr)
 }
 
 // startOnPacketConn starts handler on the caller's PacketConn, sending to
@@ -698,6 +725,39 @@ func resolveUDPAddr(ctx context.Context, addr string) (*net.UDPAddr, error) {
 	}
 
 	return net.UDPAddrFromAddrPort(netip.AddrPortFrom(ips[0].Unmap(), uint16(port))), nil //nolint:gosec // a port
+}
+
+// validateAddress checks that addr, a host or host:port with 9987 as the
+// default port, can be a server address, and returns an error wrapping
+// ErrInvalidAddress if not.
+func validateAddress(addr string) error {
+	host, port := discovery.SplitHostPortOrDefault(addr, "9987")
+	switch {
+	case host == "":
+		return fmt.Errorf("%w %q: no host", ErrInvalidAddress, addr)
+	case strings.ContainsFunc(host, notInAHost),
+		// A colon is left only in an IPv6 literal; anywhere else it is a port
+		// that is not a number, which the split keeps as part of the host.
+		strings.Contains(host, ":") && !isIPv6(host):
+		return fmt.Errorf("%w %q: not a host name, IP address or host:port", ErrInvalidAddress, addr)
+	}
+	n, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || n == 0 {
+		return fmt.Errorf("%w %q: port %s is not from 1 to 65535", ErrInvalidAddress, addr, port)
+	}
+
+	return nil
+}
+
+// notInAHost reports a character no host name or IP address contains.
+func notInAHost(r rune) bool {
+	return unicode.IsSpace(r) || unicode.IsControl(r) || strings.ContainsRune("/?#@[]\\", r)
+}
+
+func isIPv6(host string) bool {
+	ip, err := netip.ParseAddr(host)
+
+	return err == nil && ip.Is6()
 }
 
 func (c *Client) resetForConnectLocked() string {

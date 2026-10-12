@@ -17,6 +17,13 @@ var ErrTimedOut = transport.ErrTimedOut
 // it, with the step's own error alongside.
 var ErrHandshake = errors.New("TeamSpeak handshake failed")
 
+// ErrInvalidAddress reports a server address that cannot be one: no host, a
+// host containing what no host name or IP address can, or a port outside
+// 1–65535. Connect returns an error wrapping it before anything starts, and
+// DefaultShouldRetry does not retry it. A host name that merely does not
+// resolve is not this error: a lookup can fail for a while and then succeed.
+var ErrInvalidAddress = errors.New("invalid server address")
+
 // errConnectionClosed stands in for a cause the transport did not give, so a
 // dropped connection is never reported with a nil error.
 var errConnectionClosed = errors.New("connection closed")
