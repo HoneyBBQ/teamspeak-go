@@ -9,7 +9,7 @@ import "testing"
 func TestIntegration_ChannelAPI(t *testing.T) {
 	c := requireSharedClient(t)
 
-	channels, err := c.ListChannels()
+	channels, err := c.ListChannels(t.Context())
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
@@ -29,7 +29,7 @@ func TestIntegration_ChannelAPI(t *testing.T) {
 
 	// A second read of the same channel must agree, which exercises the
 	// channelinfo path (pid, not cpid) against the list path (cpid).
-	info, err := c.GetChannelInfo(first.ID)
+	info, err := c.GetChannelInfo(t.Context(), first.ID)
 	if err != nil {
 		t.Fatalf("GetChannelInfo: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestIntegration_ChannelAPI(t *testing.T) {
 		t.Errorf("GetChannelInfo parentID = %d, list said %d", info.ParentID, first.ParentID)
 	}
 
-	if _, descErr := c.GetChannelDescription(first.ID); descErr != nil {
+	if _, descErr := c.GetChannelDescription(t.Context(), first.ID); descErr != nil {
 		t.Errorf("GetChannelDescription: %v", descErr)
 	}
 }

@@ -1,5 +1,7 @@
 package teamspeak
 
+import "context"
+
 // Bans, complaints, offline messages, text messages and the server log.
 //
 // All administrative: expect a permission error, not an empty list, when the
@@ -37,8 +39,8 @@ func parseBan(row map[string]string) BanEntry {
 }
 
 // ListBans returns every active ban.
-func (c *Client) ListBans() ([]BanEntry, error) {
-	rows, err := c.query("banlist", nil)
+func (c *Commands) ListBans(ctx context.Context) ([]BanEntry, error) {
+	rows, err := c.query(ctx, "banlist", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -63,13 +65,13 @@ type BanOptions struct {
 }
 
 // AddBan adds a ban and returns its id.
-func (c *Client) AddBan(opts BanOptions) (uint64, error) {
-	rows, err := c.query("banadd", []param{
-		StrPtr("ip", opts.IP),
-		StrPtr("name", opts.Name),
-		StrPtr("uid", opts.UID),
-		UintPtr("time", opts.Duration),
-		StrPtr("banreason", opts.Reason),
+func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (uint64, error) {
+	rows, err := c.query(ctx, "banadd", []param{
+		strPtrArg("ip", opts.IP),
+		strPtrArg("name", opts.Name),
+		strPtrArg("uid", opts.UID),
+		uintPtrArg("time", opts.Duration),
+		strPtrArg("banreason", opts.Reason),
 	})
 	if err != nil {
 		return 0, err
@@ -79,11 +81,11 @@ func (c *Client) AddBan(opts BanOptions) (uint64, error) {
 }
 
 // BanClient bans a connected client by clid and returns the ban id.
-func (c *Client) BanClient(clid uint16, duration *uint64, reason *string) (uint64, error) {
-	rows, err := c.query("banclient", []param{
-		Uint("clid", uint64(clid)),
-		UintPtr("time", duration),
-		StrPtr("banreason", reason),
+func (c *Commands) BanClient(ctx context.Context, clid uint16, duration *uint64, reason *string) (uint64, error) {
+	rows, err := c.query(ctx, "banclient", []param{
+		uintArg("clid", uint64(clid)),
+		uintPtrArg("time", duration),
+		strPtrArg("banreason", reason),
 	})
 	if err != nil {
 		return 0, err
@@ -93,13 +95,13 @@ func (c *Client) BanClient(clid uint16, duration *uint64, reason *string) (uint6
 }
 
 // DeleteBan removes a ban.
-func (c *Client) DeleteBan(banID uint64) error {
-	return c.exec("bandel", []param{Uint("banid", banID)})
+func (c *Commands) DeleteBan(ctx context.Context, banID uint64) error {
+	return c.exec(ctx, "bandel", []param{uintArg("banid", banID)})
 }
 
 // DeleteAllBans removes every ban.
-func (c *Client) DeleteAllBans() error {
-	return c.exec("bandelall", nil)
+func (c *Commands) DeleteAllBans(ctx context.Context) error {
+	return c.exec(ctx, "bandelall", nil)
 }
 
 // ---- Complaints -------------------------------------------------------------
@@ -115,8 +117,8 @@ type Complaint struct {
 }
 
 // ListComplaints returns complaints, optionally only those against one client.
-func (c *Client) ListComplaints(targetDBID *uint64) ([]Complaint, error) {
-	rows, err := c.query("complainlist", []param{UintPtr("tcldbid", targetDBID)})
+func (c *Commands) ListComplaints(ctx context.Context, targetDBID *uint64) ([]Complaint, error) {
+	rows, err := c.query(ctx, "complainlist", []param{uintPtrArg("tcldbid", targetDBID)})
 	if err != nil {
 		return nil, err
 	}
@@ -137,24 +139,24 @@ func (c *Client) ListComplaints(targetDBID *uint64) ([]Complaint, error) {
 }
 
 // AddComplaint files a complaint against a client.
-func (c *Client) AddComplaint(targetDBID uint64, message string) error {
-	return c.exec("complainadd", []param{
-		Uint("tcldbid", targetDBID),
-		Str("message", message),
+func (c *Commands) AddComplaint(ctx context.Context, targetDBID uint64, message string) error {
+	return c.exec(ctx, "complainadd", []param{
+		uintArg("tcldbid", targetDBID),
+		strArg("message", message),
 	})
 }
 
 // DeleteComplaint withdraws one complaint.
-func (c *Client) DeleteComplaint(targetDBID, fromDBID uint64) error {
-	return c.exec("complaindel", []param{
-		Uint("tcldbid", targetDBID),
-		Uint("fcldbid", fromDBID),
+func (c *Commands) DeleteComplaint(ctx context.Context, targetDBID, fromDBID uint64) error {
+	return c.exec(ctx, "complaindel", []param{
+		uintArg("tcldbid", targetDBID),
+		uintArg("fcldbid", fromDBID),
 	})
 }
 
 // DeleteAllComplaints withdraws every complaint against a client.
-func (c *Client) DeleteAllComplaints(targetDBID uint64) error {
-	return c.exec("complaindelall", []param{Uint("tcldbid", targetDBID)})
+func (c *Commands) DeleteAllComplaints(ctx context.Context, targetDBID uint64) error {
+	return c.exec(ctx, "complaindelall", []param{uintArg("tcldbid", targetDBID)})
 }
 
 // ---- Offline messages -------------------------------------------------------
@@ -181,8 +183,8 @@ func parseMessage(row map[string]string) OfflineMessage {
 }
 
 // ListMessages returns offline messages for this client.
-func (c *Client) ListMessages() ([]OfflineMessage, error) {
-	rows, err := c.query("messagelist", nil)
+func (c *Commands) ListMessages(ctx context.Context) ([]OfflineMessage, error) {
+	rows, err := c.query(ctx, "messagelist", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -196,8 +198,8 @@ func (c *Client) ListMessages() ([]OfflineMessage, error) {
 }
 
 // GetMessage returns one offline message.
-func (c *Client) GetMessage(messageID uint64) (OfflineMessage, error) {
-	rows, err := c.query("messageget", []param{Uint("msgid", messageID)})
+func (c *Commands) GetMessage(ctx context.Context, messageID uint64) (OfflineMessage, error) {
+	rows, err := c.query(ctx, "messageget", []param{uintArg("msgid", messageID)})
 	if err != nil {
 		return OfflineMessage{}, err
 	}
@@ -210,15 +212,15 @@ func (c *Client) GetMessage(messageID uint64) (OfflineMessage, error) {
 }
 
 // DeleteMessage removes an offline message.
-func (c *Client) DeleteMessage(messageID uint64) error {
-	return c.exec("messagedel", []param{Uint("msgid", messageID)})
+func (c *Commands) DeleteMessage(ctx context.Context, messageID uint64) error {
+	return c.exec(ctx, "messagedel", []param{uintArg("msgid", messageID)})
 }
 
 // UpdateMessageFlag marks a message read or unread.
-func (c *Client) UpdateMessageFlag(messageID uint64, read bool) error {
-	return c.exec("messageupdateflag", []param{
-		Uint("msgid", messageID),
-		Bool("flag", read),
+func (c *Commands) UpdateMessageFlag(ctx context.Context, messageID uint64, read bool) error {
+	return c.exec(ctx, "messageupdateflag", []param{
+		uintArg("msgid", messageID),
+		boolArg("flag", read),
 	})
 }
 
@@ -246,16 +248,16 @@ const (
 // It waits for the server's answer, so a refusal — no permission to message
 // that target — is returned rather than lost. Call it from a goroutine to send
 // without waiting.
-func (c *Client) SendTextMessage(mode TextMessageTarget, target uint64, message string) error {
+func (c *Commands) SendTextMessage(ctx context.Context, mode TextMessageTarget, target uint64, message string) error {
 	params := []param{
-		Int("targetmode", int64(mode)),
-		Str("msg", message),
+		intArg("targetmode", int64(mode)),
+		strArg("msg", message),
 	}
 	if mode != TextMessageTargetServer {
-		params = append(params, Uint("target", target))
+		params = append(params, uintArg("target", target))
 	}
 
-	return c.exec("sendtextmessage", params)
+	return c.exec(ctx, "sendtextmessage", params)
 }
 
 // ---- Log --------------------------------------------------------------------
@@ -287,12 +289,12 @@ type LogViewOptions struct {
 }
 
 // ViewLog reads the server log.
-func (c *Client) ViewLog(opts LogViewOptions) (LogPage, error) {
-	rows, err := c.query("logview", []param{
-		UintPtr("lines", opts.Lines),
-		BoolPtr("reverse", opts.Reverse),
-		BoolPtr("instance", opts.Instance),
-		UintPtr("begin_pos", opts.BeginPosition),
+func (c *Commands) ViewLog(ctx context.Context, opts LogViewOptions) (LogPage, error) {
+	rows, err := c.query(ctx, "logview", []param{
+		uintPtrArg("lines", opts.Lines),
+		boolPtrArg("reverse", opts.Reverse),
+		boolPtrArg("instance", opts.Instance),
+		uintPtrArg("begin_pos", opts.BeginPosition),
 	})
 	if err != nil {
 		return LogPage{}, err
@@ -315,9 +317,9 @@ func (c *Client) ViewLog(opts LogViewOptions) (LogPage, error) {
 }
 
 // AddLog writes an entry to the server log.
-func (c *Client) AddLog(level LogLevel, message string) error {
-	return c.exec("logadd", []param{
-		Int("loglevel", int64(level)),
-		Str("logmsg", message),
+func (c *Commands) AddLog(ctx context.Context, level LogLevel, message string) error {
+	return c.exec(ctx, "logadd", []param{
+		intArg("loglevel", int64(level)),
+		strArg("logmsg", message),
 	})
 }

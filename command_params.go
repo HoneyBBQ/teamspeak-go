@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/honeybbq/teamspeak-go/commands"
 )
 
 // defaultCommandTimeout is how long a command waits for its return_code before
@@ -23,28 +21,28 @@ type param struct {
 	Key   string
 }
 
-// Str encodes a string parameter.
-func Str(key, value string) param {
+// strArg encodes a string parameter.
+func strArg(key, value string) param {
 	return param{Key: key, Value: &value}
 }
 
-// Uint encodes an unsigned integer parameter.
-func Uint(key string, value uint64) param {
+// uintArg encodes an unsigned integer parameter.
+func uintArg(key string, value uint64) param {
 	encoded := strconv.FormatUint(value, 10)
 
 	return param{Key: key, Value: &encoded}
 }
 
-// Int encodes a signed integer parameter, which the protocol needs because
+// intArg encodes a signed integer parameter, which the protocol needs because
 // several fields legitimately carry -1 (channel_maxclients, for one).
-func Int(key string, value int64) param {
+func intArg(key string, value int64) param {
 	encoded := strconv.FormatInt(value, 10)
 
 	return param{Key: key, Value: &encoded}
 }
 
-// Bool encodes a boolean as the protocol's 0/1.
-func Bool(key string, value bool) param {
+// boolArg encodes a boolean as the protocol's 0/1.
+func boolArg(key string, value bool) param {
 	encoded := "0"
 	if value {
 		encoded = "1"
@@ -53,119 +51,40 @@ func Bool(key string, value bool) param {
 	return param{Key: key, Value: &encoded}
 }
 
-// StrPtr encodes an optional string: nil omits the parameter entirely.
-func StrPtr(key string, value *string) param {
+// strPtrArg encodes an optional string: nil omits the parameter entirely.
+func strPtrArg(key string, value *string) param {
 	return param{Key: key, Value: value}
 }
 
-// Int32Ptr encodes an optional 32-bit integer.
+// int32PtrArg encodes an optional 32-bit integer.
 //
 // Most options carry *int32 rather than *int64 because that is the width the
 // protocol uses for fields like channel_maxclients, and widening them at every
 // call site would be noise.
-func Int32Ptr(key string, value *int32) param {
+func int32PtrArg(key string, value *int32) param {
 	if value == nil {
 		return param{Key: key}
 	}
 
-	return Int(key, int64(*value))
+	return intArg(key, int64(*value))
 }
 
-// UintPtr encodes an optional unsigned integer.
-func UintPtr(key string, value *uint64) param {
+// uintPtrArg encodes an optional unsigned integer.
+func uintPtrArg(key string, value *uint64) param {
 	if value == nil {
 		return param{Key: key}
 	}
 
-	return Uint(key, *value)
+	return uintArg(key, *value)
 }
 
-// IntPtr encodes an optional signed integer.
-func IntPtr(key string, value *int64) param {
+// boolPtrArg encodes an optional boolean.
+func boolPtrArg(key string, value *bool) param {
 	if value == nil {
 		return param{Key: key}
 	}
 
-	return Int(key, *value)
-}
-
-// BoolPtr encodes an optional boolean.
-func BoolPtr(key string, value *bool) param {
-	if value == nil {
-		return param{Key: key}
-	}
-
-	return Bool(key, *value)
-}
-
-// StrSlice encodes a comma-separated list.
-func StrSlice(key string, values []string) param {
-	return Str(key, strings.Join(values, ","))
-}
-
-// passwordParam names the parameter values that must be hashed rather than sent
-// as given.
-//
-// The client protocol expects base64(sha1(password)) for channel passwords, the
-// same encoding clientinit uses — unlike raw ServerQuery, which takes the
-// cleartext. Naming them per call keeps every call site from having to remember,
-// which is how a plain password used to reach the server and fail with 781.
-type passwordParam string
-
-// PlainPassword marks a parameter whose value is hashed before it is sent.
-func PlainPassword(key string) passwordParam {
-	return passwordParam(key)
-}
-
-// buildParams renders params in order, hashing the values named by passwords
-// and dropping the ones that are unset.
-func buildParams(params []param, passwords ...passwordParam) [][2]string {
-	hashed := make(map[string]bool, len(passwords))
-	for _, p := range passwords {
-		hashed[string(p)] = true
-	}
-
-	out := make([][2]string, 0, len(params))
-	for _, p := range params {
-		if p.Value == nil {
-			continue
-		}
-
-		value := *p.Value
-		// Flags (-uid) are switches: present when true, absent otherwise.
-		if strings.HasPrefix(p.Key, "-") {
-			if value == "1" {
-				out = append(out, [2]string{p.Key, ""})
-			}
-
-			continue
-		}
-		if hashed[p.Key] && value != "" {
-			value = prepareClientPassword(value)
-		}
-
-		out = append(out, [2]string{p.Key, value})
-	}
-
-	return out
-}
-
-// exec sends a command and waits for the server's answer.
-//
-// Both arguments are explicit — an empty params slice for a command that takes
-// none — so the password list cannot be mistaken for a parameter. This mirrors
-// the JS layer's (params, passwordFields) pair.
-func (c *Client) exec(command string, params []param, passwords ...passwordParam) error {
-	cmd := commands.BuildCommandOrdered(command, buildParams(params, passwords...))
-
-	return c.ExecCommand(cmd, defaultCommandTimeout)
-}
-
-// query sends a command and returns its response rows.
-func (c *Client) query(command string, params []param, passwords ...passwordParam) ([]map[string]string, error) {
-	cmd := commands.BuildCommandOrdered(command, buildParams(params, passwords...))
-
-	return c.ExecCommandWithResponse(cmd, defaultCommandTimeout)
+	return boolArg(key, *value)
 }
 
 // field readers. The server omits a field rather than sending an empty value in

@@ -321,7 +321,7 @@ func TestIntegration_Disconnect(t *testing.T) {
 func TestIntegration_ListClients(t *testing.T) {
 	c := requireSharedClient(t)
 
-	clients, err := c.ListClients()
+	clients, err := c.ListClients(t.Context())
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListClients: %v", err)
@@ -348,7 +348,7 @@ func TestIntegration_ListClients(t *testing.T) {
 func TestIntegration_ListChannels(t *testing.T) {
 	c := requireSharedClient(t)
 
-	channels, err := c.ListChannels()
+	channels, err := c.ListChannels(t.Context())
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
@@ -366,13 +366,13 @@ func TestIntegration_JoinsConfiguredDefaultChannel(t *testing.T) {
 
 	c := requireSharedClient(t)
 
-	channels, err := c.ListChannels()
+	channels, err := c.ListChannels(t.Context())
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
 	}
 
-	clients, err := c.ListClients()
+	clients, err := c.ListClients(t.Context())
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListClients: %v", err)
@@ -409,7 +409,7 @@ func TestIntegration_JoinsConfiguredDefaultChannel(t *testing.T) {
 func TestIntegration_GetClientInfo(t *testing.T) {
 	c := requireSharedClient(t)
 
-	info, err := c.GetClientInfo(c.ClientID())
+	info, err := c.GetClientInfo(t.Context(), c.ClientID())
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("GetClientInfo: %v", err)
@@ -436,7 +436,7 @@ func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 	// connection budget. The receiver still gets a separate session so the
 	// notification crosses the wire between two clients.
 	sender := requireSharedClient(t)
-	senderInfo, err := sender.GetClientInfo(sender.ClientID())
+	senderInfo, err := sender.GetClientInfo(t.Context(), sender.ClientID())
 	if err != nil {
 		t.Fatalf("sender GetClientInfo: %v", err)
 	}
@@ -454,7 +454,7 @@ func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	probeText := fmt.Sprintf("cursor-probe-%d", time.Now().UTC().UnixNano())
-	err = sender.SendTextMessage(1, uint64(receiver.ClientID()), probeText)
+	err = sender.SendTextMessage(t.Context(), 1, uint64(receiver.ClientID()), probeText)
 	if err != nil {
 		t.Fatalf("sender SendTextMessage private: %v", err)
 	}
@@ -526,7 +526,7 @@ func TestIntegration_PokeSendAndReceive(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	err := sender.PokeClient(receiver.ClientID(), pokeMsg)
+	err := sender.PokeClient(t.Context(), receiver.ClientID(), pokeMsg)
 	if err != nil {
 		t.Fatalf("Poke: %v", err)
 	}
@@ -562,7 +562,7 @@ func TestIntegration_PokeEmptyMessage(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	err := sender.PokeClient(receiver.ClientID(), "")
+	err := sender.PokeClient(t.Context(), receiver.ClientID(), "")
 	if err != nil {
 		t.Fatalf("Poke (empty): %v", err)
 	}

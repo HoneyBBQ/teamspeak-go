@@ -66,7 +66,7 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 		if c.Status() == teamspeak.StatusConnected && c.ClientID() != firstID && c.ClientID() != 0 {
 			t.Logf("recovered, clid=%d (was %d)", c.ClientID(), firstID)
 
-			if _, listErr := c.ListChannels(); listErr != nil {
+			if _, listErr := c.ListChannels(t.Context()); listErr != nil {
 				t.Errorf("reconnected session is not usable: %v", listErr)
 			}
 

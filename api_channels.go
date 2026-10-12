@@ -1,5 +1,7 @@
 package teamspeak
 
+import "context"
+
 // Channel commands.
 //
 // Channel settings are a wide, mostly-optional set, so the options structs use
@@ -82,27 +84,27 @@ type ChannelCreateOptions struct {
 }
 
 // CreateChannel creates a channel and returns the id the server assigned.
-func (c *Client) CreateChannel(opts ChannelCreateOptions) (uint64, error) {
+func (c *Commands) CreateChannel(ctx context.Context, opts ChannelCreateOptions) (uint64, error) {
 	params := []param{
-		Str("channel_name", opts.ChannelName),
-		UintPtr("cpid", opts.ParentID),
-		StrPtr("channel_topic", opts.ChannelTopic),
-		StrPtr("channel_description", opts.ChannelDescription),
-		StrPtr("channel_password", opts.ChannelPassword),
-		Int32Ptr("channel_codec", opts.ChannelCodec),
-		Int32Ptr("channel_codec_quality", opts.ChannelCodecQuality),
-		Int32Ptr("channel_maxclients", opts.ChannelMaxClients),
-		Int32Ptr("channel_maxfamilyclients", opts.ChannelMaxFamilyClients),
-		UintPtr("channel_order", opts.ChannelOrder),
-		BoolPtr("channel_flag_password", opts.ChannelFlagPassword),
-		BoolPtr("channel_flag_permanent", opts.ChannelFlagPermanent),
-		BoolPtr("channel_flag_semi_permanent", opts.ChannelFlagSemiPermanent),
-		BoolPtr("channel_flag_default", opts.ChannelFlagDefault),
-		UintPtr("channel_delete_delay", opts.ChannelDeleteDelay),
-		StrPtr("channel_name_phonetic", opts.ChannelNamePhonetic),
+		strArg("channel_name", opts.ChannelName),
+		uintPtrArg("cpid", opts.ParentID),
+		strPtrArg("channel_topic", opts.ChannelTopic),
+		strPtrArg("channel_description", opts.ChannelDescription),
+		strPtrArg("channel_password", opts.ChannelPassword),
+		int32PtrArg("channel_codec", opts.ChannelCodec),
+		int32PtrArg("channel_codec_quality", opts.ChannelCodecQuality),
+		int32PtrArg("channel_maxclients", opts.ChannelMaxClients),
+		int32PtrArg("channel_maxfamilyclients", opts.ChannelMaxFamilyClients),
+		uintPtrArg("channel_order", opts.ChannelOrder),
+		boolPtrArg("channel_flag_password", opts.ChannelFlagPassword),
+		boolPtrArg("channel_flag_permanent", opts.ChannelFlagPermanent),
+		boolPtrArg("channel_flag_semi_permanent", opts.ChannelFlagSemiPermanent),
+		boolPtrArg("channel_flag_default", opts.ChannelFlagDefault),
+		uintPtrArg("channel_delete_delay", opts.ChannelDeleteDelay),
+		strPtrArg("channel_name_phonetic", opts.ChannelNamePhonetic),
 	}
 
-	rows, err := c.query("channelcreate", params, PlainPassword("channel_password"))
+	rows, err := c.query(ctx, "channelcreate", params, "channel_password")
 	if err != nil {
 		return 0, err
 	}
@@ -132,42 +134,42 @@ type ChannelEditOptions struct {
 }
 
 // EditChannel changes a channel's settings.
-func (c *Client) EditChannel(cid uint64, opts ChannelEditOptions) error {
-	return c.exec("channeledit", []param{
-		Uint("cid", cid),
-		StrPtr("channel_name", opts.ChannelName),
-		StrPtr("channel_topic", opts.ChannelTopic),
-		StrPtr("channel_description", opts.ChannelDescription),
-		StrPtr("channel_password", opts.ChannelPassword),
-		UintPtr("channel_order", opts.ChannelOrder),
-		Int32Ptr("channel_codec", opts.ChannelCodec),
-		Int32Ptr("channel_codec_quality", opts.ChannelCodecQuality),
-		Int32Ptr("channel_maxclients", opts.ChannelMaxClients),
-		Int32Ptr("channel_maxfamilyclients", opts.ChannelMaxFamilyClients),
-		Int32Ptr("channel_needed_talk_power", opts.ChannelNeededTalkPower),
-		BoolPtr("channel_flag_password", opts.ChannelFlagPassword),
-		BoolPtr("channel_flag_permanent", opts.ChannelFlagPermanent),
-		BoolPtr("channel_flag_semi_permanent", opts.ChannelFlagSemiPermanent),
-		BoolPtr("channel_flag_default", opts.ChannelFlagDefault),
-		UintPtr("channel_delete_delay", opts.ChannelDeleteDelay),
-		StrPtr("channel_name_phonetic", opts.ChannelNamePhonetic),
-	}, PlainPassword("channel_password"))
+func (c *Commands) EditChannel(ctx context.Context, cid uint64, opts ChannelEditOptions) error {
+	return c.exec(ctx, "channeledit", []param{
+		uintArg("cid", cid),
+		strPtrArg("channel_name", opts.ChannelName),
+		strPtrArg("channel_topic", opts.ChannelTopic),
+		strPtrArg("channel_description", opts.ChannelDescription),
+		strPtrArg("channel_password", opts.ChannelPassword),
+		uintPtrArg("channel_order", opts.ChannelOrder),
+		int32PtrArg("channel_codec", opts.ChannelCodec),
+		int32PtrArg("channel_codec_quality", opts.ChannelCodecQuality),
+		int32PtrArg("channel_maxclients", opts.ChannelMaxClients),
+		int32PtrArg("channel_maxfamilyclients", opts.ChannelMaxFamilyClients),
+		int32PtrArg("channel_needed_talk_power", opts.ChannelNeededTalkPower),
+		boolPtrArg("channel_flag_password", opts.ChannelFlagPassword),
+		boolPtrArg("channel_flag_permanent", opts.ChannelFlagPermanent),
+		boolPtrArg("channel_flag_semi_permanent", opts.ChannelFlagSemiPermanent),
+		boolPtrArg("channel_flag_default", opts.ChannelFlagDefault),
+		uintPtrArg("channel_delete_delay", opts.ChannelDeleteDelay),
+		strPtrArg("channel_name_phonetic", opts.ChannelNamePhonetic),
+	}, "channel_password")
 }
 
 // DeleteChannel deletes a channel.
 //
 // force is required by the server, not just conventional: deleting a channel
 // that still holds clients fails without it.
-func (c *Client) DeleteChannel(cid uint64, force bool) error {
-	return c.exec("channeldelete", []param{
-		Uint("cid", cid),
-		Bool("force", force),
+func (c *Commands) DeleteChannel(ctx context.Context, cid uint64, force bool) error {
+	return c.exec(ctx, "channeldelete", []param{
+		uintArg("cid", cid),
+		boolArg("force", force),
 	})
 }
 
 // ListChannels returns every channel on the server, in the server's sort order.
-func (c *Client) ListChannels() ([]Channel, error) {
-	rows, err := c.query("channellist", nil)
+func (c *Commands) ListChannels(ctx context.Context) ([]Channel, error) {
+	rows, err := c.query(ctx, "channellist", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -185,8 +187,8 @@ func (c *Client) ListChannels() ([]Channel, error) {
 // channelinfo answers with pid and the settings but no cid — the channel is
 // whatever was asked for — so the id is filled in from the argument rather than
 // read from the row, which would come back 0.
-func (c *Client) GetChannelInfo(cid uint64) (Channel, error) {
-	rows, err := c.query("channelinfo", []param{Uint("cid", cid)})
+func (c *Commands) GetChannelInfo(ctx context.Context, cid uint64) (Channel, error) {
+	rows, err := c.query(ctx, "channelinfo", []param{uintArg("cid", cid)})
 	if err != nil {
 		return Channel{}, err
 	}
@@ -201,49 +203,13 @@ func (c *Client) GetChannelInfo(cid uint64) (Channel, error) {
 	return channel, nil
 }
 
-// GetChannelDescription returns the channel's description.
-//
-// channellist omits it for bandwidth, so it needs its own call.
-func (c *Client) GetChannelDescription(cid uint64) (string, error) {
-	rows, err := c.query("channelgetdescription", []param{Uint("cid", cid)})
-	if err != nil {
-		return "", err
-	}
-
-	if len(rows) == 0 {
-		return "", nil
-	}
-
-	return fieldStr(rows[0], "channel_description"), nil
-}
-
 // MoveChannel moves a channel to a new parent and position.
-func (c *Client) MoveChannel(cid, parentID uint64, order *uint64) error {
-	return c.exec("channelmove", []param{
-		Uint("cid", cid),
-		Uint("cpid", parentID),
-		UintPtr("order", order),
+func (c *Commands) MoveChannel(ctx context.Context, cid, parentID uint64, order *uint64) error {
+	return c.exec(ctx, "channelmove", []param{
+		uintArg("cid", cid),
+		uintArg("cpid", parentID),
+		uintPtrArg("order", order),
 	})
-}
-
-// SubscribeChannel subscribes to a channel's events.
-func (c *Client) SubscribeChannel(cid uint64) error {
-	return c.exec("channelsubscribe", []param{Uint("cid", cid)})
-}
-
-// UnsubscribeChannel stops receiving a channel's events.
-func (c *Client) UnsubscribeChannel(cid uint64) error {
-	return c.exec("channelunsubscribe", []param{Uint("cid", cid)})
-}
-
-// SubscribeAllChannels subscribes to every channel's events.
-func (c *Client) SubscribeAllChannels() error {
-	return c.exec("channelsubscribeall", nil)
-}
-
-// UnsubscribeAllChannels stops receiving channel events.
-func (c *Client) UnsubscribeAllChannels() error {
-	return c.exec("channelunsubscribeall", nil)
 }
 
 // PermissionEntry is one entry of a permission list.
@@ -276,27 +242,29 @@ func parsePermission(row map[string]string) PermissionEntry {
 }
 
 // AddChannelPermission grants a channel permission.
-func (c *Client) AddChannelPermission(cid uint64, permValue int32, permID *uint64, permSID *string) error {
-	return c.exec("channeladdperm", []param{
-		Uint("cid", cid),
-		Int("permvalue", int64(permValue)),
-		UintPtr("permid", permID),
-		StrPtr("permsid", permSID),
+func (c *Commands) AddChannelPermission(
+	ctx context.Context, cid uint64, permValue int32, permID *uint64, permSID *string,
+) error {
+	return c.exec(ctx, "channeladdperm", []param{
+		uintArg("cid", cid),
+		intArg("permvalue", int64(permValue)),
+		uintPtrArg("permid", permID),
+		strPtrArg("permsid", permSID),
 	})
 }
 
 // DeleteChannelPermission removes a channel permission.
-func (c *Client) DeleteChannelPermission(cid uint64, permID *uint64, permSID *string) error {
-	return c.exec("channeldelperm", []param{
-		Uint("cid", cid),
-		UintPtr("permid", permID),
-		StrPtr("permsid", permSID),
+func (c *Commands) DeleteChannelPermission(ctx context.Context, cid uint64, permID *uint64, permSID *string) error {
+	return c.exec(ctx, "channeldelperm", []param{
+		uintArg("cid", cid),
+		uintPtrArg("permid", permID),
+		strPtrArg("permsid", permSID),
 	})
 }
 
 // ListChannelPermissions returns permissions set directly on a channel.
-func (c *Client) ListChannelPermissions(cid uint64) ([]PermissionEntry, error) {
-	rows, err := c.query("channelpermlist", []param{Uint("cid", cid)})
+func (c *Commands) ListChannelPermissions(ctx context.Context, cid uint64) ([]PermissionEntry, error) {
+	rows, err := c.query(ctx, "channelpermlist", []param{uintArg("cid", cid)})
 	if err != nil {
 		return nil, err
 	}
@@ -311,10 +279,12 @@ func (c *Client) ListChannelPermissions(cid uint64) ([]PermissionEntry, error) {
 
 // ListChannelClientPermissions returns permissions granted to one client within
 // one channel.
-func (c *Client) ListChannelClientPermissions(cid, clientDBID uint64) ([]PermissionEntry, error) {
-	rows, err := c.query("channelclientpermlist", []param{
-		Uint("cid", cid),
-		Uint("cldbid", clientDBID),
+func (c *Commands) ListChannelClientPermissions(
+	ctx context.Context, cid, clientDBID uint64,
+) ([]PermissionEntry, error) {
+	rows, err := c.query(ctx, "channelclientpermlist", []param{
+		uintArg("cid", cid),
+		uintArg("cldbid", clientDBID),
 	})
 	if err != nil {
 		return nil, err
@@ -329,26 +299,28 @@ func (c *Client) ListChannelClientPermissions(cid, clientDBID uint64) ([]Permiss
 }
 
 // AddChannelClientPermission grants a permission to one client in one channel.
-func (c *Client) AddChannelClientPermission(
-	cid, clientDBID uint64, permValue int32, permID *uint64, permSID *string,
+func (c *Commands) AddChannelClientPermission(
+	ctx context.Context, cid, clientDBID uint64, permValue int32, permID *uint64, permSID *string,
 ) error {
-	return c.exec("channelclientaddperm", []param{
-		Uint("cid", cid),
-		Uint("cldbid", clientDBID),
-		Int("permvalue", int64(permValue)),
-		UintPtr("permid", permID),
-		StrPtr("permsid", permSID),
+	return c.exec(ctx, "channelclientaddperm", []param{
+		uintArg("cid", cid),
+		uintArg("cldbid", clientDBID),
+		intArg("permvalue", int64(permValue)),
+		uintPtrArg("permid", permID),
+		strPtrArg("permsid", permSID),
 	})
 }
 
 // DeleteChannelClientPermission removes a permission from one client in one
 // channel.
-func (c *Client) DeleteChannelClientPermission(cid, clientDBID uint64, permID *uint64, permSID *string) error {
-	return c.exec("channelclientdelperm", []param{
-		Uint("cid", cid),
-		Uint("cldbid", clientDBID),
-		UintPtr("permid", permID),
-		StrPtr("permsid", permSID),
+func (c *Commands) DeleteChannelClientPermission(
+	ctx context.Context, cid, clientDBID uint64, permID *uint64, permSID *string,
+) error {
+	return c.exec(ctx, "channelclientdelperm", []param{
+		uintArg("cid", cid),
+		uintArg("cldbid", clientDBID),
+		uintPtrArg("permid", permID),
+		strPtrArg("permsid", permSID),
 	})
 }
 
@@ -359,8 +331,8 @@ type ChannelMatch struct {
 }
 
 // FindChannels returns channels whose name contains pattern.
-func (c *Client) FindChannels(pattern string) ([]ChannelMatch, error) {
-	rows, err := c.query("channelfind", []param{Str("pattern", pattern)})
+func (c *Commands) FindChannels(ctx context.Context, pattern string) ([]ChannelMatch, error) {
+	rows, err := c.query(ctx, "channelfind", []param{strArg("pattern", pattern)})
 	if err != nil {
 		return nil, err
 	}

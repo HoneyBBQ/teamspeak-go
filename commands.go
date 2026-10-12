@@ -410,8 +410,35 @@ func (c *Client) ExecCommand(cmd string, timeout time.Duration) error {
 	return err
 }
 
+// Send executes a typed command; it is the Executor the embedded Commands run
+// on.
+//
+// Channel passwords are hashed here because that is this protocol's rule: the
+// voice protocol expects base64(sha1(password)), where ServerQuery takes the
+// password itself. Without a deadline on ctx the command gives up after
+// defaultCommandTimeout, since an answer that never comes would otherwise hold
+// the caller forever.
+func (c *Client) Send(ctx context.Context, req Request) ([]map[string]string, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultCommandTimeout)
+		defer cancel()
+	}
+
+	return c.execWithResponse(ctx, req.Encode(prepareClientPassword))
+}
+
 // ExecCommandWithResponse sends a command and waits for its return_code response and data.
 func (c *Client) ExecCommandWithResponse(cmd string, timeout time.Duration) ([]map[string]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	return c.execWithResponse(ctx, cmd)
+}
+
+// execWithResponse sends a raw command and waits, until ctx is done, for the
+// answer the tracker pairs with it.
+func (c *Client) execWithResponse(ctx context.Context, cmd string) ([]map[string]string, error) {
 	// A command sent on no socket used to vanish and surface later as a
 	// timeout, which reads like a slow server rather than a usage error.
 	if !c.handler.IsOpen() {
@@ -444,9 +471,10 @@ func (c *Client) ExecCommandWithResponse(cmd string, timeout time.Duration) ([]m
 
 	// The name and code only: the full command carries password hashes the
 	// server accepts as passwords, and privilege keys.
-	c.logger.Debug("sending command", slog.String("command", parsed.Name), slog.Uint64("return_code", uint64(rc)))
+	c.logger.DebugContext(ctx, "sending command",
+		slog.String("command", parsed.Name), slog.Uint64("return_code", uint64(rc)))
 
-	err := c.throttle.wait(context.Background())
+	err := c.throttle.wait(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -456,13 +484,11 @@ func (c *Client) ExecCommandWithResponse(cmd string, timeout time.Duration) ([]m
 		return nil, err
 	}
 
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
 	select {
 	case res := <-ch:
 		return res.Data, res.Err
-	case <-timer.C:
-		return nil, fmt.Errorf("%w: %s", errCommandTimed, parsed.Name)
+	case <-ctx.Done():
+		return nil, fmt.Errorf("%w: %s: %w", errCommandTimed, parsed.Name, ctx.Err())
 	}
 }
 

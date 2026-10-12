@@ -4,6 +4,7 @@ package teamspeak_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"slices"
@@ -19,22 +20,22 @@ import (
 func TestLive_ClientLookupsAnswerWithTheirData(t *testing.T) {
 	c := requireSharedClient(t)
 	clid := c.ClientID()
-	me, err := c.GetClientInfo(clid)
+	me, err := c.GetClientInfo(t.Context(), clid)
 	requireNoErr(t, err)
 	uid := me["client_unique_identifier"]
 	dbid, err := strconv.ParseUint(me["client_database_id"], 10, 64)
 	requireNoErr(t, err)
 	nickname := me["client_nickname"]
 
-	gotUID, err := c.GetClientUIDByID(clid)
+	gotUID, err := c.GetClientUIDByID(t.Context(), clid)
 	requireNoErr(t, err)
-	gotDBID, err := c.GetClientDBIDByUID(uid)
+	gotDBID, err := c.GetClientDBIDByUID(t.Context(), uid)
 	requireNoErr(t, err)
-	byDBID, err := c.GetClientNameByDBID(dbid)
+	byDBID, err := c.GetClientNameByDBID(t.Context(), dbid)
 	requireNoErr(t, err)
-	nameDBID, byUID, err := c.GetClientNameByUID(uid)
+	nameDBID, byUID, err := c.GetClientNameByUID(t.Context(), uid)
 	requireNoErr(t, err)
-	ids, err := c.GetClientIDs(uid)
+	ids, err := c.GetClientIDs(t.Context(), uid)
 	requireNoErr(t, err)
 
 	if gotUID != uid || gotDBID != dbid || byDBID != nickname || byUID != nickname || nameDBID != dbid {
@@ -48,9 +49,9 @@ func TestLive_ClientLookupsAnswerWithTheirData(t *testing.T) {
 
 func TestLive_ServerGroupsIncludeTheDefaultGroup(t *testing.T) {
 	c := requireSharedClient(t)
-	groups, err := c.ListServerGroups()
+	groups, err := c.ListServerGroups(t.Context())
 	requireNoErr(t, err)
-	info, err := c.GetServerInfo()
+	info, err := c.GetServerInfo(t.Context())
 	requireNoErr(t, err)
 	defaultGroup, err := strconv.ParseUint(info["virtualserver_default_server_group"], 10, 64)
 	requireNoErr(t, err)
@@ -67,17 +68,17 @@ func TestLive_CreateChannelReturnsTheNewID(t *testing.T) {
 	before := c.ChannelID()
 	name := fmt.Sprintf("ts-go-%d", time.Now().UnixNano())
 
-	cid, err := c.CreateChannel(teamspeak.ChannelCreateOptions{ChannelName: name})
+	cid, err := c.CreateChannel(t.Context(), teamspeak.ChannelCreateOptions{ChannelName: name})
 	requireNoErr(t, err)
 	// Creating a channel over the voice protocol moves the creator into it, and
 	// the server deletes a temporary channel once its last client leaves — so
 	// moving back is the cleanup.
-	t.Cleanup(func() { _ = c.MoveClient(c.ClientID(), before, "") })
+	t.Cleanup(func() { _ = c.MoveClient(context.WithoutCancel(t.Context()), c.ClientID(), before, "") })
 
 	if cid == 0 {
 		t.Fatal("CreateChannel returned cid 0")
 	}
-	info, err := c.GetChannelInfo(cid)
+	info, err := c.GetChannelInfo(t.Context(), cid)
 	requireNoErr(t, err)
 	if info.Name != name {
 		t.Errorf("channel %d is %q, want %q", cid, info.Name, name)
@@ -95,21 +96,21 @@ func TestLive_FileTransferRoundTrip(t *testing.T) {
 	path := fmt.Sprintf("/ts-go-%d.bin", time.Now().UnixNano())
 	payload := []byte("hello over file transfer")
 
-	upload, err := c.InitFileUpload(cid, path, uint64(len(payload)), "", true)
+	upload, err := c.InitFileUpload(t.Context(), cid, path, uint64(len(payload)), "", true)
 	requireNoErr(t, err)
 	if upload.FileTransferKey == "" {
 		t.Fatal("upload negotiated without a key")
 	}
 	requireNoErr(t, teamspeak.UploadFileData(host, upload, bytes.NewReader(payload), nil))
-	t.Cleanup(func() { _ = c.DeleteFile(cid, []string{path}, "") })
+	t.Cleanup(func() { _ = c.DeleteFile(context.WithoutCancel(t.Context()), cid, []string{path}, "") })
 
-	files, err := c.ListFiles(cid, "/", "")
+	files, err := c.ListFiles(t.Context(), cid, "/", "")
 	requireNoErr(t, err)
 	if !slices.ContainsFunc(files, func(f teamspeak.FileEntry) bool { return "/"+f.Name == path }) {
 		t.Errorf("ListFiles = %v, want %s", files, path)
 	}
 
-	download, err := c.InitFileDownload(cid, path, "", 0)
+	download, err := c.InitFileDownload(t.Context(), cid, path, "", 0)
 	requireNoErr(t, err)
 	var got bytes.Buffer
 	requireNoErr(t, teamspeak.DownloadFileData(host, download, &got, nil))

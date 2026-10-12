@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/crypto"
@@ -49,8 +48,9 @@ type clientInitOptions struct {
 
 // Client is the TeamSpeak 3 client.
 type Client struct {
-	// fileTransferID allocates clientftfid values; see nextFileTransferID.
-	fileTransferID  atomic.Uint32
+	// Commands are the typed commands, running on this client's Send.
+	*Commands
+
 	resolver        AddrResolver
 	finalCmdHandler func(string) error
 	crypt           *crypto.Crypt
@@ -111,6 +111,8 @@ func NewClient(identity *crypto.Identity, addr string, nickname string, options 
 		cmdTrack: newCommandTracker(),
 		attempt:  newConnectAttempt(),
 	}
+
+	c.Commands = NewCommands(c)
 
 	for _, opt := range options {
 		opt(c)

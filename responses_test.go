@@ -175,7 +175,7 @@ func TestExecCommand_FailsFastWithoutAConnection(t *testing.T) {
 // documented form, and ServerQuery is not promised to.
 func TestFlags_AreSentBare(t *testing.T) {
 	sent := captureCommand(t, func(c *Client) error {
-		_, err := c.ListClients(ClientListOptions{Away: true})
+		_, err := c.ListClients(t.Context(), ClientListOptions{Away: true})
 
 		return err
 	})
@@ -226,8 +226,8 @@ func TestInitFileUpload_GivesEachNegotiationItsOwnID(t *testing.T) {
 			return errCaptured
 		}
 	})
-	_, _ = c.InitFileUpload(1, "/a", 3, "", true)
-	_, _ = c.InitFileUpload(1, "/b", 3, "", true)
+	_, _ = c.InitFileUpload(t.Context(), 1, "/a", 3, "", true)
+	_, _ = c.InitFileUpload(t.Context(), 1, "/b", 3, "", true)
 
 	if len(ids) != 2 || ids[0] == "" || ids[0] == "0" || ids[0] == ids[1] {
 		t.Errorf("clientftfid values = %q, want two distinct non-zero ids", ids)
