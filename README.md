@@ -218,9 +218,9 @@ server uses for that field.
 channels, err := c.ListChannels(ctx)
 
 cid, err := c.CreateChannel(ctx, teamspeak.ChannelCreateOptions{
-	ChannelName:          "Lounge",
-	ChannelTopic:         new("the quiet one"),
-	ChannelFlagPermanent: new(true),
+	Name:        "Lounge",
+	Topic:       new("the quiet one"),
+	IsPermanent: new(true),
 })
 
 // Required arguments are positional; everything optional is one options

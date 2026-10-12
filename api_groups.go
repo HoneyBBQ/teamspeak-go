@@ -130,9 +130,12 @@ type ChannelGroupMembership struct {
 // matches any; set at least one, since called with none the server may return
 // nothing.
 type ChannelGroupClientListOptions struct {
-	ChannelID      ChannelID
-	ClientDBID     ClientDBID
-	ChannelGroupID ChannelGroupID
+	// ChannelID keeps only memberships in this channel (cid).
+	ChannelID ChannelID
+	// DatabaseID keeps only this client's memberships (cldbid).
+	DatabaseID ClientDBID
+	// GroupID keeps only memberships of this group (cgid).
+	GroupID ChannelGroupID
 }
 
 // ListChannelGroupClients returns which channel group each client holds in
@@ -142,8 +145,8 @@ func (c *Commands) ListChannelGroupClients(
 ) ([]ChannelGroupMembership, error) {
 	rows, err := c.list(ctx, "channelgroupclientlist", []param{
 		optIDArg("cid", opts.ChannelID),
-		optIDArg("cldbid", opts.ClientDBID),
-		optIDArg("cgid", opts.ChannelGroupID),
+		optIDArg("cldbid", opts.DatabaseID),
+		optIDArg("cgid", opts.GroupID),
 	})
 	if err != nil {
 		return nil, err

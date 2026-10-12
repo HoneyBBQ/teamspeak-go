@@ -110,8 +110,8 @@ func (c *Commands) GetClientInfo(ctx context.Context, clid ClientID) (Properties
 	return rows[0], nil
 }
 
-// KickOptions are KickClient's optional parameters.
-type KickOptions struct {
+// ClientKickOptions are KickClient's optional parameters.
+type ClientKickOptions struct {
 	// ReasonMessage is shown to the client; "" sends none.
 	ReasonMessage string
 }
@@ -119,7 +119,7 @@ type KickOptions struct {
 // KickClient kicks a client from its channel (ReasonKickChannel), which moves
 // it to the default channel, or from the server (ReasonKickServer), which
 // disconnects it. Any other reason is refused with ErrInvalidCommand.
-func (c *Commands) KickClient(ctx context.Context, clid ClientID, reason Reason, opts KickOptions) error {
+func (c *Commands) KickClient(ctx context.Context, clid ClientID, reason Reason, opts ClientKickOptions) error {
 	reasonParam := intArg("reasonid", int64(reason))
 	if reason != ReasonKickChannel && reason != ReasonKickServer {
 		reasonParam = invalidArg("a kick's reason is ReasonKickChannel or ReasonKickServer, not " + reason.String())
@@ -138,37 +138,59 @@ func (c *Commands) KickClient(ctx context.Context, clid ClientID, reason Reason,
 // clientupdate addresses the calling client implicitly — there is no clid on
 // the wire — which is why this takes no id.
 type ClientUpdateOptions struct {
-	Nickname           *string
-	AwayMessage        *string
-	Avatar             *string
-	NicknamePhonetic   *string
-	TalkRequestMsg     *string
-	Badges             *string
-	InputMuted         *bool
-	OutputMuted        *bool
-	Away               *bool
-	InputHardware      *bool
-	OutputHardware     *bool
+	// Nickname is our nickname (client_nickname).
+	Nickname *string
+	// NicknamePhonetic is how the nickname is pronounced, for text-to-speech
+	// (client_nickname_phonetic).
+	NicknamePhonetic *string
+	// AwayMessage is the away message (client_away_message); a pointer to ""
+	// clears it.
+	AwayMessage *string
+	// TalkRequestMessage is the message sent with a talk request
+	// (client_talk_request_msg).
+	TalkRequestMessage *string
+	// Avatar is our avatar's MD5, as uploaded to the file area; a pointer to
+	// "" removes it (client_flag_avatar).
+	Avatar *string
+	// Badges are our badges, in the client's own format (client_badges).
+	Badges *string
+	// IsInputMuted is whether our microphone is muted (client_input_muted).
+	IsInputMuted *bool
+	// IsOutputMuted is whether our speakers are muted (client_output_muted).
+	IsOutputMuted *bool
+	// HasInputHardware is whether we have a working microphone
+	// (client_input_hardware).
+	HasInputHardware *bool
+	// HasOutputHardware is whether we have working speakers
+	// (client_output_hardware).
+	HasOutputHardware *bool
+	// IsAway is whether we are away (client_away).
+	IsAway *bool
+	// IsChannelCommander is whether we speak as channel commander
+	// (client_is_channel_commander).
 	IsChannelCommander *bool
-	IsRecording        *bool
-	TalkRequest        *int32
+	// IsRecording is whether we are recording (client_is_recording).
+	IsRecording *bool
+	// IsRequestingTalk is whether we are requesting to talk
+	// (client_talk_request).
+	IsRequestingTalk *bool
 }
 
 // UpdateClient changes our own client state (nickname, mute, away, …).
 func (c *Commands) UpdateClient(ctx context.Context, opts ClientUpdateOptions) error {
 	return c.exec(ctx, "clientupdate", []param{
 		strPtrArg("client_nickname", opts.Nickname),
-		boolPtrArg("client_input_muted", opts.InputMuted),
-		boolPtrArg("client_output_muted", opts.OutputMuted),
-		boolPtrArg("client_away", opts.Away),
+		boolPtrArg("client_input_muted", opts.IsInputMuted),
+		boolPtrArg("client_output_muted", opts.IsOutputMuted),
+		boolPtrArg("client_away", opts.IsAway),
 		strPtrArg("client_away_message", opts.AwayMessage),
-		boolPtrArg("client_input_hardware", opts.InputHardware),
-		boolPtrArg("client_output_hardware", opts.OutputHardware),
+		boolPtrArg("client_input_hardware", opts.HasInputHardware),
+		boolPtrArg("client_output_hardware", opts.HasOutputHardware),
 		boolPtrArg("client_is_channel_commander", opts.IsChannelCommander),
 		strPtrArg("client_flag_avatar", opts.Avatar),
 		strPtrArg("client_nickname_phonetic", opts.NicknamePhonetic),
-		int32PtrArg("client_talk_request", opts.TalkRequest),
-		strPtrArg("client_talk_request_msg", opts.TalkRequestMsg),
+		boolPtrArg("client_talk_request", opts.IsRequestingTalk),
+		strPtrArg("client_talk_request_msg", opts.TalkRequestMessage),
 		boolPtrArg("client_is_recording", opts.IsRecording),
 		strPtrArg("client_badges", opts.Badges),
 	})

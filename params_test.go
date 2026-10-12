@@ -220,21 +220,21 @@ func TestParsePermission_NamesTheEntryAsSent(t *testing.T) {
 
 func TestKickClient(t *testing.T) {
 	line := encoded(t, func(c *Commands) error {
-		return c.KickClient(t.Context(), 5, ReasonKickServer, KickOptions{ReasonMessage: "bye now"})
+		return c.KickClient(t.Context(), 5, ReasonKickServer, ClientKickOptions{ReasonMessage: "bye now"})
 	})
 	if line != `clientkick clid=5 reasonid=5 reasonmsg=bye\snow` {
 		t.Errorf("kick = %q", line)
 	}
 
 	line = encoded(t, func(c *Commands) error {
-		return c.KickClient(t.Context(), 5, ReasonKickChannel, KickOptions{})
+		return c.KickClient(t.Context(), 5, ReasonKickChannel, ClientKickOptions{})
 	})
 	if line != "clientkick clid=5 reasonid=4" {
 		t.Errorf("kick without a message = %q", line)
 	}
 
 	refused(t, func(c *Commands) error {
-		return c.KickClient(t.Context(), 5, ReasonKickServerBan, KickOptions{})
+		return c.KickClient(t.Context(), 5, ReasonKickServerBan, ClientKickOptions{})
 	})
 }
 

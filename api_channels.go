@@ -66,55 +66,84 @@ func parseChannel(row map[string]string) Channel {
 	}
 }
 
-// ChannelCreateOptions are the parameters for channelcreate.
+// ChannelCreateOptions are the parameters for channelcreate. The fields are
+// named as on Channel.
 //
-// Only ChannelName is required. A nil pointer omits the parameter entirely,
-// which is not the same as sending an empty value: clearing a password takes
+// Only Name is required. A nil pointer omits the parameter entirely, which is
+// not the same as sending an empty value: clearing a password takes
 // `channel_password=`, while leaving it alone takes no parameter at all.
-// Build one with new: ChannelTopic: new("the quiet one").
+// Build one with new: Topic: new("the quiet one").
 type ChannelCreateOptions struct {
-	// ChannelOrder is the channel to sort the new one after; 0 sorts it first.
-	ChannelOrder *ChannelID
-	// ChannelDeleteDelay is how long a temporary channel survives its last
-	// client leaving. Sent in whole seconds.
-	ChannelDeleteDelay       *time.Duration
-	ChannelCodec             *Codec
-	ChannelCodecQuality      *int32
-	ChannelMaxClients        *int32
-	ChannelMaxFamilyClients  *int32
-	ChannelFlagPassword      *bool
-	ChannelFlagPermanent     *bool
-	ChannelFlagSemiPermanent *bool
-	ChannelFlagDefault       *bool
-	ChannelTopic             *string
-	ChannelDescription       *string
-	ChannelPassword          *string
-	ChannelNamePhonetic      *string
+	// Order is the channel to sort the new one after among its siblings; 0
+	// sorts it first (channel_order).
+	Order *ChannelID
+	// DeleteDelay is how long a temporary channel survives its last client
+	// leaving (channel_delete_delay). Sent in whole seconds.
+	DeleteDelay *time.Duration
+	// Codec is the voice codec (channel_codec).
+	Codec *Codec
+	// CodecQuality is the codec's quality, 0 to 10 (channel_codec_quality).
+	CodecQuality *int32
+	// MaxClients is how many clients may be in the channel
+	// (channel_maxclients).
+	MaxClients *int32
+	// MaxFamilyClients is how many clients may be in the channel and those
+	// under it (channel_maxfamilyclients).
+	MaxFamilyClients *int32
+	// NeededTalkPower is the talk power a client needs to speak here
+	// (channel_needed_talk_power).
+	NeededTalkPower *int32
+	// HasPassword marks the channel password-protected
+	// (channel_flag_password). The server sets it itself when Password is
+	// set.
+	HasPassword *bool
+	// IsPermanent makes the channel survive a server restart
+	// (channel_flag_permanent).
+	IsPermanent *bool
+	// IsSemiPermanent makes the channel survive its last client leaving, but
+	// not a restart (channel_flag_semi_permanent).
+	IsSemiPermanent *bool
+	// IsDefault makes the channel the one new clients land in
+	// (channel_flag_default).
+	IsDefault *bool
+	// Topic is the topic shown under the name (channel_topic).
+	Topic *string
+	// Description is the channel description (channel_description).
+	Description *string
+	// Password is the channel password (channel_password), in cleartext: the
+	// voice client hashes it on the wire. A pointer to "" sets none.
+	Password *string
+	// NamePhonetic is how the name is pronounced, for text-to-speech
+	// (channel_name_phonetic).
+	NamePhonetic *string
 
-	ChannelName string
-	// ParentID is the channel to create the new one under; 0 is the top level.
+	// Name is the channel's name (channel_name). Required.
+	Name string
+	// ParentID is the channel to create the new one under; 0 is the top level
+	// (cpid).
 	ParentID ChannelID
 }
 
 // CreateChannel creates a channel and returns the id the server assigned.
 func (c *Commands) CreateChannel(ctx context.Context, opts ChannelCreateOptions) (ChannelID, error) {
 	params := []param{
-		strArg("channel_name", opts.ChannelName),
+		strArg("channel_name", opts.Name),
 		optIDArg("cpid", opts.ParentID),
-		strPtrArg("channel_topic", opts.ChannelTopic),
-		strPtrArg("channel_description", opts.ChannelDescription),
-		strPtrArg("channel_password", opts.ChannelPassword),
-		uintPtrArg("channel_codec", opts.ChannelCodec),
-		int32PtrArg("channel_codec_quality", opts.ChannelCodecQuality),
-		int32PtrArg("channel_maxclients", opts.ChannelMaxClients),
-		int32PtrArg("channel_maxfamilyclients", opts.ChannelMaxFamilyClients),
-		uintPtrArg("channel_order", opts.ChannelOrder),
-		boolPtrArg("channel_flag_password", opts.ChannelFlagPassword),
-		boolPtrArg("channel_flag_permanent", opts.ChannelFlagPermanent),
-		boolPtrArg("channel_flag_semi_permanent", opts.ChannelFlagSemiPermanent),
-		boolPtrArg("channel_flag_default", opts.ChannelFlagDefault),
-		durationPtrArg("channel_delete_delay", opts.ChannelDeleteDelay, time.Second),
-		strPtrArg("channel_name_phonetic", opts.ChannelNamePhonetic),
+		strPtrArg("channel_topic", opts.Topic),
+		strPtrArg("channel_description", opts.Description),
+		strPtrArg("channel_password", opts.Password),
+		uintPtrArg("channel_codec", opts.Codec),
+		int32PtrArg("channel_codec_quality", opts.CodecQuality),
+		int32PtrArg("channel_maxclients", opts.MaxClients),
+		int32PtrArg("channel_maxfamilyclients", opts.MaxFamilyClients),
+		int32PtrArg("channel_needed_talk_power", opts.NeededTalkPower),
+		uintPtrArg("channel_order", opts.Order),
+		boolPtrArg("channel_flag_password", opts.HasPassword),
+		boolPtrArg("channel_flag_permanent", opts.IsPermanent),
+		boolPtrArg("channel_flag_semi_permanent", opts.IsSemiPermanent),
+		boolPtrArg("channel_flag_default", opts.IsDefault),
+		durationPtrArg("channel_delete_delay", opts.DeleteDelay, time.Second),
+		strPtrArg("channel_name_phonetic", opts.NamePhonetic),
 	}
 
 	rows, err := c.query(ctx, "channelcreate", params, "channel_password")
@@ -125,50 +154,76 @@ func (c *Commands) CreateChannel(ctx context.Context, opts ChannelCreateOptions)
 	return ChannelID(firstOrEmpty(rows, "cid")), nil
 }
 
-// ChannelEditOptions are the parameters for channeledit. Only the fields you
-// set are sent; as with ChannelCreateOptions, a nil pointer leaves a setting
-// alone and a pointer to the zero value clears it.
+// ChannelEditOptions are the parameters for channeledit, named as on
+// ChannelCreateOptions. Only the fields you set are sent: a nil pointer leaves
+// a setting alone and a pointer to the zero value clears it.
 type ChannelEditOptions struct {
-	ChannelName        *string
-	ChannelTopic       *string
-	ChannelDescription *string
-	ChannelPassword    *string
-	// ChannelOrder is the channel to sort this one after; 0 sorts it first.
-	ChannelOrder             *ChannelID
-	ChannelCodec             *Codec
-	ChannelCodecQuality      *int32
-	ChannelMaxClients        *int32
-	ChannelMaxFamilyClients  *int32
-	ChannelNeededTalkPower   *int32
-	ChannelFlagPassword      *bool
-	ChannelFlagPermanent     *bool
-	ChannelFlagSemiPermanent *bool
-	ChannelFlagDefault       *bool
-	// ChannelDeleteDelay is sent in whole seconds.
-	ChannelDeleteDelay  *time.Duration
-	ChannelNamePhonetic *string
+	// Name is the channel's new name (channel_name).
+	Name *string
+	// Topic is the topic shown under the name (channel_topic).
+	Topic *string
+	// Description is the channel description (channel_description).
+	Description *string
+	// Password is the channel password (channel_password), in cleartext: the
+	// voice client hashes it on the wire. A pointer to "" removes it.
+	Password *string
+	// Order is the channel to sort this one after among its siblings; 0 sorts
+	// it first (channel_order).
+	Order *ChannelID
+	// Codec is the voice codec (channel_codec).
+	Codec *Codec
+	// CodecQuality is the codec's quality, 0 to 10 (channel_codec_quality).
+	CodecQuality *int32
+	// MaxClients is how many clients may be in the channel
+	// (channel_maxclients).
+	MaxClients *int32
+	// MaxFamilyClients is how many clients may be in the channel and those
+	// under it (channel_maxfamilyclients).
+	MaxFamilyClients *int32
+	// NeededTalkPower is the talk power a client needs to speak here
+	// (channel_needed_talk_power).
+	NeededTalkPower *int32
+	// HasPassword marks the channel password-protected
+	// (channel_flag_password). The server sets it itself when Password is
+	// set.
+	HasPassword *bool
+	// IsPermanent makes the channel survive a server restart
+	// (channel_flag_permanent).
+	IsPermanent *bool
+	// IsSemiPermanent makes the channel survive its last client leaving, but
+	// not a restart (channel_flag_semi_permanent).
+	IsSemiPermanent *bool
+	// IsDefault makes the channel the one new clients land in
+	// (channel_flag_default).
+	IsDefault *bool
+	// DeleteDelay is how long a temporary channel survives its last client
+	// leaving (channel_delete_delay). Sent in whole seconds.
+	DeleteDelay *time.Duration
+	// NamePhonetic is how the name is pronounced, for text-to-speech
+	// (channel_name_phonetic).
+	NamePhonetic *string
 }
 
 // EditChannel changes a channel's settings.
 func (c *Commands) EditChannel(ctx context.Context, cid ChannelID, opts ChannelEditOptions) error {
 	return c.exec(ctx, "channeledit", []param{
 		idArg("cid", cid),
-		strPtrArg("channel_name", opts.ChannelName),
-		strPtrArg("channel_topic", opts.ChannelTopic),
-		strPtrArg("channel_description", opts.ChannelDescription),
-		strPtrArg("channel_password", opts.ChannelPassword),
-		uintPtrArg("channel_order", opts.ChannelOrder),
-		uintPtrArg("channel_codec", opts.ChannelCodec),
-		int32PtrArg("channel_codec_quality", opts.ChannelCodecQuality),
-		int32PtrArg("channel_maxclients", opts.ChannelMaxClients),
-		int32PtrArg("channel_maxfamilyclients", opts.ChannelMaxFamilyClients),
-		int32PtrArg("channel_needed_talk_power", opts.ChannelNeededTalkPower),
-		boolPtrArg("channel_flag_password", opts.ChannelFlagPassword),
-		boolPtrArg("channel_flag_permanent", opts.ChannelFlagPermanent),
-		boolPtrArg("channel_flag_semi_permanent", opts.ChannelFlagSemiPermanent),
-		boolPtrArg("channel_flag_default", opts.ChannelFlagDefault),
-		durationPtrArg("channel_delete_delay", opts.ChannelDeleteDelay, time.Second),
-		strPtrArg("channel_name_phonetic", opts.ChannelNamePhonetic),
+		strPtrArg("channel_name", opts.Name),
+		strPtrArg("channel_topic", opts.Topic),
+		strPtrArg("channel_description", opts.Description),
+		strPtrArg("channel_password", opts.Password),
+		uintPtrArg("channel_order", opts.Order),
+		uintPtrArg("channel_codec", opts.Codec),
+		int32PtrArg("channel_codec_quality", opts.CodecQuality),
+		int32PtrArg("channel_maxclients", opts.MaxClients),
+		int32PtrArg("channel_maxfamilyclients", opts.MaxFamilyClients),
+		int32PtrArg("channel_needed_talk_power", opts.NeededTalkPower),
+		boolPtrArg("channel_flag_password", opts.HasPassword),
+		boolPtrArg("channel_flag_permanent", opts.IsPermanent),
+		boolPtrArg("channel_flag_semi_permanent", opts.IsSemiPermanent),
+		boolPtrArg("channel_flag_default", opts.IsDefault),
+		durationPtrArg("channel_delete_delay", opts.DeleteDelay, time.Second),
+		strPtrArg("channel_name_phonetic", opts.NamePhonetic),
 	}, "channel_password")
 }
 

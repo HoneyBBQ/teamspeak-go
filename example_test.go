@@ -84,7 +84,7 @@ func ExampleServerError() {
 		FailedPermID: 4353,
 	}}}})
 
-	opts := teamspeak.KickOptions{ReasonMessage: "spam"}
+	opts := teamspeak.ClientKickOptions{ReasonMessage: "spam"}
 	err := cmds.KickClient(context.Background(), 5, teamspeak.ReasonKickServer, opts)
 
 	fmt.Println(errors.Is(err, errcode.PermissionsClientInsufficient))

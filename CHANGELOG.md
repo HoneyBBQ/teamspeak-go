@@ -144,11 +144,17 @@ The changes from the earlier v1 previews are listed first, under
 | `CommandMiddleware func(func(string) error) func(string) error` | `func(next teamspeak.Executor) teamspeak.Executor`, with `teamspeak.ExecutorFunc` |
 | `ListClients(ctx)` | `ListClients(ctx, teamspeak.ClientListOptions{})` |
 | `MoveClient(ctx, clid, cid, pw)` | `MoveClient(ctx, clid, cid, ClientMoveOptions{Password: pw})` |
-| `KickClient(ctx, clid, reason, msg)` | `KickClient(ctx, clid, reason, KickOptions{ReasonMessage: msg})` |
+| `KickClient(ctx, clid, reason, msg)` | `KickClient(ctx, clid, reason, ClientKickOptions{ReasonMessage: msg})` |
 | `BanClient(ctx, clid, d, reason)` | `BanClient(ctx, clid, BanClientOptions{Duration: d, Reason: reason})` |
 | `AddClientPermission(ctx, dbid, p, v, skip)` | `…, ClientPermissionOptions{Skip: skip})` |
 | `AddServerGroupPermission(ctx, sgid, ServerGroupPermission{Permission, Value, Negated, Skip})` | `AddServerGroupPermission(ctx, sgid, perm, value, ServerGroupPermissionOptions{Negated, Skip})` |
 | `DeleteChannel(ctx, cid, force)`, `DeleteServerGroup`, `DeleteChannelGroup` | `ChannelDeleteOptions{Force}`, `GroupDeleteOptions{Force}` |
+| `ChannelCreateOptions`/`ChannelEditOptions` `ChannelName`, `ChannelTopic`, `ChannelCodec`, `ChannelOrder`, `ChannelMaxClients`, `ChannelDeleteDelay`, … | `Name`, `Topic`, `Codec`, `Order`, `MaxClients`, `DeleteDelay`, …, as on `Channel` |
+| `ChannelFlagPassword`, `ChannelFlagPermanent`, `ChannelFlagSemiPermanent`, `ChannelFlagDefault` | `HasPassword`, `IsPermanent`, `IsSemiPermanent`, `IsDefault` |
+| `ClientUpdateOptions` `InputMuted`, `OutputMuted`, `InputHardware`, `OutputHardware`, `Away`, `TalkRequestMsg` | `IsInputMuted`, `IsOutputMuted`, `HasInputHardware`, `HasOutputHardware`, `IsAway`, `TalkRequestMessage` |
+| `ClientUpdateOptions.TalkRequest *int32` | `IsRequestingTalk *bool` |
+| `ChannelGroupClientListOptions{ClientDBID, ChannelGroupID}` | `{DatabaseID, GroupID}`, as on `ChannelGroupMembership` |
+| `KickOptions` | `ClientKickOptions` |
 | `MoveChannel(ctx, cid, parent, order)` | `…, ChannelMoveOptions{Order: order})` |
 | `ListServerGroupClients(ctx, sgid, names, uids)` | `…, ServerGroupClientListOptions{Names, UIDs})` |
 | `ListChannelGroupClients(ctx, cid, dbid, cgid)` | `ListChannelGroupClients(ctx, ChannelGroupClientListOptions{…})` |
@@ -226,7 +232,7 @@ Raw commands:
 | `ExecCommand(line, timeout)` | `Exec(ctx, line)`, ignoring the rows |
 | `SendCommandNoWait(line)` | `ExecNoWait(ctx, line)` |
 
-Optional parameters are pointer fields, set with Go's `new`: `ChannelCreateOptions{ChannelName: "Room", ChannelTopic: new("hello")}`. A
+Optional parameters are pointer fields, set with Go's `new`: `ChannelCreateOptions{Name: "Room", Topic: new("hello")}`. A
 permission is `teamspeak.PermissionByName("i_client_talk_power")` or
 `PermissionByID(id)`, in place of the `permID`, `permSID` pair. Text messages
 are `SendPrivateMessage`, `SendChannelMessage` and `SendServerMessage`. A

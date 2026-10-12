@@ -168,7 +168,7 @@ func TestClient_SendsAChannelPasswordAsItIs(t *testing.T) {
 	password := "hunter2"
 	created := run(func() (teamspeak.ChannelID, error) {
 		return cmds.CreateChannel(t.Context(), teamspeak.ChannelCreateOptions{
-			ChannelName: "Room", ChannelPassword: &password,
+			Name: "Room", Password: &password,
 		})
 	})
 	sent := transport.next(t)

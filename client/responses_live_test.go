@@ -72,7 +72,7 @@ func TestLive_CreateChannelReturnsTheNewID(t *testing.T) {
 	before := c.ChannelID()
 	name := fmt.Sprintf("ts-go-%d", time.Now().UnixNano())
 
-	cid, err := c.CreateChannel(t.Context(), teamspeak.ChannelCreateOptions{ChannelName: name})
+	cid, err := c.CreateChannel(t.Context(), teamspeak.ChannelCreateOptions{Name: name})
 	requireNoErr(t, err)
 	// Creating a channel over the voice protocol moves the creator into it, and
 	// the server deletes a temporary channel once its last client leaves — so
