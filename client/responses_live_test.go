@@ -77,7 +77,9 @@ func TestLive_CreateChannelReturnsTheNewID(t *testing.T) {
 	// Creating a channel over the voice protocol moves the creator into it, and
 	// the server deletes a temporary channel once its last client leaves — so
 	// moving back is the cleanup.
-	t.Cleanup(func() { _ = c.MoveClient(context.WithoutCancel(t.Context()), c.ClientID(), before, "") })
+	t.Cleanup(func() {
+		_ = c.MoveClient(context.WithoutCancel(t.Context()), c.ClientID(), before, teamspeak.ClientMoveOptions{})
+	})
 
 	if cid == 0 {
 		t.Fatal("CreateChannel returned cid 0")
@@ -100,15 +102,18 @@ func TestLive_FileTransferRoundTrip(t *testing.T) {
 	path := fmt.Sprintf("/ts-go-%d.bin", time.Now().UnixNano())
 	payload := []byte("hello over file transfer")
 
-	upload, err := c.InitFileUpload(t.Context(), cid, path, uint64(len(payload)), "", true)
+	opts := teamspeak.FileUploadOptions{Overwrite: true}
+	upload, err := c.InitFileUpload(t.Context(), cid, path, uint64(len(payload)), opts)
 	requireNoErr(t, err)
 	if upload.FileTransferKey == "" {
 		t.Fatal("upload negotiated without a key")
 	}
 	requireNoErr(t, teamspeak.UploadFileData(t.Context(), host, upload, bytes.NewReader(payload), nil))
-	t.Cleanup(func() { _ = c.DeleteFile(context.WithoutCancel(t.Context()), cid, []string{path}, "") })
+	t.Cleanup(func() {
+		_ = c.DeleteFile(context.WithoutCancel(t.Context()), cid, []string{path}, teamspeak.FileOptions{})
+	})
 
-	files, err := c.ListFiles(t.Context(), cid, "/", "")
+	files, err := c.ListFiles(t.Context(), cid, "/", teamspeak.FileOptions{})
 	requireNoErr(t, err)
 	idx := slices.IndexFunc(files, func(f teamspeak.FileEntry) bool { return "/"+f.Name == path })
 	if idx < 0 {
@@ -116,7 +121,7 @@ func TestLive_FileTransferRoundTrip(t *testing.T) {
 	}
 	checkUploadedFile(t, c, cid, path, files[idx], uint64(len(payload)))
 
-	download, err := c.InitFileDownload(t.Context(), cid, path, "", 0)
+	download, err := c.InitFileDownload(t.Context(), cid, path, teamspeak.FileDownloadOptions{})
 	requireNoErr(t, err)
 	var got bytes.Buffer
 	requireNoErr(t, teamspeak.DownloadFileData(t.Context(), host, download, &got, nil))
@@ -136,9 +141,36 @@ func checkUploadedFile(
 	if since := time.Since(listed.ModifiedAt).Abs(); since > time.Hour || listed.IsDirectory {
 		t.Errorf("ListFiles entry = %+v, want a file modified just now", listed)
 	}
-	info, err := c.GetFileInfo(t.Context(), cid, path, "")
+	info, err := c.GetFileInfo(t.Context(), cid, path, teamspeak.FileOptions{})
 	requireNoErr(t, err)
 	if since := time.Since(info.ModifiedAt).Abs(); since > time.Hour || info.Size != size {
 		t.Errorf("GetFileInfo = %+v, want %d bytes modified just now", info, size)
+	}
+}
+
+// Deleting several files is one command with a row group; both must go.
+func TestIntegration_DeleteFileRemovesEveryPath(t *testing.T) {
+	c := requireSharedClient(t)
+	host, _, err := net.SplitHostPort(requireTeamSpeakAddr(t))
+	requireNoErr(t, err)
+	me, err := c.WhoAmI(t.Context())
+	requireNoErr(t, err)
+	cid := me.ChannelID
+	stamp := time.Now().UnixNano()
+	paths := []string{fmt.Sprintf("/ts-go-del-a-%d.bin", stamp), fmt.Sprintf("/ts-go-del-b-%d.bin", stamp)}
+	for _, path := range paths {
+		upload, uploadErr := c.InitFileUpload(t.Context(), cid, path, 1, teamspeak.FileUploadOptions{Overwrite: true})
+		requireNoErr(t, uploadErr)
+		requireNoErr(t, teamspeak.UploadFileData(t.Context(), host, upload, bytes.NewReader([]byte{1}), nil))
+	}
+
+	requireNoErr(t, c.DeleteFile(t.Context(), cid, paths, teamspeak.FileOptions{}))
+
+	files, err := c.ListFiles(t.Context(), cid, "/", teamspeak.FileOptions{})
+	requireNoErr(t, err)
+	for _, f := range files {
+		if slices.Contains(paths, "/"+f.Name) {
+			t.Errorf("%s is still there after DeleteFile", f.Name)
+		}
 	}
 }

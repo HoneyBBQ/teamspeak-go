@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync/atomic"
 
 	"github.com/honeybbq/teamspeak-go/commands"
@@ -52,9 +53,18 @@ func (r Request) LogValue() slog.Value {
 // Encode renders the request as a command line. encodePassword is the
 // transport's rule for password parameters; an empty password is sent as is,
 // since it means "no password" in every encoding.
+//
+// A list parameter is written last, as a row group: key=value per value,
+// separated by pipes, the other parameters applying to every row.
 func (r Request) Encode(encodePassword func(password string) string) string {
 	out := make([][2]string, 0, len(r.params))
-	for _, p := range r.params {
+	var group *param
+	for i, p := range r.params {
+		if p.rows != nil {
+			group = &r.params[i]
+
+			continue
+		}
 		if p.Value == nil {
 			continue
 		}
@@ -73,7 +83,16 @@ func (r Request) Encode(encodePassword func(password string) string) string {
 		out = append(out, [2]string{p.Key, value})
 	}
 
-	return commands.BuildCommandOrdered(r.command, out)
+	line := commands.BuildCommandOrdered(r.command, out)
+	if group == nil {
+		return line
+	}
+	rows := make([]string, len(group.rows))
+	for i, value := range group.rows {
+		rows[i] = group.Key + "=" + commands.Escape(value)
+	}
+
+	return line + " " + strings.Join(rows, "|")
 }
 
 func (r Request) isPassword(key string) bool {

@@ -30,7 +30,6 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 
 	opts := append(integrationClientOptions(nil),
 		client.WithReconnect(client.ReconnectOptions{
-			Enabled: true,
 			Backoff: client.BackoffPolicy{
 				InitialDelay: 500 * time.Millisecond,
 				MaxDelay:     4 * time.Second,
@@ -95,7 +94,6 @@ func TestIntegration_NoReconnectAfterExplicitDisconnect(t *testing.T) {
 
 	opts := append(integrationClientOptions(nil),
 		client.WithReconnect(client.ReconnectOptions{
-			Enabled: true,
 			Backoff: client.BackoffPolicy{InitialDelay: 200 * time.Millisecond},
 		}),
 	)

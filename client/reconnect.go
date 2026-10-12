@@ -57,17 +57,13 @@ func DefaultBackoffPolicy() BackoffPolicy {
 // ShouldRetryFunc decides whether a failure is worth another attempt.
 type ShouldRetryFunc func(err error, attempt int) bool
 
-// ReconnectOptions configure reconnection.
+// ReconnectOptions configure reconnection, which WithReconnect turns on.
 type ReconnectOptions struct {
 	// ShouldRetry overrides the default decision. A nil value uses
 	// DefaultShouldRetry.
 	ShouldRetry ShouldRetryFunc
 	// Backoff tunes the retry delays.
 	Backoff BackoffPolicy
-	// Enabled turns reconnection on. Off by default.
-	//
-	// A deliberate Disconnect never reconnects, whatever this is set to.
-	Enabled bool
 }
 
 // withDefaults fills unset fields from the default policy.

@@ -16,6 +16,9 @@ import (
 // parameter. Callers express the difference with a pointer.
 type param struct {
 	Value *string
+	// rows, when set, makes the parameter a row group: one key=value per
+	// value, separated by pipes, as the server takes a list (name=/a|name=/b).
+	rows []string
 	// err is why the parameter cannot be encoded. The command carrying it is
 	// refused before anything is sent: sending it without the parameter would
 	// mean something else — a ban without its duration is permanent.
@@ -385,12 +388,13 @@ func parseIDList[T ~uint64](raw string) []T {
 	return out
 }
 
-// joinPipe joins values into the pipe-separated parameter the server expects for
-// multi-file operations.
-//
-// The separator is deliberately left unescaped here: buildParams escapes the
-// value as a whole, turning each pipe into \p so it cannot be read as a second
-// parameter.
-func joinPipe(values []string) string {
-	return strings.Join(values, "|")
+// rowsArg encodes a list the way the server takes one: key=value once per
+// value, the occurrences separated by pipes. Joining the values into one
+// parameter escaped each pipe to \p, which the server read as one name.
+func rowsArg(key string, values []string) param {
+	if len(values) == 0 {
+		return invalidArg(key + ": an empty list")
+	}
+
+	return param{Key: key, rows: values}
 }

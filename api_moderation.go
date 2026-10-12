@@ -21,7 +21,7 @@ type BanEntry struct {
 	InvokerName  string
 	InvokerUID   UID
 	Reason       string
-	ID           uint64
+	ID           BanID
 	// Duration is how long the ban lasts from Created, in whole seconds; 0
 	// is a permanent ban.
 	Duration          time.Duration
@@ -30,7 +30,7 @@ type BanEntry struct {
 
 func parseBan(row map[string]string) BanEntry {
 	return BanEntry{
-		ID:                fieldUint(row, "banid"),
+		ID:                BanID(fieldUint(row, "banid")),
 		IP:                fieldStr(row, "ip"),
 		Name:              fieldStr(row, "name"),
 		UID:               UID(fieldStr(row, "uid")),
@@ -85,7 +85,7 @@ func banDurationArg(d time.Duration) param {
 }
 
 // AddBan adds a ban and returns its id.
-func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (uint64, error) {
+func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (BanID, error) {
 	target := optStrArg("ip", opts.IP)
 	if opts.IP == "" && opts.Name == "" && opts.UID == "" {
 		target = invalidArg("a ban needs an IP, a name or a UID to match")
@@ -102,30 +102,35 @@ func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (uint64, error) 
 		return 0, err
 	}
 
-	return firstOrEmpty(rows, "banid"), nil
+	return BanID(firstOrEmpty(rows, "banid")), nil
 }
 
-// BanClient bans a connected client and returns the ban id. duration is sent
-// in whole seconds, and 0 bans permanently, as for BanOptions. reason is
-// shown to the client; "" sends none.
-func (c *Commands) BanClient(
-	ctx context.Context, clid ClientID, duration time.Duration, reason string,
-) (uint64, error) {
+// BanClientOptions are BanClient's optional parameters.
+type BanClientOptions struct {
+	// Reason is shown to the banned client; "" sends none.
+	Reason string
+	// Duration is how long the ban lasts, sent in whole seconds; 0 bans
+	// permanently, as for BanOptions.
+	Duration time.Duration
+}
+
+// BanClient bans a connected client and returns the ban id.
+func (c *Commands) BanClient(ctx context.Context, clid ClientID, opts BanClientOptions) (BanID, error) {
 	rows, err := c.query(ctx, "banclient", []param{
 		idArg("clid", clid),
-		banDurationArg(duration),
-		optStrArg("banreason", reason),
+		banDurationArg(opts.Duration),
+		optStrArg("banreason", opts.Reason),
 	})
 	if err != nil {
 		return 0, err
 	}
 
-	return firstOrEmpty(rows, "banid"), nil
+	return BanID(firstOrEmpty(rows, "banid")), nil
 }
 
 // DeleteBan removes a ban.
-func (c *Commands) DeleteBan(ctx context.Context, banID uint64) error {
-	return c.exec(ctx, "bandel", []param{uintArg("banid", banID)})
+func (c *Commands) DeleteBan(ctx context.Context, banID BanID) error {
+	return c.exec(ctx, "bandel", []param{idArg("banid", banID)})
 }
 
 // DeleteAllBans removes every ban.
@@ -146,10 +151,16 @@ type Complaint struct {
 	FromDatabaseID   ClientDBID
 }
 
-// ListComplaints returns the complaints against one client, or against every
-// client for a targetDBID of 0.
-func (c *Commands) ListComplaints(ctx context.Context, targetDBID ClientDBID) ([]Complaint, error) {
-	rows, err := c.list(ctx, "complainlist", []param{optIDArg("tcldbid", targetDBID)})
+// ComplaintListOptions are ListComplaints' optional parameters.
+type ComplaintListOptions struct {
+	// TargetDatabaseID lists only the complaints against this client; 0 lists
+	// every complaint.
+	TargetDatabaseID ClientDBID
+}
+
+// ListComplaints returns complaints, filtered as opts says.
+func (c *Commands) ListComplaints(ctx context.Context, opts ComplaintListOptions) ([]Complaint, error) {
+	rows, err := c.list(ctx, "complainlist", []param{optIDArg("tcldbid", opts.TargetDatabaseID)})
 	if err != nil {
 		return nil, err
 	}
@@ -200,13 +211,13 @@ type OfflineMessage struct {
 	UID     UID
 	Subject string
 	Message string
-	ID      uint64
+	ID      MessageID
 	IsRead  bool
 }
 
 func parseMessage(row map[string]string) OfflineMessage {
 	return OfflineMessage{
-		ID:        fieldUint(row, "msgid"),
+		ID:        MessageID(fieldUint(row, "msgid")),
 		UID:       UID(fieldStr(row, "cluid")),
 		Subject:   fieldStr(row, "subject"),
 		Message:   fieldStr(row, "message"),
@@ -231,8 +242,8 @@ func (c *Commands) ListMessages(ctx context.Context) ([]OfflineMessage, error) {
 }
 
 // GetMessage returns one offline message.
-func (c *Commands) GetMessage(ctx context.Context, messageID uint64) (OfflineMessage, error) {
-	rows, err := c.query(ctx, "messageget", []param{uintArg("msgid", messageID)})
+func (c *Commands) GetMessage(ctx context.Context, messageID MessageID) (OfflineMessage, error) {
+	rows, err := c.query(ctx, "messageget", []param{idArg("msgid", messageID)})
 	if err != nil {
 		return OfflineMessage{}, err
 	}
@@ -245,14 +256,14 @@ func (c *Commands) GetMessage(ctx context.Context, messageID uint64) (OfflineMes
 }
 
 // DeleteMessage removes an offline message.
-func (c *Commands) DeleteMessage(ctx context.Context, messageID uint64) error {
-	return c.exec(ctx, "messagedel", []param{uintArg("msgid", messageID)})
+func (c *Commands) DeleteMessage(ctx context.Context, messageID MessageID) error {
+	return c.exec(ctx, "messagedel", []param{idArg("msgid", messageID)})
 }
 
 // UpdateMessageFlag marks a message read or unread.
-func (c *Commands) UpdateMessageFlag(ctx context.Context, messageID uint64, read bool) error {
+func (c *Commands) UpdateMessageFlag(ctx context.Context, messageID MessageID, read bool) error {
 	return c.exec(ctx, "messageupdateflag", []param{
-		uintArg("msgid", messageID),
+		idArg("msgid", messageID),
 		boolArg("flag", read),
 	})
 }

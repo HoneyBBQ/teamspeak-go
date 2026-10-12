@@ -18,7 +18,7 @@ type ServerGroup struct {
 	Name              string
 	ID                ServerGroupID
 	IconID            IconID
-	SortID            uint64
+	SortID            int32
 	Type              GroupType
 	NameMode          GroupNameMode
 	ModifyPower       int32
@@ -34,7 +34,7 @@ func parseServerGroup(row map[string]string) ServerGroup {
 		Type:              GroupType(fieldInt(row, "type")),
 		IconID:            fieldIconID(row, "iconid"),
 		SavedInDatabase:   fieldBool(row, "savedb"),
-		SortID:            fieldUint(row, "sortid"),
+		SortID:            fieldInt32(row, "sortid"),
 		NameMode:          GroupNameMode(fieldInt(row, "namemode")),
 		ModifyPower:       fieldInt32(row, "n_modifyp"),
 		MemberAddPower:    fieldInt32(row, "n_member_addp"),
@@ -59,19 +59,11 @@ func (c *Commands) ListServerGroups(ctx context.Context) ([]ServerGroup, error) 
 
 // GetServerInfo returns the server's own settings, unfiltered.
 //
-// A map rather than a struct: serverinfo carries well over a hundred fields and
-// which appear depends on permissions, so anything narrower would drop data.
-func (c *Commands) GetServerInfo(ctx context.Context) (map[string]string, error) {
-	rows, err := c.query(ctx, "serverinfo", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(rows) == 0 {
-		return map[string]string{}, nil
-	}
-
-	return rows[0], nil
+// Properties rather than a struct: serverinfo carries well over a hundred
+// fields and which appear depends on permissions, so anything narrower would
+// drop data.
+func (c *Commands) GetServerInfo(ctx context.Context) (Properties, error) {
+	return c.firstRow(ctx, "serverinfo")
 }
 
 // EditServer changes the virtual server's settings.
@@ -80,7 +72,7 @@ func (c *Commands) GetServerInfo(ctx context.Context) (map[string]string, error)
 // maxclients and so on — rather than enumerated: there are well over a hundred,
 // they are version-dependent, and a value read out of GetServerInfo should be
 // writable straight back.
-func (c *Commands) EditServer(ctx context.Context, settings map[string]string) error {
+func (c *Commands) EditServer(ctx context.Context, settings Properties) error {
 	return c.exec(ctx, "serveredit", stringParams(settings))
 }
 
@@ -89,7 +81,7 @@ func (c *Commands) EditServer(ctx context.Context, settings map[string]string) e
 // Needs an instance-level permission (b_serverinstance_*), which not even the
 // Server Admin group holds by default — expect error 2568 until it is granted.
 // Granted, it works over the voice protocol like any other query.
-func (c *Commands) GetHostInfo(ctx context.Context) (map[string]string, error) {
+func (c *Commands) GetHostInfo(ctx context.Context) (Properties, error) {
 	return c.firstRow(ctx, "hostinfo")
 }
 
@@ -98,24 +90,24 @@ func (c *Commands) GetHostInfo(ctx context.Context) (map[string]string, error) {
 // Needs an instance-level permission (b_serverinstance_*), which not even the
 // Server Admin group holds by default — expect error 2568 until it is granted.
 // Granted, it works over the voice protocol like any other query.
-func (c *Commands) GetInstanceInfo(ctx context.Context) (map[string]string, error) {
+func (c *Commands) GetInstanceInfo(ctx context.Context) (Properties, error) {
 	return c.firstRow(ctx, "instanceinfo")
 }
 
 // EditInstance changes the server instance's settings.
-func (c *Commands) EditInstance(ctx context.Context, settings map[string]string) error {
+func (c *Commands) EditInstance(ctx context.Context, settings Properties) error {
 	return c.exec(ctx, "instanceedit", stringParams(settings))
 }
 
-// firstRow runs a command and returns its single row, or an empty map.
-func (c *Commands) firstRow(ctx context.Context, command string) (map[string]string, error) {
+// firstRow runs a command and returns its single row, or empty Properties.
+func (c *Commands) firstRow(ctx context.Context, command string) (Properties, error) {
 	rows, err := c.query(ctx, command, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(rows) == 0 {
-		return map[string]string{}, nil
+		return Properties{}, nil
 	}
 
 	return rows[0], nil
@@ -125,7 +117,7 @@ func (c *Commands) firstRow(ctx context.Context, command string) (map[string]str
 //
 // Map iteration order is not stable, but serveredit parameters are named on the
 // wire, so order does not matter here.
-func stringParams(settings map[string]string) []param {
+func stringParams(settings Properties) []param {
 	out := make([]param, 0, len(settings))
 	for key, value := range settings {
 		out = append(out, strArg(key, value))
@@ -138,18 +130,24 @@ func stringParams(settings map[string]string) []param {
 type Binding struct {
 	Subsystem string
 	IP        string
-	Port      int
+	Port      uint16
 }
 
-// ListBindings returns active IP bindings, when the instance is multi-homed,
-// for one subsystem ("voice", "query" or "filetransfer"), or for the server's
-// default with "".
+// BindingListOptions are ListBindings' optional parameters.
+type BindingListOptions struct {
+	// Subsystem is "voice", "query" or "filetransfer"; "" is the server's
+	// default.
+	Subsystem string
+}
+
+// ListBindings returns the instance's active IP bindings, when it is
+// multi-homed.
 //
 // Needs an instance-level permission (b_serverinstance_*), which not even the
 // Server Admin group holds by default — expect error 2568 until it is granted.
 // Granted, it works over the voice protocol like any other query.
-func (c *Commands) ListBindings(ctx context.Context, subsystem string) ([]Binding, error) {
-	rows, err := c.query(ctx, "bindinglist", []param{optStrArg("subsystem", subsystem)})
+func (c *Commands) ListBindings(ctx context.Context, opts BindingListOptions) ([]Binding, error) {
+	rows, err := c.query(ctx, "bindinglist", []param{optStrArg("subsystem", opts.Subsystem)})
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +157,7 @@ func (c *Commands) ListBindings(ctx context.Context, subsystem string) ([]Bindin
 		out = append(out, Binding{
 			Subsystem: fieldStr(row, "subsystem"),
 			IP:        fieldStr(row, "ip"),
-			Port:      int(fieldInt(row, "port")),
+			Port:      fieldUint16(row, "port"),
 		})
 	}
 
@@ -193,15 +191,115 @@ func (c *Commands) GetVersion(ctx context.Context) (BuildVersion, error) {
 	}, nil
 }
 
-// WhoAmI returns which server and client this connection is, as the server sees
-// it.
-func (c *Commands) WhoAmI(ctx context.Context) (map[string]string, error) {
-	return c.firstRow(ctx, "whoami")
+// WhoAmI is which server and client a connection is, as the server sees it.
+type WhoAmI struct {
+	// ServerStatus is the virtual server's state, such as "online"
+	// (virtualserver_status).
+	ServerStatus string
+	// ServerUID is the virtual server's unique identifier
+	// (virtualserver_unique_identifier).
+	ServerUID string
+	// Nickname is this connection's nickname (client_nickname).
+	Nickname string
+	// LoginName is the ServerQuery login name, "" for a voice client
+	// (client_login_name).
+	LoginName string
+	// UID is this connection's unique identifier (client_unique_identifier).
+	// The voice protocol sends it empty; the voice client's UID method has it.
+	UID UID
+	// ServerID is the virtual server's id, 0 when none is selected
+	// (virtualserver_id).
+	ServerID ServerID
+	// ChannelID is the channel this connection is in (client_channel_id).
+	ChannelID ChannelID
+	// DatabaseID is this connection's database id (client_database_id).
+	DatabaseID ClientDBID
+	// ServerPort is the virtual server's voice port (virtualserver_port).
+	ServerPort uint16
+	// ClientID is this connection's client id (client_id).
+	ClientID ClientID
 }
 
-// GetConnectionInfo returns connection statistics for our own session.
-func (c *Commands) GetConnectionInfo(ctx context.Context) (map[string]string, error) {
-	return c.firstRow(ctx, "serverrequestconnectioninfo")
+// WhoAmI returns which server and client this connection is, as the server sees
+// it.
+func (c *Commands) WhoAmI(ctx context.Context) (WhoAmI, error) {
+	row, err := c.firstRow(ctx, "whoami")
+	if err != nil {
+		return WhoAmI{}, err
+	}
+
+	return WhoAmI{
+		ServerStatus: fieldStr(row, "virtualserver_status"),
+		ServerID:     ServerID(fieldUint(row, "virtualserver_id")),
+		ServerUID:    fieldStr(row, "virtualserver_unique_identifier"),
+		ServerPort:   fieldUint16(row, "virtualserver_port"),
+		ClientID:     ClientID(fieldUint16(row, "client_id")),
+		ChannelID:    ChannelID(fieldUint(row, "client_channel_id")),
+		Nickname:     fieldStr(row, "client_nickname"),
+		DatabaseID:   ClientDBID(fieldUint(row, "client_database_id")),
+		LoginName:    fieldStr(row, "client_login_name"),
+		UID:          UID(fieldStr(row, "client_unique_identifier")),
+	}, nil
+}
+
+// ServerConnectionInfo is the virtual server's traffic statistics, as
+// serverrequestconnectioninfo reports them. Rates are in bytes per second.
+type ServerConnectionInfo struct {
+	// FileTransferBandwidthSent and FileTransferBandwidthReceived are the
+	// file transfer bandwidth (connection_filetransfer_bandwidth_*).
+	FileTransferBandwidthSent     uint64
+	FileTransferBandwidthReceived uint64
+	// FileTransferBytesSent and FileTransferBytesReceived are the file
+	// transfer totals (connection_filetransfer_bytes_*_total).
+	FileTransferBytesSent     uint64
+	FileTransferBytesReceived uint64
+	// PacketsSent, BytesSent, PacketsReceived and BytesReceived are the
+	// totals (connection_*_total).
+	PacketsSent     uint64
+	BytesSent       uint64
+	PacketsReceived uint64
+	BytesReceived   uint64
+	// The bandwidth over the last second and minute
+	// (connection_bandwidth_*_last_*_total).
+	BandwidthSentLastSecond     uint64
+	BandwidthSentLastMinute     uint64
+	BandwidthReceivedLastSecond uint64
+	BandwidthReceivedLastMinute uint64
+	// ConnectedTime is how long the virtual server has been running
+	// (connection_connected_time, in seconds here).
+	ConnectedTime time.Duration
+	// Ping is the average ping (connection_ping, in milliseconds).
+	Ping time.Duration
+	// PacketLoss is the share of packets lost, 0 to 1
+	// (connection_packetloss_total).
+	PacketLoss float32
+}
+
+// GetConnectionInfo returns the virtual server's traffic statistics — not
+// this connection's, as the command's name suggests.
+func (c *Commands) GetConnectionInfo(ctx context.Context) (ServerConnectionInfo, error) {
+	row, err := c.firstRow(ctx, "serverrequestconnectioninfo")
+	if err != nil {
+		return ServerConnectionInfo{}, err
+	}
+
+	return ServerConnectionInfo{
+		FileTransferBandwidthSent:     fieldUint(row, "connection_filetransfer_bandwidth_sent"),
+		FileTransferBandwidthReceived: fieldUint(row, "connection_filetransfer_bandwidth_received"),
+		FileTransferBytesSent:         fieldUint(row, "connection_filetransfer_bytes_sent_total"),
+		FileTransferBytesReceived:     fieldUint(row, "connection_filetransfer_bytes_received_total"),
+		PacketsSent:                   fieldUint(row, "connection_packets_sent_total"),
+		BytesSent:                     fieldUint(row, "connection_bytes_sent_total"),
+		PacketsReceived:               fieldUint(row, "connection_packets_received_total"),
+		BytesReceived:                 fieldUint(row, "connection_bytes_received_total"),
+		BandwidthSentLastSecond:       fieldUint(row, "connection_bandwidth_sent_last_second_total"),
+		BandwidthSentLastMinute:       fieldUint(row, "connection_bandwidth_sent_last_minute_total"),
+		BandwidthReceivedLastSecond:   fieldUint(row, "connection_bandwidth_received_last_second_total"),
+		BandwidthReceivedLastMinute:   fieldUint(row, "connection_bandwidth_received_last_minute_total"),
+		ConnectedTime:                 fieldDuration(row, "connection_connected_time", time.Second),
+		Ping:                          time.Duration(fieldFloat32(row, "connection_ping") * float32(time.Millisecond)),
+		PacketLoss:                    fieldFloat32(row, "connection_packetloss_total"),
+	}, nil
 }
 
 // GetServerIDByPort returns the numeric id of the virtual server listening on
@@ -236,10 +334,10 @@ func (c *Commands) CreateServerGroup(ctx context.Context, name string, groupType
 }
 
 // DeleteServerGroup deletes a server group.
-func (c *Commands) DeleteServerGroup(ctx context.Context, serverGroupID ServerGroupID, force bool) error {
+func (c *Commands) DeleteServerGroup(ctx context.Context, serverGroupID ServerGroupID, opts GroupDeleteOptions) error {
 	return c.exec(ctx, "servergroupdel", []param{
 		idArg("sgid", serverGroupID),
-		boolArg("force", force),
+		boolArg("force", opts.Force),
 	})
 }
 
@@ -302,18 +400,25 @@ type ServerGroupClient struct {
 	DatabaseID ClientDBID
 }
 
+// ServerGroupClientListOptions select ListServerGroupClients' optional
+// fields. Each costs the server a lookup per member, so both are off unless
+// asked for.
+type ServerGroupClientListOptions struct {
+	// Names includes each member's nickname.
+	Names bool
+	// UIDs includes each member's unique identifier.
+	UIDs bool
+}
+
 // ListServerGroupClients returns the members of a server group.
-//
-// Names and uids are omitted unless asked for, because each adds a lookup the
-// server has to do per member.
 func (c *Commands) ListServerGroupClients(
-	ctx context.Context, serverGroupID ServerGroupID, names, uids bool,
+	ctx context.Context, serverGroupID ServerGroupID, opts ServerGroupClientListOptions,
 ) ([]ServerGroupClient, error) {
 	params := []param{idArg("sgid", serverGroupID)}
-	if names {
+	if opts.Names {
 		params = append(params, boolArg("-names", true))
 	}
-	if uids {
+	if opts.UIDs {
 		params = append(params, boolArg("-uid", true))
 	}
 

@@ -89,7 +89,7 @@ func TestDurationArg_RoundsToTheUnit(t *testing.T) {
 
 func TestBanDurations(t *testing.T) {
 	line := encoded(t, func(c *Commands) error {
-		_, err := c.BanClient(t.Context(), 7, 1500*time.Millisecond, "")
+		_, err := c.BanClient(t.Context(), 7, BanClientOptions{Duration: 1500 * time.Millisecond})
 
 		return err
 	})
@@ -112,7 +112,7 @@ func TestBanDurations(t *testing.T) {
 		return err
 	})
 	refused(t, func(c *Commands) error {
-		_, err := c.BanClient(t.Context(), 7, -time.Second, "")
+		_, err := c.BanClient(t.Context(), 7, BanClientOptions{Duration: -time.Second})
 
 		return err
 	})
@@ -195,7 +195,7 @@ func TestPermission_EncodesAsIDOrName(t *testing.T) {
 // A zero Permission names nothing, so it is refused rather than sent.
 func TestPermission_ZeroIsRefused(t *testing.T) {
 	refused(t, func(c *Commands) error {
-		return c.AddClientPermission(t.Context(), 9, Permission{}, 1, false)
+		return c.AddClientPermission(t.Context(), 9, Permission{}, 1, ClientPermissionOptions{})
 	})
 	refused(t, func(c *Commands) error {
 		_, err := c.FindPermission(t.Context(), PermissionByName(""))
@@ -220,21 +220,21 @@ func TestParsePermission_NamesTheEntryAsSent(t *testing.T) {
 
 func TestKickClient(t *testing.T) {
 	line := encoded(t, func(c *Commands) error {
-		return c.KickClient(t.Context(), 5, ReasonKickServer, "bye now")
+		return c.KickClient(t.Context(), 5, ReasonKickServer, KickOptions{ReasonMessage: "bye now"})
 	})
 	if line != `clientkick clid=5 reasonid=5 reasonmsg=bye\snow` {
 		t.Errorf("kick = %q", line)
 	}
 
 	line = encoded(t, func(c *Commands) error {
-		return c.KickClient(t.Context(), 5, ReasonKickChannel, "")
+		return c.KickClient(t.Context(), 5, ReasonKickChannel, KickOptions{})
 	})
 	if line != "clientkick clid=5 reasonid=4" {
 		t.Errorf("kick without a message = %q", line)
 	}
 
 	refused(t, func(c *Commands) error {
-		return c.KickClient(t.Context(), 5, ReasonKickServerBan, "")
+		return c.KickClient(t.Context(), 5, ReasonKickServerBan, KickOptions{})
 	})
 }
 
@@ -249,12 +249,12 @@ func TestPrivilegeKeyOptions(t *testing.T) {
 	}
 
 	refused(t, func(c *Commands) error {
-		_, err := c.AddToken(t.Context(), PrivilegeKeyOptions{ServerGroupID: 6, ChannelID: 2})
+		_, err := c.AddPrivilegeKey(t.Context(), PrivilegeKeyOptions{ServerGroupID: 6, ChannelID: 2})
 
 		return err
 	})
 	refused(t, func(c *Commands) error {
-		_, err := c.AddToken(t.Context(), PrivilegeKeyOptions{ChannelGroupID: 5})
+		_, err := c.AddPrivilegeKey(t.Context(), PrivilegeKeyOptions{ChannelGroupID: 5})
 
 		return err
 	})
@@ -435,4 +435,16 @@ func TestAddTempPassword_SendsThePasswordAndRefusesNone(t *testing.T) {
 	refused(t, func(c *Commands) error {
 		return c.AddTempPassword(t.Context(), TempPasswordOptions{Duration: time.Hour})
 	})
+}
+
+// Several files are a row group, name=…|name=…, as the server takes a list.
+// One parameter joining the names escaped each pipe, and the server read it
+// as a single file.
+func TestDeleteFile_SendsARowGroup(t *testing.T) {
+	line := encoded(t, func(c *Commands) error {
+		return c.DeleteFile(t.Context(), 3, []string{"/a b", "c"}, FileOptions{})
+	})
+	if want := `ftdeletefile cid=3 cpw= name=\/a\sb|name=\/c`; line != want {
+		t.Errorf("DeleteFile sent %q, want %q", line, want)
+	}
 }

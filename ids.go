@@ -46,3 +46,18 @@ type UID string
 // ChannelUID is a channel's unique identifier (channel_unique_identifier), a
 // string the server assigns. TeamSpeak 6 sends it; TeamSpeak 3 does not.
 type ChannelUID string
+
+// BanID identifies a ban (banid).
+type BanID uint64
+
+// MessageID identifies an offline message (msgid).
+type MessageID uint64
+
+// ClientFileTransferID is the id the client gives a file transfer it
+// negotiates (clientftfid). The server echoes it back, which is how the
+// answer is matched to the request.
+type ClientFileTransferID uint16
+
+// ServerFileTransferID is the id the server gives a file transfer
+// (serverftfid); StopFileTransfer takes it.
+type ServerFileTransferID uint16

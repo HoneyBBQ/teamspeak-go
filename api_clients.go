@@ -52,13 +52,9 @@ type ClientListOptions struct {
 	Badges  bool
 }
 
-// ListClients returns every client currently connected.
-func (c *Commands) ListClients(ctx context.Context, opts ...ClientListOptions) ([]ClientInfo, error) {
-	var options ClientListOptions
-	if len(opts) > 0 {
-		options = opts[0]
-	}
-
+// ListClients returns every client currently connected, with the optional
+// fields options asks for.
+func (c *Commands) ListClients(ctx context.Context, options ClientListOptions) ([]ClientInfo, error) {
 	params := make([]param, 0, 9)
 	if !options.OmitUID {
 		params = append(params, boolArg("-uid", true))
@@ -96,11 +92,12 @@ func (c *Commands) ListClients(ctx context.Context, opts ...ClientListOptions) (
 
 // GetClientInfo returns one connected client's detail, unfiltered.
 //
-// Returned as the server sent it rather than narrowed to a struct: clientinfo
+// Returned as the server sent it, as Properties, rather than narrowed to a
+// struct: clientinfo
 // carries well over a hundred fields and which ones appear depends on
 // permissions, so anything narrower would silently drop data the caller asked
 // for. Use ListClients for parsed fields.
-func (c *Commands) GetClientInfo(ctx context.Context, clid ClientID) (map[string]string, error) {
+func (c *Commands) GetClientInfo(ctx context.Context, clid ClientID) (Properties, error) {
 	rows, err := c.query(ctx, "clientinfo", []param{idArg("clid", clid)})
 	if err != nil {
 		return nil, err
@@ -113,11 +110,16 @@ func (c *Commands) GetClientInfo(ctx context.Context, clid ClientID) (map[string
 	return rows[0], nil
 }
 
+// KickOptions are KickClient's optional parameters.
+type KickOptions struct {
+	// ReasonMessage is shown to the client; "" sends none.
+	ReasonMessage string
+}
+
 // KickClient kicks a client from its channel (ReasonKickChannel), which moves
 // it to the default channel, or from the server (ReasonKickServer), which
-// disconnects it. Any other reason is refused with ErrInvalidCommand. message
-// is shown to the client; "" sends none.
-func (c *Commands) KickClient(ctx context.Context, clid ClientID, reason Reason, message string) error {
+// disconnects it. Any other reason is refused with ErrInvalidCommand.
+func (c *Commands) KickClient(ctx context.Context, clid ClientID, reason Reason, opts KickOptions) error {
 	reasonParam := intArg("reasonid", int64(reason))
 	if reason != ReasonKickChannel && reason != ReasonKickServer {
 		reasonParam = invalidArg("a kick's reason is ReasonKickChannel or ReasonKickServer, not " + reason.String())
@@ -126,7 +128,7 @@ func (c *Commands) KickClient(ctx context.Context, clid ClientID, reason Reason,
 	return c.exec(ctx, "clientkick", []param{
 		idArg("clid", clid),
 		reasonParam,
-		optStrArg("reasonmsg", message),
+		optStrArg("reasonmsg", opts.ReasonMessage),
 	})
 }
 
@@ -375,17 +377,23 @@ func (c *Commands) DeleteClientDatabase(ctx context.Context, clientDBID ClientDB
 	return c.exec(ctx, "clientdbdelete", []param{idArg("cldbid", clientDBID)})
 }
 
+// ClientPermissionOptions are AddClientPermission's optional parameters.
+type ClientPermissionOptions struct {
+	// Skip makes the value override the client's channel and channel group
+	// permissions (permskip). It is always sent: the server requires it here,
+	// unlike the channel equivalent.
+	Skip bool
+}
+
 // AddClientPermission sets a permission on a client, server-wide.
-//
-// skip is required by the server here, unlike the channel equivalent.
 func (c *Commands) AddClientPermission(
-	ctx context.Context, clientDBID ClientDBID, perm Permission, value int32, skip bool,
+	ctx context.Context, clientDBID ClientDBID, perm Permission, value int32, opts ClientPermissionOptions,
 ) error {
 	return c.exec(ctx, "clientaddperm", []param{
 		idArg("cldbid", clientDBID),
 		permArg(perm),
 		intArg("permvalue", int64(value)),
-		boolArg("permskip", skip),
+		boolArg("permskip", opts.Skip),
 	})
 }
 
@@ -397,17 +405,21 @@ func (c *Commands) DeleteClientPermission(ctx context.Context, clientDBID Client
 	})
 }
 
+// ClientMoveOptions are MoveClient's optional parameters.
+type ClientMoveOptions struct {
+	// Password is the target channel's password, "" for none. Pass it as the
+	// user typed it: the client encodes it as its protocol requires.
+	Password string
+}
+
 // MoveClient moves a client to another channel.
-//
-// A channel password travels as base64(sha1(password)) rather than cleartext;
-// passing a plaintext one makes a correct password fail with error 781.
-func (c *Commands) MoveClient(ctx context.Context, clid ClientID, channelID ChannelID, password string) error {
+func (c *Commands) MoveClient(ctx context.Context, clid ClientID, channelID ChannelID, opts ClientMoveOptions) error {
 	params := []param{
 		idArg("clid", clid),
 		idArg("cid", channelID),
 	}
-	if password != "" {
-		params = append(params, strArg("cpw", password))
+	if opts.Password != "" {
+		params = append(params, strArg("cpw", opts.Password))
 	}
 
 	return c.exec(ctx, "clientmove", params, "cpw")

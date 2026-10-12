@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// Properties are a server's raw properties, by their wire names, unescaped,
+// as it sent them: the open-ended answers — serverinfo, clientinfo, hostinfo,
+// instanceinfo — whose fields depend on the server's version and the caller's
+// permissions, and the settings EditServer and EditInstance pass through.
+type Properties map[string]string
+
 // ClientInfo is a connected client, as clientlist or notifycliententerview
 // reports one.
 //
@@ -40,8 +46,8 @@ type ClientInfo struct {
 type FileUploadInfo struct {
 	FileTransferKey      string
 	SeekPosition         uint64
-	ClientFileTransferID uint16
-	ServerFileTransferID uint16
+	ClientFileTransferID ClientFileTransferID
+	ServerFileTransferID ServerFileTransferID
 	Port                 uint16
 }
 
@@ -49,8 +55,8 @@ type FileUploadInfo struct {
 type FileDownloadInfo struct {
 	FileTransferKey      string
 	Size                 uint64
-	ClientFileTransferID uint16
-	ServerFileTransferID uint16
+	ClientFileTransferID ClientFileTransferID
+	ServerFileTransferID ServerFileTransferID
 	Port                 uint16
 }
 

@@ -13,7 +13,7 @@ type ChannelGroup struct {
 	Name              string
 	ID                ChannelGroupID
 	IconID            IconID
-	SortID            uint64
+	SortID            int32
 	Type              GroupType
 	NameMode          GroupNameMode
 	ModifyPower       int32
@@ -29,7 +29,7 @@ func parseChannelGroup(row map[string]string) ChannelGroup {
 		Type:              GroupType(fieldInt(row, "type")),
 		IconID:            fieldIconID(row, "iconid"),
 		SavedInDatabase:   fieldBool(row, "savedb"),
-		SortID:            fieldUint(row, "sortid"),
+		SortID:            fieldInt32(row, "sortid"),
 		NameMode:          GroupNameMode(fieldInt(row, "namemode")),
 		ModifyPower:       fieldInt32(row, "n_modifyp"),
 		MemberAddPower:    fieldInt32(row, "n_member_addp"),
@@ -70,11 +70,21 @@ func (c *Commands) CreateChannelGroup(ctx context.Context, name string, groupTyp
 	return createdGroupID[ChannelGroupID](rows, "cgid", name)
 }
 
+// GroupDeleteOptions are DeleteServerGroup's and DeleteChannelGroup's
+// optional parameters.
+type GroupDeleteOptions struct {
+	// Force deletes a group that still has members, which the server
+	// otherwise refuses.
+	Force bool
+}
+
 // DeleteChannelGroup deletes a channel group.
-func (c *Commands) DeleteChannelGroup(ctx context.Context, channelGroupID ChannelGroupID, force bool) error {
+func (c *Commands) DeleteChannelGroup(
+	ctx context.Context, channelGroupID ChannelGroupID, opts GroupDeleteOptions,
+) error {
 	return c.exec(ctx, "channelgroupdel", []param{
 		idArg("cgid", channelGroupID),
-		boolArg("force", force),
+		boolArg("force", opts.Force),
 	})
 }
 
@@ -115,17 +125,24 @@ type ChannelGroupMembership struct {
 	GroupID    ChannelGroupID
 }
 
-// ListChannelGroupClients returns which channel group each client holds in
-// which channel, filtered by channel, client and group. A 0 filter matches
-// any; pass at least one, since called with none the server may return
+// ChannelGroupClientListOptions filter ListChannelGroupClients. A 0 field
+// matches any; set at least one, since called with none the server may return
 // nothing.
+type ChannelGroupClientListOptions struct {
+	ChannelID      ChannelID
+	ClientDBID     ClientDBID
+	ChannelGroupID ChannelGroupID
+}
+
+// ListChannelGroupClients returns which channel group each client holds in
+// which channel, filtered as opts says.
 func (c *Commands) ListChannelGroupClients(
-	ctx context.Context, channelID ChannelID, clientDBID ClientDBID, channelGroupID ChannelGroupID,
+	ctx context.Context, opts ChannelGroupClientListOptions,
 ) ([]ChannelGroupMembership, error) {
 	rows, err := c.list(ctx, "channelgroupclientlist", []param{
-		optIDArg("cid", channelID),
-		optIDArg("cldbid", clientDBID),
-		optIDArg("cgid", channelGroupID),
+		optIDArg("cid", opts.ChannelID),
+		optIDArg("cldbid", opts.ClientDBID),
+		optIDArg("cgid", opts.ChannelGroupID),
 	})
 	if err != nil {
 		return nil, err
@@ -183,9 +200,39 @@ func (c *Commands) DeleteChannelGroupPermission(
 
 // ---- Permissions ------------------------------------------------------------
 
-// ListPermissions returns the server's full permission catalogue.
-func (c *Commands) ListPermissions(ctx context.Context) ([]map[string]string, error) {
-	return c.query(ctx, "permissionlist", nil)
+// PermissionInfo is one permission of the server's catalogue.
+type PermissionInfo struct {
+	// Name is the permission's name, such as "i_client_talk_power" (permname).
+	Name string
+	// Description is what the permission controls (permdesc).
+	Description string
+	// ID is the permission's id on this server build (permid).
+	ID PermissionID
+}
+
+// ListPermissions returns the server's full permission catalogue. Rows that
+// name no permission — the group markers some servers interleave — are left
+// out.
+func (c *Commands) ListPermissions(ctx context.Context) ([]PermissionInfo, error) {
+	rows, err := c.query(ctx, "permissionlist", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]PermissionInfo, 0, len(rows))
+	for _, row := range rows {
+		name, ok := row["permname"]
+		if !ok {
+			continue
+		}
+		out = append(out, PermissionInfo{
+			ID:          PermissionID(fieldUint32(row, "permid")),
+			Name:        name,
+			Description: fieldStr(row, "permdesc"),
+		})
+	}
+
+	return out, nil
 }
 
 // GetPermissionIDByName resolves a permission name to its numeric id. The
@@ -207,16 +254,52 @@ func (c *Commands) GetPermissionIDByName(ctx context.Context, name string) (Perm
 	return PermissionID(fieldUint32(rows[0], "permid")), true, nil
 }
 
-// PermissionLocation is one place a permission is set, as permfind reports it.
+// PermissionLocation is one place a permission is set, as permfind and
+// permoverview report it. Target says which of the ids are set:
 //
-// What ID1 and ID2 name depends on Target — a group, a client, a channel, or
-// a channel and a client for a channel client permission — which is why they
-// stay raw numbers rather than typed ids.
+//   - PermissionTargetServerGroup: ServerGroupID
+//   - PermissionTargetClient: ClientDBID
+//   - PermissionTargetChannel: ChannelID
+//   - PermissionTargetChannelGroup: ChannelID and ChannelGroupID
+//   - PermissionTargetChannelClient: ChannelID and ClientDBID
+//
+// The others are 0. A row whose target is none of these is left out of the
+// results.
 type PermissionLocation struct {
-	ID1        uint64
-	ID2        uint64
-	Permission PermissionID
-	Target     PermissionTarget
+	ServerGroupID  ServerGroupID
+	ClientDBID     ClientDBID
+	ChannelID      ChannelID
+	ChannelGroupID ChannelGroupID
+	Permission     PermissionID
+	Target         PermissionTarget
+}
+
+// parseLocation reads a location from the wire's t, id1 and id2, whose
+// meaning depends on t. It reports false for a target it does not know.
+func parseLocation(row map[string]string) (PermissionLocation, bool) {
+	loc := PermissionLocation{
+		Target:     PermissionTarget(fieldInt(row, "t")),
+		Permission: PermissionID(fieldUint32(row, "p")),
+	}
+	id1, id2 := fieldUint(row, "id1"), fieldUint(row, "id2")
+	switch loc.Target {
+	case PermissionTargetServerGroup:
+		loc.ServerGroupID = ServerGroupID(id1)
+	case PermissionTargetClient:
+		loc.ClientDBID = ClientDBID(id1)
+	case PermissionTargetChannel:
+		loc.ChannelID = ChannelID(id1)
+	case PermissionTargetChannelGroup:
+		loc.ChannelID = ChannelID(id1)
+		loc.ChannelGroupID = ChannelGroupID(id2)
+	case PermissionTargetChannelClient:
+		loc.ChannelID = ChannelID(id1)
+		loc.ClientDBID = ClientDBID(id2)
+	default:
+		return PermissionLocation{}, false
+	}
+
+	return loc, true
 }
 
 // FindPermission returns every place a permission is set.
@@ -228,15 +311,25 @@ func (c *Commands) FindPermission(ctx context.Context, perm Permission) ([]Permi
 
 	out := make([]PermissionLocation, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, PermissionLocation{
-			Target:     PermissionTarget(fieldInt(row, "t")),
-			ID1:        fieldUint(row, "id1"),
-			ID2:        fieldUint(row, "id2"),
-			Permission: PermissionID(fieldUint32(row, "p")),
-		})
+		if loc, ok := parseLocation(row); ok {
+			out = append(out, loc)
+		}
 	}
 
 	return out, nil
+}
+
+// PermissionOverviewEntry is one permission applying to a client in a
+// channel, and where it is set, as permoverview reports it.
+type PermissionOverviewEntry struct {
+	PermissionLocation
+
+	// Value is the permission's value there (v).
+	Value int32
+	// Negated reports a negated value (n).
+	Negated bool
+	// Skip reports a value that skips channel and client overrides (s).
+	Skip bool
 }
 
 // GetPermissionOverview returns every permission that applies to a client in a
@@ -248,12 +341,31 @@ func (c *Commands) FindPermission(ctx context.Context, perm Permission) ([]Permi
 // Each row names its permission (p), so one is easy to pick out.
 func (c *Commands) GetPermissionOverview(
 	ctx context.Context, channelID ChannelID, clientDBID ClientDBID,
-) ([]map[string]string, error) {
-	return c.query(ctx, "permoverview", []param{
+) ([]PermissionOverviewEntry, error) {
+	rows, err := c.list(ctx, "permoverview", []param{
 		idArg("cid", channelID),
 		idArg("cldbid", clientDBID),
 		uintArg("permid", 0),
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]PermissionOverviewEntry, 0, len(rows))
+	for _, row := range rows {
+		loc, ok := parseLocation(row)
+		if !ok {
+			continue
+		}
+		out = append(out, PermissionOverviewEntry{
+			PermissionLocation: loc,
+			Value:              fieldInt32(row, "v"),
+			Negated:            fieldBool(row, "n"),
+			Skip:               fieldBool(row, "s"),
+		})
+	}
+
+	return out, nil
 }
 
 // ResetPermissions wipes all permission overrides and restores the defaults.
@@ -266,10 +378,8 @@ func (c *Commands) ResetPermissions(ctx context.Context) error {
 
 // ---- Tokens and privilege keys ----------------------------------------------
 
-// PrivilegeKey grants a group when redeemed.
-//
-// "token" and "privilegekey" name the same thing; the server accepts both
-// command families.
+// PrivilegeKey grants a group when redeemed. The server also calls it a
+// token.
 type PrivilegeKey struct {
 	CreatedAt   time.Time
 	Token       string
@@ -320,11 +430,6 @@ func (c *Commands) listKeys(ctx context.Context, command string) ([]PrivilegeKey
 // ListPrivilegeKeys returns every privilege key.
 func (c *Commands) ListPrivilegeKeys(ctx context.Context) ([]PrivilegeKey, error) {
 	return c.listKeys(ctx, "privilegekeylist")
-}
-
-// ListTokens returns every token.
-func (c *Commands) ListTokens(ctx context.Context) ([]PrivilegeKey, error) {
-	return c.listKeys(ctx, "tokenlist")
 }
 
 // PrivilegeKeyOptions describe a key to create: set ServerGroupID for a key
@@ -384,30 +489,15 @@ func (c *Commands) AddPrivilegeKey(ctx context.Context, opts PrivilegeKeyOptions
 	return c.addKey(ctx, "privilegekeyadd", opts)
 }
 
-// AddToken creates a token and returns it as the server generated it.
-func (c *Commands) AddToken(ctx context.Context, opts PrivilegeKeyOptions) (string, error) {
-	return c.addKey(ctx, "tokenadd", opts)
-}
-
 // DeletePrivilegeKey removes a privilege key.
 func (c *Commands) DeletePrivilegeKey(ctx context.Context, token string) error {
 	return c.exec(ctx, "privilegekeydelete", []param{strArg("token", token)})
-}
-
-// DeleteToken removes a token.
-func (c *Commands) DeleteToken(ctx context.Context, token string) error {
-	return c.exec(ctx, "tokendelete", []param{strArg("token", token)})
 }
 
 // UsePrivilegeKey redeems a privilege key. The key grants only if this
 // connection has not already used one.
 func (c *Commands) UsePrivilegeKey(ctx context.Context, token string) error {
 	return c.exec(ctx, "privilegekeyuse", []param{strArg("token", token)})
-}
-
-// UseToken redeems a token.
-func (c *Commands) UseToken(ctx context.Context, token string) error {
-	return c.exec(ctx, "tokenuse", []param{strArg("token", token)})
 }
 
 // String describes the key without the token itself, which grants the group

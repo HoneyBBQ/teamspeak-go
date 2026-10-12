@@ -175,8 +175,8 @@ func TestInitFileUpload_GivesEachNegotiationItsOwnID(t *testing.T) {
 
 		return errCaptured
 	}
-	_, _ = c.InitFileUpload(t.Context(), 1, "/a", 3, "", true)
-	_, _ = c.InitFileUpload(t.Context(), 1, "/b", 3, "", true)
+	_, _ = c.InitFileUpload(t.Context(), 1, "/a", 3, teamspeak.FileUploadOptions{Overwrite: true})
+	_, _ = c.InitFileUpload(t.Context(), 1, "/b", 3, teamspeak.FileUploadOptions{Overwrite: true})
 
 	if len(ids) != 2 || ids[0] == "" || ids[0] == "0" || ids[0] == ids[1] {
 		t.Errorf("clientftfid values = %q, want two distinct non-zero ids", ids)

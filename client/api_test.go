@@ -33,7 +33,9 @@ func captureCommand(t *testing.T, fn func(*Client) error) string {
 }
 
 func TestClientMove_HashesChannelPassword(t *testing.T) {
-	sent := captureCommand(t, func(c *Client) error { return c.MoveClient(t.Context(), 5, 7, "hunter2") })
+	sent := captureCommand(t, func(c *Client) error {
+		return c.MoveClient(t.Context(), 5, 7, teamspeak.ClientMoveOptions{Password: "hunter2"})
+	})
 
 	// base64(sha1("hunter2")), escaped for the wire ("/" -> "\/").
 	want := "cpw=" + strings.ReplaceAll(prepareClientPassword("hunter2"), "/", `\/`)
@@ -46,7 +48,9 @@ func TestClientMove_HashesChannelPassword(t *testing.T) {
 }
 
 func TestClientMove_OmitsEmptyPassword(t *testing.T) {
-	sent := captureCommand(t, func(c *Client) error { return c.MoveClient(t.Context(), 5, 7, "") })
+	sent := captureCommand(t, func(c *Client) error {
+		return c.MoveClient(t.Context(), 5, 7, teamspeak.ClientMoveOptions{})
+	})
 	if strings.Contains(sent, "cpw") {
 		t.Errorf("clientmove = %q, want no cpw", sent)
 	}
@@ -58,12 +62,13 @@ func TestFileTransfer_HashesChannelPassword(t *testing.T) {
 	want := "cpw=" + strings.ReplaceAll(prepareClientPassword("hunter2"), "/", `\/`)
 
 	upload := captureCommand(t, func(c *Client) error {
-		_, err := c.InitFileUpload(t.Context(), 7, "/a.txt", 4, "hunter2", true)
+		opts := teamspeak.FileUploadOptions{Password: "hunter2", Overwrite: true}
+		_, err := c.InitFileUpload(t.Context(), 7, "/a.txt", 4, opts)
 
 		return err
 	})
 	download := captureCommand(t, func(c *Client) error {
-		_, err := c.InitFileDownload(t.Context(), 7, "/a.txt", "hunter2", 0)
+		_, err := c.InitFileDownload(t.Context(), 7, "/a.txt", teamspeak.FileDownloadOptions{Password: "hunter2"})
 
 		return err
 	})

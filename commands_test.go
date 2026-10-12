@@ -23,7 +23,7 @@ func (r *recorder) Send(_ context.Context, req Request) ([]map[string]string, er
 // transport: the voice protocol hashes them, ServerQuery sends them as given.
 func TestRequest_LeavesPasswordEncodingToTheTransport(t *testing.T) {
 	rec := &recorder{}
-	err := NewCommands(rec).MoveClient(t.Context(), 7, 42, "hunter2")
+	err := NewCommands(rec).MoveClient(t.Context(), 7, 42, ClientMoveOptions{Password: "hunter2"})
 	if err != nil {
 		t.Fatal(err)
 	}

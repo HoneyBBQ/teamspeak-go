@@ -189,13 +189,14 @@ type Client struct {
 	// clientInitOptions is behind a pointer so that even a Client value
 	// printed field by field shows an address, not the password hashes.
 	clientInitOptions *clientInitOptions
-	reconnectOptions  ReconnectOptions
+	// reconnectOptions is nil unless WithReconnect turned reconnection on.
+	reconnectOptions *ReconnectOptions
 	// reconnecting guards against competing retry loops after two failures in
 	// quick succession.
 	reconnecting bool
 	// stopped is set by an explicit Disconnect, which must never be undone by a
 	// retry.
-	stopped          bool
+	stopped        bool
 	cmdMiddlewares []CommandMiddleware
 	// executor is the command middleware wrapped around the client's own
 	// executor; Send runs requests through it.
@@ -329,7 +330,8 @@ func WithPacketConn(pc net.PacketConn) Option {
 // the policy says: retrying would keep a process alive that asked to stop.
 func WithReconnect(options ReconnectOptions) Option {
 	return optionFunc(func(c *Client) {
-		c.reconnectOptions = options.withDefaults()
+		options = options.withDefaults()
+		c.reconnectOptions = &options
 	})
 }
 
@@ -759,12 +761,12 @@ func (c *Client) beginReconnect() (ReconnectOptions, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if !c.reconnectOptions.Enabled || c.reconnecting || c.stopped {
+	if c.reconnectOptions == nil || c.reconnecting || c.stopped {
 		return ReconnectOptions{}, false
 	}
 	c.reconnecting = true
 
-	return c.reconnectOptions, true
+	return *c.reconnectOptions, true
 }
 
 // endReconnect releases the slot so a later drop can be retried.

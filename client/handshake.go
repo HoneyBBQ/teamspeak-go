@@ -11,8 +11,8 @@ import (
 
 	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
-	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
+	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 

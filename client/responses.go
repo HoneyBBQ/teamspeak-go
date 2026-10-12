@@ -124,8 +124,6 @@ var responses = map[string]*responseSpec{
 	"servergroupsbyclientid":      inline("notifyservergroupsbyclientid"),
 	"serverrequestconnectioninfo": inline("notifyserverconnectioninfo"),
 	"servertemppasswordlist":      inline("notifyservertemppasswordlist"),
-	"tokenadd":                    inline("notifytokenadd"),
-	"tokenlist":                   inline("notifytokenlist"),
 }
 
 // responseFor returns the response shape of a command, or nil for plain rows.

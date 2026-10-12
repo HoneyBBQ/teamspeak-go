@@ -308,7 +308,7 @@ func TestIntegration_Disconnect(t *testing.T) {
 func TestIntegration_ListClients(t *testing.T) {
 	c := requireSharedClient(t)
 
-	clients, err := c.ListClients(t.Context())
+	clients, err := c.ListClients(t.Context(), teamspeak.ClientListOptions{})
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListClients: %v", err)
@@ -380,7 +380,7 @@ func TestIntegration_JoinsConfiguredDefaultChannel(t *testing.T) {
 		t.Fatalf("ListChannels: %v", err)
 	}
 
-	clients, err := c.ListClients(t.Context())
+	clients, err := c.ListClients(t.Context(), teamspeak.ClientListOptions{})
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListClients: %v", err)

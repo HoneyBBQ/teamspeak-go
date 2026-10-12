@@ -172,14 +172,18 @@ func (c *Commands) EditChannel(ctx context.Context, cid ChannelID, opts ChannelE
 	}, "channel_password")
 }
 
+// ChannelDeleteOptions are DeleteChannel's optional parameters.
+type ChannelDeleteOptions struct {
+	// Force deletes a channel that still holds clients, which the server
+	// otherwise refuses.
+	Force bool
+}
+
 // DeleteChannel deletes a channel.
-//
-// force is required by the server, not just conventional: deleting a channel
-// that still holds clients fails without it.
-func (c *Commands) DeleteChannel(ctx context.Context, cid ChannelID, force bool) error {
+func (c *Commands) DeleteChannel(ctx context.Context, cid ChannelID, opts ChannelDeleteOptions) error {
 	return c.exec(ctx, "channeldelete", []param{
 		idArg("cid", cid),
-		boolArg("force", force),
+		boolArg("force", opts.Force),
 	})
 }
 
@@ -219,14 +223,19 @@ func (c *Commands) GetChannelInfo(ctx context.Context, cid ChannelID) (Channel, 
 	return channel, nil
 }
 
-// MoveChannel moves a channel under parentID (0 for the top level), sorted
-// after the channel order names. A nil order leaves the position to the
-// server; a pointer to 0 sorts the channel first.
-func (c *Commands) MoveChannel(ctx context.Context, cid, parentID ChannelID, order *ChannelID) error {
+// ChannelMoveOptions are MoveChannel's optional parameters.
+type ChannelMoveOptions struct {
+	// Order is the channel to sort the moved one after. nil leaves the
+	// position to the server; a pointer to 0 sorts the channel first.
+	Order *ChannelID
+}
+
+// MoveChannel moves a channel under parentID (0 for the top level).
+func (c *Commands) MoveChannel(ctx context.Context, cid, parentID ChannelID, opts ChannelMoveOptions) error {
 	return c.exec(ctx, "channelmove", []param{
 		idArg("cid", cid),
 		idArg("cpid", parentID),
-		uintPtrArg("order", order),
+		uintPtrArg("order", opts.Order),
 	})
 }
 
