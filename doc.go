@@ -1,9 +1,17 @@
-// Package teamspeak implements a TeamSpeak 3 (and compatible) client over UDP:
-// handshake, EAX-encrypted packets, commands, notifications, optional voice, and file transfer helpers.
+// Package teamspeak is what the TeamSpeak clients in this module share: the
+// typed commands, the results they return, and the errors they report.
 //
-// Use [NewClient] with a [*identity.Identity], call [Client.Connect], then [Client.WaitConnected]
-// before sending commands or relying on client ID. Subpackages cover crypto identities,
-// DNS/TSDNS resolution, transport framing, and TS3 command escaping/parsing.
+// The commands are methods of [Commands], which runs on any [Executor] — a
+// connection able to execute a command. A client embeds Commands, so with the
+// voice client
 //
-// This is a clean-room implementation without the proprietary TeamSpeak SDK.
+//	c, err := client.New(id, "ts.example.com", "bot")
+//	...
+//	channels, err := c.ListChannels(ctx)
+//
+// Import a client rather than this package on its own: [client] speaks the
+// voice protocol, the way the TeamSpeak application does. A ServerQuery client
+// will run the same commands.
+//
+// [client]: https://pkg.go.dev/github.com/honeybbq/teamspeak-go/client
 package teamspeak

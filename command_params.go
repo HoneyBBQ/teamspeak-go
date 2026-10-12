@@ -5,12 +5,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 )
-
-// defaultCommandTimeout is how long a command waits for its return_code before
-// giving up. Commands that can legitimately take longer pass their own.
-const defaultCommandTimeout = 10 * time.Second
 
 // param is one wire parameter. A nil Value means "do not send this parameter
 // at all", which is not the same as sending an empty string: clearing a
@@ -171,7 +166,7 @@ func createdGroupID(rows []map[string]string, idKey, name string) (uint64, error
 		return firstOrEmpty(rows, idKey), nil
 	}
 	if id == 0 {
-		return 0, fmt.Errorf("%w: the server did not report the new group %q", errNoDataReturned, name)
+		return 0, fmt.Errorf("%w: the server did not report the new group %q", ErrNoData, name)
 	}
 
 	return id, nil

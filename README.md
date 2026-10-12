@@ -54,7 +54,7 @@ import (
 	"os/signal"
 	"time"
 
-	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/client"
 	"github.com/honeybbq/teamspeak-go/identity"
 )
 
@@ -66,46 +66,55 @@ func main() {
 	}
 
 	// Create the client
-	client := teamspeak.NewClient(
+	c, err := client.New(
 		id,
 		"localhost",
 		"GoBot",
-		teamspeak.WithServerPassword(os.Getenv("TEAMSPEAK_SERVER_PASSWORD")),
-		teamspeak.WithDefaultChannel("Lobby"),
-		teamspeak.WithDefaultChannelPassword(os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL_PASSWORD")),
+		client.WithServerPassword(os.Getenv("TEAMSPEAK_SERVER_PASSWORD")),
+		client.WithDefaultChannel("Lobby"),
+		client.WithDefaultChannelPassword(os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL_PASSWORD")),
 	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Register event handlers
-	client.OnConnected(func() {
+	c.OnConnected(func() {
 		fmt.Println("Connected to server!")
 	})
 
-	client.OnTextMessage(func(msg teamspeak.TextMessage) {
+	c.OnTextMessage(func(msg client.TextMessage) {
 		fmt.Printf("[%s]: %s\n", msg.InvokerName, msg.Message)
 	})
 
-	client.OnDisconnected(func(err error) {
+	c.OnDisconnected(func(err error) {
 		fmt.Println("Disconnected:", err)
 	})
 
 	// Connect
-	if err := client.Connect(); err != nil {
+	if err := c.Connect(); err != nil {
 		log.Fatal(err)
 	}
 
 	// Wait until connected
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := client.WaitConnected(ctx); err != nil {
+	if err := c.WaitConnected(ctx); err != nil {
 		log.Fatal(err)
 	}
+
+	channels, err := c.ListChannels(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(len(channels), "channels")
 
 	// Wait for interrupt signal
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	<-sig
 
-	client.Disconnect()
+	_ = c.Disconnect()
 }
 ```
 
@@ -138,22 +147,22 @@ func main() {
 
 ### Commands
 
-Every command the voice protocol answers is a typed method, grouped by area in
-`api_*.go`. Each takes an options struct, and a nil pointer field omits the
-parameter entirely — which the protocol distinguishes from an empty value:
+Every command is a typed method taking a context, defined once in the root
+`teamspeak` package and embedded into the client. Options structs use a nil
+pointer field to omit a parameter entirely — which the protocol distinguishes from an empty value:
 clearing a password takes `channel_password=`, leaving it alone sends nothing.
 
 ```go
-channels, err := c.ListChannels()
+channels, err := c.ListChannels(ctx)
 
-cid, err := c.CreateChannel(teamspeak.ChannelCreateOptions{
+cid, err := c.CreateChannel(ctx, teamspeak.ChannelCreateOptions{
 	ChannelName:          "Lounge",
 	ChannelTopic:         teamspeak.String("the quiet one"),
 	ChannelFlagPermanent: teamspeak.BoolOf(true),
 })
 
-err = c.MoveClient(c.ClientID(), cid, "channel-password")
-err = c.SendTextMessage(teamspeak.TextMessageTargetChannel, cid, "hello")
+err = c.MoveClient(ctx, c.ClientID(), cid, "channel-password")
+err = c.SendTextMessage(ctx, teamspeak.TextMessageTargetChannel, cid, "hello")
 ```
 
 | File            | Covers                                                          |
@@ -213,14 +222,14 @@ err = id.UpgradeToLevel(ctx, 10)
 ### Options
 
 ```go
-client := teamspeak.NewClient(identity, "ts.example.com", "Bot",
-	teamspeak.WithLogger(slog.Default()),
-	teamspeak.WithResolver(customResolver),
-	teamspeak.WithCommandMiddleware(loggingMiddleware),
-	teamspeak.WithEventMiddleware(filterMiddleware),
-	teamspeak.WithServerPassword(os.Getenv("TEAMSPEAK_SERVER_PASSWORD")),
-	teamspeak.WithDefaultChannel("Lobby"),
-	teamspeak.WithDefaultChannelPassword(os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL_PASSWORD")),
+c, err := client.New(id, "ts.example.com", "Bot",
+	client.WithLogger(slog.Default()), // silent without it
+	client.WithResolver(customResolver),
+	client.WithCommandMiddleware(loggingMiddleware),
+	client.WithEventMiddleware(filterMiddleware),
+	client.WithServerPassword(os.Getenv("TEAMSPEAK_SERVER_PASSWORD")),
+	client.WithDefaultChannel("Lobby"),
+	client.WithDefaultChannelPassword(os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL_PASSWORD")),
 )
 ```
 
@@ -234,18 +243,14 @@ Connection auth options:
 
 ```
 teamspeak-go/
-├── client.go          # Client lifecycle, connection management
-├── api.go             # High-level API (messages, channels, clients)
-├── commands.go        # Command sending and response tracking
-├── events.go          # Event handler registration and middleware
-├── notifications.go   # Server notification parsing and dispatch
-├── handshake.go       # Protocol handshake orchestration
-├── transfer.go        # File transfer operations
-├── crypto/            # ECDH, EAX encryption, identity management
-├── handshake/         # Crypto handshake and license verification
-├── transport/         # UDP packet framing, ACK, compression
-├── commands/          # Command builder and parser
-└── discovery/         # SRV / TSDNS / direct address resolution
+├── *.go               # package teamspeak — what the clients share: the
+│                      #   typed commands (Commands, on any Executor), their
+│                      #   results, errors, and file transfer data
+├── client/            # package client — the voice client: session, events,
+│                      #   voice, reconnection, voice-only commands
+├── identity/          # creating, storing and inspecting identities
+├── commands/          # the command language: escaping, parsing, building
+└── internal/          # crypto, handshake, transport, discovery
 ```
 
 ## Acknowledgments

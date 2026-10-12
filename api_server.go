@@ -175,7 +175,7 @@ func (c *Commands) GetVersion(ctx context.Context) (BuildVersion, error) {
 	}
 
 	if len(rows) == 0 {
-		return BuildVersion{}, errNoDataReturned
+		return BuildVersion{}, ErrNoData
 	}
 
 	row := rows[0]

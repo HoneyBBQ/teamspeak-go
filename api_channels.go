@@ -194,7 +194,7 @@ func (c *Commands) GetChannelInfo(ctx context.Context, cid uint64) (Channel, err
 	}
 
 	if len(rows) == 0 {
-		return Channel{}, errNoDataReturned
+		return Channel{}, ErrNoData
 	}
 
 	channel := parseChannel(rows[0])

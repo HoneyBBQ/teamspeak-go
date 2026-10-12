@@ -96,7 +96,7 @@ func (c *Commands) GetClientInfo(ctx context.Context, clid uint16) (map[string]s
 	}
 
 	if len(rows) == 0 {
-		return nil, errNoDataReturned
+		return nil, ErrNoData
 	}
 
 	return rows[0], nil
@@ -274,7 +274,7 @@ func (c *Commands) GetClientDatabaseInfo(ctx context.Context, clientDBID uint64)
 	}
 
 	if len(rows) == 0 {
-		return ClientDatabaseEntry{}, errNoDataReturned
+		return ClientDatabaseEntry{}, ErrNoData
 	}
 
 	return parseDatabaseEntry(rows[0]), nil

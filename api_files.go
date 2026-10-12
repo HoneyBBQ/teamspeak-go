@@ -71,7 +71,7 @@ func (c *Commands) GetFileInfo(ctx context.Context, channelID uint64, path, pass
 	}
 
 	if len(rows) == 0 {
-		return FileEntry{}, errNoDataReturned
+		return FileEntry{}, ErrNoData
 	}
 
 	return parseFileEntry(rows[0]), nil
@@ -225,7 +225,7 @@ func (c *Commands) InitFileUpload(
 	}
 
 	if len(rows) == 0 {
-		return nil, errNoDataReturned
+		return nil, ErrNoData
 	}
 
 	row := rows[0]
@@ -258,7 +258,7 @@ func (c *Commands) InitFileDownload(
 	}
 
 	if len(rows) == 0 {
-		return nil, errNoDataReturned
+		return nil, ErrNoData
 	}
 
 	row := rows[0]

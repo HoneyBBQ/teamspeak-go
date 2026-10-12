@@ -15,6 +15,10 @@ var ErrServer = errors.New("TeamSpeak server error")
 // slow.
 var ErrNotConnected = errors.New("not connected")
 
+// ErrNoData reports a command that succeeded without the data it should carry,
+// such as a channelinfo for a channel the server no longer lists.
+var ErrNoData = errors.New("the server answered with no data")
+
 // ErrInvalidCommand reports a command the client refuses to send as given.
 var ErrInvalidCommand = errors.New("invalid command")
 

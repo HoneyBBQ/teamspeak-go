@@ -205,7 +205,7 @@ func (c *Commands) GetMessage(ctx context.Context, messageID uint64) (OfflineMes
 	}
 
 	if len(rows) == 0 {
-		return OfflineMessage{}, errNoDataReturned
+		return OfflineMessage{}, ErrNoData
 	}
 
 	return parseMessage(rows[0]), nil

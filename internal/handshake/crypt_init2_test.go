@@ -5,9 +5,9 @@ import (
 	"encoding/base64"
 	"testing"
 
+	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
-	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 type cryptoInit2Fixtures struct {

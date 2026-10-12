@@ -1,0 +1,178 @@
+package client
+
+import (
+	"log/slog"
+
+	teamspeak "github.com/honeybbq/teamspeak-go"
+
+	"github.com/honeybbq/teamspeak-go/commands"
+)
+
+func (c *Client) handleNotification(cmd *commands.Command) {
+	switch cmd.Name {
+	case "notifycliententerview":
+		c.handleClientEnterView(cmd)
+	case "notifyclientleftview":
+		c.handleClientLeftView(cmd)
+	case "notifyclientmoved":
+		c.handleClientMoved(cmd)
+	case "notifytextmessage":
+		c.handleTextMessage(cmd)
+	case "notifyclientpoke":
+		c.handleClientPoke(cmd)
+	case "notifyclientneededpermissions":
+		c.logger.Debug("insufficient permissions",
+			slog.String("permid", cmd.Params["permid"]),
+			slog.String("permvalue", cmd.Params["permvalue"]))
+	default:
+		c.logger.Debug("unhandled notification", slog.String("name", cmd.Name))
+	}
+}
+
+func (c *Client) handleClientEnterView(cmd *commands.Command) {
+	nick := cmd.Params["client_nickname"]
+	uid := cmd.Params["client_unique_identifier"]
+	groupsStr := cmd.Params["client_servergroups"]
+
+	clid, _ := parseUint16Value(cmd.Params["clid"])
+	ctid, _ := parseUint64Value(cmd.Params["ctid"])
+	clientType, _ := parseIntValue(cmd.Params["client_type"])
+
+	if clid != 0 {
+		info := teamspeak.ClientInfo{
+			ID:           clid,
+			Nickname:     nick,
+			UID:          uid,
+			ChannelID:    ctid,
+			Type:         clientType,
+			ServerGroups: parseUint64List(groupsStr),
+		}
+
+		c.mu.Lock()
+		c.clients[clid] = info
+		// Identify self by the clid initserver assigned, never by nickname alone:
+		// another client whose nickname is "<our nick><digits>" (the server's
+		// rename for a taken nickname) would otherwise be mistaken for us,
+		// poisoning every outgoing packet header with a foreign clientID until
+		// the server drops the connection for command-resend timeout.
+		switch {
+		case clid == c.clid:
+			// Carries the rename the server applied if our nickname was taken.
+			c.nickname = nick
+		case c.clid == 0 && isAutoNicknameMatch(c.nickname, nick):
+			// initserver carried no aclid, so the welcome enter is the only way
+			// to learn our clid. Once known, a later lookalike cannot take over.
+			c.clid = clid
+			c.handler.SetClientID(clid)
+			c.nickname = nick
+		}
+		c.mu.Unlock()
+
+		c.finalEvtHandler(info)
+	}
+}
+
+func (c *Client) handleClientLeftView(cmd *commands.Command) {
+	reasonMsg := cmd.Params["reasonmsg"]
+
+	clid, _ := parseUint16Value(cmd.Params["clid"])
+	reasonID, _ := parseIntValue(cmd.Params["reasonid"]) // 4=channel kick, 5=server kick
+
+	if clid != 0 {
+		c.mu.Lock()
+		isSelf := (clid == c.clid)
+		delete(c.clients, clid)
+		kickHandlers := c.kickedHandlers
+		c.mu.Unlock()
+
+		evt := ClientLeftViewEvent{
+			ID:        clid,
+			ReasonID:  reasonID,
+			ReasonMsg: reasonMsg,
+		}
+
+		c.finalEvtHandler(evt)
+
+		if isSelf && (reasonID == 4 || reasonID == 5) {
+			for _, h := range kickHandlers {
+				go h(reasonMsg)
+			}
+		}
+	}
+}
+
+func (c *Client) handleClientMoved(cmd *commands.Command) {
+	clid, _ := parseUint16Value(cmd.Params["clid"])
+	ctid, _ := parseUint64Value(cmd.Params["ctid"])
+	reasonID, _ := parseIntValue(cmd.Params["reasonid"])
+	invokerID, _ := parseUint16Value(cmd.Params["invokerid"])
+
+	if clid != 0 {
+		c.mu.Lock()
+		if info, ok := c.clients[clid]; ok {
+			info.ChannelID = ctid
+			c.clients[clid] = info
+		}
+		c.mu.Unlock()
+
+		evt := ClientMovedEvent{
+			ID:              clid,
+			TargetChannelID: ctid,
+			ReasonID:        reasonID,
+			InvokerID:       invokerID,
+			InvokerName:     cmd.Params["invokername"],
+			InvokerUID:      cmd.Params["invokeruid"],
+		}
+
+		c.finalEvtHandler(evt)
+	}
+}
+
+func (c *Client) handleTextMessage(cmd *commands.Command) {
+	targetMode, _ := parseIntValue(cmd.Params["targetmode"])
+	targetID, _ := parseUint64Value(cmd.Params["target"])
+	invokerID, _ := parseUint16Value(cmd.Params["invokerid"])
+	msg := TextMessage{
+		TargetMode:  targetMode,
+		TargetID:    targetID,
+		InvokerID:   invokerID,
+		InvokerName: cmd.Params["invokername"],
+		InvokerUID:  cmd.Params["invokeruid"],
+		Message:     cmd.Params["msg"],
+	}
+
+	c.mu.Lock()
+	if info, ok := c.clients[invokerID]; ok {
+		if msg.InvokerUID == "" {
+			msg.InvokerUID = info.UID
+		}
+		msg.InvokerGroups = info.ServerGroups
+	}
+	c.mu.Unlock()
+
+	c.logger.Debug("text message received",
+		slog.Int("target_mode", targetMode),
+		slog.String("invoker_id", cmd.Params["invokerid"]),
+		slog.String("invoker_name", cmd.Params["invokername"]),
+		slog.String("invoker_uid", msg.InvokerUID),
+		slog.String("message", cmd.Params["msg"]))
+
+	c.finalEvtHandler(msg)
+}
+
+func (c *Client) handleClientPoke(cmd *commands.Command) {
+	invokerID, _ := parseUint16Value(cmd.Params["invokerid"])
+	evt := PokeEvent{
+		InvokerID:   invokerID,
+		InvokerName: cmd.Params["invokername"],
+		InvokerUID:  cmd.Params["invokeruid"],
+		Message:     cmd.Params["msg"],
+	}
+
+	c.logger.Debug("client poked",
+		slog.String("invoker_name", evt.InvokerName),
+		slog.String("invoker_uid", evt.InvokerUID),
+		slog.String("message", evt.Message))
+
+	c.finalEvtHandler(evt)
+}

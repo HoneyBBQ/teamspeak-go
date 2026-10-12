@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/honeybbq/teamspeak-go/internal/crypto"
 	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
 )
 
 // packetPipe is one leg of an in-memory datagram pair: one Write is one Read message.

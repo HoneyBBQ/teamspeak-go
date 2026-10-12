@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/honeybbq/teamspeak-go/commands"
+	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
-	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 const (
