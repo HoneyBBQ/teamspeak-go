@@ -147,7 +147,7 @@ func TestEvents_UnsubscribeCoversQueuedEvents(t *testing.T) {
 	called := make(chan TextMessageEvent, 1)
 	unsubscribe := c.OnTextMessage(func(m TextMessageEvent) { called <- m })
 
-	emit(c, &c.onConnected, struct{}{}) // holds the queue
+	emit(c, &c.onConnected, "Connected", struct{}{}) // holds the queue
 	c.emitEvent(TextMessageEvent{Message: "queued"})
 	unsubscribe()
 	close(release)
@@ -381,7 +381,7 @@ func TestEventMiddleware_DoesNotSeeLifecycleEvents(t *testing.T) {
 	connected := make(chan struct{}, 1)
 	c.OnConnected(func() { connected <- struct{}{} })
 
-	emit(c, &c.onConnected, struct{}{})
+	emit(c, &c.onConnected, "Connected", struct{}{})
 	receive(t, connected)
 
 	select {
@@ -534,4 +534,83 @@ func TestEventQueueDropsVoiceWhenBackedUp(t *testing.T) {
 	if got := delivered.Load(); got > maxQueuedForVoice+1 || got < maxQueuedForVoice {
 		t.Errorf("delivered %d voice events, want about %d", got, maxQueuedForVoice)
 	}
+}
+
+// A handler that panics must not crash the process or stop delivery: the
+// handlers after it, and the events after that one, still arrive, and the
+// panic is logged at Error with the event type.
+func TestHandlerPanicIsLoggedAndDeliveryContinues(t *testing.T) {
+	var logs syncBuffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelError}))
+	c := newTestClient(t, WithLogger(logger))
+
+	got := make(chan string, 4)
+	defer c.OnPoked(func(PokeEvent) { panic("boom") })()
+	defer c.OnPoked(func(e PokeEvent) { got <- e.Message })()
+	defer c.OnDisconnected(func(error) { panic("lifecycle boom") })()
+	defer c.OnConnected(func() { got <- "connected" })()
+
+	c.emitEvent(PokeEvent{Message: "first"})
+	c.emitEvent(PokeEvent{Message: "second"})
+	emit(c, &c.onDisconnected, "Disconnected", error(nil))
+	emit(c, &c.onConnected, "Connected", struct{}{})
+
+	for _, want := range []string{"first", "second", "connected"} {
+		if v := receive(t, got); v != want {
+			t.Fatalf("delivered %q, want %q", v, want)
+		}
+	}
+	out := logs.String()
+	wants := []string{"level=ERROR", "event handler panicked", "event=PokeEvent", "boom", "event=Disconnected"}
+	for _, want := range wants {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+// A panicking event middleware is recovered the same way.
+func TestMiddlewarePanicIsRecovered(t *testing.T) {
+	var logs syncBuffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	panicking := func(next func(Event)) func(Event) {
+		return func(evt Event) {
+			if p, ok := evt.(PokeEvent); ok && p.Message == "bad" {
+				panic("middleware boom")
+			}
+			next(evt)
+		}
+	}
+	c := newTestClient(t, WithLogger(logger), WithEventMiddleware(panicking))
+	got := make(chan string, 2)
+	defer c.OnPoked(func(e PokeEvent) { got <- e.Message })()
+
+	c.emitEvent(PokeEvent{Message: "bad"})
+	c.emitEvent(PokeEvent{Message: "good"})
+
+	if v := receive(t, got); v != "good" {
+		t.Fatalf("delivered %q, want %q", v, "good")
+	}
+	if !strings.Contains(logs.String(), "middleware boom") {
+		t.Errorf("the middleware panic was not logged:\n%s", logs.String())
+	}
+}
+
+type syncBuffer struct {
+	buf strings.Builder
+	mu  sync.Mutex
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
 }

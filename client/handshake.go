@@ -181,7 +181,7 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 		_ = c.ExecNoWait(context.Background(), updateCmd)
 	}()
 
-	emit(c, &c.onConnected, struct{}{})
+	emit(c, &c.onConnected, "Connected", struct{}{})
 }
 
 func (c *Client) sendClientInit(h *transport.PacketHandler) {

@@ -121,7 +121,7 @@ func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Comm
 		return
 	}
 	if evt.Reason == teamspeak.ReasonKickServer || evt.Reason == teamspeak.ReasonKickServerBan {
-		emit(c, &c.onKicked, KickedEvent{
+		emit(c, &c.onKicked, "KickedEvent", KickedEvent{
 			Message:     evt.ReasonMessage,
 			InvokerName: evt.InvokerName,
 			InvokerUID:  evt.InvokerUID,
@@ -175,7 +175,7 @@ func (c *Client) handleClientMoved(h *transport.PacketHandler, cmd *wire.Command
 	// A channel kick moves the client to the default channel; it arrives as
 	// a move, not as leaving view, which is where it used to be looked for.
 	if isSelf && evt.Reason == teamspeak.ReasonKickChannel {
-		emit(c, &c.onKicked, KickedEvent{
+		emit(c, &c.onKicked, "KickedEvent", KickedEvent{
 			Message:     cmd.Params["reasonmsg"],
 			InvokerName: evt.InvokerName,
 			InvokerUID:  evt.InvokerUID,

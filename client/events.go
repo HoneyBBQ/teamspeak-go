@@ -1,9 +1,12 @@
 package client
 
 import (
+	"fmt"
 	"log/slog"
 	"maps"
+	"runtime/debug"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,27 +27,45 @@ import (
 //
 // Each handler gets its own copy of the event, so one handler changing a slice
 // it was given cannot change what the next one sees.
+//
+// A handler that panics does not take the process down, nor stop delivery: the
+// panic is recovered, logged at Error with the event type, the panic value
+// and the stack, and the remaining handlers and events are delivered as
+// usual. The same holds for event middleware. The client's own state is not
+// touched by a handler, so it stays consistent.
 
 // OnTextMessage registers a handler for incoming text messages. It returns a
 // function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
 func (c *Client) OnTextMessage(handler func(TextMessageEvent)) func() {
 	return c.onTextMessage.add(handler)
 }
 
 // OnClientEnter registers a handler for clients entering view. It returns a
 // function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
 func (c *Client) OnClientEnter(handler func(ClientEnterEvent)) func() {
 	return c.onClientEnter.add(handler)
 }
 
 // OnClientLeave registers a handler for clients leaving view. It returns a
 // function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
 func (c *Client) OnClientLeave(handler func(ClientLeaveEvent)) func() {
 	return c.onClientLeave.add(handler)
 }
 
 // OnPoked registers a handler for pokes this client receives. It returns a
 // function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
 func (c *Client) OnPoked(handler func(PokeEvent)) func() {
 	return c.onPoked.add(handler)
 }
@@ -53,12 +74,18 @@ func (c *Client) OnPoked(handler func(PokeEvent)) func() {
 // or the server. A kick from the server also ends the connection, which
 // OnDisconnected reports with a *RemovedError. It returns a function that
 // removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
 func (c *Client) OnKicked(handler func(KickedEvent)) func() {
 	return c.onKicked.add(handler)
 }
 
 // OnClientMoved registers a handler for clients moving between channels. It
 // returns a function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
 func (c *Client) OnClientMoved(handler func(ClientMovedEvent)) func() {
 	return c.onClientMoved.add(handler)
 }
@@ -70,6 +97,9 @@ func (c *Client) OnClientMoved(handler func(ClientMovedEvent)) func() {
 // of any kind are waiting for the handlers, incoming voice is discarded until
 // they catch up, and the client logs a warning, at most once every ten
 // seconds, with how much it dropped. Every other event is always delivered.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
 func (c *Client) OnVoiceData(handler func(VoiceDataEvent)) func() {
 	return c.onVoiceData.add(handler)
 }
@@ -78,12 +108,18 @@ func (c *Client) OnVoiceData(handler func(VoiceDataEvent)) func() {
 // as it arrived: the way to hear one the SDK does not model. It runs after the
 // typed handlers for the same notification. It returns a function that removes
 // the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
 func (c *Client) OnNotification(handler func(NotificationEvent)) func() {
 	return c.onNotification.add(handler)
 }
 
 // OnConnected registers a handler for the handshake completing, on Connect and
 // on every reconnection. It returns a function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
 func (c *Client) OnConnected(handler func()) func() {
 	return c.onConnected.add(func(struct{}) { handler() })
 }
@@ -92,6 +128,9 @@ func (c *Client) OnConnected(handler func()) func() {
 // nil after Disconnect, and the cause otherwise: a failed handshake, ErrTimedOut
 // for a server that stopped answering, or a *RemovedError for a kick, a ban or
 // a server stopping. It returns a function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
 func (c *Client) OnDisconnected(handler func(err error)) func() {
 	return c.onDisconnected.add(handler)
 }
@@ -149,17 +188,18 @@ func (c *Client) sendLine(h *transport.PacketHandler, line string) error {
 // emitEvent queues a server event. The middleware runs on the delivery
 // goroutine too, so a slow middleware does not stall the read loop either.
 func (c *Client) emitEvent(evt Event) {
+	run := func() { callHandler(c.logger, eventName(evt), func() { c.evtChain(evt) }) }
 	if _, voice := evt.(VoiceDataEvent); voice {
-		c.events.pushVoice(func() { c.evtChain(evt) }, c.logger)
+		c.events.pushVoice(run, c.logger)
 
 		return
 	}
-	c.events.push(func() { c.evtChain(evt) })
+	c.events.push(run)
 }
 
 // emit queues a lifecycle event, which middleware does not see.
-func emit[E any](c *Client, subs *subscribers[E], evt E) {
-	c.events.push(func() { subs.deliver(evt, nil) })
+func emit[E any](c *Client, subs *subscribers[E], name string, evt E) {
+	c.events.push(func() { subs.deliver(c.logger, name, evt, nil) })
 }
 
 // dispatchEvent hands a server event, as the middleware left it, to its
@@ -167,36 +207,41 @@ func emit[E any](c *Client, subs *subscribers[E], evt E) {
 func (c *Client) dispatchEvent(evt Event) {
 	switch e := evt.(type) {
 	case TextMessageEvent:
-		c.onTextMessage.deliver(e, func(m TextMessageEvent) TextMessageEvent {
+		c.onTextMessage.deliver(c.logger, eventName(e), e, func(m TextMessageEvent) TextMessageEvent {
 			m.InvokerGroups = slices.Clone(m.InvokerGroups)
 
 			return m
 		})
 	case ClientEnterEvent:
-		c.onClientEnter.deliver(e, func(enter ClientEnterEvent) ClientEnterEvent {
+		c.onClientEnter.deliver(c.logger, eventName(e), e, func(enter ClientEnterEvent) ClientEnterEvent {
 			enter.ServerGroups = slices.Clone(enter.ServerGroups)
 
 			return enter
 		})
 	case ClientLeaveEvent:
-		c.onClientLeave.deliver(e, nil)
+		c.onClientLeave.deliver(c.logger, eventName(e), e, nil)
 	case ClientMovedEvent:
-		c.onClientMoved.deliver(e, nil)
+		c.onClientMoved.deliver(c.logger, eventName(e), e, nil)
 	case PokeEvent:
-		c.onPoked.deliver(e, nil)
+		c.onPoked.deliver(c.logger, eventName(e), e, nil)
 	case VoiceDataEvent:
-		c.onVoiceData.deliver(e, func(v VoiceDataEvent) VoiceDataEvent {
+		c.onVoiceData.deliver(c.logger, eventName(e), e, func(v VoiceDataEvent) VoiceDataEvent {
 			v.Data = slices.Clone(v.Data)
 
 			return v
 		})
 	case NotificationEvent:
-		c.onNotification.deliver(e, func(n NotificationEvent) NotificationEvent {
+		c.onNotification.deliver(c.logger, eventName(e), e, func(n NotificationEvent) NotificationEvent {
 			n.Params = maps.Clone(n.Params)
 
 			return n
 		})
 	}
+}
+
+// eventName is the event's type name, as the panic log reports it.
+func eventName(evt Event) string {
+	return strings.TrimPrefix(fmt.Sprintf("%T", evt), "client.")
 }
 
 // subscribers are the handlers registered for one kind of event. The zero
@@ -241,7 +286,8 @@ func (s *subscribers[E]) any() bool {
 }
 
 // deliver calls each handler with evt, or with its own copy when clone is set.
-func (s *subscribers[E]) deliver(evt E, clone func(E) E) {
+// A handler that panics is logged under name and skipped; the rest still run.
+func (s *subscribers[E]) deliver(logger *slog.Logger, name string, evt E, clone func(E) E) {
 	s.mu.Lock()
 	list := s.list
 	s.mu.Unlock()
@@ -255,8 +301,25 @@ func (s *subscribers[E]) deliver(evt E, clone func(E) E) {
 		if clone != nil && i < len(list)-1 {
 			e = clone(evt)
 		}
-		sub.fn(e)
+		callHandler(logger, name, func() { sub.fn(e) })
 	}
+}
+
+// callHandler runs fn, a handler or middleware for an event of type name, and
+// recovers a panic in it: logged at Error, so it is not hidden, but one bad
+// handler does not end delivery for the others or crash the process.
+func callHandler(logger *slog.Logger, name string, fn func()) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		logger.Error("event handler panicked",
+			slog.String("event", name),
+			slog.Any("panic", r),
+			slog.String("stack", string(debug.Stack())))
+	}()
+	fn()
 }
 
 // maxQueuedForVoice is how many deliveries may be pending before voice is

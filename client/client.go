@@ -474,7 +474,7 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 	c.cmdTrack.reset(teamspeak.ErrNotConnected)
 	// Announced here; handleConnectionClosed stays quiet once the status is
 	// already Disconnected, so the handlers hear about it once.
-	emit(c, &c.onDisconnected, nil)
+	emit(c, &c.onDisconnected, "Disconnected", nil)
 
 	return err
 }
@@ -711,7 +711,7 @@ func (c *Client) failConnectionLocked(err error) {
 	c.mu.Unlock()
 
 	_ = handler.Close()
-	emit(c, &c.onDisconnected, err)
+	emit(c, &c.onDisconnected, "Disconnected", err)
 }
 
 // handleConnectionClosed ends the session handler h ran, or the current one
@@ -765,7 +765,7 @@ func (c *Client) handleConnectionClosed(h *transport.PacketHandler, err error) {
 	// Announced first, then retried: a caller watching OnDisconnected should
 	// hear about the drop even when a reconnect is already on its way, because
 	// a silent recovery hides an outage.
-	emit(c, &c.onDisconnected, err)
+	emit(c, &c.onDisconnected, "Disconnected", err)
 
 	go c.scheduleReconnect(err)
 }
