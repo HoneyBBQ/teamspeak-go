@@ -406,6 +406,13 @@ languages differ:
 - **Durations** are `time.Duration` in Go and milliseconds, with an `Ms`
   suffix, in JavaScript. Go's `ClientListOptions.OmitUID` is JavaScript's
   `uid` flag, because a Go bool's zero value must be the default.
+- **When disconnect returns.** JavaScript's `disconnect()` resolves after
+  its `disconnected` has been delivered, which is safe there: a listener that
+  awaits `disconnect()` yields to the delivery loop. Go's `Disconnect`
+  returns once the event is queued and guarantees order instead — the old
+  session's `disconnected` before the new session's `connected` and any
+  other event of it — since a Go handler blocking on its own delivery would
+  deadlock. A Go handler may call `Connect` and `Disconnect` freely.
 - **connected.** Both deliver it once `Connect` has succeeded, on the event
   queue. JavaScript's single thread lets a listener added right after
   `connect()` resolves still hear it; Go's event goroutine may run first, so

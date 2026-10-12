@@ -3,13 +3,16 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
-	"sync/atomic"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 type fixedResolver string
@@ -249,75 +252,120 @@ func TestDisconnect_JoinsTheOneSayingGoodbye(t *testing.T) {
 	}
 }
 
-// Disconnect returns once its disconnected has reached the handlers, and a
-// Connect waits for a previous session's disconnected still being delivered:
-// a handler registered for the new session never hears the old one end.
-func TestDisconnectedIsDeliveredBeforeTheNextSession(t *testing.T) {
-	c := leavingClient(t)
-	release := make(chan struct{})
-	var heard atomic.Int32
-	c.OnDisconnected(func(error) {
-		<-release
-		heard.Add(1)
-	})
-
-	disconnected := make(chan struct{})
-	go func() {
-		_ = c.Disconnect(t.Context())
-		close(disconnected)
-	}()
-	select {
-	case <-disconnected:
-		t.Fatal("Disconnect returned before its disconnected was delivered")
-	case <-time.After(1500 * time.Millisecond):
-	}
-
-	connected := make(chan struct{})
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go func() {
-		_ = c.Connect(ctx)
-		close(connected)
-	}()
-	time.Sleep(50 * time.Millisecond)
-	if got := c.Status(); got != StatusDisconnected {
-		t.Fatalf("a new attempt started (%v) while the old disconnected was undelivered", got)
-	}
-
-	close(release)
-	<-disconnected
-	if heard.Load() != 1 {
-		t.Fatalf("handlers heard %d disconnected, want 1 before Disconnect returned", heard.Load())
-	}
-	for deadline := time.Now().Add(2 * time.Second); c.Status() != StatusConnecting; time.Sleep(time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("Connect never started once the disconnected was delivered")
-		}
-	}
-	cancel()
-	<-connected
+// eventLog records the lifecycle and text events a client's handlers see, in
+// the order they see them.
+type eventLog struct {
+	seen []string
+	mu   sync.Mutex
 }
 
-// A handler may call Disconnect or Connect: neither waits for a delivery
-// queued behind the handler itself.
+func (l *eventLog) add(name string) {
+	l.mu.Lock()
+	l.seen = append(l.seen, name)
+	l.mu.Unlock()
+}
+
+func (l *eventLog) snapshot() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return slices.Clone(l.seen)
+}
+
+// commandPacket is a decrypted command packet carrying line.
+func commandPacket(line string) *transport.Packet {
+	return &transport.Packet{TypeFlagged: byte(transport.PacketTypeCommand), Data: []byte(line)}
+}
+
+// completeHandshake finishes the attempt the current handler runs, as the
+// server's initserver would.
+func completeHandshake(t *testing.T, c *Client) *transport.PacketHandler {
+	t.Helper()
+	h := c.currentHandler()
+	completeCryptoInit(t, h)
+	c.cmdTrack.signalWelcomeComplete()
+	c.handleCommand(h, "initserver aclid=9 virtualserver_version=3.13.7\\s[Build:\\s1655727713]")
+
+	return h
+}
+
+// Disconnect then Connect back to back: Connect does not wait for the
+// handlers, yet they see the old session's disconnected strictly before the
+// new session's connected, and nothing of the old session after it.
+func TestDisconnectThenConnect_HandlersSeeTheOldSessionEndFirst(t *testing.T) {
+	c := leavingClient(t)
+	var log eventLog
+	c.OnDisconnected(func(err error) {
+		time.Sleep(100 * time.Millisecond) // a slow handler holds the queue
+		log.add(fmt.Sprintf("disconnected(%v)", err))
+	})
+	c.OnConnected(func() { log.add("connected") })
+	c.OnTextMessage(func(m TextMessageEvent) { log.add("text " + m.Message) })
+	old := c.currentHandler()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	_ = c.Disconnect(ctx)
+	cancel()
+	connected := make(chan error, 1)
+	go func() { connected <- c.Connect(t.Context()) }()
+	for deadline := time.Now().Add(2 * time.Second); c.Status() != StatusConnecting; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("Connect did not start while the disconnected handler was still running")
+		}
+	}
+	h := completeHandshake(t, c)
+	err := <-connected
+	if err != nil {
+		t.Fatalf("Connect = %v", err)
+	}
+	c.handlePacket(old, commandPacket("notifytextmessage targetmode=1 msg=old invokerid=5"))
+	c.handlePacket(h, commandPacket("notifytextmessage targetmode=1 msg=new invokerid=5"))
+
+	want := []string{"disconnected(<nil>)", "connected", "text new"}
+	for deadline := time.Now().Add(2 * time.Second); len(log.snapshot()) < len(want); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			break
+		}
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := log.snapshot(); !slices.Equal(got, want) {
+		t.Errorf("handlers saw %q, want %q", got, want)
+	}
+}
+
+// A handler may call Disconnect and Connect, from OnDisconnected and from
+// OnConnected: neither waits for the handlers, so neither deadlocks.
 func TestLifecycleCallsFromAHandlerDoNotDeadlock(t *testing.T) {
 	c := leavingClient(t)
-	done := make(chan error, 1)
-	c.OnDisconnected(func(error) {
+	fromConnected := make(chan error, 1)
+	fromDisconnected := make(chan error, 1)
+	var once sync.Once
+	c.OnConnected(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		_ = c.Disconnect(ctx)
-		err := c.Connect(ctx)
 		select {
-		case done <- err:
-		default: // a later disconnected, from the test's cleanup
+		case fromConnected <- c.Connect(ctx):
+		default:
 		}
 	})
-	_ = c.DropConnectionForTest()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Disconnect and Connect from a handler deadlocked")
+	c.OnDisconnected(func(error) {
+		once.Do(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancel()
+			_ = c.Disconnect(ctx)
+			fromDisconnected <- c.Connect(ctx)
+		})
+	})
+
+	markConnecting(c)
+	completeHandshake(t, c)
+	for name, ch := range map[string]chan error{"OnConnected": fromConnected, "OnDisconnected": fromDisconnected} {
+		select {
+		case <-ch:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("Disconnect and Connect from %s deadlocked", name)
+		}
 	}
 }
 

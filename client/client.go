@@ -214,9 +214,6 @@ type Client struct {
 	stopped bool
 	// leaving is the Disconnect saying goodbye, nil when there is none.
 	leaving *leaving
-	// disconnectedDelivered is closed once the last disconnected event queued
-	// has reached its handlers; nil before the first. Connect waits for it.
-	disconnectedDelivered <-chan struct{}
 	// disconnects counts Disconnect calls, so a Connect waiting for one to
 	// finish can tell whether another arrived meanwhile.
 	disconnects    uint64
@@ -436,13 +433,15 @@ func WithDefaultChannelPassword(password string) Option {
 // ErrInvalidAddress. On success the connected event is queued, and delivered
 // on the event goroutine: register OnConnected before Connect to hear it.
 //
-// Called while a Disconnect is still saying goodbye, or while an earlier
-// session's disconnected event is still being delivered, Connect waits for
-// that first, so the old session is closed, and its end delivered to the
-// OnDisconnected handlers, before the new one starts: no handler of the new
-// session hears the old one end. A Disconnect called during that wait, or
-// during the handshake, wins: Connect then returns teamspeak.ErrNotConnected,
-// once that Disconnect's disconnected has been delivered.
+// Called while a Disconnect is still saying goodbye, Connect waits for it
+// first, so the old session is closed, and its disconnected event queued,
+// before the new one starts. Events reach the handlers through one ordered
+// queue, so they see the old session's disconnected before the new session's
+// connected and before any other event of the new session. A Disconnect
+// called during that wait, or during the handshake, wins: Connect then returns
+// teamspeak.ErrNotConnected.
+//
+// Connect does not wait for event handlers, so a handler may call it.
 func (c *Client) Connect(ctx context.Context) error {
 	return c.connect(ctx, true)
 }
@@ -454,13 +453,13 @@ func (c *Client) Connect(ctx context.Context) error {
 // either way. A Connect still waiting for its handshake returns
 // teamspeak.ErrNotConnected, and so do the commands still waiting for an
 // answer, and a reconnect still pending or waiting out its backoff is
-// cancelled. Disconnect returns once its disconnected event has been
-// delivered to the OnDisconnected handlers, so a handler added after it
-// returns does not hear it. On a client that is not connected it only waits
-// for a disconnected still being delivered; called while an earlier
-// Disconnect is still saying goodbye, it waits for that one and returns its
-// result. Called from an event handler, Connect and Disconnect do not wait for
-// deliveries, which run only once the handler returns.
+// cancelled. Disconnect returns once the connection is closed and its
+// disconnected event queued; the handlers run later, in order, ahead of any
+// event of a session a later Connect starts. Disconnect on a client that is
+// not connected does nothing; called while an earlier Disconnect is still
+// saying goodbye, it waits for that one and returns its result.
+//
+// Disconnect does not wait for event handlers, so a handler may call it.
 func (c *Client) Disconnect(ctx context.Context) error {
 	return c.disconnect(ctx, nil)
 }
@@ -479,15 +478,22 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 	// must not be mistaken for an outage worth retrying.
 	c.stopped = true
 	c.disconnects++
-	onEvents := c.events.onDeliveryGoroutine()
+	if l := c.leaving; l != nil {
+		// Another Disconnect is saying goodbye: join it.
+		c.mu.Unlock()
+
+		return l.wait(ctx)
+	}
 	oldStatus := c.status
-	if c.leaving != nil || oldStatus == StatusDisconnected {
-		return c.joinEndLocked(ctx, onEvents)
+	if oldStatus == StatusDisconnected {
+		c.mu.Unlock()
+
+		return nil
 	}
 	c.status = StatusDisconnected
 	c.attempt.finish(errDisconnectedDuringHandshake)
 	handler := c.handler
-	l := &leaving{closed: make(chan struct{}), done: make(chan struct{})}
+	l := &leaving{done: make(chan struct{})}
 	c.leaving = l
 	c.mu.Unlock()
 
@@ -500,114 +506,45 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 	}
 
 	err := handler.Close()
-
-	delivered := c.finishLeaving(l, err)
-	// Not from a handler: the delivery waits for that handler to return.
-	if !onEvents {
-		_ = waitDelivered(ctx, delivered)
-	}
+	c.finishLeaving(l, err)
 
 	return err
 }
 
-// joinEndLocked is Disconnect on a client already ending or ended: it joins
-// the Disconnect still saying goodbye, or waits for the disconnected of a drop
-// or a failed attempt to be delivered. From a handler (onEvents) it does not
-// wait for a delivery, which only starts once the handler returns. It releases
-// c.mu.
-func (c *Client) joinEndLocked(ctx context.Context, onEvents bool) error {
-	l, delivered := c.leaving, c.disconnectedDelivered
-	c.mu.Unlock()
-	if l != nil {
-		return l.wait(ctx, onEvents)
-	}
-	if !onEvents {
-		_ = waitDelivered(ctx, delivered)
-	}
-
-	return nil
-}
-
-// waitDelivered waits for delivered, a disconnected event's delivery, to be
-// closed, or ctx to end; a nil one is no delivery at all.
-func waitDelivered(ctx context.Context, delivered <-chan struct{}) error {
-	if delivered == nil {
-		return nil
-	}
-	select {
-	case <-delivered:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
 // finishLeaving ends Disconnect l with err: it fails the commands still
-// waiting and announces the end, under the lock and before leaving is
-// cleared — a Connect waits for that, so no new session has started whose
-// commands the reset could fail. l.done is closed once the announcement has
-// been delivered. It returns the delivery.
-func (c *Client) finishLeaving(l *leaving, err error) <-chan struct{} {
+// waiting and queues disconnected, under the lock and before leaving is
+// cleared. A Connect waits for that, so no new session has started whose
+// commands the reset could fail, and the old session's disconnected is queued
+// ahead of anything the new session queues.
+func (c *Client) finishLeaving(l *leaving, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.cmdTrack.reset(teamspeak.ErrNotConnected)
 	// Announced here; handleConnectionClosed stays quiet once the status is
 	// already Disconnected, so the handlers hear about it once.
-	delivered := c.announceDisconnectedLocked(nil)
+	emit(c, &c.onDisconnected, "Disconnected", nil)
 	c.leaving = nil
 	l.err = err
-	close(l.closed)
-	go func() {
-		<-delivered
-		close(l.done)
-	}()
-
-	return delivered
-}
-
-// awaitEnd waits, until ctx is done, for a Disconnect still saying goodbye to
-// finish and for the last disconnected event to be delivered. On the event
-// goroutine — from a handler — it waits for the goodbye only: the delivery
-// waits for the handler to return.
-func (c *Client) awaitEnd(ctx context.Context) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	_ = c.waitEndLocked(ctx)
-}
-
-// waitEndLocked is awaitEnd for a caller holding c.mu, which it releases
-// while waiting; it returns ctx's error if ctx ends first.
-func (c *Client) waitEndLocked(ctx context.Context) error {
-	onEvents := c.events.onDeliveryGoroutine()
-	for {
-		var wait <-chan struct{}
-		switch {
-		case c.leaving != nil:
-			wait = c.leaving.closed
-		case !onEvents && pending(c.disconnectedDelivered):
-			wait = c.disconnectedDelivered
-		default:
-			return nil
-		}
-		c.mu.Unlock()
-		err := waitDelivered(ctx, wait)
-		c.mu.Lock()
-		if err != nil {
-			return err
-		}
-	}
+	close(l.done)
 }
 
 // waitLeavingLocked waits for any Disconnect still saying goodbye, releasing
-// c.mu meanwhile and holding it again on return. It fails if ctx ends first,
-// or with errDisconnectedDuringHandshake if another Disconnect arrives: that
-// one wins over the Connect waiting.
+// c.mu meanwhile and holding it again on return. The goodbye involves no event
+// handler, so a handler may wait for it. It fails if ctx ends first, or with
+// errDisconnectedDuringHandshake if another Disconnect arrives: that one wins
+// over the Connect waiting.
 func (c *Client) waitLeavingLocked(ctx context.Context) error {
 	disconnects := c.disconnects
-	err := c.waitEndLocked(ctx)
-	if err != nil {
-		return err
+	for c.leaving != nil {
+		l := c.leaving
+		c.mu.Unlock()
+		_ = l.wait(ctx) // its own result is the Disconnect's
+		c.mu.Lock()
+		err := ctx.Err()
+		if err != nil {
+			return err
+		}
 	}
 	if c.disconnects != disconnects {
 		return errDisconnectedDuringHandshake
@@ -616,40 +553,18 @@ func (c *Client) waitLeavingLocked(ctx context.Context) error {
 	return nil
 }
 
-// pending reports whether delivered, a disconnected event's delivery, is
-// still under way.
-func pending(delivered <-chan struct{}) bool {
-	if delivered == nil {
-		return false
-	}
-	select {
-	case <-delivered:
-		return false
-	default:
-		return true
-	}
-}
-
-// leaving is a Disconnect saying goodbye. closed is closed once it has closed
-// the connection and queued disconnected, done once that has been delivered;
-// err, written before closed, is its result.
+// leaving is a Disconnect saying goodbye. done is closed once it has closed
+// the connection and queued disconnected; err, written before, is its result.
 type leaving struct {
-	closed chan struct{}
-	done   chan struct{}
-	err    error
+	done chan struct{}
+	err  error
 }
 
-// wait returns the Disconnect's result once it has finished — once its
-// disconnected has been delivered, or only closed when onEvents, since a
-// handler cannot wait for a delivery behind itself — or ctx's error if ctx
-// ends first.
-func (l *leaving) wait(ctx context.Context, onEvents bool) error {
-	until := l.done
-	if onEvents {
-		until = l.closed
-	}
+// wait returns the Disconnect's result once it has finished, or ctx's error if
+// ctx ends first.
+func (l *leaving) wait(ctx context.Context) error {
 	select {
-	case <-until:
+	case <-l.done:
 		return l.err
 	case <-ctx.Done():
 		return ctx.Err()
@@ -669,19 +584,6 @@ func (c *Client) describe() (string, Status) {
 // undoes a Disconnect; a reconnect that finds the client stopped gives up,
 // whenever the Disconnect landed.
 func (c *Client) connect(ctx context.Context, fromCaller bool) error {
-	err := c.connectOnce(ctx, fromCaller)
-	// Interrupted by Disconnect: returned once that has finished, its
-	// disconnected delivered.
-	if errors.Is(err, errDisconnectedDuringHandshake) {
-		c.awaitEnd(ctx)
-	}
-
-	return err
-}
-
-// connectOnce is connect without the wait for a Disconnect that interrupts
-// it.
-func (c *Client) connectOnce(ctx context.Context, fromCaller bool) error {
 	attempt, handler, err := c.start(ctx, fromCaller)
 	if err != nil {
 		return err
@@ -984,7 +886,7 @@ func (c *Client) failConnectionLocked(err error) {
 	}
 	c.status = StatusDisconnected
 	handler := c.handler
-	c.announceDisconnectedLocked(err)
+	emit(c, &c.onDisconnected, "Disconnected", err)
 	c.mu.Unlock()
 
 	_ = handler.Close()
@@ -1039,7 +941,7 @@ func (c *Client) handleConnectionClosed(h *transport.PacketHandler, err error) {
 	// Announced first, then retried: a caller watching OnDisconnected should
 	// hear about the drop even when a reconnect is already on its way, because
 	// a silent recovery hides an outage.
-	c.announceDisconnectedLocked(err)
+	emit(c, &c.onDisconnected, "Disconnected", err)
 	c.mu.Unlock()
 
 	go c.scheduleReconnect(err)

@@ -1,14 +1,11 @@
 package client
 
 import (
-	"bytes"
 	"fmt"
 	"log/slog"
 	"maps"
-	"runtime"
 	"runtime/debug"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -137,9 +134,11 @@ func (c *Client) OnConnected(handler func()) func() {
 // *RemovedError for a kick, a ban or a server stopping. It returns a function
 // that removes the handler.
 //
-// Disconnect returns once the handlers have run, and a later Connect starts
-// only once a drop's or a failed attempt's event has reached them, so the end
-// of one session is never delivered during the next.
+// Disconnect returns once the connection is closed and this event queued;
+// the handlers run later, in order. Events go through one ordered queue, and
+// a session's disconnected is queued before the next Connect can queue
+// anything, so handlers see it before that session's connected and before
+// any other event of it. A handler may call Connect and Disconnect.
 //
 // A panic in handler is recovered and logged at Error with the event type;
 // the other handlers and later events are still delivered.
@@ -207,21 +206,6 @@ func (c *Client) emitEvent(evt Event) {
 		return
 	}
 	c.events.push(run)
-}
-
-// announceDisconnectedLocked queues the disconnected event with cause and returns a
-// channel closed once its handlers have run. A Connect waits for the last
-// one, so the end of one session is never heard during the next. The caller
-// holds c.mu.
-func (c *Client) announceDisconnectedLocked(cause error) <-chan struct{} {
-	delivered := make(chan struct{})
-	c.disconnectedDelivered = delivered
-	c.events.push(func() {
-		defer close(delivered)
-		c.onDisconnected.deliver(c.logger, "Disconnected", cause, nil)
-	})
-
-	return delivered
 }
 
 // emit queues a lifecycle event, which middleware does not see.
@@ -365,8 +349,6 @@ const voiceDropWarnInterval = 10 * time.Second
 type eventQueue struct {
 	lastVoiceWarn time.Time
 	pending       []func()
-	// drainer is the id of the goroutine delivering, 0 when none is.
-	drainer atomic.Uint64
 	// voiceDropped counts voice deliveries dropped since the last warning.
 	voiceDropped uint64
 	mu           sync.Mutex
@@ -413,43 +395,10 @@ func (q *eventQueue) push(delivery func()) {
 	go q.drain()
 }
 
-// onDeliveryGoroutine reports whether the caller is the goroutine delivering
-// events: a handler. A handler must not wait for a delivery queued behind
-// itself, which only starts once it returns.
-func (q *eventQueue) onDeliveryGoroutine() bool {
-	id := q.drainer.Load()
-
-	return id != 0 && id == goroutineID()
-}
-
-// goroutineID is the calling goroutine's id, read from the first line of its
-// stack trace ("goroutine 7 [running]:"), or 0 if that cannot be read. Go has
-// no other way to name the current goroutine; this is used only to keep a
-// handler that calls Connect or Disconnect from waiting on itself.
-func goroutineID() uint64 {
-	var buf [64]byte
-	line := buf[:runtime.Stack(buf[:], false)]
-	line = bytes.TrimPrefix(line, []byte("goroutine "))
-	end := bytes.IndexByte(line, ' ')
-	if end < 0 {
-		return 0
-	}
-	id, err := strconv.ParseUint(string(line[:end]), 10, 64)
-	if err != nil {
-		return 0
-	}
-
-	return id
-}
-
 func (q *eventQueue) drain() {
-	q.drainer.Store(goroutineID())
 	for {
 		q.mu.Lock()
 		if len(q.pending) == 0 {
-			// Cleared before running, under the lock: the next drainer is
-			// started only once running is false, and stores its own id.
-			q.drainer.Store(0)
 			q.running = false
 			q.pending = nil
 			q.mu.Unlock()

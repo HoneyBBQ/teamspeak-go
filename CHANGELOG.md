@@ -168,11 +168,11 @@ before v1.0.0.
   session is closed and announced before the new one starts; a `Disconnect`
   during that wait wins, and `Connect` returns `ErrNotConnected`. A second
   `Disconnect` joins the first.
-- `Disconnect` returns once its `disconnected` has been delivered to the
-  handlers, and `Connect` first waits for a previous session's
-  `disconnected` still being delivered, so no handler of a new session hears
-  the old one end; a `Connect` that `Disconnect` interrupts returns after
-  that delivery too. The JavaScript SDK does the same.
+- A session's `disconnected` is queued before `Disconnect` returns and
+  before the next `Connect` can queue anything, so handlers, which run one
+  at a time from one ordered queue, see it before the new session's
+  `connected` and before any other event of the new session. `Connect` and
+  `Disconnect` never wait for handlers, so a handler may call either.
 - The goodbye waits a second at most, however long `ctx` allows.
 - Resolution, the default chain or a `WithResolver` one, gets 10 seconds in
   all; a resolver that ignores its context is not waited for past it.
@@ -195,6 +195,16 @@ before v1.0.0.
 
 The server info and raw notifications follow the
 [EchoSixHIYA fork](https://github.com/EchoSixHIYA/teamspeak-js), by illusia.
+
+### Differences from teamspeak-js
+
+The two SDKs share their decisions and names; the README's compatibility
+section lists where the languages force a difference. The one new here:
+JavaScript's `disconnect()` resolves after its `disconnected` has been
+delivered, safe there because a listener awaiting it yields to the delivery
+loop; Go's `Disconnect` returns once the event is queued and guarantees
+order instead, since a Go handler blocking on its own delivery would
+deadlock.
 
 ## Migrating from v0.2 and v0.3
 
