@@ -218,3 +218,53 @@ func TestParseUint64Value_Invalid_ReturnsError(t *testing.T) {
 		t.Error("expected parse error for empty input")
 	}
 }
+
+// Waiters are released in the order they arrived, and one that gives up
+// leaves its place to the next.
+func TestCommandThrottle_ReleasesInArrivalOrder(t *testing.T) {
+	th := newCommandThrottle()
+	th.mu.Lock()
+	th.tokens = 0
+	th.lastUpdate = time.Now()
+	th.mu.Unlock()
+
+	const waiters = 6
+	order := make(chan int, waiters)
+	cancelled, cancel := context.WithCancel(t.Context())
+	for i := range waiters {
+		ctx := t.Context()
+		if i == 2 {
+			ctx = cancelled
+		}
+		go func() {
+			if th.wait(ctx) == nil {
+				order <- i
+			}
+		}()
+		// Let each one join the queue before the next arrives.
+		for deadline := time.Now().Add(time.Second); ; {
+			th.mu.Lock()
+			queued := len(th.queue)
+			th.mu.Unlock()
+			if queued == i+1 || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	cancel()
+
+	for want := range waiters {
+		if want == 2 {
+			continue
+		}
+		select {
+		case got := <-order:
+			if got != want {
+				t.Fatalf("released waiter %d, want %d", got, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("waiter %d was not released", want)
+		}
+	}
+}
