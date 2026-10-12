@@ -59,7 +59,7 @@ func asPath(path string) string {
 func (c *Commands) ListFiles(
 	ctx context.Context, channelID ChannelID, path string, opts FileOptions,
 ) ([]FileEntry, error) {
-	rows, err := c.query(ctx, "ftgetfilelist", []param{
+	rows, err := c.list(ctx, "ftgetfilelist", []param{
 		idArg("cid", channelID),
 		strArg("path", asPath(path)),
 		strArg("cpw", opts.Password),

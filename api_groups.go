@@ -54,7 +54,7 @@ func parseChannelGroup(row map[string]string) ChannelGroup {
 
 // ListChannelGroups returns every channel group.
 func (c *Commands) ListChannelGroups(ctx context.Context) ([]ChannelGroup, error) {
-	rows, err := c.query(ctx, "channelgrouplist", nil)
+	rows, err := c.list(ctx, "channelgrouplist", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func (c *Commands) ListChannelGroupClients(
 func (c *Commands) ListChannelGroupPermissions(
 	ctx context.Context, channelGroupID ChannelGroupID,
 ) ([]PermissionEntry, error) {
-	rows, err := c.query(ctx, "channelgrouppermlist", []param{idArg("cgid", channelGroupID)})
+	rows, err := c.list(ctx, "channelgrouppermlist", []param{idArg("cgid", channelGroupID)})
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ type PermissionInfo struct {
 // name no permission — the group markers some servers interleave — are left
 // out.
 func (c *Commands) ListPermissions(ctx context.Context) ([]PermissionInfo, error) {
-	rows, err := c.query(ctx, "permissionlist", nil)
+	rows, err := c.list(ctx, "permissionlist", nil)
 	if err != nil {
 		return nil, err
 	}

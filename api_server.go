@@ -59,7 +59,7 @@ func parseServerGroup(row map[string]string) ServerGroup {
 
 // ListServerGroups returns every server group.
 func (c *Commands) ListServerGroups(ctx context.Context) ([]ServerGroup, error) {
-	rows, err := c.query(ctx, "servergrouplist", nil)
+	rows, err := c.list(ctx, "servergrouplist", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ type BindingListOptions struct {
 // Server Admin group holds by default — expect error 2568 until it is granted.
 // Granted, it works over the voice protocol like any other query.
 func (c *Commands) ListBindings(ctx context.Context, opts BindingListOptions) ([]Binding, error) {
-	rows, err := c.query(ctx, "bindinglist", []param{optStrArg("subsystem", opts.Subsystem)})
+	rows, err := c.list(ctx, "bindinglist", []param{optStrArg("subsystem", opts.Subsystem)})
 	if err != nil {
 		return nil, err
 	}
@@ -470,7 +470,7 @@ type ServerGroupRef struct {
 
 // GetServerGroupsByClient returns the server groups a client belongs to.
 func (c *Commands) GetServerGroupsByClient(ctx context.Context, clientDBID ClientDBID) ([]ServerGroupRef, error) {
-	rows, err := c.query(ctx, "servergroupsbyclientid", []param{idArg("cldbid", clientDBID)})
+	rows, err := c.list(ctx, "servergroupsbyclientid", []param{idArg("cldbid", clientDBID)})
 	if err != nil {
 		return nil, err
 	}
@@ -490,7 +490,7 @@ func (c *Commands) GetServerGroupsByClient(ctx context.Context, clientDBID Clien
 func (c *Commands) ListServerGroupPermissions(
 	ctx context.Context, serverGroupID ServerGroupID,
 ) ([]PermissionEntry, error) {
-	rows, err := c.query(ctx, "servergrouppermlist", []param{idArg("sgid", serverGroupID)})
+	rows, err := c.list(ctx, "servergrouppermlist", []param{idArg("sgid", serverGroupID)})
 	if err != nil {
 		return nil, err
 	}

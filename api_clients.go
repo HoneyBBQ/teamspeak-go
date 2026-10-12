@@ -86,7 +86,7 @@ func (c *Commands) ListClients(ctx context.Context, options ClientListOptions) (
 		}
 	}
 
-	rows, err := c.query(ctx, "clientlist", params)
+	rows, err := c.list(ctx, "clientlist", params)
 	if err != nil {
 		return nil, err
 	}
@@ -474,7 +474,7 @@ func (c *Commands) GetClientDBIDByUID(ctx context.Context, uid UID) (ClientDBID,
 
 // GetClientIDs returns every clid currently using a uid.
 func (c *Commands) GetClientIDs(ctx context.Context, uid UID) ([]ClientID, error) {
-	rows, err := c.query(ctx, "clientgetids", []param{strArg("cluid", string(uid))})
+	rows, err := c.list(ctx, "clientgetids", []param{strArg("cluid", string(uid))})
 	if err != nil {
 		return nil, err
 	}
@@ -520,7 +520,7 @@ func (c *Commands) GetClientNameByUID(ctx context.Context, uid UID) (ClientDBID,
 // ListClientPermissions returns the permissions granted to a client from the
 // database.
 func (c *Commands) ListClientPermissions(ctx context.Context, clientDBID ClientDBID) ([]PermissionEntry, error) {
-	rows, err := c.query(ctx, "clientpermlist", []param{idArg("cldbid", clientDBID)})
+	rows, err := c.list(ctx, "clientpermlist", []param{idArg("cldbid", clientDBID)})
 	if err != nil {
 		return nil, err
 	}

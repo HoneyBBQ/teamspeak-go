@@ -529,3 +529,47 @@ func TestBanClientReturnsEveryBan(t *testing.T) {
 		t.Fatalf("BanClient = %v, %v; want [12 13 14]", ids, err)
 	}
 }
+
+// Every list answers 1281 with an empty result, the permission lists among
+// them.
+func TestEveryListTreatsAnEmptyResultAsEmpty(t *testing.T) {
+	empty := &ServerError{Code: errcode.DatabaseEmptyResult}
+	lists := map[string]func(c *Commands) error{
+		"ListChannelPermissions": func(c *Commands) error {
+			return errOf(c.ListChannelPermissions(t.Context(), 1))
+		},
+		"ListChannelClientPermissions": func(c *Commands) error {
+			return errOf(c.ListChannelClientPermissions(t.Context(), 1, 2))
+		},
+		"ListClientPermissions": func(c *Commands) error {
+			return errOf(c.ListClientPermissions(t.Context(), 1))
+		},
+		"ListChannelGroupPermissions": func(c *Commands) error {
+			return errOf(c.ListChannelGroupPermissions(t.Context(), 1))
+		},
+		"ListServerGroupPermissions": func(c *Commands) error {
+			return errOf(c.ListServerGroupPermissions(t.Context(), 1))
+		},
+		"ListFiles": func(c *Commands) error {
+			return errOf(c.ListFiles(t.Context(), 1, "/", FileOptions{}))
+		},
+		"GetClientIDs":            func(c *Commands) error { return errOf(c.GetClientIDs(t.Context(), "u")) },
+		"GetServerGroupsByClient": func(c *Commands) error { return errOf(c.GetServerGroupsByClient(t.Context(), 1)) },
+		"ListBindings": func(c *Commands) error {
+			return errOf(c.ListBindings(t.Context(), BindingListOptions{}))
+		},
+		"ListChannels":      func(c *Commands) error { return errOf(c.ListChannels(t.Context())) },
+		"ListChannelGroups": func(c *Commands) error { return errOf(c.ListChannelGroups(t.Context())) },
+		"ListServerGroups":  func(c *Commands) error { return errOf(c.ListServerGroups(t.Context())) },
+		"ListPermissions":   func(c *Commands) error { return errOf(c.ListPermissions(t.Context())) },
+		"ListClients": func(c *Commands) error {
+			return errOf(c.ListClients(t.Context(), ClientListOptions{}))
+		},
+	}
+	for name, call := range lists {
+		err := call(NewCommands(&script{replies: []reply{{err: empty}}}))
+		if err != nil {
+			t.Errorf("%s on 1281 = %v, want an empty result", name, err)
+		}
+	}
+}

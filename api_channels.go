@@ -258,7 +258,7 @@ func (c *Commands) DeleteChannel(ctx context.Context, cid ChannelID, opts Channe
 
 // ListChannels returns every channel on the server, in the server's sort order.
 func (c *Commands) ListChannels(ctx context.Context) ([]Channel, error) {
-	rows, err := c.query(ctx, "channellist", nil)
+	rows, err := c.list(ctx, "channellist", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +353,7 @@ func (c *Commands) DeleteChannelPermission(ctx context.Context, cid ChannelID, p
 
 // ListChannelPermissions returns permissions set directly on a channel.
 func (c *Commands) ListChannelPermissions(ctx context.Context, cid ChannelID) ([]PermissionEntry, error) {
-	rows, err := c.query(ctx, "channelpermlist", []param{idArg("cid", cid)})
+	rows, err := c.list(ctx, "channelpermlist", []param{idArg("cid", cid)})
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +371,7 @@ func (c *Commands) ListChannelPermissions(ctx context.Context, cid ChannelID) ([
 func (c *Commands) ListChannelClientPermissions(
 	ctx context.Context, cid ChannelID, clientDBID ClientDBID,
 ) ([]PermissionEntry, error) {
-	rows, err := c.query(ctx, "channelclientpermlist", []param{
+	rows, err := c.list(ctx, "channelclientpermlist", []param{
 		idArg("cid", cid),
 		idArg("cldbid", clientDBID),
 	})

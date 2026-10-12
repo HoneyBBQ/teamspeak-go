@@ -194,8 +194,10 @@ func (c *Commands) queryRow(
 // rather than as no rows — banlist on a server with no bans, messagelist with
 // no messages — which made every list method fail where it should have
 // returned nothing.
-func (c *Commands) list(ctx context.Context, command string, params []param) ([]map[string]string, error) {
-	rows, err := c.query(ctx, command, params)
+func (c *Commands) list(
+	ctx context.Context, command string, params []param, passwords ...string,
+) ([]map[string]string, error) {
+	rows, err := c.query(ctx, command, params, passwords...)
 	if errors.Is(err, errcode.DatabaseEmptyResult) {
 		return nil, nil
 	}
