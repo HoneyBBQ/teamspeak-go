@@ -45,7 +45,8 @@ const resolveTimeout = 10 * time.Second
 // timeout.
 const disconnectTimeout = time.Second
 
-// Status is the state of a client's connection.
+// Status is the state of a client's connection. Later versions may add
+// states; a switch over them should have a default case.
 type Status int
 
 const (
@@ -65,6 +66,7 @@ var clientStatusNames = [...]string{
 	StatusConnected:    "connected",
 }
 
+// String names the status, such as "connected".
 func (s Status) String() string {
 	if s >= 0 && int(s) < len(clientStatusNames) {
 		return clientStatusNames[s]
@@ -73,13 +75,15 @@ func (s Status) String() string {
 	return "status " + strconv.Itoa(int(s))
 }
 
-// ResolvedAddr is one endpoint a server address resolved to.
+// ResolvedAddr is one endpoint a server address resolved to. Only Addr is
+// required; Connect reads nothing else.
 type ResolvedAddr struct {
-	// Expiry is when the answer stops being valid.
+	// Expiry is when the answer stops being valid; the zero time is unknown.
 	Expiry time.Time
 	// Addr is the endpoint, as host:port.
 	Addr string
-	// Source names how it was found: SRV, TSDNS, or the address as given.
+	// Source names how it was found, for logs: SRV, TSDNS, or the address as
+	// given. It may be empty.
 	Source string
 }
 
@@ -163,9 +167,12 @@ type Client struct {
 	*typedCommands
 
 	resolver AddrResolver
-	identity *identity.Identity
-	attempt  *connectAttempt
-	logger   *slog.Logger
+	// lookupNicknames turns on the MyTeamSpeak nickname lookup in the
+	// default resolver.
+	lookupNicknames bool
+	identity        *identity.Identity
+	attempt         *connectAttempt
+	logger          *slog.Logger
 	// handler is the current connection's packet handler, which owns that
 	// connection's crypto state. It is replaced, under mu, by every Connect;
 	// read it with currentHandler.
@@ -247,8 +254,9 @@ var ErrInvalidConfig = errors.New("invalid client configuration")
 // New returns a client that will connect to addr as id, under nickname. It does
 // not connect; call Connect.
 //
-// addr is a host, host:port, or a TeamSpeak nickname resolved through SRV and
-// TSDNS records.
+// addr is a host or host:port, resolved through SRV and TSDNS records as the
+// TeamSpeak application does; with WithNicknameLookup it may also be a
+// MyTeamSpeak nickname.
 func New(id *identity.Identity, addr, nickname string, options ...Option) (*Client, error) {
 	if identitykey.PrivateKey(id) == nil {
 		return nil, fmt.Errorf("%w: no identity", ErrInvalidConfig)
@@ -280,7 +288,7 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 
 	c.handler = c.newHandler()
 	if c.resolver == nil {
-		c.resolver = defaultResolver{resolver: discovery.NewResolver(c.logger)}
+		c.resolver = defaultResolver{resolver: discovery.NewResolver(c.logger, c.lookupNicknames)}
 	}
 
 	c.buildMiddlewareChains()
@@ -332,6 +340,16 @@ func WithReconnect(options ReconnectOptions) Option {
 	return optionFunc(func(c *Client) {
 		options = options.withDefaults()
 		c.reconnectOptions = &options
+	})
+}
+
+// WithNicknameLookup makes the default resolver look a dot-less address up as
+// a MyTeamSpeak nickname, at named.myteamspeak.com, before resolving it as a
+// host. Off unless this is set: the lookup tells MyTeamSpeak which server the
+// user is connecting to. It has no effect with WithResolver.
+func WithNicknameLookup() Option {
+	return optionFunc(func(c *Client) {
+		c.lookupNicknames = true
 	})
 }
 

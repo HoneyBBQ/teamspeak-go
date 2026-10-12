@@ -320,7 +320,7 @@ func (c *Commands) ClientDatabase(ctx context.Context) iter.Seq2[ClientDatabaseE
 
 // FindClientDatabase returns the database ids of the records whose nickname
 // matches pattern, which may use % as a wildcard. The server answers with ids
-// only, so it used to return records whose every other field was empty.
+// only; GetClientDatabaseInfo reads a record.
 func (c *Commands) FindClientDatabase(ctx context.Context, pattern string) ([]ClientDBID, error) {
 	rows, err := c.list(ctx, "clientdbfind", []param{strArg("pattern", pattern)})
 	if err != nil {

@@ -9,17 +9,29 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
-// ServerFamily is the server generation a version string belongs to.
+// ServerFamily is the server generation a version string belongs to. Its
+// zero value is ServerFamilyUnknown. Later versions may add families; a switch
+// over them should have a default case.
 type ServerFamily string
 
 const (
+	// ServerFamilyUnknown means the server has not identified itself yet, or
+	// named a version this package does not recognise. It is the zero value.
+	ServerFamilyUnknown ServerFamily = ""
 	// ServerFamilyTS3 is TeamSpeak 3, which hashes client uids with SHA-1.
 	ServerFamilyTS3 ServerFamily = "ts3"
 	// ServerFamilyTS6 is TeamSpeak 6, which hashes client uids with SHA-256.
 	ServerFamilyTS6 ServerFamily = "ts6"
-	// ServerFamilyUnknown means the server has not identified itself yet.
-	ServerFamilyUnknown ServerFamily = "unknown"
 )
+
+// String names the family, "unknown" for ServerFamilyUnknown.
+func (f ServerFamily) String() string {
+	if f == ServerFamilyUnknown {
+		return "unknown"
+	}
+
+	return string(f)
+}
 
 // ServerCapabilities describes what the connected server is, and what that
 // means for the caller.
@@ -91,10 +103,8 @@ func ParseServerCapabilities(initserver map[string]string) ServerCapabilities {
 	}
 }
 
-// unknownServerCapabilities is the state before a server has identified itself.
-//
-// The family is honestly unknown, while the uid hash stays SHA-1 so behaviour
-// before connecting is exactly what it was before TS6 support existed.
+// unknownServerCapabilities is the state before a server has identified
+// itself: the family unknown, the uid hash SHA-1.
 func unknownServerCapabilities() ServerCapabilities {
 	return ParseServerCapabilities(nil)
 }

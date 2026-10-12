@@ -9,8 +9,8 @@ import teamspeak "github.com/honeybbq/teamspeak-go"
 //
 // The set is closed — the method is unexported — because the client delivers
 // only the events it knows: a middleware that invented a type of its own would
-// have it dropped with no handler to receive it, and a closed set is also what
-// lets a later version add an event without breaking anyone's code.
+// have it dropped with no handler to receive it. Later versions may add
+// events, so a type switch over them should pass on what it does not handle.
 //
 // Lifecycle events (connected, disconnected, kicked) are not server events
 // and do not pass through middleware: they report the connection, not what

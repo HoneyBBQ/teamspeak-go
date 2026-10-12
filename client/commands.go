@@ -457,7 +457,7 @@ func (c *Client) ExecNoWait(ctx context.Context, cmd string) error {
 // as given, so its values must already be escaped (wire.Escape) and any
 // channel password already hashed.
 //
-// Without a deadline on ctx the command gives up after defaultCommandTimeout.
+// Without a deadline on ctx the command gives up after ten seconds.
 func (c *Client) Exec(ctx context.Context, cmd string) ([]map[string]string, error) {
 	return c.send(ctx, cmd)
 }

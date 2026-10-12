@@ -155,9 +155,12 @@ var permanentServerErrors = map[errcode.Code]bool{
 
 // DefaultShouldRetry reports whether a failure is worth another attempt.
 //
-// Transport failures are retried; so is an unrecognised server error, for the
-// reason given on permanentServerErrors, and a server that stopped. A kick or
-// a ban is not: someone removed the client on purpose.
+// Transport failures are retried, and so is a server that stopped. A server
+// error is retried unless it is a permanent refusal: banned (3329), flood-banned
+// (3331), a wrong server or channel password (1028, 781), or insufficient
+// permissions (2568). Others, such as 521 for a session the server has not yet
+// reaped, clear themselves. A kick or a ban is not retried: someone removed
+// the client on purpose.
 func DefaultShouldRetry(err error, _ int) bool {
 	if err == nil {
 		return true

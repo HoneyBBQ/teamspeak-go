@@ -569,10 +569,9 @@ type TempPasswordOptions struct {
 	TargetChannelID ChannelID
 }
 
-// AddTempPassword creates a temporary server password.
-//
-// It used to send an empty pw on the belief, stated here, that the server
-// generates the password; it does not, so every call created an empty one.
+// AddTempPassword creates a temporary server password. The caller chooses the
+// password; the server does not generate one, and an empty one is refused
+// with ErrInvalidCommand.
 func (c *Commands) AddTempPassword(ctx context.Context, opts TempPasswordOptions) error {
 	if opts.Password == "" {
 		return fmt.Errorf("%w: a temporary password needs a password", ErrInvalidCommand)

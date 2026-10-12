@@ -3,7 +3,9 @@ package teamspeak
 import "strconv"
 
 // Enumerations the server reports and accepts as small integers. Each value is
-// the number on the wire.
+// the number on the wire. Later versions may add values, and the server may
+// send one this package does not name: String describes it by number, and a
+// switch over an enumeration should have a default case.
 
 // GroupType is what kind of group a server or channel group is (type).
 type GroupType int

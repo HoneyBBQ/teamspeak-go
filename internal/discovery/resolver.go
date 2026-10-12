@@ -50,21 +50,28 @@ type Resolver struct {
 	log   *slog.Logger
 	cache map[string][]ResolvedAddr
 	mu    sync.RWMutex
+	// lookupNicknames sends a dot-less name to named.myteamspeak.com. Off
+	// unless asked for: it tells a third party which server the user wants.
+	lookupNicknames bool
 }
 
-// NewResolver returns a Resolver using log for debug tracing (nil → slog.Default).
-func NewResolver(log *slog.Logger) *Resolver {
+// NewResolver returns a Resolver using log for debug tracing (nil →
+// slog.Default). lookupNicknames sends a dot-less name to MyTeamSpeak's
+// nickname service first; without it such a name is resolved like any host.
+func NewResolver(log *slog.Logger, lookupNicknames bool) *Resolver {
 	if log == nil {
 		log = slog.Default()
 	}
 
 	return &Resolver{
-		log:   log,
-		cache: make(map[string][]ResolvedAddr),
+		log:             log,
+		cache:           make(map[string][]ResolvedAddr),
+		lookupNicknames: lookupNicknames,
 	}
 }
 
-// Resolve tries, in order: MyTeamSpeak nickname, _ts3._udp SRV, TSDNS via SRV and :41144, then plain DNS.
+// Resolve tries, in order: a MyTeamSpeak nickname when enabled, _ts3._udp SRV,
+// TSDNS via SRV and :41144, then plain DNS.
 func (r *Resolver) Resolve(ctx context.Context, inputAddr string) ([]ResolvedAddr, error) {
 	if inputAddr == "" {
 		return nil, errEmptyAddress
@@ -80,7 +87,7 @@ func (r *Resolver) Resolve(ctx context.Context, inputAddr string) ([]ResolvedAdd
 		return []ResolvedAddr{{Addr: net.JoinHostPort(host, port), Source: "Direct"}}, nil
 	}
 
-	if !strings.Contains(host, ".") && host != "localhost" {
+	if r.lookupNicknames && !strings.Contains(host, ".") && host != "localhost" {
 		if nickAddr, ok := r.resolveNicknameAddr(ctx, host); ok {
 			return r.Resolve(ctx, nickAddr)
 		}
