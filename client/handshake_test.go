@@ -373,12 +373,11 @@ func indexOfOrFail(t *testing.T, s string, needle string) int {
 }
 
 // A handshake step the client cannot use ends the attempt at once, with a
-// cause wrapping ErrHandshake, instead of leaving Connect to time out.
+// cause wrapping ErrHandshake, instead of leaving Connect to time out. An
+// unknown step is not one of them: Init1 is unauthenticated, so it is dropped
+// rather than allowed to end the attempt (see the handshake package).
 func TestHandshakeFailureEndsTheAttemptWithErrHandshake(t *testing.T) {
 	cases := map[string]func(c *Client){
-		"malformed init1": func(c *Client) {
-			c.handleInit1(c.handler, []byte{0x09})
-		},
 		"empty init1": func(c *Client) {
 			c.handleInit1(c.handler, []byte{})
 		},
@@ -455,5 +454,22 @@ func TestHandleError_BanBeforeCryptoInit_FailsTheAttemptOnly(t *testing.T) {
 	time.Sleep(50 * time.Millisecond) // the ban path runs on its own goroutine
 	if c.isStopped() {
 		t.Error("a pre-init ban stopped the client")
+	}
+}
+
+// An unknown Init1 step must not end a connection attempt: anyone who can
+// reach the port can send one, and so can a datagram left over from the
+// previous handshake.
+func TestUnknownInit1StepDoesNotEndTheAttempt(t *testing.T) {
+	c := newHandshakingClient(t)
+	markConnecting(c)
+	attempt := c.attempt
+
+	c.handleInit1(c.handler, []byte{0x09})
+
+	select {
+	case <-attempt.done:
+		t.Fatalf("an unknown Init1 step ended the attempt with %v", attempt.err)
+	case <-time.After(100 * time.Millisecond):
 	}
 }

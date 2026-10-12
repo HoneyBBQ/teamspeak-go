@@ -43,8 +43,11 @@ func StartInit1() ([]byte, error) {
 // the answer was lost, and gets the same answer without solving anything; a
 // different one gets none, a nil answer with a nil error.
 //
-// Data the client cannot answer — empty (nil included), the wrong length for
-// its step, an unknown step, an RSA puzzle out of range — is an error wrapping
+// An unknown step is answered with none, as the other client does: Init1 is
+// unauthenticated, so anyone who can reach the port can send one, and a
+// datagram that never gets a correct answer must not end a connection attempt.
+// A step the client does know but cannot answer — empty (nil included), the
+// wrong length, an RSA puzzle out of range — is an error wrapping
 // ErrMalformedInit1 or the puzzle's own error, never a panic: the bytes come
 // from the network. StartInit1, not ProcessInit1, opens the exchange.
 func ProcessInit1(tc *crypto.Crypt, data []byte) ([]byte, error) {
@@ -65,7 +68,7 @@ func ProcessInit1(tc *crypto.Crypt, data []byte) ([]byte, error) {
 	case 3:
 		return buildInit1Step4Packet(tc, data)
 	default:
-		return nil, fmt.Errorf("%w: unknown step %d", ErrMalformedInit1, data[0])
+		return nil, nil
 	}
 }
 

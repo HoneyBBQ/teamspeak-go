@@ -309,14 +309,13 @@ func TestProcessInit1Step3_LevelOutOfRange(t *testing.T) {
 	}
 }
 
-func TestProcessInit1UnknownStep(t *testing.T) {
-	tc := newTestCrypt(t)
-	out, err := handshake.ProcessInit1(tc, []byte{0x05})
-	if out != nil {
-		t.Error("expected nil output for unknown step byte")
-	}
-	if err == nil {
-		t.Error("expected an error")
+// An unknown step is dropped, not fatal: Init1 is unauthenticated, so ending a
+// connection attempt on one would let anyone who can reach the port, or a
+// datagram left over from the previous handshake, kill the attempt.
+func TestProcessInit1UnknownStepIsIgnored(t *testing.T) {
+	out, err := handshake.ProcessInit1(newTestCrypt(t), []byte{0x05})
+	if out != nil || err != nil {
+		t.Errorf("ProcessInit1(unknown step) = %x, %v, want nothing and no error", out, err)
 	}
 }
 
