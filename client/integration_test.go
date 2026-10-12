@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -343,6 +344,27 @@ func TestIntegration_ListClients(t *testing.T) {
 	}
 }
 
+// The times are unix seconds and client_idle_time milliseconds; reading the
+// latter as seconds made a bot idle for two seconds look idle for half an hour.
+func TestIntegration_ListClientsTimes(t *testing.T) {
+	c := requireSharedClient(t)
+
+	clients, err := c.ListClients(t.Context(), teamspeak.ClientListOptions{Times: true})
+	requireNoErr(t, err)
+	idx := slices.IndexFunc(clients, func(cl teamspeak.ClientInfo) bool { return cl.ID == c.ClientID() })
+	if idx < 0 {
+		t.Fatal("own client not in clientlist")
+	}
+	self := clients[idx]
+	t.Logf("self: created=%v lastconnected=%v idle=%v", self.Created, self.LastConnected, self.IdleTime)
+	if self.Created.IsZero() || time.Since(self.Created) < 0 {
+		t.Errorf("Created = %v, want a time in the past", self.Created)
+	}
+	if self.IdleTime < 0 || self.IdleTime > 10*time.Minute {
+		t.Errorf("IdleTime = %v, want under the suite's own run time", self.IdleTime)
+	}
+}
+
 func TestIntegration_ListChannels(t *testing.T) {
 	c := requireSharedClient(t)
 
@@ -438,7 +460,7 @@ func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sender GetClientInfo: %v", err)
 	}
-	senderUID := strings.TrimSpace(senderInfo["client_unique_identifier"])
+	senderUID := teamspeak.UID(strings.TrimSpace(senderInfo["client_unique_identifier"]))
 	t.Logf("sender clientinfo keys: %v", mapKeys(senderInfo))
 
 	received := make(chan client.TextMessage, 1)
@@ -452,9 +474,9 @@ func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	probeText := fmt.Sprintf("cursor-probe-%d", time.Now().UTC().UnixNano())
-	err = sender.SendTextMessage(t.Context(), 1, uint64(receiver.ClientID()), probeText)
+	err = sender.SendPrivateMessage(t.Context(), receiver.ClientID(), probeText)
 	if err != nil {
-		t.Fatalf("sender SendTextMessage private: %v", err)
+		t.Fatalf("sender SendPrivateMessage: %v", err)
 	}
 
 	var msg client.TextMessage
@@ -480,16 +502,16 @@ func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 		t.Fatalf("expected raw notify target %s in logs, got: %s", targetNeedle, logs)
 	}
 
-	rawInvokerUID := extractJSONField(logs, "\"invokeruid\":\"")
+	rawInvokerUID := teamspeak.UID(extractJSONField(logs, "\"invokeruid\":\""))
 	if rawInvokerUID == "" {
 		t.Fatalf("expected raw notify invokeruid in logs, got: %s", logs)
 	}
 
-	if msg.TargetMode != 1 {
-		t.Fatalf("unexpected target mode: got %d want 1", msg.TargetMode)
+	if msg.TargetMode != teamspeak.TextMessageTargetClient {
+		t.Fatalf("unexpected target mode: got %v want %v", msg.TargetMode, teamspeak.TextMessageTargetClient)
 	}
 
-	if msg.TargetID != uint64(receiver.ClientID()) {
+	if msg.TargetID != receiver.ClientID() {
 		t.Fatalf("parsed TargetID mismatch: got %d want %d", msg.TargetID, receiver.ClientID())
 	}
 
@@ -497,7 +519,7 @@ func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 	if senderUID != "" {
 		expectedInvokerUID = senderUID
 	}
-	if strings.TrimSpace(msg.InvokerUID) != expectedInvokerUID {
+	if msg.InvokerUID != expectedInvokerUID {
 		t.Fatalf("parsed InvokerUID mismatch: got %q want %q", msg.InvokerUID, expectedInvokerUID)
 	}
 }

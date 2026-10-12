@@ -1,6 +1,9 @@
 package teamspeak
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Server and instance commands.
 //
@@ -12,11 +15,11 @@ import "context"
 // ServerGroup is a server group as servergrouplist reports it.
 type ServerGroup struct {
 	Name              string
-	ID                uint64
-	IconID            uint64
+	ID                ServerGroupID
+	IconID            IconID
 	SortID            uint64
-	Type              int
-	NameMode          int
+	Type              GroupType
+	NameMode          GroupNameMode
 	ModifyPower       int32
 	MemberAddPower    int32
 	MemberRemovePower int32
@@ -25,13 +28,13 @@ type ServerGroup struct {
 
 func parseServerGroup(row map[string]string) ServerGroup {
 	return ServerGroup{
-		ID:                fieldUint(row, "sgid"),
+		ID:                ServerGroupID(fieldUint(row, "sgid")),
 		Name:              fieldStr(row, "name"),
-		Type:              int(fieldInt(row, "type")),
-		IconID:            fieldUint(row, "iconid"),
+		Type:              GroupType(fieldInt(row, "type")),
+		IconID:            fieldIconID(row, "iconid"),
 		SavedInDatabase:   fieldBool(row, "savedb"),
 		SortID:            fieldUint(row, "sortid"),
-		NameMode:          int(fieldInt(row, "namemode")),
+		NameMode:          GroupNameMode(fieldInt(row, "namemode")),
 		ModifyPower:       fieldInt32(row, "n_modifyp"),
 		MemberAddPower:    fieldInt32(row, "n_member_addp"),
 		MemberRemovePower: fieldInt32(row, "n_member_removep"),
@@ -137,13 +140,15 @@ type Binding struct {
 	Port      int
 }
 
-// ListBindings returns active IP bindings, when the instance is multi-homed.
+// ListBindings returns active IP bindings, when the instance is multi-homed,
+// for one subsystem ("voice", "query" or "filetransfer"), or for the server's
+// default with "".
 //
 // Needs an instance-level permission (b_serverinstance_*), which not even the
 // Server Admin group holds by default — expect error 2568 until it is granted.
 // Granted, it works over the voice protocol like any other query.
-func (c *Commands) ListBindings(ctx context.Context, subsystem *string) ([]Binding, error) {
-	rows, err := c.query(ctx, "bindinglist", []param{strPtrArg("subsystem", subsystem)})
+func (c *Commands) ListBindings(ctx context.Context, subsystem string) ([]Binding, error) {
+	rows, err := c.query(ctx, "bindinglist", []param{optStrArg("subsystem", subsystem)})
 	if err != nil {
 		return nil, err
 	}
@@ -204,42 +209,43 @@ func (c *Commands) GetConnectionInfo(ctx context.Context) (map[string]string, er
 // Needs an instance-level permission (b_serverinstance_*), which not even the
 // Server Admin group holds by default — expect error 2568 until it is granted.
 // Granted, it works over the voice protocol like any other query.
-func (c *Commands) GetServerIDByPort(ctx context.Context, port uint16) (uint64, error) {
+func (c *Commands) GetServerIDByPort(ctx context.Context, port uint16) (ServerID, error) {
 	rows, err := c.query(ctx, "serveridgetbyport", []param{uintArg("virtualserver_port", uint64(port))})
 	if err != nil {
 		return 0, err
 	}
 
-	return firstOrEmpty(rows, "server_id"), nil
+	return ServerID(firstOrEmpty(rows, "server_id")), nil
 }
 
 // CreateServerGroup creates a server group and returns its id.
-func (c *Commands) CreateServerGroup(ctx context.Context, name string, groupType *int) (uint64, error) {
-	params := []param{strArg("name", name)}
-	if groupType != nil {
-		params = append(params, intArg("type", int64(*groupType)))
-	}
-
-	rows, err := c.query(ctx, "servergroupadd", params)
+//
+// groupType is always sent, for the reason CreateChannelGroup gives: the
+// server's default is GroupRegular, but the zero GroupType is GroupTemplate.
+func (c *Commands) CreateServerGroup(ctx context.Context, name string, groupType GroupType) (ServerGroupID, error) {
+	rows, err := c.query(ctx, "servergroupadd", []param{
+		strArg("name", name),
+		intArg("type", int64(groupType)),
+	})
 	if err != nil {
 		return 0, err
 	}
 
-	return createdGroupID(rows, "sgid", name)
+	return createdGroupID[ServerGroupID](rows, "sgid", name)
 }
 
 // DeleteServerGroup deletes a server group.
-func (c *Commands) DeleteServerGroup(ctx context.Context, serverGroupID uint64, force bool) error {
+func (c *Commands) DeleteServerGroup(ctx context.Context, serverGroupID ServerGroupID, force bool) error {
 	return c.exec(ctx, "servergroupdel", []param{
-		uintArg("sgid", serverGroupID),
+		idArg("sgid", serverGroupID),
 		boolArg("force", force),
 	})
 }
 
 // RenameServerGroup renames a server group.
-func (c *Commands) RenameServerGroup(ctx context.Context, serverGroupID uint64, name string) error {
+func (c *Commands) RenameServerGroup(ctx context.Context, serverGroupID ServerGroupID, name string) error {
 	return c.exec(ctx, "servergrouprename", []param{
-		uintArg("sgid", serverGroupID),
+		idArg("sgid", serverGroupID),
 		strArg("name", name),
 	})
 }
@@ -248,11 +254,11 @@ func (c *Commands) RenameServerGroup(ctx context.Context, serverGroupID uint64, 
 //
 // A targetGroupID of 0 makes the server allocate a new id.
 func (c *Commands) CopyServerGroup(
-	ctx context.Context, sourceGroupID, targetGroupID uint64, name string, groupType int,
-) (uint64, error) {
+	ctx context.Context, sourceGroupID, targetGroupID ServerGroupID, name string, groupType GroupType,
+) (ServerGroupID, error) {
 	rows, err := c.query(ctx, "servergroupcopy", []param{
-		uintArg("ssgid", sourceGroupID),
-		uintArg("tsgid", targetGroupID),
+		idArg("ssgid", sourceGroupID),
+		idArg("tsgid", targetGroupID),
 		strArg("name", name),
 		intArg("type", int64(groupType)),
 	})
@@ -265,30 +271,34 @@ func (c *Commands) CopyServerGroup(
 		return targetGroupID, nil
 	}
 
-	return createdGroupID(rows, "sgid", name)
+	return createdGroupID[ServerGroupID](rows, "sgid", name)
 }
 
 // AddClientToServerGroup adds a client to a server group.
-func (c *Commands) AddClientToServerGroup(ctx context.Context, serverGroupID, clientDBID uint64) error {
+func (c *Commands) AddClientToServerGroup(
+	ctx context.Context, serverGroupID ServerGroupID, clientDBID ClientDBID,
+) error {
 	return c.exec(ctx, "servergroupaddclient", []param{
-		uintArg("sgid", serverGroupID),
-		uintArg("cldbid", clientDBID),
+		idArg("sgid", serverGroupID),
+		idArg("cldbid", clientDBID),
 	})
 }
 
 // RemoveClientFromServerGroup removes a client from a server group.
-func (c *Commands) RemoveClientFromServerGroup(ctx context.Context, serverGroupID, clientDBID uint64) error {
+func (c *Commands) RemoveClientFromServerGroup(
+	ctx context.Context, serverGroupID ServerGroupID, clientDBID ClientDBID,
+) error {
 	return c.exec(ctx, "servergroupdelclient", []param{
-		uintArg("sgid", serverGroupID),
-		uintArg("cldbid", clientDBID),
+		idArg("sgid", serverGroupID),
+		idArg("cldbid", clientDBID),
 	})
 }
 
 // ServerGroupClient is one member of a server group.
 type ServerGroupClient struct {
 	Nickname   string
-	UID        string
-	DatabaseID uint64
+	UID        UID
+	DatabaseID ClientDBID
 }
 
 // ListServerGroupClients returns the members of a server group.
@@ -296,9 +306,9 @@ type ServerGroupClient struct {
 // Names and uids are omitted unless asked for, because each adds a lookup the
 // server has to do per member.
 func (c *Commands) ListServerGroupClients(
-	ctx context.Context, serverGroupID uint64, names, uids bool,
+	ctx context.Context, serverGroupID ServerGroupID, names, uids bool,
 ) ([]ServerGroupClient, error) {
-	params := []param{uintArg("sgid", serverGroupID)}
+	params := []param{idArg("sgid", serverGroupID)}
 	if names {
 		params = append(params, boolArg("-names", true))
 	}
@@ -314,9 +324,9 @@ func (c *Commands) ListServerGroupClients(
 	out := make([]ServerGroupClient, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, ServerGroupClient{
-			DatabaseID: fieldUint(row, "cldbid"),
+			DatabaseID: ClientDBID(fieldUint(row, "cldbid")),
 			Nickname:   fieldStr(row, "client_nickname"),
-			UID:        fieldStr(row, "client_unique_identifier"),
+			UID:        UID(fieldStr(row, "client_unique_identifier")),
 		})
 	}
 
@@ -326,12 +336,12 @@ func (c *Commands) ListServerGroupClients(
 // ServerGroupRef is a group a client belongs to.
 type ServerGroupRef struct {
 	Name string
-	ID   uint64
+	ID   ServerGroupID
 }
 
 // GetServerGroupsByClient returns the server groups a client belongs to.
-func (c *Commands) GetServerGroupsByClient(ctx context.Context, clientDBID uint64) ([]ServerGroupRef, error) {
-	rows, err := c.query(ctx, "servergroupsbyclientid", []param{uintArg("cldbid", clientDBID)})
+func (c *Commands) GetServerGroupsByClient(ctx context.Context, clientDBID ClientDBID) ([]ServerGroupRef, error) {
+	rows, err := c.query(ctx, "servergroupsbyclientid", []param{idArg("cldbid", clientDBID)})
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +349,7 @@ func (c *Commands) GetServerGroupsByClient(ctx context.Context, clientDBID uint6
 	out := make([]ServerGroupRef, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, ServerGroupRef{
-			ID:   fieldUint(row, "sgid"),
+			ID:   ServerGroupID(fieldUint(row, "sgid")),
 			Name: fieldStr(row, "name"),
 		})
 	}
@@ -348,8 +358,10 @@ func (c *Commands) GetServerGroupsByClient(ctx context.Context, clientDBID uint6
 }
 
 // ListServerGroupPermissions returns the permissions set on a server group.
-func (c *Commands) ListServerGroupPermissions(ctx context.Context, serverGroupID uint64) ([]PermissionEntry, error) {
-	rows, err := c.query(ctx, "servergrouppermlist", []param{uintArg("sgid", serverGroupID)})
+func (c *Commands) ListServerGroupPermissions(
+	ctx context.Context, serverGroupID ServerGroupID,
+) ([]PermissionEntry, error) {
+	rows, err := c.query(ctx, "servergrouppermlist", []param{idArg("sgid", serverGroupID)})
 	if err != nil {
 		return nil, err
 	}
@@ -364,45 +376,45 @@ func (c *Commands) ListServerGroupPermissions(ctx context.Context, serverGroupID
 
 // ServerGroupPermission is one permission to set on a server group.
 type ServerGroupPermission struct {
-	PermID  *uint64
-	PermSID *string
-	Value   int32
-	Negated bool
-	Skip    bool
+	Permission Permission
+	Value      int32
+	Negated    bool
+	Skip       bool
 }
 
-// AddServerGroupPermission grants a permission to a server group.
+// AddServerGroupPermission sets a permission on a server group.
 func (c *Commands) AddServerGroupPermission(
-	ctx context.Context, serverGroupID uint64, perm ServerGroupPermission,
+	ctx context.Context, serverGroupID ServerGroupID, perm ServerGroupPermission,
 ) error {
 	return c.exec(ctx, "servergroupaddperm", []param{
-		uintArg("sgid", serverGroupID),
+		idArg("sgid", serverGroupID),
+		permArg(perm.Permission),
 		intArg("permvalue", int64(perm.Value)),
 		boolArg("permnegated", perm.Negated),
 		boolArg("permskip", perm.Skip),
-		uintPtrArg("permid", perm.PermID),
-		strPtrArg("permsid", perm.PermSID),
 	})
 }
 
 // DeleteServerGroupPermission removes a permission from a server group.
 func (c *Commands) DeleteServerGroupPermission(
-	ctx context.Context, serverGroupID uint64, permID *uint64, permSID *string,
+	ctx context.Context, serverGroupID ServerGroupID, perm Permission,
 ) error {
 	return c.exec(ctx, "servergroupdelperm", []param{
-		uintArg("sgid", serverGroupID),
-		uintPtrArg("permid", permID),
-		strPtrArg("permsid", permSID),
+		idArg("sgid", serverGroupID),
+		permArg(perm),
 	})
 }
 
 // TempPassword is a temporary server password.
 type TempPassword struct {
-	Password        string
-	Description     string
-	TargetChannelID uint64
-	Start           uint64
-	End             uint64
+	// Start and End are when the password is valid from and until.
+	Start       time.Time
+	End         time.Time
+	Password    string
+	Description string
+	// TargetChannelID is the channel a client joining with the password lands
+	// in, or 0 for the default channel.
+	TargetChannelID ChannelID
 }
 
 // ListTempPasswords returns the server's temporary passwords.
@@ -417,13 +429,26 @@ func (c *Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error
 		out = append(out, TempPassword{
 			Password:        fieldStr(row, "pw_clear"),
 			Description:     fieldStr(row, "desc"),
-			Start:           fieldUint(row, "start"),
-			End:             fieldUint(row, "end"),
-			TargetChannelID: fieldUint(row, "tcid"),
+			Start:           fieldTime(row, "start"),
+			End:             fieldTime(row, "end"),
+			TargetChannelID: ChannelID(fieldUint(row, "tcid")),
 		})
 	}
 
 	return out, nil
+}
+
+// TempPasswordOptions describe a temporary password to create.
+type TempPasswordOptions struct {
+	Description string
+	// TargetChannelPassword is the target channel's password, "" for none.
+	TargetChannelPassword string
+	// Duration is how long the password stays valid, sent in whole seconds.
+	// A positive duration under a second is sent as one second.
+	Duration time.Duration
+	// TargetChannelID is the channel a client joining with the password lands
+	// in; 0 is the default channel.
+	TargetChannelID ChannelID
 }
 
 // AddTempPassword creates a temporary password and returns it as the server
@@ -431,15 +456,13 @@ func (c *Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error
 //
 // The password itself is not supplied: the server generates it, which is why no
 // password parameter is sent even though the schema names one.
-func (c *Commands) AddTempPassword(
-	ctx context.Context, description string, duration, targetChannelID uint64, targetChannelPassword *string,
-) (string, error) {
+func (c *Commands) AddTempPassword(ctx context.Context, opts TempPasswordOptions) (string, error) {
 	rows, err := c.query(ctx, "servertemppasswordadd", []param{
 		strArg("pw", ""),
-		strArg("desc", description),
-		uintArg("duration", duration),
-		uintArg("tcid", targetChannelID),
-		strPtrArg("tcpw", targetChannelPassword),
+		strArg("desc", opts.Description),
+		durationArg("duration", opts.Duration, time.Second),
+		idArg("tcid", opts.TargetChannelID),
+		strArg("tcpw", opts.TargetChannelPassword),
 	}, "tcpw")
 	if err != nil {
 		return "", err

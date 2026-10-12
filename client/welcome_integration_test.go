@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/identity"
 )
 
@@ -39,7 +40,7 @@ func TestIntegration_NoWelcomeContamination(t *testing.T) {
 		t.Fatalf("ListChannels: %v", err)
 	}
 
-	seen := make(map[uint64]bool)
+	seen := make(map[teamspeak.ChannelID]bool)
 	for _, ch := range channels {
 		if ch.ID == 0 {
 			t.Errorf("phantom channel with id 0 in %d rows", len(channels))

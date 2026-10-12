@@ -34,18 +34,23 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 	uid := cmd.Params["client_unique_identifier"]
 	groupsStr := cmd.Params["client_servergroups"]
 
-	clid, _ := parseUint16Value(cmd.Params["clid"])
-	ctid, _ := parseUint64Value(cmd.Params["ctid"])
+	clid := parseClientID(cmd.Params["clid"])
+	ctid := parseChannelID(cmd.Params["ctid"])
 	clientType, _ := parseIntValue(cmd.Params["client_type"])
+	channelGroup, _ := parseUint64Value(cmd.Params["client_channel_group_id"])
 
 	if clid != 0 {
 		info := teamspeak.ClientInfo{
-			ID:           clid,
-			Nickname:     nick,
-			UID:          uid,
-			ChannelID:    ctid,
-			Type:         clientType,
-			ServerGroups: parseUint64List(groupsStr),
+			ID:             clid,
+			Nickname:       nick,
+			UID:            teamspeak.UID(uid),
+			ChannelID:      ctid,
+			ChannelGroupID: teamspeak.ChannelGroupID(channelGroup),
+			Type:           teamspeak.ClientType(clientType),
+			ServerGroups:   parseIDList[teamspeak.ServerGroupID](groupsStr),
+			IsAway:         cmd.Params["client_away"] == "1",
+			IsRecording:    cmd.Params["client_is_recording"] == "1",
+			IsTalker:       cmd.Params["client_is_talker"] == "1",
 		}
 
 		c.mu.Lock()
@@ -63,7 +68,7 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 			// initserver carried no aclid, so the welcome enter is the only way
 			// to learn our clid. Once known, a later lookalike cannot take over.
 			c.clid = clid
-			c.handler.SetClientID(clid)
+			c.handler.SetClientID(uint16(clid))
 			c.nickname = nick
 		}
 		c.mu.Unlock()
@@ -73,19 +78,18 @@ func (c *Client) handleClientEnterView(cmd *commands.Command) {
 }
 
 func (c *Client) handleClientLeftView(cmd *commands.Command) {
-	clid, _ := parseUint16Value(cmd.Params["clid"])
+	clid := parseClientID(cmd.Params["clid"])
 	if clid == 0 {
 		return
 	}
 	reasonID, _ := parseIntValue(cmd.Params["reasonid"])
-	invokerID, _ := parseUint16Value(cmd.Params["invokerid"])
 	evt := ClientLeftViewEvent{
 		ID:            clid,
 		Reason:        teamspeak.Reason(reasonID),
 		ReasonMessage: cmd.Params["reasonmsg"],
-		InvokerID:     invokerID,
+		InvokerID:     parseClientID(cmd.Params["invokerid"]),
 		InvokerName:   cmd.Params["invokername"],
-		InvokerUID:    cmd.Params["invokeruid"],
+		InvokerUID:    teamspeak.UID(cmd.Params["invokeruid"]),
 	}
 
 	c.mu.Lock()
@@ -120,10 +124,9 @@ func (c *Client) removedByServer(cause error) {
 }
 
 func (c *Client) handleClientMoved(cmd *commands.Command) {
-	clid, _ := parseUint16Value(cmd.Params["clid"])
-	ctid, _ := parseUint64Value(cmd.Params["ctid"])
+	clid := parseClientID(cmd.Params["clid"])
+	ctid := parseChannelID(cmd.Params["ctid"])
 	reasonID, _ := parseIntValue(cmd.Params["reasonid"])
-	invokerID, _ := parseUint16Value(cmd.Params["invokerid"])
 
 	if clid == 0 {
 		return
@@ -140,9 +143,9 @@ func (c *Client) handleClientMoved(cmd *commands.Command) {
 		ID:              clid,
 		TargetChannelID: ctid,
 		Reason:          teamspeak.Reason(reasonID),
-		InvokerID:       invokerID,
+		InvokerID:       parseClientID(cmd.Params["invokerid"]),
 		InvokerName:     cmd.Params["invokername"],
-		InvokerUID:      cmd.Params["invokeruid"],
+		InvokerUID:      teamspeak.UID(cmd.Params["invokeruid"]),
 	}
 	c.emitEvent(evt)
 
@@ -161,19 +164,17 @@ func (c *Client) handleClientMoved(cmd *commands.Command) {
 
 func (c *Client) handleTextMessage(cmd *commands.Command) {
 	targetMode, _ := parseIntValue(cmd.Params["targetmode"])
-	targetID, _ := parseUint64Value(cmd.Params["target"])
-	invokerID, _ := parseUint16Value(cmd.Params["invokerid"])
 	msg := TextMessage{
-		TargetMode:  targetMode,
-		TargetID:    targetID,
-		InvokerID:   invokerID,
+		TargetMode:  teamspeak.TextMessageTarget(targetMode),
+		TargetID:    parseClientID(cmd.Params["target"]),
+		InvokerID:   parseClientID(cmd.Params["invokerid"]),
 		InvokerName: cmd.Params["invokername"],
-		InvokerUID:  cmd.Params["invokeruid"],
+		InvokerUID:  teamspeak.UID(cmd.Params["invokeruid"]),
 		Message:     cmd.Params["msg"],
 	}
 
 	c.mu.Lock()
-	if info, ok := c.clients[invokerID]; ok {
+	if info, ok := c.clients[msg.InvokerID]; ok {
 		if msg.InvokerUID == "" {
 			msg.InvokerUID = info.UID
 		}
@@ -182,27 +183,26 @@ func (c *Client) handleTextMessage(cmd *commands.Command) {
 	c.mu.Unlock()
 
 	c.logger.Debug("text message received",
-		slog.Int("target_mode", targetMode),
+		slog.String("target_mode", msg.TargetMode.String()),
 		slog.String("invoker_id", cmd.Params["invokerid"]),
 		slog.String("invoker_name", cmd.Params["invokername"]),
-		slog.String("invoker_uid", msg.InvokerUID),
+		slog.String("invoker_uid", string(msg.InvokerUID)),
 		slog.String("message", cmd.Params["msg"]))
 
 	c.emitEvent(msg)
 }
 
 func (c *Client) handleClientPoke(cmd *commands.Command) {
-	invokerID, _ := parseUint16Value(cmd.Params["invokerid"])
 	evt := PokeEvent{
-		InvokerID:   invokerID,
+		InvokerID:   parseClientID(cmd.Params["invokerid"]),
 		InvokerName: cmd.Params["invokername"],
-		InvokerUID:  cmd.Params["invokeruid"],
+		InvokerUID:  teamspeak.UID(cmd.Params["invokeruid"]),
 		Message:     cmd.Params["msg"],
 	}
 
 	c.logger.Debug("client poked",
 		slog.String("invoker_name", evt.InvokerName),
-		slog.String("invoker_uid", evt.InvokerUID),
+		slog.String("invoker_uid", string(evt.InvokerUID)),
 		slog.String("message", evt.Message))
 
 	c.emitEvent(evt)

@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/honeybbq/teamspeak-go/client"
+
 	teamspeak "github.com/honeybbq/teamspeak-go"
 )
 
@@ -22,9 +24,10 @@ func TestLive_ClientLookupsAnswerWithTheirData(t *testing.T) {
 	clid := c.ClientID()
 	me, err := c.GetClientInfo(t.Context(), clid)
 	requireNoErr(t, err)
-	uid := me["client_unique_identifier"]
-	dbid, err := strconv.ParseUint(me["client_database_id"], 10, 64)
+	uid := teamspeak.UID(me["client_unique_identifier"])
+	rawDBID, err := strconv.ParseUint(me["client_database_id"], 10, 64)
 	requireNoErr(t, err)
+	dbid := teamspeak.ClientDBID(rawDBID)
 	nickname := me["client_nickname"]
 
 	gotUID, err := c.GetClientUIDByID(t.Context(), clid)
@@ -53,8 +56,9 @@ func TestLive_ServerGroupsIncludeTheDefaultGroup(t *testing.T) {
 	requireNoErr(t, err)
 	info, err := c.GetServerInfo(t.Context())
 	requireNoErr(t, err)
-	defaultGroup, err := strconv.ParseUint(info["virtualserver_default_server_group"], 10, 64)
+	rawDefault, err := strconv.ParseUint(info["virtualserver_default_server_group"], 10, 64)
 	requireNoErr(t, err)
+	defaultGroup := teamspeak.ServerGroupID(rawDefault)
 
 	if !slices.ContainsFunc(groups, func(g teamspeak.ServerGroup) bool { return g.ID == defaultGroup }) {
 		t.Errorf("ListServerGroups = %d groups without the default %d", len(groups), defaultGroup)
@@ -106,9 +110,11 @@ func TestLive_FileTransferRoundTrip(t *testing.T) {
 
 	files, err := c.ListFiles(t.Context(), cid, "/", "")
 	requireNoErr(t, err)
-	if !slices.ContainsFunc(files, func(f teamspeak.FileEntry) bool { return "/"+f.Name == path }) {
-		t.Errorf("ListFiles = %v, want %s", files, path)
+	idx := slices.IndexFunc(files, func(f teamspeak.FileEntry) bool { return "/"+f.Name == path })
+	if idx < 0 {
+		t.Fatalf("ListFiles = %v, want %s", files, path)
 	}
+	checkUploadedFile(t, c, cid, path, files[idx], uint64(len(payload)))
 
 	download, err := c.InitFileDownload(t.Context(), cid, path, "", 0)
 	requireNoErr(t, err)
@@ -116,5 +122,23 @@ func TestLive_FileTransferRoundTrip(t *testing.T) {
 	requireNoErr(t, teamspeak.DownloadFileData(host, download, &got, nil))
 	if !bytes.Equal(got.Bytes(), payload) {
 		t.Errorf("downloaded %q, want %q", got.Bytes(), payload)
+	}
+}
+
+// checkUploadedFile checks the dates the server reports for a file just
+// uploaded. TS3 sends the listing's datetime in seconds and TS6 in
+// milliseconds — and GetFileInfo's in nanoseconds — so a reader assuming
+// seconds dated the file tens of thousands of years from now.
+func checkUploadedFile(
+	t *testing.T, c *client.Client, cid teamspeak.ChannelID, path string, listed teamspeak.FileEntry, size uint64,
+) {
+	t.Helper()
+	if since := time.Since(listed.ModifiedAt).Abs(); since > time.Hour || listed.IsDirectory {
+		t.Errorf("ListFiles entry = %+v, want a file modified just now", listed)
+	}
+	info, err := c.GetFileInfo(t.Context(), cid, path, "")
+	requireNoErr(t, err)
+	if since := time.Since(info.ModifiedAt).Abs(); since > time.Hour || info.Size != size {
+		t.Errorf("GetFileInfo = %+v, want %d bytes modified just now", info, size)
 	}
 }

@@ -66,15 +66,15 @@ func TestCreatedGroupID(t *testing.T) {
 		{"sgid": "4", "name": "bots"},
 		{"sgid": "12", "name": "bots"},
 	}
-	id, err := createdGroupID(list, "sgid", "bots")
+	id, err := createdGroupID[ServerGroupID](list, "sgid", "bots")
 	if err != nil || id != 12 {
 		t.Errorf("full list: id = %d, err = %v, want 12", id, err)
 	}
-	id, err = createdGroupID([]map[string]string{{"sgid": "12"}}, "sgid", "bots")
+	id, err = createdGroupID[ServerGroupID]([]map[string]string{{"sgid": "12"}}, "sgid", "bots")
 	if err != nil || id != 12 {
 		t.Errorf("bare id: id = %d, err = %v, want 12", id, err)
 	}
-	_, err = createdGroupID(list[:1], "sgid", "bots")
+	_, err = createdGroupID[ServerGroupID](list[:1], "sgid", "bots")
 	if err == nil {
 		t.Error("missing group: want an error rather than another group's id")
 	}

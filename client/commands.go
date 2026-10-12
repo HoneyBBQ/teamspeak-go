@@ -173,7 +173,7 @@ func (t *commandTracker) offerCorrelated(name string, params map[string]string) 
 
 // resolve hands the rows held since the previous error to command rc.
 // ownClientID filters answers that keep only the rows this client invoked.
-func (t *commandTracker) resolve(rc uint32, err error, ownClientID uint16) {
+func (t *commandTracker) resolve(rc uint32, err error, ownClientID teamspeak.ClientID) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -518,14 +518,14 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 	selfID := c.clid
 	c.mu.Unlock()
 
-	speakerID := binary.BigEndian.Uint16(p.Data[2:4])
+	speakerID := teamspeak.ClientID(binary.BigEndian.Uint16(p.Data[2:4]))
 	if speakerID == selfID {
 		return
 	}
 
 	vd := VoiceData{
 		ClientID: speakerID,
-		Codec:    p.Data[4],
+		Codec:    teamspeak.Codec(p.Data[4]),
 		Data:     append([]byte(nil), p.Data[5:]...),
 	}
 
@@ -538,13 +538,13 @@ func parseServerError(params map[string]string) *teamspeak.ServerError {
 	if code == errcode.OK {
 		return nil
 	}
-	failedPermID, _ := strconv.ParseUint(params["failed_permid"], 10, 64)
+	failedPermID, _ := strconv.ParseUint(params["failed_permid"], 10, 32)
 
 	return &teamspeak.ServerError{
 		Code:         code,
 		Message:      params["msg"],
 		ExtraMessage: params["extra_msg"],
-		FailedPermID: failedPermID,
+		FailedPermID: teamspeak.PermissionID(failedPermID),
 	}
 }
 

@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"strconv"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
+
 	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
@@ -117,8 +119,8 @@ func (c *Client) handleInitServer(cmd *commands.Command) {
 	if idStr != "" {
 		val, err := strconv.ParseUint(idStr, 10, 16)
 		if err == nil {
-			c.clid = uint16(val)
-			c.handler.SetClientID(c.clid)
+			c.clid = teamspeak.ClientID(val)
+			c.handler.SetClientID(uint16(c.clid))
 		}
 	}
 

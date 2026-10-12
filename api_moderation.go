@@ -1,6 +1,9 @@
 package teamspeak
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Bans, complaints, offline messages, text messages and the server log.
 //
@@ -9,17 +12,20 @@ import "context"
 
 // BanEntry is a ban as banlist reports it.
 type BanEntry struct {
-	IP                string
-	Name              string
-	UID               string
-	LastNickname      string
-	InvokerName       string
-	InvokerUID        string
-	Reason            string
-	ID                uint64
-	Created           uint64
-	Duration          uint64
-	InvokerDatabaseID uint64
+	// Created is when the ban was made.
+	Created      time.Time
+	IP           string
+	Name         string
+	UID          UID
+	LastNickname string
+	InvokerName  string
+	InvokerUID   UID
+	Reason       string
+	ID           uint64
+	// Duration is how long the ban lasts from Created, in whole seconds; 0
+	// is a permanent ban.
+	Duration          time.Duration
+	InvokerDatabaseID ClientDBID
 }
 
 func parseBan(row map[string]string) BanEntry {
@@ -27,13 +33,13 @@ func parseBan(row map[string]string) BanEntry {
 		ID:                fieldUint(row, "banid"),
 		IP:                fieldStr(row, "ip"),
 		Name:              fieldStr(row, "name"),
-		UID:               fieldStr(row, "uid"),
+		UID:               UID(fieldStr(row, "uid")),
 		LastNickname:      fieldStr(row, "lastnickname"),
-		Created:           fieldUint(row, "created"),
-		Duration:          fieldUint(row, "duration"),
-		InvokerDatabaseID: fieldUint(row, "invokercldbid"),
+		Created:           fieldTime(row, "created"),
+		Duration:          fieldDuration(row, "duration", time.Second),
+		InvokerDatabaseID: ClientDBID(fieldUint(row, "invokercldbid")),
 		InvokerName:       fieldStr(row, "invokername"),
-		InvokerUID:        fieldStr(row, "invokeruid"),
+		InvokerUID:        UID(fieldStr(row, "invokeruid")),
 		Reason:            fieldStr(row, "reason"),
 	}
 }
@@ -53,25 +59,44 @@ func (c *Commands) ListBans(ctx context.Context) ([]BanEntry, error) {
 	return out, nil
 }
 
-// BanOptions describe a ban. At least one of IP, Name or UID must be set, or the
-// server rejects the call.
+// BanOptions describe a ban. IP and Name are regular expressions matched
+// against a client's address and nickname. At least one of IP, Name or UID
+// must be set; a ban matching nothing is refused with ErrInvalidCommand.
 type BanOptions struct {
-	IP     *string
-	Name   *string
-	UID    *string
-	Reason *string
-	// Duration is in seconds; 0 means permanent.
-	Duration *uint64
+	IP   string
+	Name string
+	UID  UID
+	// Reason is shown to the banned client; "" sends none.
+	Reason string
+	// Duration is how long the ban lasts, sent in whole seconds. 0 is a
+	// permanent ban, so a positive duration under a second is sent as one
+	// second rather than rounded down to forever.
+	Duration time.Duration
+}
+
+// banDurationArg encodes a ban's duration. A permanent ban omits it: the
+// server's default is permanent, which is also what time=0 means.
+func banDurationArg(d time.Duration) param {
+	if d == 0 {
+		return param{Key: "time"}
+	}
+
+	return durationArg("time", d, time.Second)
 }
 
 // AddBan adds a ban and returns its id.
 func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (uint64, error) {
+	target := optStrArg("ip", opts.IP)
+	if opts.IP == "" && opts.Name == "" && opts.UID == "" {
+		target = invalidArg("a ban needs an IP, a name or a UID to match")
+	}
+
 	rows, err := c.query(ctx, "banadd", []param{
-		strPtrArg("ip", opts.IP),
-		strPtrArg("name", opts.Name),
-		strPtrArg("uid", opts.UID),
-		uintPtrArg("time", opts.Duration),
-		strPtrArg("banreason", opts.Reason),
+		target,
+		optStrArg("name", opts.Name),
+		optStrArg("uid", string(opts.UID)),
+		banDurationArg(opts.Duration),
+		optStrArg("banreason", opts.Reason),
 	})
 	if err != nil {
 		return 0, err
@@ -80,12 +105,16 @@ func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (uint64, error) 
 	return firstOrEmpty(rows, "banid"), nil
 }
 
-// BanClient bans a connected client by clid and returns the ban id.
-func (c *Commands) BanClient(ctx context.Context, clid uint16, duration *uint64, reason *string) (uint64, error) {
+// BanClient bans a connected client and returns the ban id. duration is sent
+// in whole seconds, and 0 bans permanently, as for BanOptions. reason is
+// shown to the client; "" sends none.
+func (c *Commands) BanClient(
+	ctx context.Context, clid ClientID, duration time.Duration, reason string,
+) (uint64, error) {
 	rows, err := c.query(ctx, "banclient", []param{
-		uintArg("clid", uint64(clid)),
-		uintPtrArg("time", duration),
-		strPtrArg("banreason", reason),
+		idArg("clid", clid),
+		banDurationArg(duration),
+		optStrArg("banreason", reason),
 	})
 	if err != nil {
 		return 0, err
@@ -108,17 +137,19 @@ func (c *Commands) DeleteAllBans(ctx context.Context) error {
 
 // Complaint is one client's complaint against another.
 type Complaint struct {
+	// Timestamp is when the complaint was filed.
+	Timestamp        time.Time
 	TargetName       string
 	FromName         string
 	Message          string
-	TargetDatabaseID uint64
-	FromDatabaseID   uint64
-	Timestamp        uint64
+	TargetDatabaseID ClientDBID
+	FromDatabaseID   ClientDBID
 }
 
-// ListComplaints returns complaints, optionally only those against one client.
-func (c *Commands) ListComplaints(ctx context.Context, targetDBID *uint64) ([]Complaint, error) {
-	rows, err := c.query(ctx, "complainlist", []param{uintPtrArg("tcldbid", targetDBID)})
+// ListComplaints returns the complaints against one client, or against every
+// client for a targetDBID of 0.
+func (c *Commands) ListComplaints(ctx context.Context, targetDBID ClientDBID) ([]Complaint, error) {
+	rows, err := c.query(ctx, "complainlist", []param{optIDArg("tcldbid", targetDBID)})
 	if err != nil {
 		return nil, err
 	}
@@ -126,12 +157,12 @@ func (c *Commands) ListComplaints(ctx context.Context, targetDBID *uint64) ([]Co
 	out := make([]Complaint, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, Complaint{
-			TargetDatabaseID: fieldUint(row, "tcldbid"),
+			TargetDatabaseID: ClientDBID(fieldUint(row, "tcldbid")),
 			TargetName:       fieldStr(row, "tname"),
-			FromDatabaseID:   fieldUint(row, "fcldbid"),
+			FromDatabaseID:   ClientDBID(fieldUint(row, "fcldbid")),
 			FromName:         fieldStr(row, "fname"),
 			Message:          fieldStr(row, "message"),
-			Timestamp:        fieldUint(row, "timestamp"),
+			Timestamp:        fieldTime(row, "timestamp"),
 		})
 	}
 
@@ -139,45 +170,47 @@ func (c *Commands) ListComplaints(ctx context.Context, targetDBID *uint64) ([]Co
 }
 
 // AddComplaint files a complaint against a client.
-func (c *Commands) AddComplaint(ctx context.Context, targetDBID uint64, message string) error {
+func (c *Commands) AddComplaint(ctx context.Context, targetDBID ClientDBID, message string) error {
 	return c.exec(ctx, "complainadd", []param{
-		uintArg("tcldbid", targetDBID),
+		idArg("tcldbid", targetDBID),
 		strArg("message", message),
 	})
 }
 
 // DeleteComplaint withdraws one complaint.
-func (c *Commands) DeleteComplaint(ctx context.Context, targetDBID, fromDBID uint64) error {
+func (c *Commands) DeleteComplaint(ctx context.Context, targetDBID, fromDBID ClientDBID) error {
 	return c.exec(ctx, "complaindel", []param{
-		uintArg("tcldbid", targetDBID),
-		uintArg("fcldbid", fromDBID),
+		idArg("tcldbid", targetDBID),
+		idArg("fcldbid", fromDBID),
 	})
 }
 
 // DeleteAllComplaints withdraws every complaint against a client.
-func (c *Commands) DeleteAllComplaints(ctx context.Context, targetDBID uint64) error {
-	return c.exec(ctx, "complaindelall", []param{uintArg("tcldbid", targetDBID)})
+func (c *Commands) DeleteAllComplaints(ctx context.Context, targetDBID ClientDBID) error {
+	return c.exec(ctx, "complaindelall", []param{idArg("tcldbid", targetDBID)})
 }
 
 // ---- Offline messages -------------------------------------------------------
 
 // OfflineMessage is a message left for a client while they were away.
 type OfflineMessage struct {
-	UID       string
-	Subject   string
-	Message   string
-	ID        uint64
-	Timestamp uint64
-	IsRead    bool
+	// Timestamp is when the message was sent.
+	Timestamp time.Time
+	// UID is the sender's.
+	UID     UID
+	Subject string
+	Message string
+	ID      uint64
+	IsRead  bool
 }
 
 func parseMessage(row map[string]string) OfflineMessage {
 	return OfflineMessage{
 		ID:        fieldUint(row, "msgid"),
-		UID:       fieldStr(row, "cluid"),
+		UID:       UID(fieldStr(row, "cluid")),
 		Subject:   fieldStr(row, "subject"),
 		Message:   fieldStr(row, "message"),
-		Timestamp: fieldUint(row, "timestamp"),
+		Timestamp: fieldTime(row, "timestamp"),
 		IsRead:    fieldBool(row, "flag_read"),
 	}
 }
@@ -226,38 +259,64 @@ func (c *Commands) UpdateMessageFlag(ctx context.Context, messageID uint64, read
 
 // ---- Text messages ----------------------------------------------------------
 
-// TextMessageTarget is where SendTextMessage delivers.
+// TextMessageTarget is where a text message goes (targetmode).
 type TextMessageTarget int
 
 const (
-	// TextMessageTargetClient is a private message; the target is a clid.
+	// TextMessageTargetClient is a private message to one client.
 	TextMessageTargetClient TextMessageTarget = 1
-	// TextMessageTargetChannel is a message in one channel; the target is a cid.
+	// TextMessageTargetChannel is a message to the sender's current channel.
 	TextMessageTargetChannel TextMessageTarget = 2
-	// TextMessageTargetServer is a message to everyone; no target.
+	// TextMessageTargetServer is a message to everyone on the virtual server.
 	TextMessageTargetServer TextMessageTarget = 3
 )
 
-// SendTextMessage sends a text message.
-//
-// The target is a clid, a cid or nothing depending on mode, which is why the two
-// are separate parameters rather than one polymorphic id: passing a channel id
-// to a client-mode message reaches an unrelated client. Pass 0 as the target for
-// a server-wide message.
-//
-// It waits for the server's answer, so a refusal — no permission to message
-// that target — is returned rather than lost. Call it from a goroutine to send
-// without waiting.
-func (c *Commands) SendTextMessage(ctx context.Context, mode TextMessageTarget, target uint64, message string) error {
-	params := []param{
-		intArg("targetmode", int64(mode)),
-		strArg("msg", message),
-	}
-	if mode != TextMessageTargetServer {
-		params = append(params, uintArg("target", target))
-	}
+var textMessageTargetNames = [...]string{
+	TextMessageTargetClient:  "client",
+	TextMessageTargetChannel: "channel",
+	TextMessageTargetServer:  "server",
+}
 
-	return c.exec(ctx, "sendtextmessage", params)
+func (t TextMessageTarget) String() string {
+	return enumName(t, textMessageTargetNames[:], "text message target")
+}
+
+// Text messages are three commands rather than one taking a mode and an id,
+// because the id meant a different thing in each mode — a clid, a cid, or
+// nothing — and an untyped one let a channel id reach an unrelated client.
+//
+// Each waits for the server's answer, so a refusal — no permission to message
+// that target — is returned rather than lost. Call one from a goroutine to send
+// without waiting.
+
+// SendPrivateMessage sends a text message to one client.
+func (c *Commands) SendPrivateMessage(ctx context.Context, clid ClientID, message string) error {
+	return c.exec(ctx, "sendtextmessage", []param{
+		intArg("targetmode", int64(TextMessageTargetClient)),
+		idArg("target", clid),
+		strArg("msg", message),
+	})
+}
+
+// SendChannelMessage sends a text message to the channel this connection is
+// in.
+//
+// It takes no channel because the server takes none: measured on TS3 and TS6,
+// a channel message naming another channel still arrives in the sender's own.
+// To write to another channel, move there first.
+func (c *Commands) SendChannelMessage(ctx context.Context, message string) error {
+	return c.exec(ctx, "sendtextmessage", []param{
+		intArg("targetmode", int64(TextMessageTargetChannel)),
+		strArg("msg", message),
+	})
+}
+
+// SendServerMessage sends a text message to everyone on the virtual server.
+func (c *Commands) SendServerMessage(ctx context.Context, message string) error {
+	return c.exec(ctx, "sendtextmessage", []param{
+		intArg("targetmode", int64(TextMessageTargetServer)),
+		strArg("msg", message),
+	})
 }
 
 // ---- Log --------------------------------------------------------------------
@@ -266,36 +325,67 @@ func (c *Commands) SendTextMessage(ctx context.Context, mode TextMessageTarget, 
 type LogLevel int
 
 const (
-	LogLevelError   LogLevel = 1
+	// LogLevelError is an error.
+	LogLevelError LogLevel = 1
+	// LogLevelWarning is a warning.
 	LogLevelWarning LogLevel = 2
-	LogLevelDebug   LogLevel = 3
-	LogLevelInfo    LogLevel = 4
+	// LogLevelDebug is debugging detail.
+	LogLevelDebug LogLevel = 3
+	// LogLevelInfo is routine information.
+	LogLevelInfo LogLevel = 4
 )
+
+var logLevelNames = [...]string{
+	LogLevelError:   "error",
+	LogLevelWarning: "warning",
+	LogLevelDebug:   "debug",
+	LogLevelInfo:    "info",
+}
+
+func (l LogLevel) String() string {
+	return enumName(l, logLevelNames[:], "log level")
+}
 
 // LogPage is one read of the server log.
 type LogPage struct {
 	Lines []string
-	// LastPosition is the server's offset, for paging with BeginPosition.
+	// LastPosition is the byte offset the read stopped at. Pass it as the next
+	// read's BeginPosition to continue from there.
 	LastPosition uint64
-	FileSize     uint64
+	// FileSize is the log file's size in bytes.
+	FileSize uint64
 }
 
 // LogViewOptions select which part of the log to read.
+//
+// The log is paged by byte offset rather than by row, so there is no iterator
+// as there is for the client database: read a page, then pass its
+// LastPosition as BeginPosition for the next.
 type LogViewOptions struct {
-	Lines         *uint64
+	// BeginPosition is the byte offset to read from. A pointer because 0 is
+	// meaningful — the start of the log — while nil omits the parameter and
+	// leaves where to start to the server.
 	BeginPosition *uint64
-	Reverse       *bool
-	Instance      *bool
+	// Lines is how many lines to read, at most 100; 0 leaves it to the server.
+	Lines uint
+	// Reverse reads backwards from BeginPosition, newest line first.
+	Reverse bool
+	// Instance reads the instance log rather than the virtual server's.
+	Instance bool
 }
 
-// ViewLog reads the server log.
+// ViewLog reads a page of the server log.
 func (c *Commands) ViewLog(ctx context.Context, opts LogViewOptions) (LogPage, error) {
-	rows, err := c.query(ctx, "logview", []param{
-		uintPtrArg("lines", opts.Lines),
-		boolPtrArg("reverse", opts.Reverse),
-		boolPtrArg("instance", opts.Instance),
+	params := []param{
+		boolArg("reverse", opts.Reverse),
+		boolArg("instance", opts.Instance),
 		uintPtrArg("begin_pos", opts.BeginPosition),
-	})
+	}
+	if opts.Lines > 0 {
+		params = append(params, uintArg("lines", uint64(opts.Lines)))
+	}
+
+	rows, err := c.query(ctx, "logview", params)
 	if err != nil {
 		return LogPage{}, err
 	}
@@ -304,12 +394,20 @@ func (c *Commands) ViewLog(ctx context.Context, opts LogViewOptions) (LogPage, e
 		return LogPage{}, nil
 	}
 
-	row := rows[0]
 	page := LogPage{
-		LastPosition: fieldUint(row, "last_pos"),
-		FileSize:     fieldUint(row, "file_size"),
+		LastPosition: fieldUint(rows[0], "last_pos"),
+		FileSize:     fieldUint(rows[0], "file_size"),
 	}
-	if text := fieldStr(row, "log"); text != "" {
+	// One line per row, under the key l (tsdeclarations: ServerLog). This
+	// used to read only a "log" field from the first row, which the server
+	// does not send; it is still read, should a server send the lines that
+	// way.
+	for _, row := range rows {
+		if line, ok := row["l"]; ok {
+			page.Lines = append(page.Lines, line)
+		}
+	}
+	if text := fieldStr(rows[0], "log"); text != "" && len(page.Lines) == 0 {
 		page.Lines = splitLines(text)
 	}
 

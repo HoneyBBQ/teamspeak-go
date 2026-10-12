@@ -46,7 +46,7 @@ type ServerError struct {
 	Code errcode.Code
 	// FailedPermID is the permission a refused permission check failed on, when
 	// the server names one (failed_permid); 0 otherwise.
-	FailedPermID uint64
+	FailedPermID PermissionID
 }
 
 func (e *ServerError) Error() string {

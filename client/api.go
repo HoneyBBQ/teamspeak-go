@@ -3,13 +3,16 @@ package client
 import (
 	"context"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
+
 	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
-// SendVoice sends a raw Opus frame. Codec values: 4 = Opus voice, 5 = Opus music.
-func (c *Client) SendVoice(data []byte, codec byte) error {
-	return c.currentHandler().SendVoicePacket(data, codec)
+// SendVoice sends one encoded audio frame, normally teamspeak.CodecOpusVoice
+// or CodecOpusMusic.
+func (c *Client) SendVoice(data []byte, codec teamspeak.Codec) error {
+	return c.currentHandler().SendVoicePacket(data, byte(codec))
 }
 
 // ErrNoWhisperTargets reports a whisper with no one to receive it.
@@ -21,8 +24,13 @@ var ErrTooManyWhisperTargets = transport.ErrTooManyWhisperTargets
 
 // SendWhisper sends Opus voice directly to up to 32 clients, regardless of which
 // channel they are in. The bot's server group needs i_client_whisper_power.
-func (c *Client) SendWhisper(data []byte, targetClientIDs []uint16, codec byte) error {
-	return c.currentHandler().SendWhisperPacket(data, targetClientIDs, codec)
+func (c *Client) SendWhisper(data []byte, targetClientIDs []teamspeak.ClientID, codec teamspeak.Codec) error {
+	targets := make([]uint16, len(targetClientIDs))
+	for i, id := range targetClientIDs {
+		targets[i] = uint16(id)
+	}
+
+	return c.currentHandler().SendWhisperPacket(data, targets, byte(codec))
 }
 
 // ServerCapabilities reports what the connected server is: version, generation,
@@ -41,15 +49,16 @@ func (c *Client) ServerCapabilities() ServerCapabilities {
 // TS3 uses SHA-1 and TS6 SHA-256, so this reads the algorithm learned during
 // initserver rather than assuming one: comparing a hard-coded SHA-1 UID to a
 // TS6 server silently never matches.
-func (c *Client) UniqueIdentifier() string {
+func (c *Client) UniqueIdentifier() teamspeak.UID {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return identity.UID(c.crypt.Identity.PublicKey(), c.uidAlgorithm)
+	return teamspeak.UID(identity.UID(c.crypt.Identity.PublicKey(), c.uidAlgorithm))
 }
 
-// ClientID returns the client's own ID assigned by the server.
-func (c *Client) ClientID() uint16 {
+// ClientID returns the id the server assigned this session, or 0 before it
+// has. A reconnect gets a new one.
+func (c *Client) ClientID() teamspeak.ClientID {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

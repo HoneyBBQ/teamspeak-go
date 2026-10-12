@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -45,10 +46,29 @@ const disconnectTimeout = time.Second
 type ClientStatus int
 
 const (
+	// StatusDisconnected is a client with no connection: before Connect, after
+	// Disconnect, or after a drop until a reconnect starts.
 	StatusDisconnected ClientStatus = iota
+	// StatusConnecting is a client between Connect and the end of the
+	// handshake.
 	StatusConnecting
+	// StatusConnected is a client whose handshake has completed.
 	StatusConnected
 )
+
+var clientStatusNames = [...]string{
+	StatusDisconnected: "disconnected",
+	StatusConnecting:   "connecting",
+	StatusConnected:    "connected",
+}
+
+func (s ClientStatus) String() string {
+	if s >= 0 && int(s) < len(clientStatusNames) {
+		return clientStatusNames[s]
+	}
+
+	return "status " + strconv.Itoa(int(s))
+}
 
 // ResolvedAddr is one endpoint a server address resolved to.
 type ResolvedAddr struct {
@@ -109,7 +129,7 @@ type Client struct {
 	handler         *transport.PacketHandler
 	cmdTrack        *commandTracker
 	throttle        *commandThrottle
-	clients         map[uint16]teamspeak.ClientInfo
+	clients         map[teamspeak.ClientID]teamspeak.ClientInfo
 	// evtChain is the event middleware wrapped around dispatchEvent.
 	evtChain func(any)
 	addr     string
@@ -145,7 +165,7 @@ type Client struct {
 	onVoiceData      subscribers[VoiceData]
 	status           ClientStatus
 	mu               sync.Mutex
-	clid             uint16
+	clid             teamspeak.ClientID
 }
 
 // ErrInvalidConfig reports a client New cannot build as configured.
@@ -172,7 +192,7 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 		logger:   slog.New(slog.DiscardHandler),
 		addr:     addr,
 		nickname: nickname,
-		clients:  make(map[uint16]teamspeak.ClientInfo),
+		clients:  make(map[teamspeak.ClientID]teamspeak.ClientInfo),
 		throttle: newCommandThrottle(),
 		cmdTrack: newCommandTracker(),
 		attempt:  newConnectAttempt(),
@@ -409,7 +429,7 @@ func (c *Client) resetForConnectLocked() string {
 		c.attempt = newConnectAttempt()
 	}
 	c.cmdTrack.reset(teamspeak.ErrNotConnected)
-	c.clients = make(map[uint16]teamspeak.ClientInfo)
+	c.clients = make(map[teamspeak.ClientID]teamspeak.ClientInfo)
 	c.clid = 0
 	// Reset to the TS3 default; initserver sets it from the server's version.
 	c.uidAlgorithm = identity.UIDSHA1

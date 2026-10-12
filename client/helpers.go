@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
+
 	"github.com/honeybbq/teamspeak-go/commands"
 )
 
@@ -12,13 +14,26 @@ func parseUint64Value(s string) (uint64, error) {
 	return strconv.ParseUint(s, 10, 64)
 }
 
-func parseUint16Value(s string) (uint16, error) {
+// parseClientID reads a clid, invokerid or the like; 0, which names no client,
+// for anything unreadable.
+func parseClientID(s string) teamspeak.ClientID {
 	v, err := strconv.ParseUint(s, 10, 16)
 	if err != nil {
-		return 0, err
+		return 0
 	}
 
-	return uint16(v), nil
+	return teamspeak.ClientID(v)
+}
+
+// parseChannelID reads a cid or ctid; 0, which names no channel, for anything
+// unreadable.
+func parseChannelID(s string) teamspeak.ChannelID {
+	v, err := parseUint64Value(s)
+	if err != nil {
+		return 0
+	}
+
+	return teamspeak.ChannelID(v)
 }
 
 func parseIntValue(s string) (int, error) {
@@ -126,19 +141,19 @@ func fieldName(token string) string {
 	return token
 }
 
-// parseUint64List reads a comma-separated list of ids, as client_servergroups
+// parseIDList reads a comma-separated list of ids, as client_servergroups
 // arrives.
-func parseUint64List(raw string) []uint64 {
+func parseIDList[T ~uint64](raw string) []T {
 	if raw == "" {
 		return nil
 	}
 
 	parts := strings.Split(raw, ",")
-	out := make([]uint64, 0, len(parts))
+	out := make([]T, 0, len(parts))
 	for _, part := range parts {
 		value, err := strconv.ParseUint(strings.TrimSpace(part), 10, 64)
 		if err == nil {
-			out = append(out, value)
+			out = append(out, T(value))
 		}
 	}
 

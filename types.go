@@ -1,5 +1,7 @@
 package teamspeak
 
+import "time"
+
 // ClientInfo is a connected client, as clientlist or notifycliententerview
 // reports one.
 //
@@ -7,19 +9,28 @@ package teamspeak
 // structs made the list and event paths disagree about what a client is —
 // including the type of ServerGroups.
 type ClientInfo struct {
+	// Created, LastConnected and IdleTime are reported only by ListClients
+	// with ClientListOptions.Times; otherwise they are zero.
+	//
+	// Created is when the client first connected to this server, and
+	// LastConnected when it last did before this session.
+	Created       time.Time
+	LastConnected time.Time
+	// IdleTime is how long since the client last did anything, reported in
+	// milliseconds (client_idle_time).
+	IdleTime time.Duration
 	Nickname string
-	UID      string
+	UID      UID
 	// ServerGroups are the group ids this client holds. Ids rather than names:
 	// the server sends ids, and resolving them costs a separate call.
-	ServerGroups   []uint64
-	ChannelID      uint64
-	ChannelGroupID uint64
-	// Type is 0 for a normal client, 1 for a ServerQuery client.
-	Type        int
-	ID          uint16
-	IsAway      bool
-	IsRecording bool
-	IsTalker    bool
+	ServerGroups   []ServerGroupID
+	ChannelID      ChannelID
+	ChannelGroupID ChannelGroupID
+	Type           ClientType
+	ID             ClientID
+	IsAway         bool
+	IsRecording    bool
+	IsTalker       bool
 }
 
 // FileUploadInfo represents the information received when an upload is initialized.

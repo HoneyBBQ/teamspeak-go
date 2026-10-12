@@ -1,6 +1,9 @@
 package teamspeak
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // File transfer commands.
 //
@@ -15,19 +18,21 @@ import "context"
 
 // FileEntry is one entry of a directory listing.
 type FileEntry struct {
+	ModifiedAt time.Time
 	Name       string
 	Size       uint64
-	ModifiedAt uint64
-	// Type is 0 for a file, 1 for a directory.
-	Type int
+	// IsDirectory reports a directory. The listing sends type=0 for a
+	// directory and type=1 for a file; GetFileInfo's answer carries no type,
+	// so there it is always false.
+	IsDirectory bool
 }
 
 func parseFileEntry(row map[string]string) FileEntry {
 	return FileEntry{
-		Name:       fieldStr(row, "name"),
-		Size:       fieldUint(row, "size"),
-		ModifiedAt: fieldUint(row, "datetime"),
-		Type:       int(fieldInt(row, "type")),
+		Name:        fieldStr(row, "name"),
+		Size:        fieldUint(row, "size"),
+		ModifiedAt:  fieldTime(row, "datetime"),
+		IsDirectory: row["type"] == "0",
 	}
 }
 
@@ -41,9 +46,9 @@ func asPath(path string) string {
 }
 
 // ListFiles returns the directory listing for one path in a channel's file area.
-func (c *Commands) ListFiles(ctx context.Context, channelID uint64, path, password string) ([]FileEntry, error) {
+func (c *Commands) ListFiles(ctx context.Context, channelID ChannelID, path, password string) ([]FileEntry, error) {
 	rows, err := c.query(ctx, "ftgetfilelist", []param{
-		uintArg("cid", channelID),
+		idArg("cid", channelID),
 		strArg("path", asPath(path)),
 		strArg("cpw", password),
 	}, "cpw")
@@ -60,9 +65,9 @@ func (c *Commands) ListFiles(ctx context.Context, channelID uint64, path, passwo
 }
 
 // GetFileInfo returns the size and timestamp of one file.
-func (c *Commands) GetFileInfo(ctx context.Context, channelID uint64, path, password string) (FileEntry, error) {
+func (c *Commands) GetFileInfo(ctx context.Context, channelID ChannelID, path, password string) (FileEntry, error) {
 	rows, err := c.query(ctx, "ftgetfileinfo", []param{
-		uintArg("cid", channelID),
+		idArg("cid", channelID),
 		strArg("name", asPath(path)),
 		strArg("cpw", password),
 	}, "cpw")
@@ -81,7 +86,7 @@ func (c *Commands) GetFileInfo(ctx context.Context, channelID uint64, path, pass
 //
 // The names travel as a pipe-separated list in a single parameter, which is why
 // this takes a slice rather than being called once per file.
-func (c *Commands) DeleteFile(ctx context.Context, channelID uint64, paths []string, password string) error {
+func (c *Commands) DeleteFile(ctx context.Context, channelID ChannelID, paths []string, password string) error {
 	if len(paths) == 0 {
 		return nil
 	}
@@ -92,16 +97,16 @@ func (c *Commands) DeleteFile(ctx context.Context, channelID uint64, paths []str
 	}
 
 	return c.exec(ctx, "ftdeletefile", []param{
-		uintArg("cid", channelID),
+		idArg("cid", channelID),
 		strArg("name", joinPipe(names)),
 		strArg("cpw", password),
 	}, "cpw")
 }
 
 // CreateDirectory creates a directory, including any missing parents.
-func (c *Commands) CreateDirectory(ctx context.Context, channelID uint64, dirname, password string) error {
+func (c *Commands) CreateDirectory(ctx context.Context, channelID ChannelID, dirname, password string) error {
 	return c.exec(ctx, "ftcreatedir", []param{
-		uintArg("cid", channelID),
+		idArg("cid", channelID),
 		strArg("dirname", asPath(dirname)),
 		strArg("cpw", password),
 	}, "cpw")
@@ -109,23 +114,32 @@ func (c *Commands) CreateDirectory(ctx context.Context, channelID uint64, dirnam
 
 // RenameFileOptions describes a move, optionally into another channel.
 type RenameFileOptions struct {
-	Password              string
-	TargetChannelID       *uint64
-	TargetChannelPassword *string
+	// Password is the source channel's password, "" for none.
+	Password string
+	// TargetChannelPassword is the target channel's password, "" for none.
+	TargetChannelPassword string
+	// TargetChannelID moves the file into another channel's file area; 0
+	// keeps it in the same channel.
+	TargetChannelID ChannelID
 }
 
 // RenameFile renames or moves a file.
 func (c *Commands) RenameFile(
-	ctx context.Context, channelID uint64, oldName, newName string, opts RenameFileOptions,
+	ctx context.Context, channelID ChannelID, oldName, newName string, opts RenameFileOptions,
 ) error {
-	return c.exec(ctx, "ftrenamefile", []param{
-		uintArg("cid", channelID),
+	params := []param{
+		idArg("cid", channelID),
 		strArg("oldname", asPath(oldName)),
 		strArg("newname", asPath(newName)),
 		strArg("cpw", opts.Password),
-		uintPtrArg("tcid", opts.TargetChannelID),
-		strPtrArg("tcpw", opts.TargetChannelPassword),
-	}, "cpw", "tcpw")
+	}
+	if opts.TargetChannelID != 0 {
+		params = append(params,
+			idArg("tcid", opts.TargetChannelID),
+			strArg("tcpw", opts.TargetChannelPassword))
+	}
+
+	return c.exec(ctx, "ftrenamefile", params, "cpw", "tcpw")
 }
 
 // StopFileTransfer cancels a running transfer.
@@ -141,18 +155,21 @@ func (c *Commands) StopFileTransfer(ctx context.Context, serverFileTransferID ui
 
 // ActiveTransfer is a file transfer in progress.
 type ActiveTransfer struct {
-	Path                 string
-	Name                 string
-	Sender               string
-	Size                 uint64
-	SizeDone             uint64
-	Runtime              uint64
+	Path     string
+	Name     string
+	Sender   string
+	Size     uint64
+	SizeDone uint64
+	// Runtime is how long the transfer has been running, reported in whole
+	// seconds.
+	Runtime              time.Duration
 	ClientFileTransferID uint16
 	ServerFileTransferID uint16
-	ClientID             uint16
+	ClientID             ClientID
 	Status               int
-	CurrentSpeed         float32
-	AverageSpeed         float32
+	// CurrentSpeed and AverageSpeed are in bytes per second.
+	CurrentSpeed float32
+	AverageSpeed float32
 }
 
 // ListActiveTransfers returns file transfers in progress. Requires the
@@ -166,7 +183,7 @@ func (c *Commands) ListActiveTransfers(ctx context.Context) ([]ActiveTransfer, e
 	out := make([]ActiveTransfer, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, ActiveTransfer{
-			ClientID:             fieldUint16(row, "clid"),
+			ClientID:             ClientID(fieldUint16(row, "clid")),
 			Path:                 fieldStr(row, "path"),
 			Name:                 fieldStr(row, "name"),
 			Size:                 fieldUint(row, "size"),
@@ -175,9 +192,9 @@ func (c *Commands) ListActiveTransfers(ctx context.Context) ([]ActiveTransfer, e
 			ServerFileTransferID: fieldUint16(row, "serverftfid"),
 			Sender:               fieldStr(row, "sender"),
 			Status:               int(fieldInt(row, "status")),
-			CurrentSpeed:         float32(fieldInt(row, "current_speed")),
-			AverageSpeed:         float32(fieldInt(row, "average_speed")),
-			Runtime:              fieldUint(row, "runtime"),
+			CurrentSpeed:         fieldFloat32(row, "current_speed"),
+			AverageSpeed:         fieldFloat32(row, "average_speed"),
+			Runtime:              fieldDuration(row, "runtime", time.Second),
 		})
 	}
 
@@ -206,12 +223,12 @@ func (c *Commands) nextFileTransferID() uint64 {
 // *ServerError, even though the voice protocol reports it in a separate
 // notification after the command itself has succeeded.
 func (c *Commands) InitFileUpload(
-	ctx context.Context, channelID uint64, path string, size uint64, password string, overwrite bool,
+	ctx context.Context, channelID ChannelID, path string, size uint64, password string, overwrite bool,
 ) (*FileUploadInfo, error) {
 	rows, err := c.query(ctx, "ftinitupload", []param{
 		uintArg("clientftfid", c.nextFileTransferID()),
 		strArg("name", asPath(path)),
-		uintArg("cid", channelID),
+		idArg("cid", channelID),
 		strArg("cpw", password),
 		uintArg("size", size),
 		boolArg("overwrite", overwrite),
@@ -243,12 +260,12 @@ func (c *Commands) InitFileUpload(
 // dial. Pass the result to DownloadFileData. Refusals are returned as for
 // InitFileUpload.
 func (c *Commands) InitFileDownload(
-	ctx context.Context, channelID uint64, path, password string, seekPosition uint64,
+	ctx context.Context, channelID ChannelID, path, password string, seekPosition uint64,
 ) (*FileDownloadInfo, error) {
 	rows, err := c.query(ctx, "ftinitdownload", []param{
 		uintArg("clientftfid", c.nextFileTransferID()),
 		strArg("name", asPath(path)),
-		uintArg("cid", channelID),
+		idArg("cid", channelID),
 		strArg("cpw", password),
 		uintArg("seekpos", seekPosition),
 		uintArg("proto", 0),

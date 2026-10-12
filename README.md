@@ -27,7 +27,8 @@ Compatible with TeamSpeak 3, 5 & 6. No proprietary SDK. No copy-pasted code.
 - **Middleware** — Pluggable command and event middleware chains
 - **Built-in rate limiter** — Token-bucket throttling to prevent server-side flood kicks
 - **Identity management** — Generate, import/export, and upgrade security level of identities
-- **Full command set** — 107 typed methods covering every command the voice protocol answers
+- **Full command set** — 109 typed methods covering every command the voice protocol answers
+- **Typed ids and times** — a channel id cannot be passed where a client id belongs; timestamps are `time.Time`, durations `time.Duration`
 - **Reconnection** — Opt-in retry with backoff, tuned for TeamSpeak's antiflood ban
 - **Server capabilities** — Reports the server version and the uid hash it uses (SHA-1 on TS3, SHA-256 on TS6)
 - **Custom transports** — Supply your own net.PacketConn and file transfer dialer
@@ -119,13 +120,13 @@ func main() {
 
 | Method | Description |
 |---|---|
-| `NewClient(identity, addr, nickname, ...opts)` | Create a new client |
+| `client.New(identity, addr, nickname, ...opts)` | Create a new client |
 | `Connect(ctx)` | Connect, returning once the handshake completes |
 | `Disconnect(ctx)` | Leave the server and close the connection |
-| `ClientID()` | Our clid, assigned by the server |
-| `ChannelID()` | The channel we are in |
+| `ClientID() teamspeak.ClientID` | Our clid, assigned by the server |
+| `ChannelID() teamspeak.ChannelID` | The channel we are in |
 | `ServerCapabilities()` | Server version, family and uid hash |
-| `UniqueIdentifier()` | Our own uid, hashed as the server does |
+| `UniqueIdentifier() teamspeak.UID` | Our own uid, hashed as the server does |
 
 ### Events
 
@@ -150,18 +151,39 @@ Every command is a typed method taking a context, defined once in the root
 `teamspeak` package and embedded into the client. Options structs use a nil
 pointer field to omit a parameter entirely — which the protocol distinguishes from an empty value:
 clearing a password takes `channel_password=`, leaving it alone sends nothing.
+Build the pointers with `new`: `new("the quiet one")`, `new(true)`.
+
+Ids are typed — `ChannelID`, `ClientID`, `ClientDBID`, `ServerGroupID`,
+`ChannelGroupID`, `PermissionID`, `IconID`, `ServerID`, `UID` — so a channel id
+cannot be passed where a client id belongs. Timestamps are `time.Time` (the
+zero time for "never") and durations `time.Duration`, rounded to the unit the
+server uses for that field.
 
 ```go
 channels, err := c.ListChannels(ctx)
 
 cid, err := c.CreateChannel(ctx, teamspeak.ChannelCreateOptions{
 	ChannelName:          "Lounge",
-	ChannelTopic:         teamspeak.String("the quiet one"),
-	ChannelFlagPermanent: teamspeak.BoolOf(true),
+	ChannelTopic:         new("the quiet one"),
+	ChannelFlagPermanent: new(true),
 })
 
 err = c.MoveClient(ctx, c.ClientID(), cid, "channel-password")
-err = c.SendTextMessage(ctx, teamspeak.TextMessageTargetChannel, cid, "hello")
+err = c.SendChannelMessage(ctx, "hello")
+
+// A permission is named by id or by name; the zero Permission is refused.
+err = c.AddChannelPermission(ctx, cid, teamspeak.PermissionByName("i_channel_needed_join_power"), 50)
+
+// 0 bans permanently; anything else is sent in whole seconds.
+banID, err := c.BanClient(ctx, troll, 10*time.Minute, "cool off")
+
+// The client database is paged; the iterator fetches page after page.
+for entry, err := range c.ClientDatabase(ctx) {
+	if err != nil {
+		return err
+	}
+	fmt.Println(entry.Nickname, entry.LastConnected)
+}
 ```
 
 | File            | Covers                                                          |
@@ -188,7 +210,7 @@ line and returns the rows that answer it.
 
 | Method | Description |
 |---|---|
-| `ListFiles(cid, path, pw)` | Directory listing |
+| `ListFiles(cid, path, pw)` | Directory listing; `cid` is a `teamspeak.ChannelID` |
 | `GetFileInfo(cid, path, pw)` | Size and timestamp of one file |
 | `DeleteFile(cid, paths, pw)` | Delete one or more files |
 | `CreateDirectory(cid, dir, pw)` | Create a directory |

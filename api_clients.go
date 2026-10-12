@@ -1,26 +1,37 @@
 package teamspeak
 
-import "context"
+import (
+	"context"
+	"errors"
+	"iter"
+	"time"
+
+	"github.com/honeybbq/teamspeak-go/errcode"
+)
 
 // Client commands.
 //
 // A "client" is someone connected right now, identified by clid; a "client
 // database entry" is the persistent record, identified by cldbid. Both exist
-// and both appear below, so the two are named apart in the types rather than
-// leaving the reader to tell a uint16 from a uint64.
+// and both appear below, so the two are named apart in the types — ClientID
+// and ClientDBID — rather than leaving the reader to tell a uint16 from a
+// uint64.
 
 func parseClient(row map[string]string) ClientInfo {
 	return ClientInfo{
-		ID:             fieldUint16(row, "clid"),
+		ID:             ClientID(fieldUint16(row, "clid")),
 		Nickname:       fieldStr(row, "client_nickname"),
-		UID:            fieldStr(row, "client_unique_identifier"),
-		ChannelID:      fieldUint(row, "cid"),
-		ChannelGroupID: fieldUint(row, "client_channel_group_id"),
-		Type:           int(fieldInt(row, "client_type")),
-		ServerGroups:   fieldUintList(row, "client_servergroups"),
+		UID:            UID(fieldStr(row, "client_unique_identifier")),
+		ChannelID:      ChannelID(fieldUint(row, "cid")),
+		ChannelGroupID: ChannelGroupID(fieldUint(row, "client_channel_group_id")),
+		Type:           ClientType(fieldInt(row, "client_type")),
+		ServerGroups:   fieldIDList[ServerGroupID](row, "client_servergroups"),
 		IsAway:         fieldBool(row, "client_away"),
 		IsRecording:    fieldBool(row, "client_is_recording"),
 		IsTalker:       fieldBool(row, "client_is_talker"),
+		Created:        fieldTime(row, "client_created"),
+		LastConnected:  fieldTime(row, "client_lastconnected"),
+		IdleTime:       fieldDuration(row, "client_idle_time", time.Millisecond),
 	}
 }
 
@@ -89,8 +100,8 @@ func (c *Commands) ListClients(ctx context.Context, opts ...ClientListOptions) (
 // carries well over a hundred fields and which ones appear depends on
 // permissions, so anything narrower would silently drop data the caller asked
 // for. Use ListClients for parsed fields.
-func (c *Commands) GetClientInfo(ctx context.Context, clid uint16) (map[string]string, error) {
-	rows, err := c.query(ctx, "clientinfo", []param{uintArg("clid", uint64(clid))})
+func (c *Commands) GetClientInfo(ctx context.Context, clid ClientID) (map[string]string, error) {
+	rows, err := c.query(ctx, "clientinfo", []param{idArg("clid", clid)})
 	if err != nil {
 		return nil, err
 	}
@@ -102,12 +113,20 @@ func (c *Commands) GetClientInfo(ctx context.Context, clid uint16) (map[string]s
 	return rows[0], nil
 }
 
-// KickClient disconnects a client from the server.
-func (c *Commands) KickClient(ctx context.Context, clid uint16, reasonID int, reasonMessage *string) error {
+// KickClient kicks a client from its channel (ReasonKickChannel), which moves
+// it to the default channel, or from the server (ReasonKickServer), which
+// disconnects it. Any other reason is refused with ErrInvalidCommand. message
+// is shown to the client; "" sends none.
+func (c *Commands) KickClient(ctx context.Context, clid ClientID, reason Reason, message string) error {
+	reasonParam := intArg("reasonid", int64(reason))
+	if reason != ReasonKickChannel && reason != ReasonKickServer {
+		reasonParam = invalidArg("a kick's reason is ReasonKickChannel or ReasonKickServer, not " + reason.String())
+	}
+
 	return c.exec(ctx, "clientkick", []param{
-		uintArg("clid", uint64(clid)),
-		intArg("reasonid", int64(reasonID)),
-		strPtrArg("reasonmsg", reasonMessage),
+		idArg("clid", clid),
+		reasonParam,
+		optStrArg("reasonmsg", message),
 	})
 }
 
@@ -153,19 +172,27 @@ func (c *Commands) UpdateClient(ctx context.Context, opts ClientUpdateOptions) e
 	})
 }
 
+// ClientEditOptions change another client's editable attributes. Only the
+// fields you set are sent: a pointer to "" clears the description, while nil
+// leaves it alone.
+type ClientEditOptions struct {
+	Description *string
+	IsTalker    *bool
+}
+
 // EditClient changes another client's editable attributes.
-func (c *Commands) EditClient(ctx context.Context, clid uint16, description *string, isTalker *bool) error {
+func (c *Commands) EditClient(ctx context.Context, clid ClientID, opts ClientEditOptions) error {
 	return c.exec(ctx, "clientedit", []param{
-		uintArg("clid", uint64(clid)),
-		strPtrArg("client_description", description),
-		boolPtrArg("client_is_talker", isTalker),
+		idArg("clid", clid),
+		strPtrArg("client_description", opts.Description),
+		boolPtrArg("client_is_talker", opts.IsTalker),
 	})
 }
 
 // PokeClient sends a poke to a client.
-func (c *Commands) PokeClient(ctx context.Context, clid uint16, message string) error {
+func (c *Commands) PokeClient(ctx context.Context, clid ClientID, message string) error {
 	return c.exec(ctx, "clientpoke", []param{
-		uintArg("clid", uint64(clid)),
+		idArg("clid", clid),
 		strArg("msg", message),
 	})
 }
@@ -173,7 +200,7 @@ func (c *Commands) PokeClient(ctx context.Context, clid uint16, message string) 
 // ClientMatch is one row of a clientfind result.
 type ClientMatch struct {
 	Nickname string
-	ID       uint16
+	ID       ClientID
 }
 
 // FindClients returns clients whose nickname contains pattern.
@@ -186,7 +213,7 @@ func (c *Commands) FindClients(ctx context.Context, pattern string) ([]ClientMat
 	out := make([]ClientMatch, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, ClientMatch{
-			ID:       fieldUint16(row, "clid"),
+			ID:       ClientID(fieldUint16(row, "clid")),
 			Nickname: fieldStr(row, "client_nickname"),
 		})
 	}
@@ -195,11 +222,13 @@ func (c *Commands) FindClients(ctx context.Context, pattern string) ([]ClientMat
 }
 
 // SetClientChannelGroup puts a client into a channel group in a channel.
-func (c *Commands) SetClientChannelGroup(ctx context.Context, channelGroupID, channelID, clientDBID uint64) error {
+func (c *Commands) SetClientChannelGroup(
+	ctx context.Context, channelGroupID ChannelGroupID, channelID ChannelID, clientDBID ClientDBID,
+) error {
 	return c.exec(ctx, "setclientchannelgroup", []param{
-		uintArg("cgid", channelGroupID),
-		uintArg("cid", channelID),
-		uintArg("cldbid", clientDBID),
+		idArg("cgid", channelGroupID),
+		idArg("cid", channelID),
+		idArg("cldbid", clientDBID),
 	})
 }
 
@@ -207,48 +236,84 @@ func (c *Commands) SetClientChannelGroup(ctx context.Context, channelGroupID, ch
 
 // ClientDatabaseEntry is a persistent client record.
 type ClientDatabaseEntry struct {
-	UID              string
+	// Created is when the client first connected.
+	Created time.Time
+	// LastConnected is when the client last connected.
+	LastConnected    time.Time
+	UID              UID
 	Nickname         string
 	Description      string
 	LastIP           string
-	DatabaseID       uint64
-	Created          uint64
-	LastConnected    uint64
+	DatabaseID       ClientDBID
 	TotalConnections uint64
 }
 
 func parseDatabaseEntry(row map[string]string) ClientDatabaseEntry {
 	return ClientDatabaseEntry{
-		DatabaseID:       fieldUint(row, "cldbid"),
-		UID:              fieldStr(row, "client_unique_identifier"),
+		DatabaseID:       ClientDBID(fieldUint(row, "cldbid")),
+		UID:              UID(fieldStr(row, "client_unique_identifier")),
 		Nickname:         fieldStr(row, "client_nickname"),
-		Created:          fieldUint(row, "client_created"),
-		LastConnected:    fieldUint(row, "client_lastconnected"),
+		Created:          fieldTime(row, "client_created"),
+		LastConnected:    fieldTime(row, "client_lastconnected"),
 		TotalConnections: fieldUint(row, "client_totalconnections"),
 		Description:      fieldStr(row, "client_description"),
 		LastIP:           fieldStr(row, "client_lastip"),
 	}
 }
 
-// ListClientDatabase walks the persistent client records.
+// clientDatabasePageSize is how many records ClientDatabase asks for at a time.
+const clientDatabasePageSize = 100
+
+// ClientDatabase walks every persistent client record, fetching them from the
+// server a page at a time as the loop asks for more:
 //
-// This is the whole database, so it is paged: pass a start and duration to take
-// a slice. A nil start asks for the first page.
-func (c *Commands) ListClientDatabase(ctx context.Context, start, duration *uint64) ([]ClientDatabaseEntry, error) {
-	rows, err := c.query(ctx, "clientdblist", []param{
-		uintPtrArg("start", start),
-		uintPtrArg("duration", duration),
-	})
-	if err != nil {
-		return nil, err
-	}
+//	for entry, err := range c.ClientDatabase(ctx) {
+//		if err != nil {
+//			return err
+//		}
+//		...
+//	}
+//
+// The server pages clientdblist (start, duration) and answers a start past the
+// last record with error 1281, "database empty result set", which here is the
+// end of the walk rather than an error. A page shorter than an earlier one
+// ends it too. The first page cannot end it that way: the server may cap a
+// page below what was asked, so a short first page might be a capped one, and
+// the walk asks once more to find out.
+//
+// Any other error is yielded once, with a zero entry, and ends the walk.
+// Records added or removed during the walk can be skipped or seen twice, since
+// each page is a separate query.
+func (c *Commands) ClientDatabase(ctx context.Context) iter.Seq2[ClientDatabaseEntry, error] {
+	return func(yield func(ClientDatabaseEntry, error) bool) {
+		var start, fullPage int
+		for {
+			rows, err := c.query(ctx, "clientdblist", []param{
+				uintArg("start", uint64(start)),
+				uintArg("duration", clientDatabasePageSize),
+			})
+			if errors.Is(err, errcode.DatabaseEmptyResult) {
+				return
+			}
+			if err != nil {
+				yield(ClientDatabaseEntry{}, err)
 
-	out := make([]ClientDatabaseEntry, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, parseDatabaseEntry(row))
-	}
+				return
+			}
 
-	return out, nil
+			for _, row := range rows {
+				if !yield(parseDatabaseEntry(row), nil) {
+					return
+				}
+			}
+
+			if len(rows) == 0 || len(rows) < fullPage {
+				return
+			}
+			fullPage = max(fullPage, len(rows))
+			start += len(rows)
+		}
+	}
 }
 
 // FindClientDatabase returns database records matching pattern.
@@ -267,8 +332,8 @@ func (c *Commands) FindClientDatabase(ctx context.Context, pattern string) ([]Cl
 }
 
 // GetClientDatabaseInfo returns one persistent client record.
-func (c *Commands) GetClientDatabaseInfo(ctx context.Context, clientDBID uint64) (ClientDatabaseEntry, error) {
-	rows, err := c.query(ctx, "clientdbinfo", []param{uintArg("cldbid", clientDBID)})
+func (c *Commands) GetClientDatabaseInfo(ctx context.Context, clientDBID ClientDBID) (ClientDatabaseEntry, error) {
+	rows, err := c.query(ctx, "clientdbinfo", []param{idArg("cldbid", clientDBID)})
 	if err != nil {
 		return ClientDatabaseEntry{}, err
 	}
@@ -280,43 +345,49 @@ func (c *Commands) GetClientDatabaseInfo(ctx context.Context, clientDBID uint64)
 	return parseDatabaseEntry(rows[0]), nil
 }
 
+// ClientDatabaseEditOptions change a persistent client record. Only the fields
+// you set are sent: a pointer to "" clears the description, while nil leaves
+// it alone.
+type ClientDatabaseEditOptions struct {
+	Description *string
+	Nickname    *string
+}
+
 // EditClientDatabase changes a persistent client record.
-func (c *Commands) EditClientDatabase(ctx context.Context, clientDBID uint64, description, nickname *string) error {
+func (c *Commands) EditClientDatabase(
+	ctx context.Context, clientDBID ClientDBID, opts ClientDatabaseEditOptions,
+) error {
 	return c.exec(ctx, "clientdbedit", []param{
-		uintArg("cldbid", clientDBID),
-		strPtrArg("client_description", description),
-		strPtrArg("client_nickname", nickname),
+		idArg("cldbid", clientDBID),
+		strPtrArg("client_description", opts.Description),
+		strPtrArg("client_nickname", opts.Nickname),
 	})
 }
 
 // DeleteClientDatabase removes a client from the database entirely.
-func (c *Commands) DeleteClientDatabase(ctx context.Context, clientDBID uint64) error {
-	return c.exec(ctx, "clientdbdelete", []param{uintArg("cldbid", clientDBID)})
+func (c *Commands) DeleteClientDatabase(ctx context.Context, clientDBID ClientDBID) error {
+	return c.exec(ctx, "clientdbdelete", []param{idArg("cldbid", clientDBID)})
 }
 
-// AddClientPermission grants a permission to a client.
+// AddClientPermission sets a permission on a client, server-wide.
 //
-// permSkip is required by the server here, unlike the channel equivalent.
+// skip is required by the server here, unlike the channel equivalent.
 func (c *Commands) AddClientPermission(
-	ctx context.Context, clientDBID uint64, permValue int32, permSkip bool, permID *uint64, permSID *string,
+	ctx context.Context, clientDBID ClientDBID, perm Permission, value int32, skip bool,
 ) error {
 	return c.exec(ctx, "clientaddperm", []param{
-		uintArg("cldbid", clientDBID),
-		intArg("permvalue", int64(permValue)),
-		boolArg("permskip", permSkip),
-		uintPtrArg("permid", permID),
-		strPtrArg("permsid", permSID),
+		idArg("cldbid", clientDBID),
+		permArg(perm),
+		intArg("permvalue", int64(value)),
+		boolArg("permskip", skip),
 	})
 }
 
 // DeleteClientPermission removes a permission from a client.
-func (c *Commands) DeleteClientPermission(
-	ctx context.Context, clientDBID uint64, permID *uint64, permSID *string,
-) error {
+func (c *Commands) DeleteClientPermission(ctx context.Context, clientDBID ClientDBID, perm Permission) error {
 	return c.exec(ctx, "clientdelperm", []param{
-		uintArg("cldbid", clientDBID),
-		uintPtrArg("permid", permID),
-		strPtrArg("permsid", permSID),
+		idArg("cldbid", clientDBID),
+		permArg(perm),
 	})
 }
 
@@ -324,10 +395,10 @@ func (c *Commands) DeleteClientPermission(
 //
 // A channel password travels as base64(sha1(password)) rather than cleartext;
 // passing a plaintext one makes a correct password fail with error 781.
-func (c *Commands) MoveClient(ctx context.Context, clid uint16, channelID uint64, password string) error {
+func (c *Commands) MoveClient(ctx context.Context, clid ClientID, channelID ChannelID, password string) error {
 	params := []param{
-		uintArg("clid", uint64(clid)),
-		uintArg("cid", channelID),
+		idArg("clid", clid),
+		idArg("cid", channelID),
 	}
 	if password != "" {
 		params = append(params, strArg("cpw", password))
@@ -342,33 +413,33 @@ func (c *Commands) MoveClient(ctx context.Context, clid uint16, channelID uint64
 // the like) rather than data rows; the client pairs it with the command.
 
 // GetClientDBIDByUID returns the persistent database id behind a uid.
-func (c *Commands) GetClientDBIDByUID(ctx context.Context, uid string) (uint64, error) {
-	rows, err := c.query(ctx, "clientgetdbidfromuid", []param{strArg("cluid", uid)})
+func (c *Commands) GetClientDBIDByUID(ctx context.Context, uid UID) (ClientDBID, error) {
+	rows, err := c.query(ctx, "clientgetdbidfromuid", []param{strArg("cluid", string(uid))})
 	if err != nil {
 		return 0, err
 	}
 
-	return firstOrEmpty(rows, "cldbid"), nil
+	return ClientDBID(firstOrEmpty(rows, "cldbid")), nil
 }
 
 // GetClientIDs returns every clid currently using a uid.
-func (c *Commands) GetClientIDs(ctx context.Context, uid string) ([]uint16, error) {
-	rows, err := c.query(ctx, "clientgetids", []param{strArg("cluid", uid)})
+func (c *Commands) GetClientIDs(ctx context.Context, uid UID) ([]ClientID, error) {
+	rows, err := c.query(ctx, "clientgetids", []param{strArg("cluid", string(uid))})
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]uint16, 0, len(rows))
+	out := make([]ClientID, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, fieldUint16(row, "clid"))
+		out = append(out, ClientID(fieldUint16(row, "clid")))
 	}
 
 	return out, nil
 }
 
 // GetClientUIDByID returns the uid of a connected client.
-func (c *Commands) GetClientUIDByID(ctx context.Context, clid uint16) (string, error) {
-	rows, err := c.query(ctx, "clientgetuidfromclid", []param{uintArg("clid", uint64(clid))})
+func (c *Commands) GetClientUIDByID(ctx context.Context, clid ClientID) (UID, error) {
+	rows, err := c.query(ctx, "clientgetuidfromclid", []param{idArg("clid", clid)})
 	if err != nil {
 		return "", err
 	}
@@ -377,12 +448,12 @@ func (c *Commands) GetClientUIDByID(ctx context.Context, clid uint16) (string, e
 		return "", nil
 	}
 
-	return fieldStr(rows[0], "cluid"), nil
+	return UID(fieldStr(rows[0], "cluid")), nil
 }
 
 // GetClientNameByDBID returns the nickname recorded for a database id.
-func (c *Commands) GetClientNameByDBID(ctx context.Context, clientDBID uint64) (string, error) {
-	rows, err := c.query(ctx, "clientgetnamefromdbid", []param{uintArg("cldbid", clientDBID)})
+func (c *Commands) GetClientNameByDBID(ctx context.Context, clientDBID ClientDBID) (string, error) {
+	rows, err := c.query(ctx, "clientgetnamefromdbid", []param{idArg("cldbid", clientDBID)})
 	if err != nil {
 		return "", err
 	}
@@ -395,8 +466,8 @@ func (c *Commands) GetClientNameByDBID(ctx context.Context, clientDBID uint64) (
 }
 
 // GetClientNameByUID returns the database id and nickname recorded for a uid.
-func (c *Commands) GetClientNameByUID(ctx context.Context, uid string) (uint64, string, error) {
-	rows, err := c.query(ctx, "clientgetnamefromuid", []param{strArg("cluid", uid)})
+func (c *Commands) GetClientNameByUID(ctx context.Context, uid UID) (ClientDBID, string, error) {
+	rows, err := c.query(ctx, "clientgetnamefromuid", []param{strArg("cluid", string(uid))})
 	if err != nil {
 		return 0, "", err
 	}
@@ -405,13 +476,13 @@ func (c *Commands) GetClientNameByUID(ctx context.Context, uid string) (uint64, 
 		return 0, "", nil
 	}
 
-	return fieldUint(rows[0], "cldbid"), fieldStr(rows[0], "name"), nil
+	return ClientDBID(fieldUint(rows[0], "cldbid")), fieldStr(rows[0], "name"), nil
 }
 
 // ListClientPermissions returns the permissions granted to a client from the
 // database.
-func (c *Commands) ListClientPermissions(ctx context.Context, clientDBID uint64) ([]PermissionEntry, error) {
-	rows, err := c.query(ctx, "clientpermlist", []param{uintArg("cldbid", clientDBID)})
+func (c *Commands) ListClientPermissions(ctx context.Context, clientDBID ClientDBID) ([]PermissionEntry, error) {
+	rows, err := c.query(ctx, "clientpermlist", []param{idArg("cldbid", clientDBID)})
 	if err != nil {
 		return nil, err
 	}

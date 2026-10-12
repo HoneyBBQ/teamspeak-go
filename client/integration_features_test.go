@@ -26,7 +26,7 @@ func TestIntegration_ListChannelsExposesOrder(t *testing.T) {
 		t.Fatalf("ListChannels: %v", err)
 	}
 
-	orders := make(map[uint64]struct{}, len(channels))
+	orders := make(map[teamspeak.ChannelID]struct{}, len(channels))
 	for _, ch := range channels {
 		orders[ch.Order] = struct{}{}
 	}
@@ -73,7 +73,7 @@ func TestIntegration_BatchedEnterInheritsOmittedFields(t *testing.T) {
 	observer := requireIntegrationPeer(t, addr)
 
 	var mu sync.Mutex
-	seen := make(map[string]uint64)
+	seen := make(map[string]teamspeak.ChannelID)
 	unsubscribe := observer.OnClientEnter(func(info teamspeak.ClientInfo) {
 		mu.Lock()
 		seen[info.Nickname] = info.ChannelID
@@ -115,7 +115,7 @@ func TestIntegration_ClientMoveIntoPasswordProtectedChannel(t *testing.T) {
 		t.Fatalf("ListChannels: %v", err)
 	}
 
-	var target uint64
+	var target teamspeak.ChannelID
 	for _, ch := range channels {
 		if ch.Name == channel {
 			target = ch.ID
@@ -168,7 +168,7 @@ func TestIntegration_SendWhisperReachesAnotherChannel(t *testing.T) {
 
 	frame := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 	for range 12 {
-		sendErr := sender.SendWhisper(frame, []uint16{listener.ClientID()}, 5)
+		sendErr := sender.SendWhisper(frame, []teamspeak.ClientID{listener.ClientID()}, teamspeak.CodecOpusMusic)
 		if sendErr != nil {
 			t.Fatalf("SendWhisper: %v", sendErr)
 		}

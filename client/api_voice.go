@@ -4,6 +4,8 @@ import (
 	"context"
 	"strconv"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
+
 	"github.com/honeybbq/teamspeak-go/commands"
 )
 
@@ -14,7 +16,7 @@ import (
 
 // GetChannelDescription returns the channel's description, which channellist
 // omits for bandwidth.
-func (c *Client) GetChannelDescription(ctx context.Context, cid uint64) (string, error) {
+func (c *Client) GetChannelDescription(ctx context.Context, cid teamspeak.ChannelID) (string, error) {
 	rows, err := c.send(ctx, channelCommand("channelgetdescription", cid))
 	if err != nil {
 		return "", err
@@ -29,14 +31,14 @@ func (c *Client) GetChannelDescription(ctx context.Context, cid uint64) (string,
 
 // SubscribeChannel subscribes to a channel: its clients' events and voice
 // arrive without joining it.
-func (c *Client) SubscribeChannel(ctx context.Context, cid uint64) error {
+func (c *Client) SubscribeChannel(ctx context.Context, cid teamspeak.ChannelID) error {
 	_, err := c.send(ctx, channelCommand("channelsubscribe", cid))
 
 	return err
 }
 
 // UnsubscribeChannel stops receiving a channel's events.
-func (c *Client) UnsubscribeChannel(ctx context.Context, cid uint64) error {
+func (c *Client) UnsubscribeChannel(ctx context.Context, cid teamspeak.ChannelID) error {
 	_, err := c.send(ctx, channelCommand("channelunsubscribe", cid))
 
 	return err
@@ -56,13 +58,13 @@ func (c *Client) UnsubscribeAllChannels(ctx context.Context) error {
 	return err
 }
 
-func channelCommand(name string, cid uint64) string {
-	return commands.BuildCommandOrdered(name, [][2]string{{"cid", strconv.FormatUint(cid, 10)}})
+func channelCommand(name string, cid teamspeak.ChannelID) string {
+	return commands.BuildCommandOrdered(name, [][2]string{{"cid", strconv.FormatUint(uint64(cid), 10)}})
 }
 
 // ChannelID returns the channel the client is currently in, or 0 if that is not
 // known yet, for example before the first notifycliententerview.
-func (c *Client) ChannelID() uint64 {
+func (c *Client) ChannelID() teamspeak.ChannelID {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

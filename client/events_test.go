@@ -94,15 +94,15 @@ func TestMultipleHandlers_AllCalled(t *testing.T) {
 func TestEvents_ArriveInOrder(t *testing.T) {
 	c := newTestClient(t)
 	var mu sync.Mutex
-	var got []uint16
+	var got []teamspeak.ClientID
 	c.OnClientEnter(func(info teamspeak.ClientInfo) {
 		mu.Lock()
 		got = append(got, info.ID)
 		mu.Unlock()
 	})
 
-	want := make([]uint16, 0, 200)
-	for i := range uint16(200) {
+	want := make([]teamspeak.ClientID, 0, 200)
+	for i := range teamspeak.ClientID(200) {
 		want = append(want, i)
 		c.emitEvent(teamspeak.ClientInfo{ID: i})
 	}
@@ -176,14 +176,14 @@ func TestEvents_ABlockedHandlerDoesNotBlockTheProducer(t *testing.T) {
 
 func TestEvents_EachHandlerGetsItsOwnCopy(t *testing.T) {
 	c := newTestClient(t)
-	seen := make(chan []uint64, 2)
+	seen := make(chan []teamspeak.ServerGroupID, 2)
 	c.OnTextMessage(func(m TextMessage) {
 		m.InvokerGroups[0] = 99
 		seen <- m.InvokerGroups
 	})
 	c.OnTextMessage(func(m TextMessage) { seen <- m.InvokerGroups })
 
-	c.emitEvent(TextMessage{InvokerGroups: []uint64{1, 2}})
+	c.emitEvent(TextMessage{InvokerGroups: []teamspeak.ServerGroupID{1, 2}})
 
 	receive(t, seen)
 	if second := receive(t, seen); second[0] != 1 {

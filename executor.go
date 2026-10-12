@@ -2,6 +2,7 @@ package teamspeak
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sync/atomic"
 
@@ -90,9 +91,15 @@ func (c *Commands) exec(ctx context.Context, command string, params []param, pas
 	return err
 }
 
-// query sends a command and returns its response rows.
+// query sends a command and returns its response rows. A parameter that cannot
+// be encoded refuses the command before anything is sent.
 func (c *Commands) query(
 	ctx context.Context, command string, params []param, passwords ...string,
 ) ([]map[string]string, error) {
+	err := firstInvalid(params)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", command, err)
+	}
+
 	return c.executor.Send(ctx, Request{command: command, params: params, passwords: passwords})
 }
