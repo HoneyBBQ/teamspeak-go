@@ -366,7 +366,7 @@ func (c *Client) handleCommand(h *transport.PacketHandler, s string) {
 	case "initserver":
 		c.handleInitServer(h, cmd)
 	case "error":
-		c.handleError(cmd)
+		c.handleError(h, cmd)
 	default:
 		// A named command the SDK does not model. Held under its own name, so
 		// it answers a command only if that command declared it — not merely
@@ -396,7 +396,10 @@ func (c *Client) receiveNotification(h *transport.PacketHandler, cmd *wire.Comma
 	}
 }
 
-func (c *Client) handleError(cmd *wire.Command) {
+// handleError settles the command an error answers. A server error before the
+// handshake completed also fails the connection attempt h runs, unless a later
+// Connect has replaced h meanwhile.
+func (c *Client) handleError(h *transport.PacketHandler, cmd *wire.Command) {
 	rcStr := cmd.Params["return_code"]
 
 	var err error
@@ -410,12 +413,7 @@ func (c *Client) handleError(cmd *wire.Command) {
 
 		if serverErr.Code == errcode.ConnectFailedBanned {
 			c.logger.Warn("banned by the server, closing the connection")
-			go func() {
-				disconnectErr := c.Disconnect(context.Background())
-				if disconnectErr != nil {
-					c.logger.Warn("disconnect after fatal error failed", slog.Any("error", disconnectErr))
-				}
-			}()
+			go c.disconnectBanned(h)
 		}
 	}
 
@@ -430,7 +428,16 @@ func (c *Client) handleError(cmd *wire.Command) {
 	// itself: a rejected password, or an invalid clientinit parameter.
 	// failConnection is a no-op once connected.
 	if err != nil {
-		c.failConnection(err)
+		c.failConnection(h, err)
+	}
+}
+
+// disconnectBanned disconnects after the server banned the connection h ran,
+// unless a later Connect has replaced it by the time this goroutine runs.
+func (c *Client) disconnectBanned(h *transport.PacketHandler) {
+	disconnectErr := c.disconnect(context.Background(), h)
+	if disconnectErr != nil {
+		c.logger.Warn("disconnect after fatal error failed", slog.Any("error", disconnectErr))
 	}
 }
 

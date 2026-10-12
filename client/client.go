@@ -432,7 +432,19 @@ func (c *Client) Connect(ctx context.Context) error {
 // teamspeak.ErrNotConnected, and so do the commands still waiting for an
 // answer. Disconnect on a client that is not connected does nothing.
 func (c *Client) Disconnect(ctx context.Context) error {
+	return c.disconnect(ctx, nil)
+}
+
+// disconnect is Disconnect. With a non-nil only, it acts only while only is
+// still the current handler, checked under the lock: a disconnect decided on
+// for one connection must not end the next.
+func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) error {
 	c.mu.Lock()
+	if only != nil && c.handler != only {
+		c.mu.Unlock()
+
+		return nil
+	}
 	// Recorded before anything else: a dropped socket during the goodbye below
 	// must not be mistaken for an outage worth retrying.
 	c.stopped = true
@@ -480,7 +492,7 @@ func (c *Client) describe() (string, Status) {
 // undoes a Disconnect; a reconnect that finds the client stopped gives up,
 // whenever the Disconnect landed.
 func (c *Client) connect(ctx context.Context, fromCaller bool) error {
-	attempt, err := c.start(ctx, fromCaller)
+	attempt, handler, err := c.start(ctx, fromCaller)
 	if err != nil {
 		return err
 	}
@@ -493,7 +505,7 @@ func (c *Client) connect(ctx context.Context, fromCaller bool) error {
 		// which case failConnection leaves the session alone and Connect
 		// reports the connection it made rather than one the caller would
 		// believe had failed.
-		c.failConnection(ctx.Err())
+		c.failConnection(handler, ctx.Err())
 		<-attempt.done
 
 		return attempt.err
@@ -501,22 +513,22 @@ func (c *Client) connect(ctx context.Context, fromCaller bool) error {
 }
 
 // start resets the session and begins the handshake, returning the attempt
-// that the handshake will resolve. fromCaller clears a previous Disconnect;
+// that the handshake will resolve and the handler running it. fromCaller clears a previous Disconnect;
 // otherwise a stopped client is refused with errStopped, checked under the
 // same lock Disconnect takes so that one landing just before cannot be undone.
-func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, error) {
+func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, *transport.PacketHandler, error) {
 	c.mu.Lock()
 	if fromCaller {
 		c.stopped = false
 	} else if c.stopped {
 		c.mu.Unlock()
 
-		return nil, errStopped
+		return nil, nil, errStopped
 	}
 	if c.status != StatusDisconnected {
 		c.mu.Unlock()
 
-		return nil, ErrAlreadyConnected
+		return nil, nil, ErrAlreadyConnected
 	}
 
 	// The handler resetForConnectLocked wires up reconnects on its own context:
@@ -542,7 +554,7 @@ func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, e
 	if err != nil {
 		// Without this the client stays in StatusConnecting and every later
 		// Connect fails with ErrAlreadyConnected.
-		c.failConnection(err)
+		c.failConnection(handler, err)
 		// A Disconnect while the socket was opening closes it under the open,
 		// which then fails with "use of closed network connection". The
 		// attempt already holds the real outcome; report that.
@@ -551,10 +563,10 @@ func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, e
 			err = attempt.err
 		}
 
-		return nil, err
+		return nil, nil, err
 	}
 
-	return attempt, nil
+	return attempt, handler, nil
 }
 
 // startOnPacketConn starts handler on the caller's PacketConn, sending to
@@ -665,8 +677,18 @@ func (c *Client) newHandler() *transport.PacketHandler {
 // server answers with an error instead of closing the socket) surfaced only as
 // the caller's own timeout, and the client stayed in
 // StatusConnecting forever without emitting disconnected.
-func (c *Client) failConnection(err error) {
+//
+// h is the handler whose connection failed. If a later Connect has replaced
+// it, the failure was that earlier connection's and is ignored: checked under
+// the lock, so it cannot land on the new attempt.
+func (c *Client) failConnection(h *transport.PacketHandler, err error) {
 	c.mu.Lock()
+	if c.handler != h {
+		c.mu.Unlock()
+		c.logger.Debug("ignoring a failure of a replaced connection", slog.Any("error", err))
+
+		return
+	}
 	c.failConnectionLocked(err)
 }
 

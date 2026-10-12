@@ -17,7 +17,7 @@ func (c *Client) handleNotification(h *transport.PacketHandler, cmd *wire.Comman
 	case "notifyclientleftview":
 		c.handleClientLeftView(h, cmd)
 	case "notifyclientmoved":
-		c.handleClientMoved(cmd)
+		c.handleClientMoved(h, cmd)
 	case "notifytextmessage":
 		c.handleTextMessage(cmd)
 	case "notifyclientpoke":
@@ -103,6 +103,14 @@ func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Comm
 	}
 
 	c.mu.Lock()
+	// Under the lock with the state it changes: a late notification from a
+	// replaced connection must not edit the next one's client list, or be
+	// taken for this client leaving.
+	if c.handler != h {
+		c.mu.Unlock()
+
+		return
+	}
 	isSelf := clid == c.clid
 	delete(c.clients, clid)
 	c.mu.Unlock()
@@ -133,7 +141,7 @@ func (c *Client) removedByServer(h *transport.PacketHandler, cause error) {
 	_ = h.Close()
 }
 
-func (c *Client) handleClientMoved(cmd *wire.Command) {
+func (c *Client) handleClientMoved(h *transport.PacketHandler, cmd *wire.Command) {
 	clid := parseClientID(cmd.Params["clid"])
 	ctid := parseChannelID(cmd.Params["ctid"])
 	reasonID, _ := parseIntValue(cmd.Params["reasonid"])
@@ -142,6 +150,11 @@ func (c *Client) handleClientMoved(cmd *wire.Command) {
 		return
 	}
 	c.mu.Lock()
+	if c.handler != h {
+		c.mu.Unlock()
+
+		return
+	}
 	if info, ok := c.clients[clid]; ok {
 		info.ChannelID = ctid
 		c.clients[clid] = info

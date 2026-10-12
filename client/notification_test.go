@@ -210,7 +210,7 @@ func TestHandleClientMoved_ChannelKickOfSelf_TriggersKicked(t *testing.T) {
 	kicked := make(chan KickedEvent, 1)
 	c.OnKicked(func(e KickedEvent) { kicked <- e })
 
-	c.handleClientMoved(wire.ParseCommand(
+	c.handleClientMoved(c.handler, wire.ParseCommand(
 		`notifyclientmoved clid=5 ctid=1 reasonid=4 reasonmsg=out invokerid=1 invokername=Admin`))
 
 	if e := receive(t, kicked); e.Reason != teamspeak.ReasonKickChannel || e.Message != "out" {
@@ -247,7 +247,7 @@ func TestHandleClientMoved_UpdatesChannelID(t *testing.T) {
 
 	const moveCmd = "notifyclientmoved clid=3 ctid=20 reasonid=0" +
 		" invokerid=1 invokername=Admin invokeruid=admin"
-	c.handleClientMoved(wire.ParseCommand(moveCmd))
+	c.handleClientMoved(c.handler, wire.ParseCommand(moveCmd))
 
 	c.mu.Lock()
 	info := c.clients[3]
@@ -269,7 +269,7 @@ func TestHandleClientMoved_TriggersCallback(t *testing.T) {
 
 	const moveCmd2 = "notifyclientmoved clid=3 ctid=20 reasonid=0" +
 		" invokerid=1 invokername=Admin invokeruid=admin"
-	c.handleClientMoved(wire.ParseCommand(moveCmd2))
+	c.handleClientMoved(c.handler, wire.ParseCommand(moveCmd2))
 
 	select {
 	case e := <-moved:

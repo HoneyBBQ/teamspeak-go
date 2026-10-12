@@ -151,3 +151,46 @@ func TestCloseFromAReplacedHandlerIsIgnored(t *testing.T) {
 		t.Errorf("status = %v after a stale close, want StatusConnecting", status)
 	}
 }
+
+// A server error the previous connection's handler delivers after a new
+// Connect began belongs to that old connection; it must not fail the new
+// attempt, nor a ban from it disconnect the new one.
+func TestErrorFromAReplacedHandlerIsIgnored(t *testing.T) {
+	for name, line := range map[string]string{
+		"refusal": `error id=1028 msg=invalid\sserver\spassword`,
+		"ban":     `error id=3329 msg=connection\sfailed,\syou\sare\sbanned`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := connectingClient(t)
+			c.mu.Lock()
+			stale := c.handler
+			c.mu.Unlock()
+			reconnect(t, c)
+
+			c.handleCommand(stale, line)
+			time.Sleep(50 * time.Millisecond) // a ban disconnects from a goroutine
+
+			if got := c.Status(); got != StatusConnecting {
+				t.Errorf("status = %v after a stale %s, want StatusConnecting", got, name)
+			}
+			err := waitWithin(t, c, 50*time.Millisecond)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Errorf("WaitConnected after a stale %s = %v, want it to keep waiting", name, err)
+			}
+		})
+	}
+}
+
+// A ban noticed on a connection that a new Connect then replaced must not
+// disconnect the new one.
+func TestBanDisconnectSparesAReplacingConnection(t *testing.T) {
+	c := connectingClient(t)
+	stale := c.currentHandler()
+	reconnect(t, c)
+
+	c.disconnectBanned(stale)
+
+	if got := c.Status(); got != StatusConnecting {
+		t.Errorf("status = %v, want the new attempt left alone", got)
+	}
+}
