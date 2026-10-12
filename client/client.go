@@ -209,7 +209,12 @@ type Client struct {
 	reconnectPendingErr error
 	// stopped is set by an explicit Disconnect, which must never be undone by a
 	// retry.
-	stopped        bool
+	stopped bool
+	// leaving is the Disconnect saying goodbye, nil when there is none.
+	leaving *leaving
+	// disconnects counts Disconnect calls, so a Connect waiting for one to
+	// finish can tell whether another arrived meanwhile.
+	disconnects    uint64
 	cmdMiddlewares []CommandMiddleware
 	// executor is the command middleware wrapped around the client's own
 	// executor; Send runs requests through it.
@@ -421,6 +426,11 @@ func WithDefaultChannelPassword(password string) Option {
 //
 // ctx bounds only the connecting: once Connect returns, the connection lasts
 // until Disconnect or a drop.
+//
+// Called while a Disconnect is still saying goodbye, Connect waits for it
+// first, so the old session is closed, and its end announced, before the new
+// one starts. A Disconnect called during that wait wins: Connect then returns
+// teamspeak.ErrNotConnected.
 func (c *Client) Connect(ctx context.Context) error {
 	return c.connect(ctx, true)
 }
@@ -431,7 +441,9 @@ func (c *Client) Connect(ctx context.Context) error {
 // at most, or until ctx is done if that is sooner. The connection is closed
 // either way. A Connect still waiting for its handshake returns
 // teamspeak.ErrNotConnected, and so do the commands still waiting for an
-// answer. Disconnect on a client that is not connected does nothing.
+// answer. Disconnect on a client that is not connected does nothing; called
+// while an earlier Disconnect is still saying goodbye, it waits for that one
+// and returns its result.
 func (c *Client) Disconnect(ctx context.Context) error {
 	return c.disconnect(ctx, nil)
 }
@@ -449,6 +461,13 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 	// Recorded before anything else: a dropped socket during the goodbye below
 	// must not be mistaken for an outage worth retrying.
 	c.stopped = true
+	c.disconnects++
+	if l := c.leaving; l != nil {
+		// Another Disconnect is saying goodbye: join it.
+		c.mu.Unlock()
+
+		return l.wait(ctx)
+	}
 	oldStatus := c.status
 	if oldStatus == StatusDisconnected {
 		c.mu.Unlock()
@@ -458,6 +477,8 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 	c.status = StatusDisconnected
 	c.attempt.finish(errDisconnectedDuringHandshake)
 	handler := c.handler
+	l := &leaving{done: make(chan struct{})}
+	c.leaving = l
 	c.mu.Unlock()
 
 	c.logger.InfoContext(ctx, "disconnecting from server")
@@ -469,12 +490,67 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 	}
 
 	err := handler.Close()
+
+	c.finishLeaving(l, err)
+
+	return err
+}
+
+// finishLeaving ends Disconnect l with err: it fails the commands still
+// waiting and announces the end. Under the lock, and before leaving is
+// cleared: a Connect waits for that, so no new session has started whose
+// commands the reset could fail or that the announcement could be taken for.
+func (c *Client) finishLeaving(l *leaving, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.cmdTrack.reset(teamspeak.ErrNotConnected)
 	// Announced here; handleConnectionClosed stays quiet once the status is
 	// already Disconnected, so the handlers hear about it once.
 	emit(c, &c.onDisconnected, "Disconnected", nil)
+	c.leaving = nil
+	l.err = err
+	close(l.done)
+}
 
-	return err
+// waitLeavingLocked waits for any Disconnect still saying goodbye, releasing
+// c.mu meanwhile and holding it again on return. It fails if ctx ends first,
+// or with errDisconnectedDuringHandshake if another Disconnect arrives: that
+// one wins over the Connect waiting.
+func (c *Client) waitLeavingLocked(ctx context.Context) error {
+	for c.leaving != nil {
+		l, disconnects := c.leaving, c.disconnects
+		c.mu.Unlock()
+		_ = l.wait(ctx) // its own result is the Disconnect's
+		c.mu.Lock()
+		err := ctx.Err()
+		if err != nil {
+			return err
+		}
+		if c.disconnects != disconnects {
+			return errDisconnectedDuringHandshake
+		}
+	}
+
+	return nil
+}
+
+// leaving is a Disconnect saying goodbye. done is closed once it has closed
+// the connection and announced it; err, written before, is its result.
+type leaving struct {
+	done chan struct{}
+	err  error
+}
+
+// wait returns the Disconnect's result once it has finished, or ctx's error if
+// ctx ends first.
+func (l *leaving) wait(ctx context.Context) error {
+	select {
+	case <-l.done:
+		return l.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // describe snapshots what String and LogValue show. The nickname changes when
@@ -516,6 +592,15 @@ func (c *Client) connect(ctx context.Context, fromCaller bool) error {
 // same lock Disconnect takes so that one landing just before cannot be undone.
 func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, *transport.PacketHandler, error) {
 	c.mu.Lock()
+	// A Disconnect still saying goodbye finishes first, so the old session is
+	// closed, and its end announced, before the new one starts. A Disconnect
+	// called meanwhile wins.
+	err := c.waitLeavingLocked(ctx)
+	if err != nil {
+		c.mu.Unlock()
+
+		return nil, nil, err
+	}
 	if fromCaller {
 		c.stopped = false
 	} else if c.stopped {
@@ -543,7 +628,6 @@ func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, *
 	targetAddr, source := c.resolveConnectTarget(ctx, finalAddr)
 	c.logger.InfoContext(ctx, "connecting to server", slog.String("address", targetAddr), slog.String("source", source))
 
-	var err error
 	if packetConn != nil {
 		err = startOnPacketConn(ctx, previous, handler, packetConn, targetAddr)
 	} else {

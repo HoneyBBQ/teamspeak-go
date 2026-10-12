@@ -152,3 +152,98 @@ func TestConnect_BoundsACustomResolver(t *testing.T) {
 		t.Errorf("resolver deadline = %v, want within %v of the start", deadline, resolveTimeout)
 	}
 }
+
+// leavingClient returns a connected client whose goodbye goes unanswered, so a
+// Disconnect on it says goodbye for a full second, and whose next Connect
+// dials a server that never answers.
+func leavingClient(t *testing.T) *Client {
+	t.Helper()
+	silent, err := (&net.ListenConfig{}).ListenPacket(t.Context(), "udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = silent.Close() })
+	c := newTestClient(t, WithResolver(fixedResolver(silent.LocalAddr().String())))
+	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
+
+	return c
+}
+
+// waitLeaving waits until a Disconnect on c has begun its goodbye.
+func waitLeaving(t *testing.T, c *Client) {
+	t.Helper()
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		c.mu.Lock()
+		l := c.leaving
+		c.mu.Unlock()
+		if l != nil {
+			return
+		}
+	}
+	t.Fatal("Disconnect did not start saying goodbye")
+}
+
+// A Connect while a Disconnect says goodbye waits for it: the new session
+// starts only once the old one is closed and its end announced.
+func TestConnect_WaitsForADisconnectSayingGoodbye(t *testing.T) {
+	c := leavingClient(t)
+	disconnected := make(chan time.Time, 1)
+	go func() {
+		_ = c.Disconnect(context.Background())
+		disconnected <- time.Now()
+	}()
+	waitLeaving(t, c)
+
+	connecting := make(chan time.Time, 1)
+	go func() {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go func() {
+			for c.Status() != StatusConnecting {
+				time.Sleep(time.Millisecond)
+			}
+			connecting <- time.Now()
+			cancel()
+		}()
+		_ = c.Connect(ctx)
+	}()
+
+	left := <-disconnected
+	select {
+	case started := <-connecting:
+		if started.Before(left) {
+			t.Errorf("the new attempt started %v before Disconnect returned", left.Sub(started))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Connect never started after the Disconnect")
+	}
+}
+
+// A second Disconnect joins the first and returns when it does; a Disconnect
+// while a Connect waits for the first makes that Connect fail.
+func TestDisconnect_JoinsTheOneSayingGoodbye(t *testing.T) {
+	c := leavingClient(t)
+	go func() { _ = c.Disconnect(context.Background()) }()
+	waitLeaving(t, c)
+
+	connectErr := make(chan error, 1)
+	go func() { connectErr <- c.Connect(t.Context()) }()
+	time.Sleep(20 * time.Millisecond)
+
+	start := time.Now()
+	_ = c.Disconnect(context.Background())
+	if took := time.Since(start); took < 500*time.Millisecond {
+		t.Errorf("the second Disconnect returned after %v, before the first had finished", took)
+	}
+	select {
+	case err := <-connectErr:
+		if !errors.Is(err, teamspeak.ErrNotConnected) {
+			t.Errorf("Connect = %v, want ErrNotConnected", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Connect did not return")
+	}
+	if got := c.Status(); got != StatusDisconnected {
+		t.Errorf("status = %v, want disconnected", got)
+	}
+}
