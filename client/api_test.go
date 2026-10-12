@@ -124,3 +124,32 @@ func TestClientFormattingHidesPasswords(t *testing.T) {
 		t.Error("clientinit no longer carries the server password hash")
 	}
 }
+
+// Mid-handshake, with the transport open and even the shared secret set, no
+// command, raw line, voice or whisper goes out: only a connected session sends.
+func TestSendsWhileConnectingReturnErrNotConnected(t *testing.T) {
+	c := newTestClient(t)
+	markConnecting(c)
+	var sent []string
+	c.wireHook = func(line string) error {
+		sent = append(sent, line)
+
+		return nil
+	}
+
+	checks := map[string]error{
+		"SendVoice":   c.SendVoice([]byte{1}, teamspeak.CodecOpusVoice),
+		"SendWhisper": c.SendWhisper([]byte{1}, []teamspeak.ClientID{1}, teamspeak.CodecOpusVoice),
+		"ExecNoWait":  c.ExecNoWait(t.Context(), "clientupdate"),
+	}
+	_, checks["Exec"] = c.Exec(t.Context(), "whoami")
+	_, checks["ListChannels"] = c.ListChannels(t.Context())
+	for name, err := range checks {
+		if !errors.Is(err, teamspeak.ErrNotConnected) {
+			t.Errorf("%s = %v, want ErrNotConnected", name, err)
+		}
+	}
+	if len(sent) != 0 {
+		t.Errorf("sent %q while connecting", sent)
+	}
+}

@@ -173,12 +173,16 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 
 	c.logger.Info("connected to server", slog.Uint64("self_id", uint64(selfID)))
 
+	// The handshake's own command: sent on h, the session it completes, not
+	// through ExecNoWait, which would send on whatever session is current.
 	go func() {
 		updateCmd := wire.BuildCommand("clientupdate", map[string]string{
 			"client_input_muted":  "0",
 			"client_output_muted": "0",
 		})
-		_ = c.ExecNoWait(context.Background(), updateCmd)
+		if c.throttle.wait(context.Background()) == nil {
+			_ = c.sendLine(h, updateCmd)
+		}
 	}()
 
 	emit(c, &c.onConnected, "Connected", struct{}{})
