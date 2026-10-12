@@ -12,8 +12,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 // InitVersion is the client build timestamp every Init1 packet the client
@@ -140,7 +140,7 @@ func buildInit1Step4Packet(tc *crypto.Crypt, data []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	cmd := commands.BuildCommandOrdered("clientinitiv", [][2]string{
+	cmd := wire.BuildCommandOrdered("clientinitiv", [][2]string{
 		{"alpha", base64.StdEncoding.EncodeToString(tc.AlphaTmp)},
 		{"omega", tc.Identity.PublicKey()},
 		{"ot", "1"},

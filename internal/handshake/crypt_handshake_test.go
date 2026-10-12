@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 const (
@@ -264,7 +264,7 @@ func assertStep3ClientInitIV(t *testing.T, tc *crypto.Crypt, out []byte) {
 	}
 
 	cmdPart := string(out[5+232+64:])
-	cmd := commands.ParseCommand(cmdPart)
+	cmd := wire.ParseCommand(cmdPart)
 	if cmd == nil || cmd.Name != "clientinitiv" {
 		t.Errorf("expected clientinitiv command, got %q", cmdPart)
 

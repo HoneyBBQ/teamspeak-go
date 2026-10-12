@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/honeybbq/teamspeak-go/commands"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 // recorder is an Executor that records the requests the typed commands make.
@@ -52,7 +52,7 @@ func TestRequest_SendsFlagsBare(t *testing.T) {
 
 // The parser unescapes once. A second pass turned a real \s into a space.
 func TestFieldStr_DoesNotUnescapeTwice(t *testing.T) {
-	row := commands.ParseCommand(`name=C:\\stuff`).Params
+	row := wire.ParseCommand(`name=C:\\stuff`).Params
 	if got := fieldStr(row, "name"); got != `C:\stuff` {
 		t.Errorf("fieldStr = %q, want %q", got, `C:\stuff`)
 	}

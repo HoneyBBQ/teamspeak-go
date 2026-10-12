@@ -2,15 +2,14 @@
 // TeamSpeak connection shares: the voice protocol and ServerQuery send the
 // same rows, error ids and icon ids, so they are read in one place.
 //
-// It depends on nothing but the commands and errcode packages, so the root
-// package can use it as well as the transports.
+// It parses and builds command lines too. It depends on nothing but the
+// errcode package, so the root package can use it as well as the transports.
 package wire
 
 import (
 	"strconv"
 	"strings"
 
-	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/errcode"
 )
 
@@ -68,7 +67,7 @@ func SplitRows(line string) []string {
 // returning the name ("" for a nameless response) and the rest.
 func splitName(line string) (string, string) {
 	head, tail, hasSpace := strings.Cut(line, " ")
-	if !commands.IsCommandName(head) {
+	if !IsCommandName(head) {
 		return "", line
 	}
 	if !hasSpace {

@@ -18,7 +18,6 @@ import (
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
-	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/internal/servererr"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
@@ -106,7 +105,7 @@ func (c *Client) Send(ctx context.Context, req teamspeak.Request) ([]map[string]
 }
 
 // Exec sends a raw command line and returns the rows that answer it. The line
-// is sent as given, so its values must already be escaped (commands.Escape).
+// is sent as given, so its values must already be escaped (wire.Escape).
 //
 // Without a deadline on ctx the command gives up after defaultCommandTimeout.
 func (c *Client) Exec(ctx context.Context, line string) ([]map[string]string, error) {
@@ -207,7 +206,7 @@ func (c *Client) handleLine(line string) {
 	if line == "" {
 		return
 	}
-	cmd := commands.ParseCommand(line)
+	cmd := wire.ParseCommand(line)
 	if cmd == nil {
 		return
 	}
@@ -246,7 +245,7 @@ func (c *Client) handleLine(line string) {
 	}
 	// A data line, possibly several rows separated by "|".
 	for _, row := range wire.SplitRows(line) {
-		if parsed := commands.ParseCommand(row); parsed != nil {
+		if parsed := wire.ParseCommand(row); parsed != nil {
 			c.pending.rows = append(c.pending.rows, parsed.Params)
 		}
 	}

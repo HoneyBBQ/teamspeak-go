@@ -9,17 +9,17 @@ import (
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
-	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
 	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 // handleHandshakeInitIV completes the legacy key exchange. Once a shared
 // secret exists a repeat is ignored: replacing the keys mid-session would end
 // it.
-func (c *Client) handleHandshakeInitIV(h *transport.PacketHandler, cmd *commands.Command) {
+func (c *Client) handleHandshakeInitIV(h *transport.PacketHandler, cmd *wire.Command) {
 	if h.TsCrypt.InitComplete() {
 		c.logger.Debug("ignoring clientinitiv after the key exchange")
 
@@ -41,7 +41,7 @@ func (c *Client) handleHandshakeInitIV(h *transport.PacketHandler, cmd *commands
 // handleHandshakeExpand2 completes the key exchange: it answers with clientek,
 // checks the server's license chain and derives the shared secret. Once one
 // exists a repeat is ignored.
-func (c *Client) handleHandshakeExpand2(h *transport.PacketHandler, cmd *commands.Command) {
+func (c *Client) handleHandshakeExpand2(h *transport.PacketHandler, cmd *wire.Command) {
 	if h.TsCrypt.InitComplete() {
 		c.logger.Debug("ignoring initivexpand2 after the key exchange")
 
@@ -83,7 +83,7 @@ func (c *Client) sendClientEkPacket(h *transport.PacketHandler, beta string) ([]
 	if err != nil {
 		return nil, err
 	}
-	clientEk := commands.BuildCommandOrdered("clientek", [][2]string{
+	clientEk := wire.BuildCommandOrdered("clientek", [][2]string{
 		{"ek", ekBase64},
 		{"proof", clientProof},
 	})
@@ -123,7 +123,7 @@ func (c *Client) buildClientEkProof(h *transport.PacketHandler, publicKey []byte
 // handler's attempt still in progress: an initserver that arrives after
 // Disconnect, or on a connection already replaced, must not bring the client
 // back to connected.
-func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *commands.Command) {
+func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command) {
 	c.mu.Lock()
 	if c.handler != h || c.status != StatusConnecting {
 		c.mu.Unlock()
@@ -164,7 +164,7 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *commands.Comm
 	c.logger.Info("connected to server", slog.Uint64("self_id", uint64(selfID)))
 
 	go func() {
-		updateCmd := commands.BuildCommand("clientupdate", map[string]string{
+		updateCmd := wire.BuildCommand("clientupdate", map[string]string{
 			"client_input_muted":  "0",
 			"client_output_muted": "0",
 		})
@@ -190,7 +190,7 @@ func (c *Client) buildClientInitCommand(tc *crypto.Crypt) string {
 	defaultChannelPassword := c.clientInitOptions.defaultChannelPasswordHash
 	serverPassword := c.clientInitOptions.serverPasswordHash
 
-	return commands.BuildCommandOrdered("clientinit", [][2]string{
+	return wire.BuildCommandOrdered("clientinit", [][2]string{
 		{"client_nickname", c.nickname},
 		{"client_version", "3.?.? [Build: 5680278000]"},
 		{"client_platform", "Windows"},

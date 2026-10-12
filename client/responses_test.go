@@ -9,9 +9,9 @@ import (
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
-	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/errcode"
 	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 // The server answers in order, so the rows before error 1 are command 1's,
@@ -171,7 +171,7 @@ func TestInitFileUpload_GivesEachNegotiationItsOwnID(t *testing.T) {
 	ids := make([]string, 0, 2)
 	c := newTestClient(t)
 	c.wireHook = func(line string) error {
-		ids = append(ids, commands.ParseCommand(line).Params["clientftfid"])
+		ids = append(ids, wire.ParseCommand(line).Params["clientftfid"])
 
 		return errCaptured
 	}

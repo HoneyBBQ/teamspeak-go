@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/honeybbq/teamspeak-go/commands"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 func TestHandleCommandLines_Empty(t *testing.T) {
@@ -212,7 +212,7 @@ func TestExec_ServerError(t *testing.T) {
 }
 
 func mustUint32Str(rc uint32) string {
-	return commands.ParseCommand("x return_code=" + itoa(rc)).Params["return_code"]
+	return wire.ParseCommand("x return_code=" + itoa(rc)).Params["return_code"]
 }
 
 func itoa(n uint32) string {

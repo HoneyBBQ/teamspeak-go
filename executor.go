@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/errcode"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 // Request is a command as the typed commands describe it, before a transport
@@ -83,13 +83,13 @@ func (r Request) Encode(encodePassword func(password string) string) string {
 		out = append(out, [2]string{p.Key, value})
 	}
 
-	line := commands.BuildCommandOrdered(r.command, out)
+	line := wire.BuildCommandOrdered(r.command, out)
 	if group == nil {
 		return line
 	}
 	rows := make([]string, len(group.rows))
 	for i, value := range group.rows {
-		rows[i] = group.Key + "=" + commands.Escape(value)
+		rows[i] = group.Key + "=" + wire.Escape(value)
 	}
 
 	return line + " " + strings.Join(rows, "|")

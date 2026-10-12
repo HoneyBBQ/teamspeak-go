@@ -15,7 +15,6 @@ import (
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
-	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/errcode"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
 	"github.com/honeybbq/teamspeak-go/internal/servererr"
@@ -64,7 +63,7 @@ type pendingCommand struct {
 //
 // A nameless row always belongs to the command. A notification row belongs to
 // it only if the command declared that notification as its answer (see
-// commands.Response): the same notifyclientmoved that answers nothing can
+// responses.go): the same notifyclientmoved that answers nothing can
 // arrive between any two commands.
 //
 // The welcome sequence is the exception. The server pushes channellist,
@@ -326,7 +325,7 @@ func (c *Client) handleCommandLines(h *transport.PacketHandler, s string) {
 }
 
 func (c *Client) handleCommand(h *transport.PacketHandler, s string) {
-	cmd := commands.ParseCommand(s)
+	cmd := wire.ParseCommand(s)
 	if cmd == nil {
 		return
 	}
@@ -379,7 +378,7 @@ func (c *Client) handleCommand(h *transport.PacketHandler, s string) {
 
 // receiveNotification hands a notification to the command awaiting it, if
 // any, and then to its handlers.
-func (c *Client) receiveNotification(h *transport.PacketHandler, cmd *commands.Command) {
+func (c *Client) receiveNotification(h *transport.PacketHandler, cmd *wire.Command) {
 	// Some commands are answered by a notification instead of data rows. It
 	// still goes on to be dispatched as an event, since the same notification
 	// also arrives unprompted.
@@ -397,7 +396,7 @@ func (c *Client) receiveNotification(h *transport.PacketHandler, cmd *commands.C
 	}
 }
 
-func (c *Client) handleError(cmd *commands.Command) {
+func (c *Client) handleError(cmd *wire.Command) {
 	rcStr := cmd.Params["return_code"]
 
 	var err error
@@ -455,7 +454,7 @@ func (c *Client) ExecNoWait(ctx context.Context, cmd string) error {
 
 // Exec sends a raw command line and returns the rows that answer it: the
 // escape hatch for a command the typed methods do not cover. The line is sent
-// as given, so its values must already be escaped (commands.Escape) and any
+// as given, so its values must already be escaped (wire.Escape) and any
 // channel password already hashed.
 //
 // Without a deadline on ctx the command gives up after defaultCommandTimeout.
@@ -515,7 +514,7 @@ func (c *Client) execOn(ctx context.Context, h *transport.PacketHandler, cmd str
 		return nil, teamspeak.ErrNotConnected
 	}
 
-	parsed := commands.ParseCommand(cmd)
+	parsed := wire.ParseCommand(cmd)
 	if parsed == nil {
 		return nil, fmt.Errorf("%w: empty command", teamspeak.ErrInvalidCommand)
 	}

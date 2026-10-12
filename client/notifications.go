@@ -6,11 +6,11 @@ import (
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
-	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
-func (c *Client) handleNotification(h *transport.PacketHandler, cmd *commands.Command) {
+func (c *Client) handleNotification(h *transport.PacketHandler, cmd *wire.Command) {
 	switch cmd.Name {
 	case "notifycliententerview":
 		c.handleClientEnterView(h, cmd)
@@ -31,7 +31,7 @@ func (c *Client) handleNotification(h *transport.PacketHandler, cmd *commands.Co
 	}
 }
 
-func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *commands.Command) {
+func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *wire.Command) {
 	nick := cmd.Params["client_nickname"]
 	uid := cmd.Params["client_unique_identifier"]
 	groupsStr := cmd.Params["client_servergroups"]
@@ -87,7 +87,7 @@ func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *commands
 	}
 }
 
-func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *commands.Command) {
+func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Command) {
 	clid := parseClientID(cmd.Params["clid"])
 	if clid == 0 {
 		return
@@ -133,7 +133,7 @@ func (c *Client) removedByServer(h *transport.PacketHandler, cause error) {
 	_ = h.Close()
 }
 
-func (c *Client) handleClientMoved(cmd *commands.Command) {
+func (c *Client) handleClientMoved(cmd *wire.Command) {
 	clid := parseClientID(cmd.Params["clid"])
 	ctid := parseChannelID(cmd.Params["ctid"])
 	reasonID, _ := parseIntValue(cmd.Params["reasonid"])
@@ -172,7 +172,7 @@ func (c *Client) handleClientMoved(cmd *commands.Command) {
 	}
 }
 
-func (c *Client) handleTextMessage(cmd *commands.Command) {
+func (c *Client) handleTextMessage(cmd *wire.Command) {
 	targetMode, _ := parseIntValue(cmd.Params["targetmode"])
 	msg := TextMessageEvent{
 		TargetMode:  teamspeak.TextMessageTarget(targetMode),
@@ -200,7 +200,7 @@ func (c *Client) handleTextMessage(cmd *commands.Command) {
 	c.emitEvent(msg)
 }
 
-func (c *Client) handleClientPoke(cmd *commands.Command) {
+func (c *Client) handleClientPoke(cmd *wire.Command) {
 	evt := PokeEvent{
 		InvokerID:   parseClientID(cmd.Params["invokerid"]),
 		InvokerName: cmd.Params["invokername"],

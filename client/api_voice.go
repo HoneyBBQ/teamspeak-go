@@ -6,7 +6,7 @@ import (
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
-	"github.com/honeybbq/teamspeak-go/commands"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 // Commands only the voice protocol has. ServerQuery has no subscriptions — a
@@ -59,7 +59,7 @@ func (c *Client) UnsubscribeAllChannels(ctx context.Context) error {
 }
 
 func channelCommand(name string, cid teamspeak.ChannelID) string {
-	return commands.BuildCommandOrdered(name, [][2]string{{"cid", strconv.FormatUint(uint64(cid), 10)}})
+	return wire.BuildCommandOrdered(name, [][2]string{{"cid", strconv.FormatUint(uint64(cid), 10)}})
 }
 
 // ChannelID returns the channel the client is currently in, or 0 if that is not

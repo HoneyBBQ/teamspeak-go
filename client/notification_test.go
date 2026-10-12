@@ -7,7 +7,7 @@ import (
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
-	"github.com/honeybbq/teamspeak-go/commands"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 func TestHandleClientEnterView_AddsToClients(t *testing.T) {
@@ -15,7 +15,7 @@ func TestHandleClientEnterView_AddsToClients(t *testing.T) {
 
 	const enterCmd = "notifycliententerview clid=5 client_nickname=Alice" +
 		" ctid=10 client_type=0 client_servergroups= client_unique_identifier=uid123"
-	c.handleClientEnterView(c.handler, commands.ParseCommand(enterCmd))
+	c.handleClientEnterView(c.handler, wire.ParseCommand(enterCmd))
 
 	c.mu.Lock()
 	info, ok := c.clients[5]
@@ -43,7 +43,7 @@ func TestHandleClientEnterView_TriggersCallback(t *testing.T) {
 
 	const enterCmd2 = "notifycliententerview clid=5 client_nickname=Alice" +
 		" ctid=10 client_type=0 client_servergroups= client_unique_identifier=uid123"
-	c.handleClientEnterView(c.handler, commands.ParseCommand(enterCmd2))
+	c.handleClientEnterView(c.handler, wire.ParseCommand(enterCmd2))
 
 	select {
 	case ci := <-entered:
@@ -60,7 +60,7 @@ func TestHandleClientEnterView_SetsOwnClidOnNicknameMatch(t *testing.T) {
 
 	const enterSelf = "notifycliententerview clid=7 client_nickname=TestBot" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
-	c.handleClientEnterView(c.handler, commands.ParseCommand(enterSelf))
+	c.handleClientEnterView(c.handler, wire.ParseCommand(enterSelf))
 
 	c.mu.Lock()
 	clid := c.clid
@@ -82,7 +82,7 @@ func TestHandleClientEnterView_LookalikeDoesNotHijackClid(t *testing.T) {
 
 	const lookalike = "notifycliententerview clid=9 client_nickname=TestBot2" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
-	c.handleClientEnterView(c.handler, commands.ParseCommand(lookalike))
+	c.handleClientEnterView(c.handler, wire.ParseCommand(lookalike))
 
 	c.mu.Lock()
 	clid, nick := c.clid, c.nickname
@@ -100,7 +100,7 @@ func TestHandleClientEnterView_OwnEnterTracksServerRename(t *testing.T) {
 
 	const ownRenamed = "notifycliententerview clid=5 client_nickname=TestBot2" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
-	c.handleClientEnterView(c.handler, commands.ParseCommand(ownRenamed))
+	c.handleClientEnterView(c.handler, wire.ParseCommand(ownRenamed))
 
 	c.mu.Lock()
 	clid, nick := c.clid, c.nickname
@@ -114,7 +114,7 @@ func TestHandleClientEnterView_InvalidClidIgnored(t *testing.T) {
 	c := newTestClient(t)
 	const enterZero = "notifycliententerview clid=0 client_nickname=X" +
 		" ctid=1 client_type=0 client_servergroups= client_unique_identifier=x"
-	c.handleClientEnterView(c.handler, commands.ParseCommand(enterZero))
+	c.handleClientEnterView(c.handler, wire.ParseCommand(enterZero))
 
 	c.mu.Lock()
 	_, ok := c.clients[0]
@@ -129,7 +129,7 @@ func TestHandleClientLeftView_RemovesFromClients(t *testing.T) {
 	c := newTestClient(t)
 	c.clients[5] = teamspeak.ClientInfo{ID: 5, Nickname: "Alice"}
 
-	cmd := commands.ParseCommand("notifyclientleftview clid=5 reasonid=8 reasonmsg=")
+	cmd := wire.ParseCommand("notifyclientleftview clid=5 reasonid=8 reasonmsg=")
 	c.handleClientLeftView(c.handler, cmd)
 
 	c.mu.Lock()
@@ -161,7 +161,7 @@ func TestHandleClientLeftView_KickSelf_TriggersKickedAndEndsTheSession(t *testin
 	disconnected := make(chan error, 1)
 	c.OnDisconnected(func(err error) { disconnected <- err })
 
-	c.handleClientLeftView(c.handler, commands.ParseCommand(
+	c.handleClientLeftView(c.handler, wire.ParseCommand(
 		`notifyclientleftview clid=5 reasonid=5 reasonmsg=behave invokerid=1 invokername=Admin`))
 
 	if e := receive(t, kicked); e.Message != "behave" || e.InvokerName != "Admin" ||
@@ -189,7 +189,7 @@ func TestHandleClientLeftView_ServerStop_EndsTheSessionAndIsRetried(t *testing.T
 	disconnected := make(chan error, 1)
 	c.OnDisconnected(func(err error) { disconnected <- err })
 
-	c.handleClientLeftView(c.handler, commands.ParseCommand(`notifyclientleftview clid=5 reasonid=11 reasonmsg=restart`))
+	c.handleClientLeftView(c.handler, wire.ParseCommand(`notifyclientleftview clid=5 reasonid=11 reasonmsg=restart`))
 
 	err := receive(t, disconnected)
 	if !DefaultShouldRetry(err, 1) {
@@ -208,7 +208,7 @@ func TestHandleClientMoved_ChannelKickOfSelf_TriggersKicked(t *testing.T) {
 	kicked := make(chan KickedEvent, 1)
 	c.OnKicked(func(e KickedEvent) { kicked <- e })
 
-	c.handleClientMoved(commands.ParseCommand(
+	c.handleClientMoved(wire.ParseCommand(
 		`notifyclientmoved clid=5 ctid=1 reasonid=4 reasonmsg=out invokerid=1 invokername=Admin`))
 
 	if e := receive(t, kicked); e.Reason != teamspeak.ReasonKickChannel || e.Message != "out" {
@@ -224,7 +224,7 @@ func TestHandleClientLeftView_OthersLeaving_NoKickedCallback(t *testing.T) {
 	kicked := make(chan KickedEvent, 1)
 	c.OnKicked(func(e KickedEvent) { kicked <- e })
 
-	c.handleClientLeftView(c.handler, commands.ParseCommand("notifyclientleftview clid=6 reasonid=5 reasonmsg="))
+	c.handleClientLeftView(c.handler, wire.ParseCommand("notifyclientleftview clid=6 reasonid=5 reasonmsg="))
 	settle(t, c)
 
 	select {
@@ -245,7 +245,7 @@ func TestHandleClientMoved_UpdatesChannelID(t *testing.T) {
 
 	const moveCmd = "notifyclientmoved clid=3 ctid=20 reasonid=0" +
 		" invokerid=1 invokername=Admin invokeruid=admin"
-	c.handleClientMoved(commands.ParseCommand(moveCmd))
+	c.handleClientMoved(wire.ParseCommand(moveCmd))
 
 	c.mu.Lock()
 	info := c.clients[3]
@@ -267,7 +267,7 @@ func TestHandleClientMoved_TriggersCallback(t *testing.T) {
 
 	const moveCmd2 = "notifyclientmoved clid=3 ctid=20 reasonid=0" +
 		" invokerid=1 invokername=Admin invokeruid=admin"
-	c.handleClientMoved(commands.ParseCommand(moveCmd2))
+	c.handleClientMoved(wire.ParseCommand(moveCmd2))
 
 	select {
 	case e := <-moved:
@@ -288,7 +288,7 @@ func TestHandleTextMessage_CallsCallback(t *testing.T) {
 	msgs := make(chan TextMessageEvent, 1)
 	c.OnTextMessage(func(m TextMessageEvent) { msgs <- m })
 
-	cmd := commands.ParseCommand(
+	cmd := wire.ParseCommand(
 		"notifytextmessage targetmode=1 target=7 invokerid=2 " +
 			"invokername=Bob invokeruid=notifyuid msg=hello",
 	)
@@ -319,7 +319,7 @@ func TestHandleTextMessage_FallbackToClientCacheUID(t *testing.T) {
 	msgs := make(chan TextMessageEvent, 1)
 	c.OnTextMessage(func(m TextMessageEvent) { msgs <- m })
 
-	cmd := commands.ParseCommand("notifytextmessage targetmode=2 invokerid=99 invokername=Unknown msg=hi")
+	cmd := wire.ParseCommand("notifytextmessage targetmode=2 invokerid=99 invokername=Unknown msg=hi")
 	c.handleTextMessage(cmd)
 
 	select {
@@ -341,7 +341,7 @@ func TestHandleTextMessage_MissingInvoker_NoUID(t *testing.T) {
 	msgs := make(chan TextMessageEvent, 1)
 	c.OnTextMessage(func(m TextMessageEvent) { msgs <- m })
 
-	cmd := commands.ParseCommand("notifytextmessage targetmode=2 invokerid=99 invokername=Unknown msg=hi")
+	cmd := wire.ParseCommand("notifytextmessage targetmode=2 invokerid=99 invokername=Unknown msg=hi")
 	c.handleTextMessage(cmd)
 
 	select {
@@ -360,7 +360,7 @@ func TestHandleClientPoke_TriggersCallback(t *testing.T) {
 	poked := make(chan PokeEvent, 1)
 	c.OnPoked(func(e PokeEvent) { poked <- e })
 
-	cmd := commands.ParseCommand(
+	cmd := wire.ParseCommand(
 		"notifyclientpoke invokerid=5 invokername=Alice invokeruid=uid123 msg=hello",
 	)
 	c.handleClientPoke(cmd)
@@ -390,7 +390,7 @@ func TestHandleClientPoke_EmptyMessage(t *testing.T) {
 	poked := make(chan PokeEvent, 1)
 	c.OnPoked(func(e PokeEvent) { poked <- e })
 
-	cmd := commands.ParseCommand(
+	cmd := wire.ParseCommand(
 		"notifyclientpoke invokerid=3 invokername=Bob invokeruid=uid456 msg=",
 	)
 	c.handleClientPoke(cmd)
@@ -411,7 +411,7 @@ func TestHandleNotification_DispatchesPoke(t *testing.T) {
 	poked := make(chan PokeEvent, 1)
 	c.OnPoked(func(e PokeEvent) { poked <- e })
 
-	cmd := commands.ParseCommand(
+	cmd := wire.ParseCommand(
 		"notifyclientpoke invokerid=5 invokername=Alice invokeruid=uid123 msg=hey",
 	)
 	c.handleNotification(c.handler, cmd)
@@ -428,6 +428,6 @@ func TestHandleNotification_DispatchesPoke(t *testing.T) {
 
 func TestHandleNotification_UnknownNotification_NoError(t *testing.T) {
 	c := newTestClient(t)
-	cmd := commands.ParseCommand("notifyunknowncommand foo=bar")
+	cmd := wire.ParseCommand("notifyunknowncommand foo=bar")
 	c.handleNotification(c.handler, cmd)
 }

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/honeybbq/teamspeak-go/commands"
 	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 func TestHandleInitServer_SetsStatusConnected(t *testing.T) {
@@ -178,7 +178,7 @@ func TestHandleHandshakeExpand2_InvalidBeta_NoSendClientInit(t *testing.T) {
 func TestBuildClientInitCommand_DefaultAuthFieldsAreEmpty(t *testing.T) {
 	c := newTestClient(t)
 
-	cmd := commands.ParseCommand(c.buildClientInitCommand(c.handler.TsCrypt))
+	cmd := wire.ParseCommand(c.buildClientInitCommand(c.handler.TsCrypt))
 	if cmd == nil {
 		t.Fatal("expected clientinit command")
 	}
@@ -208,7 +208,7 @@ func TestBuildClientInitCommand_IncludesConfiguredHandshakeCredentials(t *testin
 		WithDefaultChannelPassword("channel secret"),
 	)
 
-	cmd := commands.ParseCommand(c.buildClientInitCommand(c.handler.TsCrypt))
+	cmd := wire.ParseCommand(c.buildClientInitCommand(c.handler.TsCrypt))
 	if cmd == nil {
 		t.Fatal("expected clientinit command")
 	}
@@ -247,12 +247,12 @@ func TestBuildClientInitCommand_PreservesCredentialFieldOrder(t *testing.T) {
 	defaultChannelPasswordIndex := indexOfOrFail(
 		t,
 		raw,
-		"client_default_channel_password="+commands.Escape(prepareClientPassword("channel secret")),
+		"client_default_channel_password="+wire.Escape(prepareClientPassword("channel secret")),
 	)
 	serverPasswordIndex := indexOfOrFail(
 		t,
 		raw,
-		"client_server_password="+commands.Escape(prepareClientPassword("server secret")),
+		"client_server_password="+wire.Escape(prepareClientPassword("server secret")),
 	)
 	metaDataIndex := indexOfOrFail(t, raw, "client_meta_data=")
 
