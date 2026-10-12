@@ -20,6 +20,7 @@ import (
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/errcode"
 )
 
 // BackoffPolicy is how long to wait before each reconnect attempt.
@@ -129,13 +130,18 @@ func BackoffDelay(policy BackoffPolicy, attempt int, random func() float64) time
 //
 // The asymmetry is deliberate. Retrying a permanent failure costs a few bounded
 // attempts; not retrying a transient one means never recovering.
-var permanentServerErrors = map[string]bool{
-	"3329": true, // connection failed, you are banned
-	"3331": true, // banned from the server
-	"1029": true, // invalid server password
-	"1030": true, // invalid channel password
-	"2568": true, // insufficient client permissions
-	"2569": true, // insufficient permissions to join
+//
+// The list used to be magic numbers with comments, and three were wrong: 1029
+// and 1030, annotated as the wrong-password codes, are "deployment active" and
+// "unable to stop own server", and 2569 is "insufficient group modify power".
+// A wrong server password (1028) was therefore retried until the attempts ran
+// out.
+var permanentServerErrors = map[errcode.Code]bool{
+	errcode.ConnectFailedBanned:           true,
+	errcode.BanFlooding:                   true, // retrying while flood-banned extends the ban
+	errcode.ServerInvalidPassword:         true,
+	errcode.ChannelInvalidPassword:        true,
+	errcode.PermissionsClientInsufficient: true,
 }
 
 // DefaultShouldRetry reports whether a failure is worth another attempt.
@@ -148,7 +154,7 @@ func DefaultShouldRetry(err error, _ int) bool {
 	}
 
 	if serverErr, ok := errors.AsType[*teamspeak.ServerError](err); ok {
-		return !permanentServerErrors[serverErr.ID]
+		return !permanentServerErrors[serverErr.Code]
 	}
 
 	return true

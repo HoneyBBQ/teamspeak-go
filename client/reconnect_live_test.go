@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/client"
+	"github.com/honeybbq/teamspeak-go/errcode"
 
 	"github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/identity"
@@ -120,11 +121,11 @@ func TestIntegration_NoReconnectAfterExplicitDisconnect(t *testing.T) {
 
 func TestDefaultShouldRetry_TransientIsRetried(t *testing.T) {
 	// 521 is the server holding the dropped session, which clears itself.
-	if !client.DefaultShouldRetry(&teamspeak.ServerError{ID: "521", Message: "too many clones"}, 1) {
+	if !client.DefaultShouldRetry(&teamspeak.ServerError{Code: errcode.ClientTooManyClonesConnected}, 1) {
 		t.Error("521 should be retried: it clears once the server reaps the zombie")
 	}
 	// A ban does not clear.
-	if client.DefaultShouldRetry(&teamspeak.ServerError{ID: "3329", Message: "banned"}, 1) {
+	if client.DefaultShouldRetry(&teamspeak.ServerError{Code: errcode.ConnectFailedBanned}, 1) {
 		t.Error("3329 should not be retried")
 	}
 	// A plain transport failure is worth another attempt.

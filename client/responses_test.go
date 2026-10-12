@@ -10,6 +10,7 @@ import (
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
 	"github.com/honeybbq/teamspeak-go/commands"
+	"github.com/honeybbq/teamspeak-go/errcode"
 	"github.com/honeybbq/teamspeak-go/identity"
 )
 
@@ -124,9 +125,9 @@ func TestCommandTracker_TurnsAFailureStatusIntoAServerError(t *testing.T) {
 		"clientftfid": "4", "status": "2568", "msg": "insufficient client permissions",
 	})
 
-	serverErr, ok := errors.AsType[*teamspeak.ServerError](receive(t, done).Err)
-	if !ok || serverErr.ID != "2568" {
-		t.Errorf("err = %v, want ServerError 2568", serverErr)
+	err := receive(t, done).Err
+	if !errors.Is(err, errcode.PermissionsClientInsufficient) || !errors.Is(err, teamspeak.ErrServer) {
+		t.Errorf("err = %v, want the permissions refusal", err)
 	}
 }
 
@@ -208,5 +209,39 @@ func TestInitFileUpload_GivesEachNegotiationItsOwnID(t *testing.T) {
 
 	if len(ids) != 2 || ids[0] == "" || ids[0] == "0" || ids[0] == ids[1] {
 		t.Errorf("clientftfid values = %q, want two distinct non-zero ids", ids)
+	}
+}
+
+// The permanent list used to name codes by number, and got three wrong: a
+// wrong server password (1028) was retried while 1029, "deployment active",
+// was not.
+func TestDefaultShouldRetry_StopsOnTheRealPermanentRefusals(t *testing.T) {
+	permanent := []errcode.Code{
+		errcode.ConnectFailedBanned, errcode.BanFlooding, errcode.ServerInvalidPassword,
+		errcode.ChannelInvalidPassword, errcode.PermissionsClientInsufficient,
+	}
+	for _, code := range permanent {
+		if DefaultShouldRetry(&teamspeak.ServerError{Code: code}, 1) {
+			t.Errorf("retries %v (%d)", code, uint32(code))
+		}
+	}
+	if !DefaultShouldRetry(&teamspeak.ServerError{Code: errcode.ClientTooManyClonesConnected}, 1) {
+		t.Error("does not retry 521, which clears once the server reaps the dropped session")
+	}
+}
+
+func TestParseServerError(t *testing.T) {
+	err := parseServerError(map[string]string{
+		"id": "2568", "msg": "insufficient client permissions", "failed_permid": "236", "extra_msg": "detail",
+	})
+	if err.Code != errcode.PermissionsClientInsufficient || err.FailedPermID != 236 || err.ExtraMessage != "detail" {
+		t.Errorf("parsed %+v", err)
+	}
+	if parseServerError(map[string]string{"id": "0", "msg": "ok"}) != nil {
+		t.Error("id=0 is success")
+	}
+	got := parseServerError(map[string]string{"msg": "no id"})
+	if got == nil || got.Code != errcode.Undefined {
+		t.Errorf("an error line without an id = %v, want errcode.Undefined", got)
 	}
 }

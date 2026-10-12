@@ -3,6 +3,8 @@ package teamspeak
 import (
 	"errors"
 	"fmt"
+
+	"github.com/honeybbq/teamspeak-go/errcode"
 )
 
 // ErrServer is the sentinel wrapped by every ServerError, so a caller can match
@@ -24,23 +26,42 @@ var ErrInvalidCommand = errors.New("invalid command")
 
 // ServerError is an error the TeamSpeak server reported.
 //
-// ID is the server's own error code, kept as a field rather than only formatted
-// into the message because callers act on it: a reconnect policy has to tell a
-// transient refusal (521, too many clones, which clears once the server reaps
-// the dropped session) from a permanent one (3329, banned), and parsing it back
-// out of an error string would be a guess.
+// It unwraps to both ErrServer and its Code, so a caller can match the class
+// or a specific refusal:
+//
+//	errors.Is(err, teamspeak.ErrServer)
+//	errors.Is(err, errcode.PermissionsClientInsufficient)
+//
+// The code is a typed field rather than only part of the message because
+// callers act on it: a reconnect policy has to tell a transient refusal (521,
+// too many clones, which clears once the server reaps the dropped session)
+// from a permanent one (3329, banned), and parsing it back out of a string
+// would be a guess.
 type ServerError struct {
 	// Message is the server's own text, such as "invalid channel password".
 	Message string
-	// ID is the numeric code as a string, exactly as the server sent it.
-	ID string
+	// ExtraMessage is detail the server adds to some refusals (extra_msg).
+	ExtraMessage string
+	// Code is the server's error code.
+	Code errcode.Code
+	// FailedPermID is the permission a refused permission check failed on, when
+	// the server names one (failed_permid); 0 otherwise.
+	FailedPermID uint64
 }
 
 func (e *ServerError) Error() string {
-	return fmt.Sprintf("%s: %s (id=%s)", ErrServer, e.Message, e.ID)
+	msg := e.Message
+	if msg == "" {
+		msg = e.Code.Error()
+	}
+	if e.ExtraMessage != "" {
+		msg += " (" + e.ExtraMessage + ")"
+	}
+
+	return fmt.Sprintf("%s: %s (code %d)", ErrServer, msg, uint32(e.Code))
 }
 
-// Unwrap makes errors.Is(err, ErrServer) work.
-func (e *ServerError) Unwrap() error {
-	return ErrServer
+// Unwrap returns ErrServer and the code, so errors.Is matches either.
+func (e *ServerError) Unwrap() []error {
+	return []error{ErrServer, e.Code}
 }

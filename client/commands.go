@@ -16,6 +16,7 @@ import (
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
 	"github.com/honeybbq/teamspeak-go/commands"
+	"github.com/honeybbq/teamspeak-go/errcode"
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
@@ -160,7 +161,9 @@ func (t *commandTracker) offerCorrelated(name string, params map[string]string) 
 		}
 
 		if name == c.Failure && params["status"] != "" && params["status"] != "0" {
-			t.settleLocked(rc, p, commandResult{Err: &teamspeak.ServerError{ID: params["status"], Message: params["msg"]}})
+			t.settleLocked(rc, p, commandResult{Err: &teamspeak.ServerError{
+				Code: parseCode(params["status"]), Message: params["msg"], ExtraMessage: params["extra_msg"],
+			}})
 
 			return
 		}
@@ -354,22 +357,19 @@ func (c *Client) handleCommand(s string) {
 }
 
 func (c *Client) handleError(cmd *commands.Command) {
-	id := cmd.Params["id"]
-	msg := cmd.Params["msg"]
 	rcStr := cmd.Params["return_code"]
 
 	var err error
-	if id != "0" {
-		// The id is carried as a typed field, not only formatted into the
-		// message: callers act on it — a reconnect policy has to tell a
-		// transient refusal from a permanent one, and a ban from a password
-		// rejection — and parsing it back out of an error string would be a
-		// guess.
-		err = &teamspeak.ServerError{ID: id, Message: msg}
-		c.logger.Error("server returned error", slog.String("id", id), slog.String("message", msg))
+	serverErr := parseServerError(cmd.Params)
+	if serverErr != nil {
+		err = serverErr
+		// Debug, not Error: the error goes back to whoever sent the command,
+		// and logging it as well reported every refusal twice.
+		c.logger.Debug("server refused a command",
+			slog.Uint64("code", uint64(serverErr.Code)), slog.String("message", serverErr.Message))
 
-		if id == "3329" {
-			c.logger.Warn("fatal connection error detected, closing connection", slog.String("id", id))
+		if serverErr.Code == errcode.ConnectFailedBanned {
+			c.logger.Warn("banned by the server, closing the connection")
 			go func() {
 				disconnectErr := c.Disconnect()
 				if disconnectErr != nil {
@@ -537,4 +537,32 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 	}
 
 	c.finalEvtHandler(vd)
+}
+
+// parseServerError reads an error line, returning nil for success.
+func parseServerError(params map[string]string) *teamspeak.ServerError {
+	code := parseCode(params["id"])
+	if code == errcode.OK {
+		return nil
+	}
+	failedPermID, _ := strconv.ParseUint(params["failed_permid"], 10, 64)
+
+	return &teamspeak.ServerError{
+		Code:         code,
+		Message:      params["msg"],
+		ExtraMessage: params["extra_msg"],
+		FailedPermID: failedPermID,
+	}
+}
+
+// parseCode reads an error id. One that is missing or unreadable is reported
+// as errcode.Undefined: an error line that does not say what went wrong has
+// still not said that nothing did.
+func parseCode(raw string) errcode.Code {
+	code, err := strconv.ParseUint(raw, 10, 32)
+	if err != nil {
+		return errcode.Undefined
+	}
+
+	return errcode.Code(code)
 }

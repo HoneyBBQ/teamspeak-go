@@ -74,6 +74,11 @@ linters:
       - path: 'client\.go'
         linters: [govet]
         text: "fieldalignment"
+      # errcode.Code is an error value, like syscall.Errno: the constants are
+      # the server's codes, named after tsdeclarations, not sentinel errors, so
+      # an ErrXxx prefix on all 196 of them would only add noise.
+      - path: errcode/errcode.go
+        linters: [errname]
       - path: handshake/crypt_handshake.go
         linters: [gosec]
         text: "G115"
