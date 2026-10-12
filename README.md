@@ -165,12 +165,13 @@ err = c.SendTextMessage(teamspeak.TextMessageTargetChannel, cid, "hello")
 | `api_moderation.go`| Bans, complaints, offline messages, text messages, the log     |
 | `api_files.go`     | List, delete, rename, create directories, transfer negotiation |
 
-> **The voice protocol answers `ok` with no data row for a set of commands that
-> ServerQuery answers normally** — `servergrouplist`, `permissionlist`, the
-> group permission lists, several client lookups, and the file transfer
-> negotiation. Verified with Server Admin, so this is server behaviour rather
-> than permissions. An empty slice does not mean "nothing there"; see
-> [voice-protocol-empty-responses.md](https://github.com/honeybbq/teamspeak-js/blob/main/docs/voice-protocol-empty-responses.md).
+Many of these commands are answered over the voice protocol with a
+notification rather than data rows — `servergrouplist` with
+`notifyservergrouplist`, `ftinitupload` with `notifystartupload` after the
+command has already succeeded. The client pairs each answer with its command,
+so this is invisible to callers; the measured table is in
+[voice-protocol-responses.md](https://github.com/honeybbq/teamspeak-js/blob/main/docs/voice-protocol-responses.md).
+A refusal is always returned as an error, never as an empty result.
 
 For anything outside the typed set, `ExecCommand` and `ExecCommandWithResponse`
 take a raw command.
@@ -186,7 +187,7 @@ take a raw command.
 | `RenameFile(cid, old, new, opts)` | Rename or move a file |
 | `StopFileTransfer(id, delete)` | Cancel a running transfer |
 | `ListActiveTransfers()` | Transfers in progress |
-| `InitFileUpload(...)` / `InitFileDownload(...)` | Negotiate a transfer (see the note above: empty over the voice protocol) |
+| `InitFileUpload(...)` / `InitFileDownload(...)` | Negotiate a transfer; pass the result to `UploadFileData` / `DownloadFileData` |
 | `UploadFileData(host, info, reader, dialer)` | Transfer file data to the server |
 | `DownloadFileData(host, info, writer, dialer)` | Receive file data from the server |
 
