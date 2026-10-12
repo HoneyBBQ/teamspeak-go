@@ -3,6 +3,7 @@ package teamspeak
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -380,6 +381,10 @@ func (c *Commands) ResetPermissions(ctx context.Context) error {
 
 // PrivilegeKey grants a group when redeemed. The server also calls it a
 // token.
+//
+// String, GoString and LogValue redact the token, so the value can reach fmt
+// and log/slog safely. encoding/json does not: the token is the caller's own
+// data, which they may need to store, so json.Marshal includes it.
 type PrivilegeKey struct {
 	CreatedAt   time.Time
 	Token       string
@@ -509,3 +514,16 @@ func (k PrivilegeKey) String() string {
 
 // GoString is String, so %#v redacts too.
 func (k PrivilegeKey) GoString() string { return k.String() }
+
+// LogValue describes the key to log/slog without the token, so the JSON
+// handler, which would otherwise marshal the fields, redacts too.
+func (k PrivilegeKey) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("type", k.Type.String()),
+		slog.Uint64("server_group_id", uint64(k.ServerGroupID)),
+		slog.Uint64("channel_group_id", uint64(k.ChannelGroupID)),
+		slog.Uint64("channel_id", uint64(k.ChannelID)),
+		slog.String("description", k.Description),
+		slog.String("token", "redacted"),
+	)
+}

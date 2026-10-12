@@ -3,6 +3,7 @@ package teamspeak
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -512,6 +513,10 @@ func (c *Commands) DeleteServerGroupPermission(
 }
 
 // TempPassword is a temporary server password.
+//
+// String, GoString and LogValue redact the password, so the value can reach fmt
+// and log/slog safely. encoding/json does not: the password is the caller's own
+// data, which they may need to store, so json.Marshal includes it.
 type TempPassword struct {
 	// Start and End are when the password is valid from and until.
 	Start       time.Time
@@ -531,6 +536,17 @@ func (p TempPassword) String() string {
 
 // GoString is String, so %#v redacts too.
 func (p TempPassword) GoString() string { return p.String() }
+
+// LogValue describes the password to log/slog without the password itself.
+func (p TempPassword) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("description", p.Description),
+		slog.Uint64("target_channel_id", uint64(p.TargetChannelID)),
+		slog.Time("start", p.Start),
+		slog.Time("end", p.End),
+		slog.String("password", "redacted"),
+	)
+}
 
 // ListTempPasswords returns the server's temporary passwords.
 func (c *Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error) {

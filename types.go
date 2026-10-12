@@ -2,6 +2,7 @@ package teamspeak
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -43,6 +44,10 @@ type ClientInfo struct {
 }
 
 // FileUploadInfo represents the information received when an upload is initialized.
+//
+// String, GoString and LogValue redact the file transfer key, so the value can reach fmt
+// and log/slog safely. encoding/json does not: the file transfer key is the caller's own
+// data, which they may need to store, so json.Marshal includes it.
 type FileUploadInfo struct {
 	FileTransferKey      string
 	SeekPosition         uint64
@@ -52,6 +57,10 @@ type FileUploadInfo struct {
 }
 
 // FileDownloadInfo represents the information received when a download is initialized.
+//
+// String, GoString and LogValue redact the file transfer key, so the value can reach fmt
+// and log/slog safely. encoding/json does not: the file transfer key is the caller's own
+// data, which they may need to store, so json.Marshal includes it.
 type FileDownloadInfo struct {
 	FileTransferKey      string
 	Size                 uint64
@@ -71,6 +80,17 @@ func (i FileUploadInfo) String() string {
 // GoString is String, so %#v redacts too.
 func (i FileUploadInfo) GoString() string { return i.String() }
 
+// LogValue describes the negotiation to log/slog without its key.
+func (i FileUploadInfo) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Uint64("port", uint64(i.Port)),
+		slog.Uint64("seek_position", i.SeekPosition),
+		slog.Uint64("client_file_transfer_id", uint64(i.ClientFileTransferID)),
+		slog.Uint64("server_file_transfer_id", uint64(i.ServerFileTransferID)),
+		slog.String("file_transfer_key", "redacted"),
+	)
+}
+
 // String describes the negotiation without its key, which is what lets anyone
 // holding it transfer the file.
 func (i FileDownloadInfo) String() string {
@@ -80,3 +100,14 @@ func (i FileDownloadInfo) String() string {
 
 // GoString is String, so %#v redacts too.
 func (i FileDownloadInfo) GoString() string { return i.String() }
+
+// LogValue describes the negotiation to log/slog without its key.
+func (i FileDownloadInfo) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Uint64("port", uint64(i.Port)),
+		slog.Uint64("size", i.Size),
+		slog.Uint64("client_file_transfer_id", uint64(i.ClientFileTransferID)),
+		slog.Uint64("server_file_transfer_id", uint64(i.ServerFileTransferID)),
+		slog.String("file_transfer_key", "redacted"),
+	)
+}
