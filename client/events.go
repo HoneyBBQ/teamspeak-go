@@ -1,11 +1,14 @@
 package client
 
 import (
+	"bytes"
 	"fmt"
 	"log/slog"
 	"maps"
+	"runtime"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -120,8 +123,7 @@ func (c *Client) OnNotification(handler func(NotificationEvent)) func() {
 //
 // The event is queued as the handshake completes, when Connect returns nil,
 // and delivered on the event goroutine: register the handler before Connect
-// to be sure to hear it. One still queued when a later Connect, or a
-// reconnection, starts is dropped.
+// to be sure to hear it.
 //
 // A panic in handler is recovered and logged at Error with the event type;
 // the other handlers and later events are still delivered.
@@ -135,9 +137,9 @@ func (c *Client) OnConnected(handler func()) func() {
 // *RemovedError for a kick, a ban or a server stopping. It returns a function
 // that removes the handler.
 //
-// An event still queued when a new Connect, or a reconnection, starts is
-// dropped rather than delivered: it describes the session before, and would
-// read as the end of the new one.
+// Disconnect returns once the handlers have run, and a later Connect starts
+// only once a drop's or a failed attempt's event has reached them, so the end
+// of one session is never delivered during the next.
 //
 // A panic in handler is recovered and logged at Error with the event type;
 // the other handlers and later events are still delivered.
@@ -207,19 +209,24 @@ func (c *Client) emitEvent(evt Event) {
 	c.events.push(run)
 }
 
-// emit queues a lifecycle event, which middleware does not see, for the
-// session of epoch. It is dropped, not delivered, if a newer connection attempt
-// has started by the time its turn comes: it describes a session that is
-// already over, and would read as the end, or the start, of the new one.
-func emit[E any](c *Client, epoch uint64, subs *subscribers[E], name string, evt E) {
+// announceDisconnectedLocked queues the disconnected event with cause and returns a
+// channel closed once its handlers have run. A Connect waits for the last
+// one, so the end of one session is never heard during the next. The caller
+// holds c.mu.
+func (c *Client) announceDisconnectedLocked(cause error) <-chan struct{} {
+	delivered := make(chan struct{})
+	c.disconnectedDelivered = delivered
 	c.events.push(func() {
-		if c.epoch.Load() != epoch {
-			c.logger.Debug("dropping a lifecycle event of an earlier session", slog.String("event", name))
-
-			return
-		}
-		subs.deliver(c.logger, name, evt, nil)
+		defer close(delivered)
+		c.onDisconnected.deliver(c.logger, "Disconnected", cause, nil)
 	})
+
+	return delivered
+}
+
+// emit queues a lifecycle event, which middleware does not see.
+func emit[E any](c *Client, subs *subscribers[E], name string, evt E) {
+	c.events.push(func() { subs.deliver(c.logger, name, evt, nil) })
 }
 
 // dispatchEvent hands a server event, as the middleware left it, to its
@@ -358,6 +365,8 @@ const voiceDropWarnInterval = 10 * time.Second
 type eventQueue struct {
 	lastVoiceWarn time.Time
 	pending       []func()
+	// drainer is the id of the goroutine delivering, 0 when none is.
+	drainer atomic.Uint64
 	// voiceDropped counts voice deliveries dropped since the last warning.
 	voiceDropped uint64
 	mu           sync.Mutex
@@ -404,10 +413,43 @@ func (q *eventQueue) push(delivery func()) {
 	go q.drain()
 }
 
+// onDeliveryGoroutine reports whether the caller is the goroutine delivering
+// events: a handler. A handler must not wait for a delivery queued behind
+// itself, which only starts once it returns.
+func (q *eventQueue) onDeliveryGoroutine() bool {
+	id := q.drainer.Load()
+
+	return id != 0 && id == goroutineID()
+}
+
+// goroutineID is the calling goroutine's id, read from the first line of its
+// stack trace ("goroutine 7 [running]:"), or 0 if that cannot be read. Go has
+// no other way to name the current goroutine; this is used only to keep a
+// handler that calls Connect or Disconnect from waiting on itself.
+func goroutineID() uint64 {
+	var buf [64]byte
+	line := buf[:runtime.Stack(buf[:], false)]
+	line = bytes.TrimPrefix(line, []byte("goroutine "))
+	end := bytes.IndexByte(line, ' ')
+	if end < 0 {
+		return 0
+	}
+	id, err := strconv.ParseUint(string(line[:end]), 10, 64)
+	if err != nil {
+		return 0
+	}
+
+	return id
+}
+
 func (q *eventQueue) drain() {
+	q.drainer.Store(goroutineID())
 	for {
 		q.mu.Lock()
 		if len(q.pending) == 0 {
+			// Cleared before running, under the lock: the next drainer is
+			// started only once running is false, and stores its own id.
+			q.drainer.Store(0)
 			q.running = false
 			q.pending = nil
 			q.mu.Unlock()

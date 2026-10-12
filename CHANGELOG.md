@@ -168,9 +168,11 @@ before v1.0.0.
   session is closed and announced before the new one starts; a `Disconnect`
   during that wait wins, and `Connect` returns `ErrNotConnected`. A second
   `Disconnect` joins the first.
-- A `connected`, `disconnected` or `kicked` event still queued when a new
-  connection attempt starts is dropped instead of being read as the new
-  session's.
+- `Disconnect` returns once its `disconnected` has been delivered to the
+  handlers, and `Connect` first waits for a previous session's
+  `disconnected` still being delivered, so no handler of a new session hears
+  the old one end; a `Connect` that `Disconnect` interrupts returns after
+  that delivery too. The JavaScript SDK does the same.
 - The goodbye waits a second at most, however long `ctx` allows.
 - Resolution, the default chain or a `WithResolver` one, gets 10 seconds in
   all; a resolver that ignores its context is not waited for past it.

@@ -99,7 +99,8 @@ func newTestClientInit(t *testing.T, cryptoInit bool, opts ...Option) *Client {
 	if startErr != nil {
 		t.Fatalf("handler.Start: %v", startErr)
 	}
-	t.Cleanup(func() { _ = c.handler.Close() })
+	started := c.handler
+	t.Cleanup(func() { _ = started.Close() })
 	// As after a handshake: commands go only to a connected session.
 	c.mu.Lock()
 	c.status = StatusConnected
@@ -192,7 +193,8 @@ func newTestClientWithPipe(t *testing.T) (*Client, *pipePair) {
 	if startErr != nil {
 		t.Fatalf("handler.Start: %v", startErr)
 	}
-	t.Cleanup(func() { _ = c.handler.Close() })
+	started := c.handler
+	t.Cleanup(func() { _ = started.Close() })
 
 	return c, serverConn
 }

@@ -155,7 +155,6 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 
 	c.attempt.finish(nil)
 	selfID := c.clid
-	epoch := c.epoch.Load()
 	c.mu.Unlock()
 
 	c.logger.Info("connected to server", slog.Uint64("self_id", uint64(selfID)))
@@ -172,7 +171,7 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 		}
 	}()
 
-	emit(c, epoch, &c.onConnected, "Connected", struct{}{})
+	emit(c, &c.onConnected, "Connected", struct{}{})
 }
 
 // adoptClientIDLocked takes the client id initserver assigns, from aclid or

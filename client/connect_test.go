@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -248,34 +249,75 @@ func TestDisconnect_JoinsTheOneSayingGoodbye(t *testing.T) {
 	}
 }
 
-// A disconnected event still queued when a new Connect starts is dropped: the
-// handlers hear the new attempt's end, never the old session's after it.
-func TestConnect_DropsTheEarlierSessionsQueuedDisconnected(t *testing.T) {
+// Disconnect returns once its disconnected has reached the handlers, and a
+// Connect waits for a previous session's disconnected still being delivered:
+// a handler registered for the new session never hears the old one end.
+func TestDisconnectedIsDeliveredBeforeTheNextSession(t *testing.T) {
 	c := leavingClient(t)
-	block := make(chan struct{})
-	c.OnTextMessage(func(TextMessageEvent) { <-block })
-	c.emitEvent(TextMessageEvent{}) // holds the queue
-	heard := make(chan error, 4)
-	c.OnDisconnected(func(err error) { heard <- err })
+	release := make(chan struct{})
+	var heard atomic.Int32
+	c.OnDisconnected(func(error) {
+		<-release
+		heard.Add(1)
+	})
 
-	_ = c.Disconnect(t.Context())
-	ctx, cancel := context.WithCancel(t.Context())
-	connected := make(chan error, 1)
-	go func() { connected <- c.Connect(ctx) }()
-	for c.Status() != StatusConnecting {
-		time.Sleep(time.Millisecond)
+	disconnected := make(chan struct{})
+	go func() {
+		_ = c.Disconnect(t.Context())
+		close(disconnected)
+	}()
+	select {
+	case <-disconnected:
+		t.Fatal("Disconnect returned before its disconnected was delivered")
+	case <-time.After(1500 * time.Millisecond):
 	}
-	close(block)
+
+	connected := make(chan struct{})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() {
+		_ = c.Connect(ctx)
+		close(connected)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	if got := c.Status(); got != StatusDisconnected {
+		t.Fatalf("a new attempt started (%v) while the old disconnected was undelivered", got)
+	}
+
+	close(release)
+	<-disconnected
+	if heard.Load() != 1 {
+		t.Fatalf("handlers heard %d disconnected, want 1 before Disconnect returned", heard.Load())
+	}
+	for deadline := time.Now().Add(2 * time.Second); c.Status() != StatusConnecting; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("Connect never started once the disconnected was delivered")
+		}
+	}
 	cancel()
 	<-connected
+}
 
-	select {
-	case err := <-heard:
-		if err == nil {
-			t.Fatal("the earlier session's disconnected was delivered after Connect started")
+// A handler may call Disconnect or Connect: neither waits for a delivery
+// queued behind the handler itself.
+func TestLifecycleCallsFromAHandlerDoNotDeadlock(t *testing.T) {
+	c := leavingClient(t)
+	done := make(chan error, 1)
+	c.OnDisconnected(func(error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		_ = c.Disconnect(ctx)
+		err := c.Connect(ctx)
+		select {
+		case done <- err:
+		default: // a later disconnected, from the test's cleanup
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("the abandoned attempt's disconnected was not delivered")
+	})
+	_ = c.DropConnectionForTest()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Disconnect and Connect from a handler deadlocked")
 	}
 }
 
