@@ -1,6 +1,7 @@
 package teamspeak
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -131,6 +132,14 @@ func buildParams(params []param, passwords ...passwordParam) [][2]string {
 		}
 
 		value := *p.Value
+		// Flags (-uid) are switches: present when true, absent otherwise.
+		if strings.HasPrefix(p.Key, "-") {
+			if value == "1" {
+				out = append(out, [2]string{p.Key, ""})
+			}
+
+			continue
+		}
 		if hashed[p.Key] && value != "" {
 			value = prepareClientPassword(value)
 		}
@@ -162,8 +171,11 @@ func (c *Client) query(command string, params []param, passwords ...passwordPara
 // field readers. The server omits a field rather than sending an empty value in
 // several cases, so each tolerates absence instead of assuming presence.
 
+// fieldStr reads a string field. The parser has already unescaped it;
+// unescaping again is how a nickname that really contains \s used to come back
+// with a space in it.
 func fieldStr(row map[string]string, key string) string {
-	return commands.Unescape(row[key])
+	return row[key]
 }
 
 func fieldUint(row map[string]string, key string) uint64 {
@@ -215,6 +227,37 @@ func fieldInt32(row map[string]string, key string) int32 {
 }
 
 // firstOrEmpty reads a field from the first row, or returns 0 for no rows.
+// createdGroupID returns the id of the group a create or copy just made.
+//
+// ServerQuery answers servergroupadd with the new id alone. The voice protocol
+// answers with the whole group list instead (notifyservergrouplist), so taking
+// the first row returned the first group on the server rather than the new
+// one. The new group is the one with the requested name — the newest, should
+// the name repeat across group types.
+func createdGroupID(rows []map[string]string, idKey, name string) (uint64, error) {
+	var listed bool
+	var id uint64
+	for _, row := range rows {
+		rowName, ok := row["name"]
+		if !ok {
+			continue
+		}
+		listed = true
+		if rowName == name {
+			id = max(id, fieldUint(row, idKey))
+		}
+	}
+
+	if !listed {
+		return firstOrEmpty(rows, idKey), nil
+	}
+	if id == 0 {
+		return 0, fmt.Errorf("%w: the server did not report the new group %q", errNoDataReturned, name)
+	}
+
+	return id, nil
+}
+
 func firstOrEmpty(rows []map[string]string, key string) uint64 {
 	if len(rows) == 0 {
 		return 0
@@ -246,12 +289,6 @@ func splitLines(text string) []string {
 	normalized := strings.ReplaceAll(text, "\r\n", "\n")
 
 	return strings.Split(normalized, "\n")
-}
-
-// commandsBuild renders a command without going through the client, for the
-// fire-and-forget paths.
-func commandsBuild(command string, params []param) string {
-	return commands.BuildCommandOrdered(command, buildParams(params))
 }
 
 // parseUint64List reads a comma-separated list of ids. An unparseable entry is

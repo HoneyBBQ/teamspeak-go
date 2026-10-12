@@ -73,7 +73,7 @@ func TestHandleCommand_Notify_Routed(t *testing.T) {
 
 func TestHandleCommand_Error_NoReturnCode_NoResolve(t *testing.T) {
 	c := newTestClient(t)
-	rc, ch := c.cmdTrack.register()
+	rc, ch := c.cmdTrack.register(nil, "", false)
 
 	// error without a matching return_code should not resolve our tracker.
 	c.handleCommand("error id=1 msg=fail")
@@ -88,7 +88,7 @@ func TestHandleCommand_Error_NoReturnCode_NoResolve(t *testing.T) {
 
 func TestHandleCommand_Error_WithReturnCode_Resolves(t *testing.T) {
 	c := newTestClient(t)
-	rc, ch := c.cmdTrack.register()
+	rc, ch := c.cmdTrack.register(nil, "", false)
 
 	c.handleCommand("error id=0 msg=ok return_code=" + mustUint32Str(rc))
 
@@ -104,7 +104,7 @@ func TestHandleCommand_Error_WithReturnCode_Resolves(t *testing.T) {
 
 func TestHandleCommand_Error_NonZeroID_ReturnsError(t *testing.T) {
 	c := newTestClient(t)
-	rc, ch := c.cmdTrack.register()
+	rc, ch := c.cmdTrack.register(nil, "", false)
 
 	c.handleCommand("error id=256 msg=notfound return_code=" + mustUint32Str(rc))
 
@@ -123,10 +123,11 @@ func TestHandleCommand_Error_NonZeroID_ReturnsError(t *testing.T) {
 
 func TestHandleCommand_DataCollectedBeforeError(t *testing.T) {
 	c := newTestClient(t)
-	rc, ch := c.cmdTrack.register()
+	rc, ch := c.cmdTrack.register(nil, "", false)
 
-	// In the real TeamSpeak flow, data rows arrive before the "error" response.
-	c.handleCommand("somedata key=val")
+	// In the real TeamSpeak flow, nameless data rows arrive before the "error"
+	// response.
+	c.handleCommand("key=val")
 	c.handleCommand("error id=0 msg=ok return_code=" + mustUint32Str(rc))
 
 	select {
@@ -139,20 +140,19 @@ func TestHandleCommand_DataCollectedBeforeError(t *testing.T) {
 	}
 }
 
-func TestHandleCommand_UnknownCommand_CollectsAsData(t *testing.T) {
+// A named line answers a command only if the command declared it; arriving
+// while the command is in flight is not enough.
+func TestHandleCommand_UndeclaredNamedCommand_IsNotData(t *testing.T) {
 	c := newTestClient(t)
-	rc, ch := c.cmdTrack.register()
+	rc, ch := c.cmdTrack.register(nil, "", false)
 
 	c.handleCommand("unknowncmd foo=bar baz=qux")
 	c.handleCommand("error id=0 msg=ok return_code=" + mustUint32Str(rc))
 
 	select {
 	case result := <-ch:
-		if len(result.Data) != 1 {
-			t.Fatalf("expected 1 data row, got %d", len(result.Data))
-		}
-		if result.Data[0]["foo"] != "bar" {
-			t.Errorf("unexpected foo: %q", result.Data[0]["foo"])
+		if len(result.Data) != 0 {
+			t.Fatalf("data = %v, want none", result.Data)
 		}
 	case <-time.After(time.Second):
 		t.Error("not resolved")
@@ -166,7 +166,7 @@ func TestExecCommandWithResponse_Success(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 		// The command sent by ExecCommandWithResponse contains "return_code=N".
 		// Simulate server data row then ok error line with matching return_code.
-		c.handleCommandLines("rowdata somekey=someval\nerror id=0 msg=ok return_code=1")
+		c.handleCommandLines("somekey=someval\nerror id=0 msg=ok return_code=1")
 	}()
 
 	data, err := c.ExecCommandWithResponse("dummycmd", 2*time.Second)

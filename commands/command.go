@@ -52,6 +52,12 @@ func BuildCommandOrdered(cmd string, params [][2]string) string {
 	for _, kv := range params {
 		res.WriteByte(' ')
 		res.WriteString(kv[0])
+		// A flag such as -uid is a bare switch. -uid=1 happens to be accepted
+		// over the voice protocol, but it is not the documented form and
+		// nothing promises another transport tolerates it.
+		if strings.HasPrefix(kv[0], "-") && kv[1] == "" {
+			continue
+		}
 		res.WriteByte('=')
 		res.WriteString(Escape(kv[1]))
 	}

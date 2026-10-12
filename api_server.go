@@ -37,10 +37,6 @@ func parseServerGroup(row map[string]string) ServerGroup {
 }
 
 // ListServerGroups returns every server group.
-//
-// Returns no rows over the voice protocol even as Server Admin — the server
-// answers ok with no data. This is a server behaviour rather than a permission
-// problem; see docs/voice-protocol-empty-responses.md in the JS repository.
 func (c *Client) ListServerGroups() ([]ServerGroup, error) {
 	rows, err := c.query("servergrouplist", nil)
 	if err != nil {
@@ -83,11 +79,19 @@ func (c *Client) EditServer(settings map[string]string) error {
 }
 
 // GetHostInfo returns the host process's settings.
+//
+// Needs an instance-level permission (b_serverinstance_*), which not even the
+// Server Admin group holds by default — expect error 2568 until it is granted.
+// Granted, it works over the voice protocol like any other query.
 func (c *Client) GetHostInfo() (map[string]string, error) {
 	return c.firstRow("hostinfo")
 }
 
 // GetInstanceInfo returns the server instance's settings.
+//
+// Needs an instance-level permission (b_serverinstance_*), which not even the
+// Server Admin group holds by default — expect error 2568 until it is granted.
+// Granted, it works over the voice protocol like any other query.
 func (c *Client) GetInstanceInfo() (map[string]string, error) {
 	return c.firstRow("instanceinfo")
 }
@@ -132,6 +136,10 @@ type Binding struct {
 }
 
 // ListBindings returns active IP bindings, when the instance is multi-homed.
+//
+// Needs an instance-level permission (b_serverinstance_*), which not even the
+// Server Admin group holds by default — expect error 2568 until it is granted.
+// Granted, it works over the voice protocol like any other query.
 func (c *Client) ListBindings(subsystem *string) ([]Binding, error) {
 	rows, err := c.query("bindinglist", []param{StrPtr("subsystem", subsystem)})
 	if err != nil {
@@ -190,6 +198,10 @@ func (c *Client) GetConnectionInfo() (map[string]string, error) {
 
 // GetServerIDByPort returns the numeric id of the virtual server listening on
 // port.
+//
+// Needs an instance-level permission (b_serverinstance_*), which not even the
+// Server Admin group holds by default — expect error 2568 until it is granted.
+// Granted, it works over the voice protocol like any other query.
 func (c *Client) GetServerIDByPort(port uint16) (uint64, error) {
 	rows, err := c.query("serveridgetbyport", []param{Uint("virtualserver_port", uint64(port))})
 	if err != nil {
@@ -211,7 +223,7 @@ func (c *Client) CreateServerGroup(name string, groupType *int) (uint64, error) 
 		return 0, err
 	}
 
-	return firstOrEmpty(rows, "sgid"), nil
+	return createdGroupID(rows, "sgid", name)
 }
 
 // DeleteServerGroup deletes a server group.
@@ -244,7 +256,12 @@ func (c *Client) CopyServerGroup(sourceGroupID, targetGroupID uint64, name strin
 		return 0, err
 	}
 
-	return firstOrEmpty(rows, "sgid"), nil
+	// Copying onto an existing group keeps that group's id.
+	if targetGroupID != 0 {
+		return targetGroupID, nil
+	}
+
+	return createdGroupID(rows, "sgid", name)
 }
 
 // AddClientToServerGroup adds a client to a server group.
@@ -325,8 +342,6 @@ func (c *Client) GetServerGroupsByClient(clientDBID uint64) ([]ServerGroupRef, e
 }
 
 // ListServerGroupPermissions returns the permissions set on a server group.
-//
-// Empty over the voice protocol, like the other group permission lists.
 func (c *Client) ListServerGroupPermissions(serverGroupID uint64) ([]PermissionEntry, error) {
 	rows, err := c.query("servergrouppermlist", []param{Uint("sgid", serverGroupID)})
 	if err != nil {

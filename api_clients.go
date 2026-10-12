@@ -345,21 +345,12 @@ func (c *Client) MoveClient(clid uint16, channelID uint64, password string) erro
 	return c.exec("clientmove", params, PlainPassword("cpw"))
 }
 
-// ---- Client lookups that the voice protocol answers empty ------------------
+// ---- Client lookups -----------------------------------------------------------
 //
-// The five commands below are documented and answer ok, but send no data row
-// over the voice protocol — with or without Server Admin rights. The same
-// commands return their rows over ServerQuery. They exist here because the
-// commands do, and they are honest about returning nothing rather than being
-// omitted: a caller porting from ServerQuery should be able to find them and
-// read why they come back empty.
-//
-// See docs/voice-protocol-empty-responses.md in the JS repository. Use
-// ListClients or GetClientInfo to read a uid.
+// The voice protocol answers these with a notification (notifyclientids and
+// the like) rather than data rows; the client pairs it with the command.
 
 // GetClientDBIDByUID returns the persistent database id behind a uid.
-//
-// Answers empty over the voice protocol.
 func (c *Client) GetClientDBIDByUID(uid string) (uint64, error) {
 	rows, err := c.query("clientgetdbidfromuid", []param{Str("cluid", uid)})
 	if err != nil {
@@ -370,8 +361,6 @@ func (c *Client) GetClientDBIDByUID(uid string) (uint64, error) {
 }
 
 // GetClientIDs returns every clid currently using a uid.
-//
-// Answers empty over the voice protocol.
 func (c *Client) GetClientIDs(uid string) ([]uint16, error) {
 	rows, err := c.query("clientgetids", []param{Str("cluid", uid)})
 	if err != nil {
@@ -387,8 +376,6 @@ func (c *Client) GetClientIDs(uid string) ([]uint16, error) {
 }
 
 // GetClientUIDByID returns the uid of a connected client.
-//
-// Answers empty over the voice protocol.
 func (c *Client) GetClientUIDByID(clid uint16) (string, error) {
 	rows, err := c.query("clientgetuidfromclid", []param{Uint("clid", uint64(clid))})
 	if err != nil {
@@ -403,8 +390,6 @@ func (c *Client) GetClientUIDByID(clid uint16) (string, error) {
 }
 
 // GetClientNameByDBID returns the nickname recorded for a database id.
-//
-// Answers empty over the voice protocol.
 func (c *Client) GetClientNameByDBID(clientDBID uint64) (string, error) {
 	rows, err := c.query("clientgetnamefromdbid", []param{Uint("cldbid", clientDBID)})
 	if err != nil {
@@ -419,8 +404,6 @@ func (c *Client) GetClientNameByDBID(clientDBID uint64) (string, error) {
 }
 
 // GetClientNameByUID returns the database id and nickname recorded for a uid.
-//
-// Answers empty over the voice protocol.
 func (c *Client) GetClientNameByUID(uid string) (uint64, string, error) {
 	rows, err := c.query("clientgetnamefromuid", []param{Str("cluid", uid)})
 	if err != nil {

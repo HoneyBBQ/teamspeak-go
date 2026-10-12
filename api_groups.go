@@ -1,11 +1,6 @@
 package teamspeak
 
 // Channel groups, permissions, and the tokens used to join groups.
-//
-// Several lookups here answer ok with no data over the voice protocol — see
-// docs/voice-protocol-empty-responses.md in the JS repository. Each says so
-// where it applies rather than leaving an empty slice to read as "nothing
-// there".
 
 // ChannelGroup is a channel group as channelgrouplist reports it.
 type ChannelGroup struct {
@@ -37,9 +32,6 @@ func parseChannelGroup(row map[string]string) ChannelGroup {
 }
 
 // ListChannelGroups returns every channel group.
-//
-// Empty over the voice protocol even as Server Admin; a server behaviour, not a
-// permission failure.
 func (c *Client) ListChannelGroups() ([]ChannelGroup, error) {
 	rows, err := c.query("channelgrouplist", nil)
 	if err != nil {
@@ -66,7 +58,7 @@ func (c *Client) CreateChannelGroup(name string, groupType *int) (uint64, error)
 		return 0, err
 	}
 
-	return firstOrEmpty(rows, "cgid"), nil
+	return createdGroupID(rows, "cgid", name)
 }
 
 // DeleteChannelGroup deletes a channel group.
@@ -97,7 +89,12 @@ func (c *Client) CopyChannelGroup(sourceGroupID, targetGroupID uint64, name stri
 		return 0, err
 	}
 
-	return firstOrEmpty(rows, "cgid"), nil
+	// Copying onto an existing group keeps that group's id.
+	if targetGroupID != 0 {
+		return targetGroupID, nil
+	}
+
+	return createdGroupID(rows, "cgid", name)
 }
 
 // ChannelGroupMembership is which channel group a client holds in a channel.
@@ -135,7 +132,6 @@ func (c *Client) ListChannelGroupClients(
 }
 
 // ListChannelGroupPermissions returns the permissions set on a channel group.
-// Empty over the voice protocol.
 func (c *Client) ListChannelGroupPermissions(channelGroupID uint64) ([]PermissionEntry, error) {
 	rows, err := c.query("channelgrouppermlist", []param{Uint("cgid", channelGroupID)})
 	if err != nil {
@@ -174,13 +170,16 @@ func (c *Client) DeleteChannelGroupPermission(channelGroupID uint64, permID *uin
 // ---- Permissions ------------------------------------------------------------
 
 // ListPermissions returns the server's full permission catalogue.
-// Empty over the voice protocol; the catalogue is a ServerQuery facility.
 func (c *Client) ListPermissions() ([]map[string]string, error) {
 	return c.query("permissionlist", nil)
 }
 
 // GetPermissionIDByName resolves a permission name to its numeric id. The
 // second return value is false when the server knows no such permission.
+//
+// Needs an instance-level permission (b_serverinstance_*), which not even the
+// Server Admin group holds by default — expect error 2568 until it is granted.
+// Granted, it works over the voice protocol like any other query.
 func (c *Client) GetPermissionIDByName(permSID string) (uint64, bool, error) {
 	rows, err := c.query("permidgetbyname", []param{Str("permsid", permSID)})
 	if err != nil {
@@ -285,12 +284,12 @@ func (c *Client) listKeys(command string) ([]PrivilegeKey, error) {
 	return out, nil
 }
 
-// ListPrivilegeKeys returns every privilege key. Empty over the voice protocol.
+// ListPrivilegeKeys returns every privilege key.
 func (c *Client) ListPrivilegeKeys() ([]PrivilegeKey, error) {
 	return c.listKeys("privilegekeylist")
 }
 
-// ListTokens returns every token. Empty over the voice protocol.
+// ListTokens returns every token.
 func (c *Client) ListTokens() ([]PrivilegeKey, error) {
 	return c.listKeys("tokenlist")
 }

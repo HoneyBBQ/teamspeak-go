@@ -384,14 +384,3 @@ func TestHandleNotification_UnknownNotification_NoError(t *testing.T) {
 	cmd := commands.ParseCommand("notifyunknowncommand foo=bar")
 	c.handleNotification(cmd)
 }
-
-func TestHandleNotification_FileTransfer_StartUpload(t *testing.T) {
-	c := newTestClient(t)
-
-	ch := make(chan any, 1)
-	c.ftTrack.register()
-
-	cmd := commands.ParseCommand("notifystartupload clientftfid=1 serverftfid=100 ftkey=abc123 port=30033 seekpos=0")
-	c.handleNotification(cmd)
-	close(ch)
-}

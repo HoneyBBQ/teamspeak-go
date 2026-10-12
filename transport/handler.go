@@ -93,6 +93,7 @@ type PacketHandler struct {
 	generationCounter    [9]uint32
 	mu                   sync.Mutex
 	closed               atomic.Bool
+	started              atomic.Bool
 	packetCounter        [9]uint16
 	clientID             uint16
 	nextCommandLowID     uint16
@@ -158,6 +159,7 @@ func (h *PacketHandler) Connect(addr string) error {
 // with datagram-style semantics (each Write produces one discrete message).
 func (h *PacketHandler) Start(conn io.ReadWriteCloser) error {
 	h.conn = conn
+	h.started.Store(true)
 
 	go h.receiveLoop()
 	go h.processLoop()
@@ -978,6 +980,12 @@ func (h *PacketHandler) SendWhisperPacket(data []byte, targetClientIDs []uint16,
 	return err
 }
 
+// IsOpen reports whether there is a live connection to send on.
+func (h *PacketHandler) IsOpen() bool {
+	return h.started.Load() && !h.closed.Load()
+}
+
+// Close stops the handler and closes its connection.
 func (h *PacketHandler) Close() error {
 	if h.closed.Swap(true) {
 		return nil

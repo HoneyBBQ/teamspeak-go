@@ -9,6 +9,15 @@ import (
 // on the class without knowing the id.
 var ErrServer = errors.New("TeamSpeak server error")
 
+// ErrNotConnected reports a command sent with no connection to send it on, or
+// one whose connection was lost while it waited for its answer. Without it such
+// a command would wait out its full timeout and fail as if the server were
+// slow.
+var ErrNotConnected = errors.New("not connected")
+
+// ErrInvalidCommand reports a command the client refuses to send as given.
+var ErrInvalidCommand = errors.New("invalid command")
+
 // ServerError is an error the TeamSpeak server reported.
 //
 // ID is the server's own error code, kept as a field rather than only formatted

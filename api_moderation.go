@@ -2,9 +2,8 @@ package teamspeak
 
 // Bans, complaints, offline messages, text messages and the server log.
 //
-// All administrative, and most of the read side answers empty over the voice
-// protocol. The functions exist because the commands do; each says so where it
-// applies.
+// All administrative: expect a permission error, not an empty list, when the
+// client lacks the rights.
 
 // BanEntry is a ban as banlist reports it.
 type BanEntry struct {
@@ -37,7 +36,7 @@ func parseBan(row map[string]string) BanEntry {
 	}
 }
 
-// ListBans returns every active ban. Empty over the voice protocol.
+// ListBans returns every active ban.
 func (c *Client) ListBans() ([]BanEntry, error) {
 	rows, err := c.query("banlist", nil)
 	if err != nil {
@@ -116,7 +115,6 @@ type Complaint struct {
 }
 
 // ListComplaints returns complaints, optionally only those against one client.
-// Empty over the voice protocol.
 func (c *Client) ListComplaints(targetDBID *uint64) ([]Complaint, error) {
 	rows, err := c.query("complainlist", []param{UintPtr("tcldbid", targetDBID)})
 	if err != nil {
@@ -182,8 +180,7 @@ func parseMessage(row map[string]string) OfflineMessage {
 	}
 }
 
-// ListMessages returns offline messages for this client. Empty over the voice
-// protocol.
+// ListMessages returns offline messages for this client.
 func (c *Client) ListMessages() ([]OfflineMessage, error) {
 	rows, err := c.query("messagelist", nil)
 	if err != nil {
@@ -246,8 +243,9 @@ const (
 // to a client-mode message reaches an unrelated client. Pass 0 as the target for
 // a server-wide message.
 //
-// Fire-and-forget: the server acknowledges with no data, and waiting for that
-// acknowledgement would turn every chat line into a round trip.
+// It waits for the server's answer, so a refusal — no permission to message
+// that target — is returned rather than lost. Call it from a goroutine to send
+// without waiting.
 func (c *Client) SendTextMessage(mode TextMessageTarget, target uint64, message string) error {
 	params := []param{
 		Int("targetmode", int64(mode)),
@@ -257,7 +255,7 @@ func (c *Client) SendTextMessage(mode TextMessageTarget, target uint64, message 
 		params = append(params, Uint("target", target))
 	}
 
-	return c.SendCommandNoWait(commandsBuild("sendtextmessage", params))
+	return c.exec("sendtextmessage", params)
 }
 
 // ---- Log --------------------------------------------------------------------
@@ -288,8 +286,7 @@ type LogViewOptions struct {
 	Instance      *bool
 }
 
-// ViewLog reads the server log. Empty over the voice protocol; the log is a
-// ServerQuery facility.
+// ViewLog reads the server log.
 func (c *Client) ViewLog(opts LogViewOptions) (LogPage, error) {
 	rows, err := c.query("logview", []param{
 		UintPtr("lines", opts.Lines),

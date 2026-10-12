@@ -180,90 +180,88 @@ func (c *Client) ListActiveTransfers() ([]ActiveTransfer, error) {
 	return out, nil
 }
 
-// FileUploadInit is the result of negotiating an upload.
-type FileUploadInit struct {
-	FileTransferKey      string
-	Port                 int
-	ClientFileTransferID uint16
-	ServerFileTransferID uint16
-}
-
-// FileDownloadInit is the result of negotiating a download.
-type FileDownloadInit struct {
-	FileTransferKey      string
-	Size                 uint64
-	Port                 int
-	ClientFileTransferID uint16
-	ServerFileTransferID uint16
+// nextFileTransferID returns the clientftfid for the next negotiation.
+//
+// The server echoes it in its answer, and the echo is the only thing tying the
+// answer to the request — it arrives after the command has already returned —
+// so two transfers negotiated at once must not share one. Zero is skipped: it
+// is what a request without the field would echo.
+func (c *Client) nextFileTransferID() uint64 {
+	for {
+		id := uint64(c.fileTransferID.Add(1) % 65536)
+		if id != 0 {
+			return id
+		}
+	}
 }
 
 // InitFileUpload negotiates an upload and returns the key and port to dial.
 //
-// Unusable over the voice protocol. ftinitupload answers ok with no rows, so
-// there is no key to dial — verified with Server Admin on the same identity,
-// and the same command returns ftkey=... over ServerQuery. This is the
-// empty-response behaviour documented in the JS repository's
-// docs/voice-protocol-empty-responses.md, not a permission problem.
+// Pass the result to UploadFileData to send the data; it does not go through
+// this client. A refusal — no permission to upload, say — is returned as a
+// *ServerError, even though the voice protocol reports it in a separate
+// notification after the command itself has succeeded.
 func (c *Client) InitFileUpload(
 	channelID uint64, path string, size uint64, password string, overwrite bool,
-) (FileUploadInit, error) {
+) (*FileUploadInfo, error) {
 	rows, err := c.query("ftinitupload", []param{
-		Uint("cid", channelID),
+		Uint("clientftfid", c.nextFileTransferID()),
 		Str("name", asPath(path)),
+		Uint("cid", channelID),
+		Str("cpw", password),
 		Uint("size", size),
 		Bool("overwrite", overwrite),
 		Bool("resume", false),
 		// proto is required: omitting it fails the whole call with 1539
 		// (parameter not found) rather than defaulting.
 		Uint("proto", 0),
-		Uint("clientftfid", 0),
-		Str("cpw", password),
 	}, PlainPassword("cpw"))
 	if err != nil {
-		return FileUploadInit{}, err
+		return nil, err
 	}
 
 	if len(rows) == 0 {
-		return FileUploadInit{}, errNoDataReturned
+		return nil, errNoDataReturned
 	}
 
 	row := rows[0]
 
-	return FileUploadInit{
+	return &FileUploadInfo{
 		FileTransferKey:      fieldStr(row, "ftkey"),
-		Port:                 int(fieldInt(row, "port")),
+		Port:                 fieldUint16(row, "port"),
+		SeekPosition:         fieldUint(row, "seekpos"),
 		ClientFileTransferID: fieldUint16(row, "clientftfid"),
 		ServerFileTransferID: fieldUint16(row, "serverftfid"),
 	}, nil
 }
 
-// InitFileDownload negotiates a download and returns the key and port to dial.
-//
-// Unusable over the voice protocol, for the same reason as InitFileUpload.
+// InitFileDownload negotiates a download and returns the key, port and size to
+// dial. Pass the result to DownloadFileData. Refusals are returned as for
+// InitFileUpload.
 func (c *Client) InitFileDownload(
 	channelID uint64, path, password string, seekPosition uint64,
-) (FileDownloadInit, error) {
+) (*FileDownloadInfo, error) {
 	rows, err := c.query("ftinitdownload", []param{
-		Uint("cid", channelID),
+		Uint("clientftfid", c.nextFileTransferID()),
 		Str("name", asPath(path)),
+		Uint("cid", channelID),
+		Str("cpw", password),
 		Uint("seekpos", seekPosition),
 		Uint("proto", 0),
-		Uint("clientftfid", 0),
-		Str("cpw", password),
 	}, PlainPassword("cpw"))
 	if err != nil {
-		return FileDownloadInit{}, err
+		return nil, err
 	}
 
 	if len(rows) == 0 {
-		return FileDownloadInit{}, errNoDataReturned
+		return nil, errNoDataReturned
 	}
 
 	row := rows[0]
 
-	return FileDownloadInit{
+	return &FileDownloadInfo{
 		FileTransferKey:      fieldStr(row, "ftkey"),
-		Port:                 int(fieldInt(row, "port")),
+		Port:                 fieldUint16(row, "port"),
 		Size:                 fieldUint(row, "size"),
 		ClientFileTransferID: fieldUint16(row, "clientftfid"),
 		ServerFileTransferID: fieldUint16(row, "serverftfid"),

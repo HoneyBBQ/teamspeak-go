@@ -3,9 +3,11 @@ package teamspeak
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/crypto"
@@ -47,11 +49,12 @@ type clientInitOptions struct {
 
 // Client is the TeamSpeak 3 client.
 type Client struct {
+	// fileTransferID allocates clientftfid values; see nextFileTransferID.
+	fileTransferID  atomic.Uint32
 	resolver        AddrResolver
 	finalCmdHandler func(string) error
 	crypt           *crypto.Crypt
 	attempt         *connectAttempt
-	ftTrack         *fileTransferTracker
 	logger          *slog.Logger
 	handler         *transport.PacketHandler
 	cmdTrack        *commandTracker
@@ -106,7 +109,6 @@ func NewClient(identity *crypto.Identity, addr string, nickname string, options 
 		clients:  make(map[uint16]ClientInfo),
 		throttle: newCommandThrottle(),
 		cmdTrack: newCommandTracker(),
-		ftTrack:  newFileTransferTracker(),
 		attempt:  newConnectAttempt(),
 	}
 
@@ -263,6 +265,7 @@ func (c *Client) Disconnect() error {
 	}
 
 	err := c.handler.Close()
+	c.cmdTrack.reset(ErrNotConnected)
 	// Invoke disconnected handlers here; handleConnectionClosed skips them once
 	// status is already Disconnected to avoid duplicate callbacks.
 	for _, h := range handlers {
@@ -285,8 +288,7 @@ func (c *Client) resetForConnectLocked() string {
 	if c.attempt.finished() {
 		c.attempt = newConnectAttempt()
 	}
-	c.cmdTrack.reset()
-	c.ftTrack.reset()
+	c.cmdTrack.reset(ErrNotConnected)
 	c.clients = make(map[uint16]ClientInfo)
 	c.clid = 0
 	// Reset to the TS3 default; initserver sets it from the server's version.
@@ -367,6 +369,15 @@ func (c *Client) failConnection(err error) {
 }
 
 func (c *Client) handleConnectionClosed(err error) {
+	// Nothing in flight can be answered any more; failing it now, with the
+	// reason, beats every caller timing out one by one. Harmless after a
+	// deliberate Disconnect, which has already done it.
+	cause := ErrNotConnected
+	if err != nil {
+		cause = fmt.Errorf("%w: %w", ErrNotConnected, err)
+	}
+	c.cmdTrack.reset(cause)
+
 	c.mu.Lock()
 	if c.status == StatusDisconnected {
 		c.mu.Unlock()

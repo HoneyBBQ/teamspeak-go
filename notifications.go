@@ -22,12 +22,6 @@ func (c *Client) handleNotification(cmd *commands.Command) {
 		c.logger.Debug("insufficient permissions",
 			slog.String("permid", cmd.Params["permid"]),
 			slog.String("permvalue", cmd.Params["permvalue"]))
-	case "notifystartupload":
-		c.handleStartUpload(cmd)
-	case "notifystartdownload":
-		c.handleStartDownload(cmd)
-	case "notifystatusfiletransfer":
-		c.handleFileTransferStatus(cmd)
 	default:
 		c.logger.Debug("unhandled notification", slog.String("name", cmd.Name))
 	}
@@ -168,9 +162,9 @@ func (c *Client) handleClientPoke(cmd *commands.Command) {
 	invokerID, _ := parseUint16Value(cmd.Params["invokerid"])
 	evt := PokeEvent{
 		InvokerID:   invokerID,
-		InvokerName: commands.Unescape(cmd.Params["invokername"]),
+		InvokerName: cmd.Params["invokername"],
 		InvokerUID:  cmd.Params["invokeruid"],
-		Message:     commands.Unescape(cmd.Params["msg"]),
+		Message:     cmd.Params["msg"],
 	}
 
 	c.logger.Debug("client poked",
@@ -179,45 +173,4 @@ func (c *Client) handleClientPoke(cmd *commands.Command) {
 		slog.String("message", evt.Message))
 
 	c.finalEvtHandler(evt)
-}
-
-func (c *Client) handleStartUpload(cmd *commands.Command) {
-	clientftfid, _ := parseUint16Value(cmd.Params["clientftfid"])
-	serverftfid, _ := parseUint16Value(cmd.Params["serverftfid"])
-	port, _ := parseUint16Value(cmd.Params["port"])
-	seekpos, _ := parseUint64Value(cmd.Params["seekpos"])
-	info := FileUploadInfo{
-		ClientFileTransferID: clientftfid,
-		ServerFileTransferID: serverftfid,
-		FileTransferKey:      cmd.Params["ftkey"],
-		Port:                 port,
-		SeekPosition:         seekpos,
-	}
-	c.ftTrack.notify(info.ClientFileTransferID, info)
-}
-
-func (c *Client) handleStartDownload(cmd *commands.Command) {
-	clientftfid, _ := parseUint16Value(cmd.Params["clientftfid"])
-	serverftfid, _ := parseUint16Value(cmd.Params["serverftfid"])
-	port, _ := parseUint16Value(cmd.Params["port"])
-	size, _ := parseUint64Value(cmd.Params["size"])
-	info := FileDownloadInfo{
-		ClientFileTransferID: clientftfid,
-		ServerFileTransferID: serverftfid,
-		FileTransferKey:      cmd.Params["ftkey"],
-		Port:                 port,
-		Size:                 size,
-	}
-	c.ftTrack.notify(info.ClientFileTransferID, info)
-}
-
-func (c *Client) handleFileTransferStatus(cmd *commands.Command) {
-	clientftfid, _ := parseUint16Value(cmd.Params["clientftfid"])
-	status, _ := parseIntValue(cmd.Params["status"])
-	info := FileTransferStatusInfo{
-		ClientFileTransferID: clientftfid,
-		Status:               status,
-		Message:              cmd.Params["msg"],
-	}
-	c.ftTrack.notify(info.ClientFileTransferID, info)
 }

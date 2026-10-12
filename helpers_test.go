@@ -130,14 +130,14 @@ func TestIsAutoNicknameMatch_NoPrefixMatch(t *testing.T) {
 func TestCommandTracker_RegisterAndResolve(t *testing.T) {
 	tr := newReadyCommandTracker()
 
-	rc, ch := tr.register()
+	rc, ch := tr.register(nil, "", false)
 	if rc == 0 {
 		t.Error("expected non-zero rc")
 	}
 
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		tr.resolve(rc, nil)
+		tr.resolve(rc, nil, 0)
 	}()
 
 	select {
@@ -152,10 +152,10 @@ func TestCommandTracker_RegisterAndResolve(t *testing.T) {
 
 func TestCommandTracker_CollectAndResolveWithData(t *testing.T) {
 	tr := newReadyCommandTracker()
-	rc, ch := tr.register()
+	rc, ch := tr.register(nil, "", false)
 
-	tr.collect(map[string]string{"k": "v"})
-	tr.resolve(rc, nil)
+	tr.collect(map[string]string{"k": "v"}, "")
+	tr.resolve(rc, nil, 0)
 
 	result := <-ch
 	if len(result.Data) != 1 || result.Data[0]["k"] != "v" {
@@ -165,10 +165,10 @@ func TestCommandTracker_CollectAndResolveWithData(t *testing.T) {
 
 func TestCommandTracker_UnregisterPreventsFire(t *testing.T) {
 	tr := newReadyCommandTracker()
-	rc, ch := tr.register()
+	rc, ch := tr.register(nil, "", false)
 	tr.unregister(rc)
 	// Resolving after unregister should be a no-op.
-	tr.resolve(rc, nil)
+	tr.resolve(rc, nil, 0)
 
 	select {
 	case <-ch:
@@ -177,21 +177,30 @@ func TestCommandTracker_UnregisterPreventsFire(t *testing.T) {
 	}
 }
 
-func TestCommandTracker_Reset(t *testing.T) {
+// Dropping in-flight commands silently left each caller waiting out its full
+// timeout for an answer that could no longer come.
+func TestCommandTracker_ResetFailsInFlightCommands(t *testing.T) {
 	tr := newReadyCommandTracker()
-	_, _ = tr.register()
-	_, _ = tr.register()
-	tr.reset()
+	_, first := tr.register(nil, "", false)
+	_, second := tr.register(nil, "", false)
+	tr.reset(ErrNotConnected)
 
-	// After reset, pending map should be empty; new resolve is a no-op.
-	tr.resolve(1, nil)
-	tr.resolve(2, nil)
+	for _, ch := range []<-chan commandResult{first, second} {
+		select {
+		case res := <-ch:
+			if !errors.Is(res.Err, ErrNotConnected) {
+				t.Errorf("err = %v, want ErrNotConnected", res.Err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("reset did not fail an in-flight command")
+		}
+	}
 }
 
 func TestCommandTracker_RCMonotoneIncreasing(t *testing.T) {
 	tr := newReadyCommandTracker()
-	rc1, _ := tr.register()
-	rc2, _ := tr.register()
+	rc1, _ := tr.register(nil, "", false)
+	rc2, _ := tr.register(nil, "", false)
 	if rc2 <= rc1 {
 		t.Errorf("expected rc2 > rc1, got rc1=%d rc2=%d", rc1, rc2)
 	}

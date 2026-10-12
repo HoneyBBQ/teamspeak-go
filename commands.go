@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,23 +27,59 @@ type commandResult struct {
 	Data []map[string]string
 }
 
-// commandTracker matches return_code values to pending commands and response rows.
+// bufferedRow is a row waiting for the error that says which command it
+// answered.
+type bufferedRow struct {
+	params map[string]string
+	// source is the notification that carried the row, or "" for a nameless
+	// data row.
+	source string
+}
+
+type pendingCommand struct {
+	spec   *commands.ResponseSpec
+	result chan commandResult
+	// settled holds the command's error result while its correlated answer is
+	// still due.
+	settled *commandResult
+	// correlation is the request's value for spec.Correlated.Key.
+	correlation string
+	// correlated holds answers that arrived before the command's own error.
+	correlated     []map[string]string
+	hasCorrelation bool
+}
+
+// commandTracker matches the server's answers to the commands that asked for
+// them.
+//
+// The server handles one client's commands in order and closes each answer
+// with "error … return_code=N", so every row seen since the previous error
+// belongs to command N. Rows are therefore held, tagged with where they came
+// from, until that error says whose they are. Attributing them on arrival meant
+// guessing which in-flight command the server was answering, and the guess —
+// the newest — was wrong whenever two were in flight: a command is registered
+// before it waits on the throttle, so one not yet sent took the rows of one
+// already answered.
+//
+// A nameless row always belongs to the command. A notification row belongs to
+// it only if the command declared that notification as its answer (see
+// commands.Response): the same notifyclientmoved that answers nothing can
+// arrive between any two commands.
+//
+// The welcome sequence is the exception. The server pushes channellist,
+// channelgrouplist and the rest unprompted right after the handshake, before
+// channellistfinished; without the gate they would land in the first command's
+// answer as duplicate rows and a phantom cid=0.
 type commandTracker struct {
-	pending    map[uint32]chan commandResult
-	collecting map[uint32][]map[string]string
-	mu         sync.Mutex
-	nextRC     uint32
-	// welcomeComplete is set by channellistfinished, which ends the server's
-	// unprompted welcome sequence. It is NOT set by our own
-	// notifycliententerview: the server sends more welcome data after that.
+	pending         map[uint32]*pendingCommand
+	buffer          []bufferedRow
+	mu              sync.Mutex
+	nextRC          uint32
 	welcomeComplete bool
 }
 
 func newCommandTracker() *commandTracker {
-	return &commandTracker{
-		pending:    make(map[uint32]chan commandResult),
-		collecting: make(map[uint32][]map[string]string),
-	}
+	return &commandTracker{pending: make(map[uint32]*pendingCommand)}
 }
 
 // newReadyCommandTracker returns a tracker past the welcome sequence, for tests
@@ -54,11 +91,20 @@ func newReadyCommandTracker() *commandTracker {
 	return t
 }
 
-func (t *commandTracker) register() (uint32, <-chan commandResult) {
+// register records a command about to be sent. correlation is the request's
+// value for the spec's correlation key, when it has one.
+func (t *commandTracker) register(
+	spec *commands.ResponseSpec, correlation string, hasCorrelation bool,
+) (uint32, <-chan commandResult) {
 	rc := atomic.AddUint32(&t.nextRC, 1)
 	ch := make(chan commandResult, 1)
 	t.mu.Lock()
-	t.pending[rc] = ch
+	t.pending[rc] = &pendingCommand{
+		spec:           spec,
+		result:         ch,
+		correlation:    correlation,
+		hasCorrelation: hasCorrelation,
+	}
 	t.mu.Unlock()
 
 	return rc, ch
@@ -70,57 +116,136 @@ func (t *commandTracker) unregister(rc uint32) {
 	t.mu.Unlock()
 }
 
-// collect appends a parameter row to the pending command with the largest return_code.
-//
-// Rows arriving before the welcome sequence ends are dropped: the server sends
-// its own channellist, channelgrouplist and so on unprompted, and without this
-// they land in the first command's response. That is how a client that asks for
-// channellist immediately after connecting used to get duplicate rows and a
-// phantom cid=0.
-func (t *commandTracker) collect(params map[string]string) {
+// expects reports whether some in-flight command declared name as its answer.
+func (t *commandTracker) expects(name string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if !t.welcomeComplete {
+	for _, p := range t.pending {
+		if p.spec.Declares(name) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// collect holds a row until the next error says which command it answered.
+func (t *commandTracker) collect(params map[string]string, source string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if !t.welcomeComplete || len(t.pending) == 0 {
+		return
+	}
+	t.buffer = append(t.buffer, bufferedRow{params: params, source: source})
+}
+
+// offerCorrelated offers a notification to commands answered after their
+// error. Matching is on the echoed request field, so it does not matter whether
+// the notification beats the error or follows it.
+func (t *commandTracker) offerCorrelated(name string, params map[string]string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for rc, p := range t.pending {
+		c := p.spec.Correlated
+		if c == nil || !p.hasCorrelation || !slices.Contains(c.Notifications, name) {
+			continue
+		}
+		if params[c.Key] != p.correlation {
+			continue
+		}
+
+		if name == c.Failure && params["status"] != "" && params["status"] != "0" {
+			t.settleLocked(rc, p, commandResult{Err: &ServerError{ID: params["status"], Message: params["msg"]}})
+
+			return
+		}
+		p.correlated = append(p.correlated, params)
+		if p.settled != nil {
+			t.settleLocked(rc, p, commandResult{Data: append(p.settled.Data, p.correlated...)})
+		}
+
+		return
+	}
+}
+
+// resolve hands the rows held since the previous error to command rc.
+// ownClientID filters answers that keep only the rows this client invoked.
+func (t *commandTracker) resolve(rc uint32, err error, ownClientID uint16) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	rows := t.buffer
+	t.buffer = nil
+	p, ok := t.pending[rc]
+	if !ok {
 		return
 	}
 
-	var maxRC uint32
-	for rc := range t.pending {
-		if rc > maxRC {
-			maxRC = rc
+	own := strconv.FormatUint(uint64(ownClientID), 10)
+	var data []map[string]string
+	for _, row := range rows {
+		if answers(p.spec, row, own) {
+			data = append(data, row.params)
 		}
 	}
-	if maxRC > 0 {
-		t.collecting[maxRC] = append(t.collecting[maxRC], params)
+
+	if err != nil {
+		t.settleLocked(rc, p, commandResult{Err: err, Data: data})
+
+		return
 	}
+	// Answered after the error: hold the result until the answer arrives, or
+	// the caller gives up on it.
+	if p.spec != nil && p.spec.Correlated != nil && p.hasCorrelation && len(p.correlated) == 0 {
+		p.settled = &commandResult{Data: data}
+
+		return
+	}
+	t.settleLocked(rc, p, commandResult{Data: append(data, p.correlated...)})
 }
 
-func (t *commandTracker) resolve(rc uint32, err error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if ch, ok := t.pending[rc]; ok {
-		data := t.collecting[rc]
-		delete(t.collecting, rc)
-		ch <- commandResult{Data: data, Err: err}
+func answers(spec *commands.ResponseSpec, row bufferedRow, ownClientID string) bool {
+	if row.source == "" {
+		return true
 	}
+	if !spec.Inline(row.source) {
+		return false
+	}
+
+	return !spec.OwnRowsOnly || row.params["invokerid"] == ownClientID
+}
+
+// settleLocked delivers a command's result exactly once. The channel has room
+// for that one value, so the send cannot block while the lock is held.
+func (t *commandTracker) settleLocked(rc uint32, p *pendingCommand, result commandResult) {
+	delete(t.pending, rc)
+	p.result <- result
 }
 
 // signalWelcomeComplete marks the end of the server's welcome sequence and
-// discards whatever was buffered while it was still arriving.
+// discards whatever was held while it was still arriving.
 func (t *commandTracker) signalWelcomeComplete() {
 	t.mu.Lock()
 	t.welcomeComplete = true
-	t.collecting = make(map[uint32][]map[string]string)
+	t.buffer = nil
 	t.mu.Unlock()
 }
 
-func (t *commandTracker) reset() {
+// reset forgets every command and fails it with err. Dropping them silently
+// would leave each caller waiting out its full timeout for an answer that can
+// no longer come.
+func (t *commandTracker) reset(err error) {
 	t.mu.Lock()
-	t.pending = make(map[uint32]chan commandResult)
-	t.collecting = make(map[uint32][]map[string]string)
+	defer t.mu.Unlock()
+
+	for rc, p := range t.pending {
+		t.settleLocked(rc, p, commandResult{Err: err})
+	}
+	t.buffer = nil
 	t.welcomeComplete = false
-	t.mu.Unlock()
 }
 
 func (c *Client) handlePacket(p *transport.Packet) {
@@ -181,7 +306,7 @@ func (c *Client) handleCommand(s string) {
 	// the command, so the row belongs to whichever command awaits a result.
 	if cmd.Name == "" {
 		if len(cmd.Params) > 0 {
-			c.cmdTrack.collect(cmd.Params)
+			c.cmdTrack.collect(cmd.Params, "")
 		}
 
 		return
@@ -196,6 +321,13 @@ func (c *Client) handleCommand(s string) {
 	}
 
 	if strings.HasPrefix(cmd.Name, "notify") {
+		// Some commands are answered by a notification instead of data rows.
+		// It still goes on to be dispatched as an event, since the same
+		// notification also arrives unprompted.
+		if c.cmdTrack.expects(cmd.Name) {
+			c.cmdTrack.collect(cmd.Params, cmd.Name)
+			c.cmdTrack.offerCorrelated(cmd.Name, cmd.Params)
+		}
 		c.handleNotification(cmd)
 
 		return
@@ -211,8 +343,10 @@ func (c *Client) handleCommand(s string) {
 	case "error":
 		c.handleError(cmd)
 	default:
-		// A command the SDK does not model, carrying its own data rows.
-		c.cmdTrack.collect(cmd.Params)
+		// A named command the SDK does not model. Held under its own name, so
+		// it answers a command only if that command declared it — not merely
+		// by arriving while one is in flight.
+		c.cmdTrack.collect(cmd.Params, cmd.Name)
 		c.logger.Debug("unhandled or data command", slog.String("name", cmd.Name), slog.Any("params", cmd.Params))
 	}
 }
@@ -246,7 +380,7 @@ func (c *Client) handleError(cmd *commands.Command) {
 	if rcStr != "" {
 		rc, parseErr := strconv.ParseUint(rcStr, 10, 32)
 		if parseErr == nil {
-			c.cmdTrack.resolve(uint32(rc), err)
+			c.cmdTrack.resolve(uint32(rc), err, c.ClientID())
 		}
 	}
 
@@ -278,31 +412,57 @@ func (c *Client) ExecCommand(cmd string, timeout time.Duration) error {
 
 // ExecCommandWithResponse sends a command and waits for its return_code response and data.
 func (c *Client) ExecCommandWithResponse(cmd string, timeout time.Duration) ([]map[string]string, error) {
-	rc, ch := c.cmdTrack.register()
-	defer c.cmdTrack.unregister(rc)
-
-	withReturnCode := cmd
-	if !strings.Contains(cmd, "return_code=") {
-		withReturnCode = fmt.Sprintf("%s return_code=%d", cmd, rc)
+	// A command sent on no socket used to vanish and surface later as a
+	// timeout, which reads like a slow server rather than a usage error.
+	if !c.handler.IsOpen() {
+		return nil, ErrNotConnected
 	}
 
-	c.logger.Debug("sending command", slog.String("raw", withReturnCode))
+	parsed := commands.ParseCommand(cmd)
+	if parsed == nil {
+		return nil, fmt.Errorf("%w: empty command", ErrInvalidCommand)
+	}
+	// Checked as a parameter rather than as text: a message body that merely
+	// contains "return_code=" used to suppress the real one and time the
+	// command out. A caller-supplied one would detach the command from its
+	// answer, so it is refused.
+	if _, ok := parsed.Params["return_code"]; ok {
+		return nil, fmt.Errorf("%w: commands must not carry their own return_code", ErrInvalidCommand)
+	}
+
+	// Which notifications answer this command, and — for answers that arrive
+	// after the error — the request field they echo back.
+	spec := commands.Response(parsed.Name)
+	var correlation string
+	var hasCorrelation bool
+	if spec != nil && spec.Correlated != nil {
+		correlation, hasCorrelation = parsed.Params[spec.Correlated.Key]
+	}
+
+	rc, ch := c.cmdTrack.register(spec, correlation, hasCorrelation)
+	defer c.cmdTrack.unregister(rc)
+
+	// The name and code only: the full command carries password hashes the
+	// server accepts as passwords, and privilege keys.
+	c.logger.Debug("sending command", slog.String("command", parsed.Name), slog.Uint64("return_code", uint64(rc)))
 
 	err := c.throttle.wait(context.Background())
 	if err != nil {
 		return nil, err
 	}
 
-	err = c.finalCmdHandler(withReturnCode)
+	err = c.finalCmdHandler(fmt.Sprintf("%s return_code=%d", cmd, rc))
 	if err != nil {
 		return nil, err
 	}
 
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
 	case res := <-ch:
 		return res.Data, res.Err
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("%w: %s", errCommandTimed, cmd)
+	case <-timer.C:
+		return nil, fmt.Errorf("%w: %s", errCommandTimed, parsed.Name)
 	}
 }
 

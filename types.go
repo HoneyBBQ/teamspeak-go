@@ -83,10 +83,3 @@ type FileDownloadInfo struct {
 	ServerFileTransferID uint16
 	Port                 uint16
 }
-
-// FileTransferStatusInfo represents status notifications for file transfers.
-type FileTransferStatusInfo struct {
-	Message              string
-	Status               int
-	ClientFileTransferID uint16
-}

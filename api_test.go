@@ -55,12 +55,12 @@ func TestFileTransfer_HashesChannelPassword(t *testing.T) {
 	want := "cpw=" + strings.ReplaceAll(prepareClientPassword("hunter2"), "/", `\/`)
 
 	upload := captureCommand(t, func(c *Client) error {
-		_, err := c.FileTransferInitUpload(7, "/a.txt", "hunter2", 4, true)
+		_, err := c.InitFileUpload(7, "/a.txt", 4, "hunter2", true)
 
 		return err
 	})
 	download := captureCommand(t, func(c *Client) error {
-		_, err := c.FileTransferInitDownload(7, "/a.txt", "hunter2")
+		_, err := c.InitFileDownload(7, "/a.txt", "hunter2", 0)
 
 		return err
 	})
