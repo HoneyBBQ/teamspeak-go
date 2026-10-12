@@ -130,9 +130,10 @@ func (c *Client) OnConnected(handler func()) func() {
 }
 
 // OnDisconnected registers a handler for the connection ending. It receives
-// nil after Disconnect, and the cause otherwise: a failed handshake, ErrTimedOut
-// for a server that stopped answering, or a *RemovedError for a kick, a ban or
-// a server stopping. It returns a function that removes the handler.
+// nil after Disconnect, and the cause otherwise: a failed handshake,
+// ErrConnectionTimeout for a server that stopped answering, or a
+// *RemovedError for a kick, a ban or a server stopping. It returns a function
+// that removes the handler.
 //
 // An event still queued when a new Connect, or a reconnection, starts is
 // dropped rather than delivered: it describes the session before, and would

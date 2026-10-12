@@ -279,10 +279,10 @@ func (c *Commands) GetPermissionIDByName(ctx context.Context, name string) (Perm
 // permoverview report it. Target says which of the ids are set:
 //
 //   - PermissionTargetServerGroup: ServerGroupID
-//   - PermissionTargetClient: ClientDBID
+//   - PermissionTargetClient: DatabaseID
 //   - PermissionTargetChannel: ChannelID
 //   - PermissionTargetChannelGroup: ChannelID and ChannelGroupID
-//   - PermissionTargetChannelClient: ChannelID and ClientDBID
+//   - PermissionTargetChannelClient: ChannelID and DatabaseID
 //
 // The others are 0. A row whose target is none of these is left out of the
 // results.
@@ -290,9 +290,9 @@ type PermissionLocation struct {
 	// ServerGroupID is the server group the permission is set on, for
 	// PermissionTargetServerGroup.
 	ServerGroupID ServerGroupID
-	// ClientDBID is the client the permission is set on, for
+	// DatabaseID is the client the permission is set on, for
 	// PermissionTargetClient and PermissionTargetChannelClient.
-	ClientDBID ClientDBID
+	DatabaseID ClientDBID
 	// ChannelID is the channel the permission is set in, for
 	// PermissionTargetChannel, PermissionTargetChannelGroup and
 	// PermissionTargetChannelClient.
@@ -319,7 +319,7 @@ func parseLocation(row map[string]string) (PermissionLocation, bool) {
 	case PermissionTargetServerGroup:
 		loc.ServerGroupID = ServerGroupID(id1)
 	case PermissionTargetClient:
-		loc.ClientDBID = ClientDBID(id1)
+		loc.DatabaseID = ClientDBID(id1)
 	case PermissionTargetChannel:
 		loc.ChannelID = ChannelID(id1)
 	case PermissionTargetChannelGroup:
@@ -327,7 +327,7 @@ func parseLocation(row map[string]string) (PermissionLocation, bool) {
 		loc.ChannelGroupID = ChannelGroupID(id2)
 	case PermissionTargetChannelClient:
 		loc.ChannelID = ChannelID(id1)
-		loc.ClientDBID = ClientDBID(id2)
+		loc.DatabaseID = ClientDBID(id2)
 	default:
 		return PermissionLocation{}, false
 	}
@@ -418,8 +418,8 @@ func (c *Commands) ResetPermissions(ctx context.Context) error {
 // and log/slog safely. encoding/json does not: the token is the caller's own
 // data, which they may need to store, so json.Marshal includes it.
 type PrivilegeKey struct {
-	// CreatedAt is when the key was created (token_created).
-	CreatedAt time.Time
+	// Created is when the key was created (token_created).
+	Created time.Time
 	// Token is the key itself, which UsePrivilegeKey redeems (token).
 	Token string
 	// Description is the key's description (token_description).
@@ -444,7 +444,7 @@ func parseKey(row map[string]string) PrivilegeKey {
 		Token:       fieldStr(row, "token"),
 		Type:        PrivilegeKeyType(fieldInt(row, "token_type")),
 		Description: fieldStr(row, "token_description"),
-		CreatedAt:   fieldTime(row, "token_created"),
+		Created:     fieldTime(row, "token_created"),
 	}
 	if key.Type == PrivilegeKeyChannelGroup {
 		key.ChannelGroupID = ChannelGroupID(fieldUint(row, "token_id1"))

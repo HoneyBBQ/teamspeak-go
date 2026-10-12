@@ -7,9 +7,9 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
-// ErrTimedOut reports a connection the server stopped answering: nothing
-// arrived, or a packet went unacknowledged, for a minute.
-var ErrTimedOut = transport.ErrTimedOut
+// ErrConnectionTimeout reports a connection the server stopped answering:
+// nothing arrived, or a packet went unacknowledged, for a minute.
+var ErrConnectionTimeout = transport.ErrTimedOut
 
 // ErrHandshake reports a connection attempt whose handshake failed: the server
 // sent a step the client could not use — malformed, out of range, or failing

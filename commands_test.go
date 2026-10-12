@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/honeybbq/teamspeak-go/internal/request"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
@@ -92,4 +93,21 @@ func TestRequestHasNoPublicEncode(t *testing.T) {
 	if line != "channelsubscribe cid=7" {
 		t.Errorf("the transports' encoding = %q", line)
 	}
+}
+
+// The names both SDKs give the same concepts; this fails to compile if one
+// drifts.
+func TestSharedNames(_ *testing.T) {
+	var zero time.Time
+	_ = Complaint{Created: zero}
+	_ = OfflineMessage{Sent: zero}
+	_ = TempPassword{Starts: zero, Ends: zero}
+	_ = PermissionLocation{DatabaseID: 1}
+	_ = ServerGroupMember{DatabaseID: 1}
+	_ = ServerVersion{}
+	_ = PrivilegeKey{Created: zero}
+	_ = FileEntry{Modified: zero}
+	_ = Channel{UID: ChannelUID("")}
+	_ = WhoAmI{ServerUID: ""}
+	_ = PrivilegeKeyServerGroup
 }

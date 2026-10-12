@@ -25,8 +25,8 @@ type FileOptions struct {
 
 // FileEntry is one entry of a directory listing.
 type FileEntry struct {
-	// ModifiedAt is when the entry was last changed (datetime).
-	ModifiedAt time.Time
+	// Modified is when the entry was last changed (datetime).
+	Modified time.Time
 	// Name is the entry's name, without its directory (name).
 	Name string
 	// Size is the file's size in bytes (size); 0 for a directory.
@@ -41,7 +41,7 @@ func parseFileEntry(row map[string]string) FileEntry {
 	return FileEntry{
 		Name:        fieldStr(row, "name"),
 		Size:        fieldUint(row, "size"),
-		ModifiedAt:  fieldTime(row, "datetime"),
+		Modified:    fieldTime(row, "datetime"),
 		IsDirectory: row["type"] == "0",
 	}
 }

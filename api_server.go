@@ -175,8 +175,8 @@ func (c *Commands) ListBindings(ctx context.Context, opts BindingListOptions) ([
 	return out, nil
 }
 
-// BuildVersion is the server's build information.
-type BuildVersion struct {
+// ServerVersion is the server's build information.
+type ServerVersion struct {
 	// Version is the server's version (version).
 	Version string
 	// Platform is the operating system the server runs on (platform).
@@ -186,13 +186,13 @@ type BuildVersion struct {
 }
 
 // GetVersion returns the server's build version.
-func (c *Commands) GetVersion(ctx context.Context) (BuildVersion, error) {
+func (c *Commands) GetVersion(ctx context.Context) (ServerVersion, error) {
 	row, err := c.queryRow(ctx, "version", "", nil)
 	if err != nil {
-		return BuildVersion{}, err
+		return ServerVersion{}, err
 	}
 
-	return BuildVersion{
+	return ServerVersion{
 		Version:  fieldStr(row, "version"),
 		Build:    fieldUint(row, "build"),
 		Platform: fieldStr(row, "platform"),
@@ -409,8 +409,8 @@ func (c *Commands) RemoveClientFromServerGroup(
 	})
 }
 
-// ServerGroupClient is one member of a server group.
-type ServerGroupClient struct {
+// ServerGroupMember is one member of a server group.
+type ServerGroupMember struct {
 	// Nickname is the member's nickname (client_nickname); "" unless the list
 	// asked for Names.
 	Nickname string
@@ -434,7 +434,7 @@ type ServerGroupClientListOptions struct {
 // ListServerGroupClients returns the members of a server group.
 func (c *Commands) ListServerGroupClients(
 	ctx context.Context, serverGroupID ServerGroupID, opts ServerGroupClientListOptions,
-) ([]ServerGroupClient, error) {
+) ([]ServerGroupMember, error) {
 	params := []param{idArg("sgid", serverGroupID)}
 	if opts.Names {
 		params = append(params, boolArg("-names", true))
@@ -448,9 +448,9 @@ func (c *Commands) ListServerGroupClients(
 		return nil, err
 	}
 
-	out := make([]ServerGroupClient, 0, len(rows))
+	out := make([]ServerGroupMember, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, ServerGroupClient{
+		out = append(out, ServerGroupMember{
 			DatabaseID: ClientDBID(fieldUint(row, "cldbid")),
 			Nickname:   fieldStr(row, "client_nickname"),
 			UID:        UID(fieldStr(row, "client_unique_identifier")),
@@ -543,10 +543,10 @@ func (c *Commands) DeleteServerGroupPermission(
 // and log/slog safely. encoding/json does not: the password is the caller's own
 // data, which they may need to store, so json.Marshal includes it.
 type TempPassword struct {
-	// Start and End are when the password is valid from and until.
-	Start time.Time
-	// End is when the password stops being valid.
-	End time.Time
+	// Starts is when the password becomes valid.
+	Starts time.Time
+	// Ends is when the password stops being valid.
+	Ends time.Time
 	// Password is the password itself (pw_clear).
 	Password string
 	// Description is the password's description (desc).
@@ -559,7 +559,7 @@ type TempPassword struct {
 // String describes the password without the password itself.
 func (p TempPassword) String() string {
 	return fmt.Sprintf("{Description:%q TargetChannelID:%d Start:%v End:%v Password:redacted}",
-		p.Description, p.TargetChannelID, p.Start, p.End)
+		p.Description, p.TargetChannelID, p.Starts, p.Ends)
 }
 
 // GoString is String, so %#v redacts too.
@@ -570,8 +570,8 @@ func (p TempPassword) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("description", p.Description),
 		slog.Uint64("target_channel_id", uint64(p.TargetChannelID)),
-		slog.Time("start", p.Start),
-		slog.Time("end", p.End),
+		slog.Time("start", p.Starts),
+		slog.Time("end", p.Ends),
 		slog.String("password", "redacted"),
 	)
 }
@@ -588,8 +588,8 @@ func (c *Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error
 		out = append(out, TempPassword{
 			Password:        fieldStr(row, "pw_clear"),
 			Description:     fieldStr(row, "desc"),
-			Start:           fieldTime(row, "start"),
-			End:             fieldTime(row, "end"),
+			Starts:          fieldTime(row, "start"),
+			Ends:            fieldTime(row, "end"),
 			TargetChannelID: ChannelID(fieldUint(row, "tcid")),
 		})
 	}

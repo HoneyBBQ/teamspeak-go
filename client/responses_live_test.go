@@ -139,12 +139,12 @@ func checkUploadedFile(
 	t *testing.T, c *client.Client, cid teamspeak.ChannelID, path string, listed teamspeak.FileEntry, size uint64,
 ) {
 	t.Helper()
-	if since := time.Since(listed.ModifiedAt).Abs(); since > time.Hour || listed.IsDirectory {
+	if since := time.Since(listed.Modified).Abs(); since > time.Hour || listed.IsDirectory {
 		t.Errorf("ListFiles entry = %+v, want a file modified just now", listed)
 	}
 	info, err := c.GetFileInfo(t.Context(), cid, path, teamspeak.FileOptions{})
 	requireNoErr(t, err)
-	if since := time.Since(info.ModifiedAt).Abs(); since > time.Hour || info.Size != size {
+	if since := time.Since(info.Modified).Abs(); since > time.Hour || info.Size != size {
 		t.Errorf("GetFileInfo = %+v, want %d bytes modified just now", info, size)
 	}
 }

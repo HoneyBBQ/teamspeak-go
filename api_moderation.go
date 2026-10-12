@@ -173,8 +173,8 @@ func (c *Commands) DeleteAllBans(ctx context.Context) error {
 
 // Complaint is one client's complaint against another.
 type Complaint struct {
-	// Timestamp is when the complaint was filed.
-	Timestamp time.Time
+	// Created is when the complaint was filed.
+	Created time.Time
 	// TargetName is the nickname of the client complained about (tname).
 	TargetName string
 	// FromName is the nickname of the client who complained (fname).
@@ -210,7 +210,7 @@ func (c *Commands) ListComplaints(ctx context.Context, opts ComplaintListOptions
 			FromDatabaseID:   ClientDBID(fieldUint(row, "fcldbid")),
 			FromName:         fieldStr(row, "fname"),
 			Message:          fieldStr(row, "message"),
-			Timestamp:        fieldTime(row, "timestamp"),
+			Created:          fieldTime(row, "timestamp"),
 		})
 	}
 
@@ -242,8 +242,8 @@ func (c *Commands) DeleteAllComplaints(ctx context.Context, targetDBID ClientDBI
 
 // OfflineMessage is a message left for a client while they were away.
 type OfflineMessage struct {
-	// Timestamp is when the message was sent.
-	Timestamp time.Time
+	// Sent is when the message was sent.
+	Sent time.Time
 	// UID is the sender's.
 	UID UID
 	// Subject is the message's subject (subject).
@@ -258,12 +258,12 @@ type OfflineMessage struct {
 
 func parseMessage(row map[string]string) OfflineMessage {
 	return OfflineMessage{
-		ID:        MessageID(fieldUint(row, "msgid")),
-		UID:       UID(fieldStr(row, "cluid")),
-		Subject:   fieldStr(row, "subject"),
-		Message:   fieldStr(row, "message"),
-		Timestamp: fieldTime(row, "timestamp"),
-		IsRead:    fieldBool(row, "flag_read"),
+		ID:      MessageID(fieldUint(row, "msgid")),
+		UID:     UID(fieldStr(row, "cluid")),
+		Subject: fieldStr(row, "subject"),
+		Message: fieldStr(row, "message"),
+		Sent:    fieldTime(row, "timestamp"),
+		IsRead:  fieldBool(row, "flag_read"),
 	}
 }
 
