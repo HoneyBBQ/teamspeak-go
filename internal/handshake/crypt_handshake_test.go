@@ -8,8 +8,9 @@ import (
 	"testing"
 
 	"github.com/honeybbq/teamspeak-go/commands"
-	"github.com/honeybbq/teamspeak-go/crypto"
-	"github.com/honeybbq/teamspeak-go/handshake"
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
+	"github.com/honeybbq/teamspeak-go/internal/handshake"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 const (
@@ -22,7 +23,7 @@ const testIdentityStr = "W2OSGpWxkzBPJjt8iyJFsMnqnwHCnxOlmE9gWFOFnKs=:0"
 
 func newTestCrypt(t *testing.T) *crypto.Crypt {
 	t.Helper()
-	id, err := crypto.IdentityFromString(testIdentityStr)
+	id, err := identity.Parse(testIdentityStr)
 	if err != nil {
 		t.Fatalf("IdentityFromString failed: %v", err)
 	}

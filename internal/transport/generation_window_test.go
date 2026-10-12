@@ -3,7 +3,7 @@ package transport_test
 import (
 	"testing"
 
-	"github.com/honeybbq/teamspeak-go/transport"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 func TestGenerationWindowNew(t *testing.T) {

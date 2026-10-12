@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go"
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 // WithPacketConn exists so an application can supply its own transport. It has
@@ -24,7 +24,7 @@ func TestIntegration_CustomPacketConn(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pc.Close() })
 
-	id, err := crypto.GenerateIdentity(8)
+	id, err := identity.Generate(context.Background(), 8)
 	if err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}

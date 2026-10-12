@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go"
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 // The server pushes its own channellist, channelgrouplist and so on as soon as
@@ -19,7 +19,7 @@ import (
 func TestIntegration_NoWelcomeContamination(t *testing.T) {
 	addr := requireTeamSpeakAddr(t)
 
-	id, err := crypto.GenerateIdentity(8)
+	id, err := identity.Generate(context.Background(), 8)
 	if err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}

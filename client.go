@@ -9,9 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/honeybbq/teamspeak-go/crypto"
-	"github.com/honeybbq/teamspeak-go/discovery"
-	"github.com/honeybbq/teamspeak-go/transport"
+	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
+	"github.com/honeybbq/teamspeak-go/internal/discovery"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 var (
@@ -28,10 +29,38 @@ const (
 	StatusConnected
 )
 
+// ResolvedAddr is one endpoint a server address resolved to.
+type ResolvedAddr struct {
+	// Expiry is when the answer stops being valid.
+	Expiry time.Time
+	// Addr is the endpoint, as host:port.
+	Addr string
+	// Source names how it was found: SRV, TSDNS, or the address as given.
+	Source string
+}
+
 // AddrResolver resolves a TeamSpeak server address to host:port endpoints.
 // Implementations may replace the default chain (SRV, TSDNS, direct).
 type AddrResolver interface {
-	Resolve(ctx context.Context, addr string) ([]discovery.ResolvedAddr, error)
+	Resolve(ctx context.Context, addr string) ([]ResolvedAddr, error)
+}
+
+// defaultResolver is the SRV, TSDNS and direct chain.
+type defaultResolver struct {
+	resolver *discovery.Resolver
+}
+
+func (d defaultResolver) Resolve(ctx context.Context, addr string) ([]ResolvedAddr, error) {
+	found, err := d.resolver.Resolve(ctx, addr)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ResolvedAddr, len(found))
+	for i, f := range found {
+		out[i] = ResolvedAddr(f)
+	}
+
+	return out, nil
 }
 
 // CommandMiddleware wraps the final command sender; it may alter or drop commands.
@@ -66,7 +95,7 @@ type Client struct {
 	// uidAlgorithm is the hash the connected server uses for
 	// client_unique_identifier, learned from virtualserver_version during
 	// initserver: SHA-1 on TS3, SHA-256 on TS6.
-	uidAlgorithm crypto.UidAlgorithm
+	uidAlgorithm identity.UIDAlgorithm
 	// capabilities is what the server reported about itself in initserver.
 	capabilities ServerCapabilities
 	// packetConn, when set, replaces the UDP socket the transport would
@@ -97,8 +126,8 @@ type Client struct {
 }
 
 // NewClient creates a new TeamSpeak 3 client.
-func NewClient(identity *crypto.Identity, addr string, nickname string, options ...ClientOption) *Client {
-	crypt := crypto.NewCrypt(identity)
+func NewClient(id *identity.Identity, addr string, nickname string, options ...ClientOption) *Client {
+	crypt := crypto.NewCrypt(id)
 
 	c := &Client{
 		crypt:    crypt,
@@ -120,7 +149,7 @@ func NewClient(identity *crypto.Identity, addr string, nickname string, options 
 
 	c.handler = c.newHandler()
 	if c.resolver == nil {
-		c.resolver = discovery.NewResolver(c.logger)
+		c.resolver = defaultResolver{resolver: discovery.NewResolver(c.logger)}
 	}
 
 	c.rebuildMiddlewareChains()
@@ -281,8 +310,8 @@ func (c *Client) resetForConnectLocked() string {
 	if c.handler != nil {
 		_ = c.handler.Close()
 	}
-	identity := c.crypt.Identity
-	c.crypt = crypto.NewCrypt(identity)
+	id := c.crypt.Identity
+	c.crypt = crypto.NewCrypt(id)
 	c.handler = c.newHandler()
 	// Keep an attempt nobody has resolved yet: a caller that started
 	// WaitConnected before calling Connect is waiting on it, and must be
@@ -294,7 +323,7 @@ func (c *Client) resetForConnectLocked() string {
 	c.clients = make(map[uint16]ClientInfo)
 	c.clid = 0
 	// Reset to the TS3 default; initserver sets it from the server's version.
-	c.uidAlgorithm = crypto.UidSha1
+	c.uidAlgorithm = identity.UIDSHA1
 
 	c.capabilities = unknownServerCapabilities()
 
@@ -310,7 +339,8 @@ func (c *Client) resolveConnectTarget(fallbackAddr string) (string, string) {
 	defer cancel()
 
 	resolved, err := c.resolver.Resolve(ctx, c.addr)
-	if err != nil {
+	if err != nil || len(resolved) == 0 {
+		// An empty answer used to index resolved[0] and panic.
 		c.logger.Warn("address resolution failed, falling back to direct", slog.Any("error", err))
 
 		return fallbackAddr, "Fallback"

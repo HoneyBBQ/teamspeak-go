@@ -5,8 +5,9 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/honeybbq/teamspeak-go/crypto"
-	"github.com/honeybbq/teamspeak-go/handshake"
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
+	"github.com/honeybbq/teamspeak-go/internal/handshake"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 type cryptoInit2Fixtures struct {
@@ -26,7 +27,7 @@ func buildCryptoInit2Fixtures(t *testing.T) cryptoInit2Fixtures {
 	t.Helper()
 
 	// Client Crypt with initialized AlphaTmp.
-	id, err := crypto.IdentityFromString(testIdentityStr)
+	id, err := identity.Parse(testIdentityStr)
 	if err != nil {
 		t.Fatalf("IdentityFromString: %v", err)
 	}
@@ -42,7 +43,7 @@ func buildCryptoInit2Fixtures(t *testing.T) cryptoInit2Fixtures {
 	if err != nil {
 		t.Fatalf("generate server identity: %v", err)
 	}
-	omega := serverID.PublicKeyBase64()
+	omega := serverID.PublicKey()
 
 	// License data: use the real-world test license.
 	licenseBytes := decodeTestLicense(t)
@@ -80,14 +81,14 @@ func buildCryptoInit2Fixtures(t *testing.T) cryptoInit2Fixtures {
 }
 
 // generateFreshIdentity generates a new P-256 identity for use as a server key.
-func generateFreshIdentity(t *testing.T) (*crypto.Identity, error) {
+func generateFreshIdentity(t *testing.T) (*identity.Identity, error) {
 	t.Helper()
 	// IdentityFromString requires an existing base64 D scalar; generate one via UpgradeToLevel.
 	// Alternatively, use SecurityLevel which already generates a new key.
 	// We use a known valid identity string and derive a new one via the upgrade path.
 	// Simplest: pick a random 32-byte D value and construct the identity.
 	// Use SecurityLevel on a fresh crypt to generate a proper key pair.
-	id, err := crypto.IdentityFromString(testIdentityStr)
+	id, err := identity.Parse(testIdentityStr)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +114,7 @@ func TestCryptoInit2_Success(t *testing.T) {
 func TestCryptoInit2_AlphaNotInitialized(t *testing.T) {
 	f := buildCryptoInit2Fixtures(t)
 
-	id, _ := crypto.IdentityFromString(testIdentityStr)
+	id, _ := identity.Parse(testIdentityStr)
 	tcEmpty := crypto.NewCrypt(id)
 	// AlphaTmp is nil by default.
 

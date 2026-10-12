@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go"
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
@@ -19,7 +19,7 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 	// PacketConn: the adapter deliberately does not close what it was given, so
 	// a PacketConn-based drop cannot be undone and the reconnect would have
 	// nothing to connect through.
-	id, err := crypto.GenerateIdentity(8)
+	id, err := identity.Generate(context.Background(), 8)
 	if err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 func TestIntegration_NoReconnectAfterExplicitDisconnect(t *testing.T) {
 	addr := requireTeamSpeakAddr(t)
 
-	id, err := crypto.GenerateIdentity(8)
+	id, err := identity.Generate(context.Background(), 8)
 	if err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}

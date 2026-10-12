@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/honeybbq/teamspeak-go/transport"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 func listenPacket(t *testing.T) net.PacketConn {

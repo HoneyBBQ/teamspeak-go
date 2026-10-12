@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
 	"github.com/tink-crypto/tink-go/v2/mac/subtle"
 )
 

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/commands"
-	"github.com/honeybbq/teamspeak-go/crypto"
-	"github.com/honeybbq/teamspeak-go/transport"
+	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 func TestHandleInitServer_SetsStatusConnected(t *testing.T) {
@@ -109,7 +109,7 @@ func TestHandleHandshakeInitIV_ValidParams_SendsClientInit(t *testing.T) {
 	// A valid old-style handshake: alpha + beta are 10-byte base64, omega is the
 	// server's public key. We use the test identity's own public key as omega
 	// (InitCrypto only validates format, not that it comes from a server).
-	pubKey := c.crypt.Identity.PublicKeyBase64()
+	pubKey := c.crypt.Identity.PublicKey()
 
 	cmd := "clientinitiv alpha=AAAAAAAAAA== beta=AAAAAAAAAA== omega=" + pubKey
 	c.handleCommand(cmd)
@@ -155,7 +155,7 @@ func TestBuildClientInitCommand_DefaultAuthFieldsAreEmpty(t *testing.T) {
 }
 
 func TestBuildClientInitCommand_IncludesConfiguredHandshakeCredentials(t *testing.T) {
-	id, err := crypto.IdentityFromString(testClientIdentity)
+	id, err := identity.Parse(testClientIdentity)
 	if err != nil {
 		t.Fatalf("IdentityFromString: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestBuildClientInitCommand_IncludesConfiguredHandshakeCredentials(t *testin
 }
 
 func TestBuildClientInitCommand_PreservesCredentialFieldOrder(t *testing.T) {
-	id, err := crypto.IdentityFromString(testClientIdentity)
+	id, err := identity.Parse(testClientIdentity)
 	if err != nil {
 		t.Fatalf("IdentityFromString: %v", err)
 	}

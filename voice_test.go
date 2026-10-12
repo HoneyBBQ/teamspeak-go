@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/honeybbq/teamspeak-go/transport"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 func voicePacket(speakerID uint16, codec byte, audio []byte) *transport.Packet {

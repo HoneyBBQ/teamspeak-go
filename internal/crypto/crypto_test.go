@@ -7,8 +7,9 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/honeybbq/teamspeak-go/crypto"
-	"github.com/honeybbq/teamspeak-go/handshake"
+	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
+	"github.com/honeybbq/teamspeak-go/internal/handshake"
 	"github.com/oasisprotocol/curve25519-voi/curve"
 	"github.com/oasisprotocol/curve25519-voi/curve/scalar"
 )
@@ -138,84 +139,12 @@ func TestFullLicenseParseAndDerive(t *testing.T) {
 	}
 }
 
-func TestIdentityStringRoundtrip(t *testing.T) {
-	id, err := crypto.GenerateIdentity(0)
-	if err != nil {
-		t.Fatalf("GenerateIdentity failed: %v", err)
-	}
-	s := id.String()
-	id2, err := crypto.IdentityFromString(s)
-	if err != nil {
-		t.Fatalf("IdentityFromString failed: %v", err)
-	}
-	// Compare via serialised form to avoid accessing deprecated D field directly.
-	if id.String() != id2.String() {
-		t.Errorf("serialized identity mismatch: %q vs %q", id.String(), id2.String())
-	}
-	if id.Offset != id2.Offset {
-		t.Errorf("Offset mismatch: %d vs %d", id.Offset, id2.Offset)
-	}
-}
-
-func TestIdentityFromStringErrors(t *testing.T) {
-	cases := []string{
-		"",
-		"notvalidnocodon",
-		"invalid==base64:0",
-		"dGVzdA==:notanumber",
-	}
-	for _, s := range cases {
-		_, err := crypto.IdentityFromString(s)
-		if err == nil {
-			t.Errorf("IdentityFromString(%q) expected error, got nil", s)
-		}
-	}
-}
-
-func TestIdentitySecurityLevel(t *testing.T) {
-	id, err := crypto.GenerateIdentity(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lvl := id.SecurityLevel()
-	if lvl < 0 {
-		t.Errorf("SecurityLevel should be >= 0, got %d", lvl)
-	}
-}
-
-func TestIdentityUpgradeToLevel(t *testing.T) {
-	id, err := crypto.GenerateIdentity(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = id.UpgradeToLevel(1, context.Background())
-	if err != nil {
-		t.Fatalf("UpgradeToLevel(1) failed: %v", err)
-	}
-	if id.SecurityLevel() < 1 {
-		t.Errorf("SecurityLevel after upgrade = %d, want >= 1", id.SecurityLevel())
-	}
-}
-
-func TestIdentityUpgradeCtxCancelled(t *testing.T) {
-	id, err := crypto.GenerateIdentity(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
-	err = id.UpgradeToLevel(100, ctx)
-	if err == nil {
-		t.Error("expected context cancellation error")
-	}
-}
-
 func TestPublicKeyBase64RoundtrippableWithImport(t *testing.T) {
-	id, err := crypto.GenerateIdentity(0)
+	id, err := identity.Generate(context.Background(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pubB64 := id.PublicKeyBase64()
+	pubB64 := id.PublicKey()
 	pubBytes, err := base64.StdEncoding.DecodeString(pubB64)
 	if err != nil {
 		t.Fatalf("base64 decode failed: %v", err)
@@ -226,26 +155,10 @@ func TestPublicKeyBase64RoundtrippableWithImport(t *testing.T) {
 		t.Fatalf("ImportPublicKey failed: %v", err)
 	}
 	// GetUidFromPublicKey verifies the public key serialisation is stable.
-	uid1 := crypto.GetUidFromPublicKey(pubB64)
-	uid2 := crypto.GetUidFromPublicKey(pubB64)
+	uid1 := identity.UID(pubB64, identity.UIDSHA1)
+	uid2 := identity.UID(pubB64, identity.UIDSHA1)
 	if uid1 != uid2 {
 		t.Error("UID is not stable after import")
-	}
-}
-
-func TestGetUidFromPublicKey(t *testing.T) {
-	id, err := crypto.GenerateIdentity(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	uid1 := crypto.GetUidFromPublicKey(id.PublicKeyBase64())
-	uid2 := crypto.GetUidFromPublicKey(id.PublicKeyBase64())
-	if uid1 != uid2 {
-		t.Error("GetUidFromPublicKey is not deterministic")
-	}
-	// SHA-1 produces 20 bytes → base64 = 28 chars
-	if len(uid1) != 28 {
-		t.Errorf("UID length = %d, want 28", len(uid1))
 	}
 }
 
@@ -297,7 +210,7 @@ func TestClampScalarTooShort(t *testing.T) {
 // Sign / VerifySign
 
 func TestSignAndVerify(t *testing.T) {
-	id, err := crypto.GenerateIdentity(0)
+	id, err := identity.Generate(context.Background(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +225,7 @@ func TestSignAndVerify(t *testing.T) {
 }
 
 func TestVerifySignFailsOnTamperedData(t *testing.T) {
-	id, err := crypto.GenerateIdentity(0)
+	id, err := identity.Generate(context.Background(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +237,7 @@ func TestVerifySignFailsOnTamperedData(t *testing.T) {
 }
 
 func TestVerifySignFailsOnTamperedSig(t *testing.T) {
-	id, err := crypto.GenerateIdentity(0)
+	id, err := identity.Generate(context.Background(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +308,7 @@ func TestSolveRsaChallengeLevelTooHigh(t *testing.T) {
 }
 
 func TestNewCrypt(t *testing.T) {
-	id, _ := crypto.GenerateIdentity(0)
+	id, _ := identity.Generate(context.Background(), 0)
 	tc := crypto.NewCrypt(id)
 	if tc == nil {
 		t.Fatal("expected non-nil Crypt")
@@ -561,7 +474,7 @@ func TestReleaseKeyBufferWrongLength(t *testing.T) {
 // TestInitCrypto verifies that InitCrypto performs ECDH with a freshly generated
 // server key pair and marks crypto as initialized.
 func TestInitCrypto(t *testing.T) {
-	clientID, err := crypto.IdentityFromString(
+	clientID, err := identity.Parse(
 		"W2OSGpWxkzBPJjt8iyJFsMnqnwHCnxOlmE9gWFOFnKs=:0",
 	)
 	if err != nil {
@@ -570,13 +483,13 @@ func TestInitCrypto(t *testing.T) {
 	tc := crypto.NewCrypt(clientID)
 
 	// Generate a fresh server identity to use as the server public key.
-	serverID, err := crypto.IdentityFromString(
+	serverID, err := identity.Parse(
 		"W2OSGpWxkzBPJjt8iyJFsMnqnwHCnxOlmE9gWFOFnKs=:0",
 	)
 	if err != nil {
 		t.Fatalf("IdentityFromString server: %v", err)
 	}
-	omega := serverID.PublicKeyBase64()
+	omega := serverID.PublicKey()
 
 	// In the clientinitiv handshake path, alpha and beta are both 10 bytes.
 	// SetSharedSecret uses SHA-1 (20 bytes) as the shared key, so beta must be <= 10 bytes.
@@ -599,7 +512,7 @@ func TestInitCrypto(t *testing.T) {
 }
 
 func TestInitCrypto_InvalidAlpha(t *testing.T) {
-	clientID, _ := crypto.IdentityFromString("W2OSGpWxkzBPJjt8iyJFsMnqnwHCnxOlmE9gWFOFnKs=:0")
+	clientID, _ := identity.Parse("W2OSGpWxkzBPJjt8iyJFsMnqnwHCnxOlmE9gWFOFnKs=:0")
 	tc := crypto.NewCrypt(clientID)
 	err := tc.InitCrypto("not-base64!!!", "", "")
 	if err == nil {
@@ -608,7 +521,7 @@ func TestInitCrypto_InvalidAlpha(t *testing.T) {
 }
 
 func TestInitCrypto_InvalidBeta(t *testing.T) {
-	clientID, _ := crypto.IdentityFromString("W2OSGpWxkzBPJjt8iyJFsMnqnwHCnxOlmE9gWFOFnKs=:0")
+	clientID, _ := identity.Parse("W2OSGpWxkzBPJjt8iyJFsMnqnwHCnxOlmE9gWFOFnKs=:0")
 	tc := crypto.NewCrypt(clientID)
 	err := tc.InitCrypto(base64.StdEncoding.EncodeToString([]byte("alpha")), "not-base64!!!", "")
 	if err == nil {
@@ -617,7 +530,7 @@ func TestInitCrypto_InvalidBeta(t *testing.T) {
 }
 
 func TestInitCrypto_InvalidOmega(t *testing.T) {
-	clientID, _ := crypto.IdentityFromString("W2OSGpWxkzBPJjt8iyJFsMnqnwHCnxOlmE9gWFOFnKs=:0")
+	clientID, _ := identity.Parse("W2OSGpWxkzBPJjt8iyJFsMnqnwHCnxOlmE9gWFOFnKs=:0")
 	tc := crypto.NewCrypt(clientID)
 	alpha := base64.StdEncoding.EncodeToString(make([]byte, 10))
 	beta := base64.StdEncoding.EncodeToString(make([]byte, 10))
@@ -628,7 +541,7 @@ func TestInitCrypto_InvalidOmega(t *testing.T) {
 }
 
 func TestInitCrypto_InvalidOmegaKey(t *testing.T) {
-	clientID, _ := crypto.IdentityFromString("W2OSGpWxkzBPJjt8iyJFsMnqnwHCnxOlmE9gWFOFnKs=:0")
+	clientID, _ := identity.Parse("W2OSGpWxkzBPJjt8iyJFsMnqnwHCnxOlmE9gWFOFnKs=:0")
 	tc := crypto.NewCrypt(clientID)
 	alpha := base64.StdEncoding.EncodeToString(make([]byte, 10))
 	beta := base64.StdEncoding.EncodeToString(make([]byte, 10))
@@ -636,49 +549,5 @@ func TestInitCrypto_InvalidOmegaKey(t *testing.T) {
 	err := tc.InitCrypto(alpha, beta, badOmega)
 	if err == nil {
 		t.Error("expected error for invalid omega key bytes")
-	}
-}
-
-// The UID hash is not negotiable on the wire: TS3 hashes with SHA-1 and TS6 with
-// SHA-256, so a client that assumes one silently computes a UID the other
-// server never sends.
-func TestUidAlgorithmForVersion(t *testing.T) {
-	tests := []struct {
-		version string
-		want    crypto.UidAlgorithm
-	}{
-		{"3.13.8 [Build: 1779874471]", crypto.UidSha1},
-		{"3.0.11 [Build: 1374563791]", crypto.UidSha1},
-		{"6.0.0-beta13.1 [Build: 1790080330]", crypto.UidSha256},
-		{"6.1.0", crypto.UidSha256},
-		{"", crypto.UidSha1},
-		{"unknown", crypto.UidSha1},
-	}
-	for _, tt := range tests {
-		if got := crypto.UidAlgorithmForVersion(tt.version); got != tt.want {
-			t.Errorf("UidAlgorithmForVersion(%q) = %q, want %q", tt.version, got, tt.want)
-		}
-	}
-}
-
-func TestGetUidFromPublicKey_UsesTheRequestedAlgorithm(t *testing.T) {
-	pub := "AAAA"
-
-	// SHA-1 is 20 bytes and SHA-256 32, so the base64 lengths differ and the
-	// digests cannot be confused for one another.
-	sha1UID := crypto.GetUidFromPublicKey(pub, crypto.UidSha1)
-	sha256UID := crypto.GetUidFromPublicKey(pub, crypto.UidSha256)
-	if len(sha1UID) != 28 {
-		t.Errorf("SHA-1 UID length = %d, want 28 (20 bytes base64)", len(sha1UID))
-	}
-	if len(sha256UID) != 44 {
-		t.Errorf("SHA-256 UID length = %d, want 44 (32 bytes base64)", len(sha256UID))
-	}
-	if sha1UID == sha256UID {
-		t.Error("SHA-1 and SHA-256 UIDs must differ")
-	}
-	// The no-argument form stays TS3-compatible for existing callers.
-	if got := crypto.GetUidFromPublicKey(pub); got != sha1UID {
-		t.Errorf("default UID = %q, want the SHA-1 one %q", got, sha1UID)
 	}
 }

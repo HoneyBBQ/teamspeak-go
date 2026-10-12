@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
 )
 
 var (

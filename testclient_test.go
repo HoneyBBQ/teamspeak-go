@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/honeybbq/teamspeak-go/crypto"
-	"github.com/honeybbq/teamspeak-go/transport"
+	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 const testClientIdentity = "W2OSGpWxkzBPJjt8iyJFsMnqnwHCnxOlmE9gWFOFnKs=:0"
@@ -53,7 +53,7 @@ func (c *testConn) Close() error {
 // Goroutines are started so the handler is fully functional. t.Cleanup shuts down.
 func newTestClient(t *testing.T) *Client {
 	t.Helper()
-	id, err := crypto.IdentityFromString(testClientIdentity)
+	id, err := identity.Parse(testClientIdentity)
 	if err != nil {
 		t.Fatalf("IdentityFromString: %v", err)
 	}
@@ -136,7 +136,7 @@ func newPipePair() (io.ReadWriteCloser, *pipePair) {
 // and inject S2C packets.
 func newTestClientWithPipe(t *testing.T) (*Client, *pipePair) {
 	t.Helper()
-	id, err := crypto.IdentityFromString(testClientIdentity)
+	id, err := identity.Parse(testClientIdentity)
 	if err != nil {
 		t.Fatalf("IdentityFromString: %v", err)
 	}

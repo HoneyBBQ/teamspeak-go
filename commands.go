@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/commands"
-	"github.com/honeybbq/teamspeak-go/handshake"
-	"github.com/honeybbq/teamspeak-go/transport"
+	"github.com/honeybbq/teamspeak-go/internal/handshake"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 var (

@@ -11,7 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 // packetPipe is one leg of an in-memory datagram pair: one Write is one Read message.
@@ -85,7 +86,7 @@ var (
 
 func newTestHandler(t *testing.T) (*PacketHandler, *packetPipe) {
 	t.Helper()
-	id, err := crypto.IdentityFromString(testIdentityForHandler)
+	id, err := identity.Parse(testIdentityForHandler)
 	if err != nil {
 		t.Fatalf("IdentityFromString: %v", err)
 	}

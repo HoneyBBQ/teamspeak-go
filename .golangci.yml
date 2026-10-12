@@ -44,6 +44,11 @@ linters:
       - path: crypto/crypt.go
         linters: [govet]
         text: "fieldalignment"
+      # The public key's ASN.1 encoding follows field order; reordering the
+      # fields for padding would change every identity's public key.
+      - path: identity/identity.go
+        linters: [govet]
+        text: "fieldalignment"
       # Protocol-defined struct layout; padding optimisation is non-functional.
       - path: handshake/license.go
         linters: [govet]

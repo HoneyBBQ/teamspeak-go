@@ -1,12 +1,9 @@
 package crypto
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/sha1"
-	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/asn1"
 	"encoding/base64"
@@ -14,16 +11,15 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"strconv"
-	"strings"
 	"sync"
+
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 var (
-	errInvalidIdentityFormat = errors.New("invalid identity format")
-	errRSAChallengeOutRange  = errors.New("RSA challenge level out of range")
-	errInvalidPublicPoint    = errors.New("invalid public key point encoding")
-	errSharedSecretCompute   = errors.New("failed to compute ECDH shared secret")
+	errRSAChallengeOutRange = errors.New("RSA challenge level out of range")
+	errInvalidPublicPoint   = errors.New("invalid public key point encoding")
+	errSharedSecretCompute  = errors.New("failed to compute ECDH shared secret")
 )
 
 const (
@@ -43,125 +39,8 @@ const (
 	bitsPerByte             = 8
 )
 
-type Identity struct {
-	PrivateKey *ecdsa.PrivateKey
-	Offset     uint64
-}
-
-func (id *Identity) PublicKeyBase64() string {
-	pubBytes, err := id.PrivateKey.PublicKey.Bytes()
-	if err != nil {
-		return ""
-	}
-	if len(pubBytes) != p256UncompressedKeySize || pubBytes[0] != p256PointPrefix {
-		return ""
-	}
-
-	x := new(big.Int).SetBytes(pubBytes[1 : 1+p256ScalarSize])
-	y := new(big.Int).SetBytes(pubBytes[1+p256ScalarSize : p256UncompressedKeySize])
-
-	data := struct {
-		BitInfo asn1.BitString
-		Size    int
-		X       *big.Int
-		Y       *big.Int
-	}{
-		BitInfo: asn1.BitString{Bytes: []byte{0x00}, BitLength: 1},
-		Size:    p256ScalarSize,
-		X:       x,
-		Y:       y,
-	}
-	bytes, _ := asn1.Marshal(data)
-
-	return base64.StdEncoding.EncodeToString(bytes)
-}
-
-func (id *Identity) String() string {
-	d, err := id.PrivateKey.Bytes()
-	if err != nil {
-		// Keep String side-effect free; invalid key should not crash callers.
-		return fmt.Sprintf(":%d", id.Offset)
-	}
-
-	return fmt.Sprintf("%s:%d", base64.StdEncoding.EncodeToString(d), id.Offset)
-}
-
-func IdentityFromString(s string) (*Identity, error) {
-	parts := strings.Split(s, ":")
-	if len(parts) != identityPartCount {
-		return nil, errInvalidIdentityFormat
-	}
-	dBytes, err := base64.StdEncoding.DecodeString(parts[0])
-	if err != nil {
-		return nil, err
-	}
-	offset, err := strconv.ParseUint(parts[1], decimalBase, 64)
-	if err != nil {
-		return nil, err
-	}
-	priv, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), dBytes)
-	if err != nil {
-		// Backward compatibility: historical identity strings might store
-		// non-padded scalars; normalize to SEC 1 fixed-size raw key.
-		if len(dBytes) >= p256ScalarSize {
-			return nil, err
-		}
-		padded := make([]byte, p256ScalarSize)
-		copy(padded[p256ScalarSize-len(dBytes):], dBytes)
-		priv, err = ecdsa.ParseRawPrivateKey(elliptic.P256(), padded)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return &Identity{PrivateKey: priv, Offset: offset}, nil
-}
-
-// UidAlgorithm names the hash a server uses for client_unique_identifier.
-//
-// TeamSpeak 3 hashes the canonical public key with SHA-1 (20 bytes); TeamSpeak
-// 6 switched to SHA-256 (32 bytes). The algorithm is not negotiable on the
-// wire, so a client that guesses wrong computes a UID that matches nothing the
-// server ever sends — self-identification by UID silently fails.
-type UidAlgorithm string
-
-const (
-	UidSha1   UidAlgorithm = "sha1"
-	UidSha256 UidAlgorithm = "sha256"
-)
-
-// UidAlgorithmForVersion picks the UID hash from a virtualserver_version string,
-// for example "6.0.0-beta13.1".
-func UidAlgorithmForVersion(version string) UidAlgorithm {
-	major, err := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
-	if err != nil || major < 6 {
-		return UidSha1
-	}
-
-	return UidSha256
-}
-
-// GetUidFromPublicKey returns the UID under the given algorithm, defaulting to
-// SHA-1 (TeamSpeak 3) when none is passed.
-func GetUidFromPublicKey(publicKey string, algorithms ...UidAlgorithm) string {
-	algorithm := UidSha1
-	if len(algorithms) > 0 {
-		algorithm = algorithms[0]
-	}
-
-	if algorithm == UidSha256 {
-		sum := sha256.Sum256([]byte(publicKey))
-
-		return base64.StdEncoding.EncodeToString(sum[:])
-	}
-
-	sum := sha1.Sum([]byte(publicKey))
-
-	return base64.StdEncoding.EncodeToString(sum[:])
-}
-
 type Crypt struct {
-	Identity           *Identity
+	Identity           *identity.Identity
 	CachedKeys         map[uint64]KeyNonce
 	IvStruct           []byte
 	FakeSignature      []byte
@@ -188,7 +67,7 @@ func makeCacheKey(fromServer bool, packetType byte, generationID uint32) uint64 
 	return key
 }
 
-func NewCrypt(id *Identity) *Crypt {
+func NewCrypt(id *identity.Identity) *Crypt {
 	return &Crypt{
 		Identity:      id,
 		FakeSignature: make([]byte, fakeSignatureSize),
@@ -360,75 +239,4 @@ func encodeUncompressedP256Point(x, y *big.Int) ([]byte, error) {
 	copy(point[1+2*fieldSize-len(yBytes):], yBytes)
 
 	return point, nil
-}
-
-func (id *Identity) SecurityLevel() int {
-	h := sha1.New()
-	h.Write([]byte(id.PublicKeyBase64()))
-	var numBuf [sha1NumBufSize]byte
-	h.Write(strconv.AppendUint(numBuf[:0], id.Offset, decimalBase))
-
-	return countLeadingZeros(h.Sum(nil))
-}
-
-// UpgradeToLevel increments Offset until SecurityLevel reaches targetLevel.
-func (id *Identity) UpgradeToLevel(targetLevel int, ctx context.Context) error {
-	prefix := []byte(id.PublicKeyBase64())
-	h := sha1.New()
-	var numBuf [sha1NumBufSize]byte
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			h.Reset()
-			h.Write(prefix)
-			h.Write(strconv.AppendUint(numBuf[:0], id.Offset, decimalBase))
-			if countLeadingZeros(h.Sum(nil)) >= targetLevel {
-				return nil
-			}
-			id.Offset++
-		}
-	}
-}
-
-func GenerateIdentity(targetLevel int) (*Identity, error) {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	id := &Identity{PrivateKey: priv}
-
-	prefix := []byte(id.PublicKeyBase64())
-	h := sha1.New()
-	var numBuf [sha1NumBufSize]byte
-	for {
-		h.Reset()
-		h.Write(prefix)
-		h.Write(strconv.AppendUint(numBuf[:0], id.Offset, decimalBase))
-		if countLeadingZeros(h.Sum(nil)) >= targetLevel {
-			return id, nil
-		}
-		id.Offset++
-	}
-}
-
-func countLeadingZeros(data []byte) int {
-	zeros := 0
-	for _, b := range data {
-		if b == 0 {
-			zeros += bitsPerByte
-		} else {
-			// Security level counts trailing zero bits in SHA1(prefix||offset), LSB-first.
-			for i := range bitsPerByte {
-				if (b & (1 << uint(i))) == 0 {
-					zeros++
-				} else {
-					return zeros
-				}
-			}
-		}
-	}
-
-	return zeros
 }

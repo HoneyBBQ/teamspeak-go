@@ -55,19 +55,19 @@ import (
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 func main() {
 	// Generate a new identity (or load an existing one)
-	identity, err := crypto.GenerateIdentity(8)
+	id, err := identity.Generate(context.Background(), 8)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Create the client
 	client := teamspeak.NewClient(
-		identity,
+		id,
 		"localhost",
 		"GoBot",
 		teamspeak.WithServerPassword(os.Getenv("TEAMSPEAK_SERVER_PASSWORD")),
@@ -195,18 +195,19 @@ take a raw command.
 
 ```go
 // Generate a new identity with security level 8
-identity, err := crypto.GenerateIdentity(8)
+id, err := identity.Generate(ctx, 8)
 
-// Export to string for persistent storage
-exported := identity.String()
+// Export for storage — this includes the private key, so store it like a
+// password. String() and slog never print the key.
+exported := id.Export()
 
-// Import from a previously exported string
-identity, err = crypto.IdentityFromString(exported)
+// Read a previously exported identity
+id, err = identity.Parse(exported)
 
-// Upgrade security level (CPU-intensive)
+// Raise the security level (CPU-intensive; ctx bounds it)
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 defer cancel()
-err = identity.UpgradeToLevel(10, ctx)
+err = id.UpgradeToLevel(ctx, 10)
 ```
 
 ### Options

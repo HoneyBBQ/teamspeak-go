@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/commands"
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
 )
 
 const InitVersion = 1566914096 // 3.5.0 [Stable]
@@ -109,7 +109,7 @@ func buildInit1Step4Packet(tc *crypto.Crypt, data []byte) []byte {
 
 	cmd := commands.BuildCommandOrdered("clientinitiv", [][2]string{
 		{"alpha", base64.StdEncoding.EncodeToString(tc.AlphaTmp)},
-		{"omega", tc.Identity.PublicKeyBase64()},
+		{"omega", tc.Identity.PublicKey()},
 		{"ot", "1"},
 		{"ip", ""},
 	})

@@ -4,7 +4,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/honeybbq/teamspeak-go/transport"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 // DropConnectionForTest closes the transport out from under the client, which

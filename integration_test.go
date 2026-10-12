@@ -33,7 +33,7 @@ import (
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 // ---------------------------------------------------------------------------
@@ -86,7 +86,7 @@ func requireSharedClient(t *testing.T) *teamspeak.Client {
 	addr := requireTeamSpeakAddr(t)
 
 	sharedOnce.Do(func() {
-		id, err := crypto.GenerateIdentity(8)
+		id, err := identity.Generate(context.Background(), 8)
 		if err != nil {
 			errSharedClient = err
 
@@ -172,7 +172,7 @@ func (b *lockedBuffer) String() string {
 func requireIntegrationPeer(t *testing.T, addr string) *teamspeak.Client {
 	t.Helper()
 	peerOnce.Do(func() {
-		id, err := crypto.GenerateIdentity(8)
+		id, err := identity.Generate(context.Background(), 8)
 		if err != nil {
 			errPeer = err
 
@@ -281,7 +281,7 @@ func TestIntegration_ClientEnterChannelID(t *testing.T) {
 func TestIntegration_Disconnect(t *testing.T) {
 	addr := requireTeamSpeakAddr(t)
 
-	id, err := crypto.GenerateIdentity(8)
+	id, err := identity.Generate(context.Background(), 8)
 	if err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}

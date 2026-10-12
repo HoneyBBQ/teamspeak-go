@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 var errNoDataReturned = errors.New("no data returned")
@@ -13,6 +14,13 @@ var errNoDataReturned = errors.New("no data returned")
 func (c *Client) SendVoice(data []byte, codec byte) error {
 	return c.handler.SendVoicePacket(data, codec)
 }
+
+// ErrNoWhisperTargets reports a whisper with no one to receive it.
+var ErrNoWhisperTargets = transport.ErrNoWhisperTargets
+
+// ErrTooManyWhisperTargets reports more whisper targets than one packet can
+// address.
+var ErrTooManyWhisperTargets = transport.ErrTooManyWhisperTargets
 
 // SendWhisper sends Opus voice directly to up to 32 clients, regardless of which
 // channel they are in. The bot's server group needs i_client_whisper_power.
@@ -40,7 +48,7 @@ func (c *Client) UniqueIdentifier() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return crypto.GetUidFromPublicKey(c.crypt.Identity.PublicKeyBase64(), c.uidAlgorithm)
+	return identity.UID(c.crypt.Identity.PublicKey(), c.uidAlgorithm)
 }
 
 // ClientID returns the client's own ID assigned by the server.

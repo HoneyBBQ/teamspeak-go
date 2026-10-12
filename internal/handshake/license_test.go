@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/honeybbq/teamspeak-go/handshake"
+	"github.com/honeybbq/teamspeak-go/internal/handshake"
 )
 
 // Real-world TeamSpeak anonymous license captured from a live server handshake.

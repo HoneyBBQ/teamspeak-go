@@ -10,7 +10,7 @@ import (
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 func TestIntegration_ListChannelsExposesOrder(t *testing.T) {
@@ -186,7 +186,7 @@ func TestIntegration_ReportsHandshakeFailureAndDisconnects(t *testing.T) {
 	}
 	addr := requireTeamSpeakAddr(t)
 
-	id, err := crypto.GenerateIdentity(8)
+	id, err := identity.Generate(context.Background(), 8)
 	if err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
@@ -238,9 +238,9 @@ func TestIntegration_ServerCapabilities(t *testing.T) {
 	if caps.Family != teamspeak.ServerFamilyTS3 && caps.Family != teamspeak.ServerFamilyTS6 {
 		t.Errorf("Family = %q, want ts3 or ts6", caps.Family)
 	}
-	want := crypto.UidSha1
+	want := identity.UIDSHA1
 	if caps.Family == teamspeak.ServerFamilyTS6 {
-		want = crypto.UidSha256
+		want = identity.UIDSHA256
 	}
 	if caps.UIDAlgorithm != want {
 		t.Errorf("UIDAlgorithm = %q, want %q for family %q", caps.UIDAlgorithm, want, caps.Family)

@@ -7,9 +7,9 @@ import (
 	"strconv"
 
 	"github.com/honeybbq/teamspeak-go/commands"
-	"github.com/honeybbq/teamspeak-go/crypto"
-	"github.com/honeybbq/teamspeak-go/handshake"
-	"github.com/honeybbq/teamspeak-go/transport"
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
+	"github.com/honeybbq/teamspeak-go/internal/handshake"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 func (c *Client) handleHandshakeInitIV(cmd *commands.Command) {
@@ -158,7 +158,7 @@ func (c *Client) sendClientInit() {
 }
 
 func (c *Client) buildClientInitCommand() string {
-	pubKeyBase64 := c.crypt.Identity.PublicKeyBase64()
+	pubKeyBase64 := c.crypt.Identity.PublicKey()
 	// HWID matches TS3 client UID format: base64(SHA1(publicKeyBase64))
 	hwidSum := sha1.Sum([]byte(pubKeyBase64)) //nolint:gosec
 	hwid := base64.StdEncoding.EncodeToString(hwidSum[:])

@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 // ServerFamily is the server generation a version string belongs to.
@@ -39,7 +39,7 @@ type ServerCapabilities struct {
 	//
 	// Read from the family rather than offered as a setting: the server decides
 	// this, and a client that picks differently never matches.
-	UIDAlgorithm crypto.UidAlgorithm
+	UIDAlgorithm identity.UIDAlgorithm
 	// Major is the parsed major version, or 0 when it could not be parsed.
 	Major int
 }
@@ -64,7 +64,7 @@ func ParseServerCapabilities(version string) ServerCapabilities {
 		Version:      version,
 		Major:        major,
 		Family:       family,
-		UIDAlgorithm: crypto.UidAlgorithmForVersion(version),
+		UIDAlgorithm: identity.UIDAlgorithmForVersion(version),
 	}
 }
 

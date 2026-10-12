@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/honeybbq/teamspeak-go/transport"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 // buildUncompressedQlz constructs a QuickLZ level-1 frame with no compression.

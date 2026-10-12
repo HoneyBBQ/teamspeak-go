@@ -4,27 +4,27 @@ import (
 	"testing"
 
 	"github.com/honeybbq/teamspeak-go"
-	"github.com/honeybbq/teamspeak-go/crypto"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 func TestParseServerCapabilities(t *testing.T) {
 	tests := []struct {
 		version string
 		family  teamspeak.ServerFamily
-		uidAlgo crypto.UidAlgorithm
+		uidAlgo identity.UIDAlgorithm
 		major   int
 	}{
-		{"3.13.8 [Build: 1779874471]", teamspeak.ServerFamilyTS3, crypto.UidSha1, 3},
-		{"3.0.11 [Build: 1374563791]", teamspeak.ServerFamilyTS3, crypto.UidSha1, 3},
-		{"6.0.0-beta13.1 [Build: 1790080330]", teamspeak.ServerFamilyTS6, crypto.UidSha256, 6},
-		{"6.1.0", teamspeak.ServerFamilyTS6, crypto.UidSha256, 6},
-		{"7.0.0", teamspeak.ServerFamilyTS6, crypto.UidSha256, 7},
+		{"3.13.8 [Build: 1779874471]", teamspeak.ServerFamilyTS3, identity.UIDSHA1, 3},
+		{"3.0.11 [Build: 1374563791]", teamspeak.ServerFamilyTS3, identity.UIDSHA1, 3},
+		{"6.0.0-beta13.1 [Build: 1790080330]", teamspeak.ServerFamilyTS6, identity.UIDSHA256, 6},
+		{"6.1.0", teamspeak.ServerFamilyTS6, identity.UIDSHA256, 6},
+		{"7.0.0", teamspeak.ServerFamilyTS6, identity.UIDSHA256, 7},
 		// Never released as a server, but a version string should not be read
 		// as the older generation by default.
-		{"4.0.0", teamspeak.ServerFamilyUnknown, crypto.UidSha1, 4},
-		{"5.0.0", teamspeak.ServerFamilyUnknown, crypto.UidSha1, 5},
-		{"", teamspeak.ServerFamilyUnknown, crypto.UidSha1, 0},
-		{"unknown", teamspeak.ServerFamilyUnknown, crypto.UidSha1, 0},
+		{"4.0.0", teamspeak.ServerFamilyUnknown, identity.UIDSHA1, 4},
+		{"5.0.0", teamspeak.ServerFamilyUnknown, identity.UIDSHA1, 5},
+		{"", teamspeak.ServerFamilyUnknown, identity.UIDSHA1, 0},
+		{"unknown", teamspeak.ServerFamilyUnknown, identity.UIDSHA1, 0},
 	}
 	for _, tt := range tests {
 		got := teamspeak.ParseServerCapabilities(tt.version)

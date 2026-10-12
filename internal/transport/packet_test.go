@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/honeybbq/teamspeak-go/transport"
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 func TestPacketTypeExtraction(t *testing.T) {
