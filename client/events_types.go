@@ -41,7 +41,8 @@ type ClientEnterEvent struct {
 }
 
 // NotificationEvent is a notification exactly as the server sent it: its name,
-// such as "notifychanneledited", and its parameters, unescaped.
+// such as "notifychanneledited", and its parameters, unescaped. The notify
+// package names the notifications.
 //
 // It is the escape hatch for a notification the SDK does not model. Every
 // notification is delivered as one, after the typed event it produces, if

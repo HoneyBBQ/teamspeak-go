@@ -166,7 +166,7 @@ gets its own copy of the parameters.
 
 ```go
 c.OnNotification(func(n client.NotificationEvent) {
-	if n.Name == "notifychanneledited" {
+	if n.Name == notify.ChannelEdited {
 		fmt.Println("channel", n.Params["cid"], "edited")
 	}
 })
@@ -435,7 +435,9 @@ teamspeak-go/
 ├── identity/          # creating, storing and inspecting identities
 ├── errcode/           # the server's error codes, as constants
 ├── perm/              # the permission names, as constants
-├── commands/          # the command language: escaping, parsing, building
+├── notify/            # the notification names, as constants
+├── prop/              # the property keys of serverinfo, clientinfo and the like
+├── commands/          # the command language: command names and escaping
 └── internal/          # crypto, handshake, transport, discovery; wire and
                        #   servererr, the line format both protocols share;
                        #   serverquery, an unpublished ServerQuery client

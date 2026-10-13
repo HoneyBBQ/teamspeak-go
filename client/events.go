@@ -107,7 +107,7 @@ func (c *Client) OnVoiceData(handler func(VoiceDataEvent)) func() {
 // OnNotification registers a handler for every notification the server sends,
 // as it arrived: the way to hear one the SDK does not model. It runs after the
 // typed handlers for the same notification. It returns a function that removes
-// the handler.
+// the handler. The notify package names the notifications to match on.
 //
 // A panic in handler is recovered and logged at Error with the event type;
 // the other handlers and later events are still delivered.

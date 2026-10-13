@@ -5,6 +5,13 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ## Unreleased
 
+- Three packages name what goes over the wire, as string constants: `commands`
+  now holds the 155 command names (`commands.ServerGroupAddPerm`) next to its
+  escaping, the new `notify` package the 66 notification names to match in
+  `OnNotification` (`notify.ChannelEdited`), and the new `prop` package the
+  property keys of `GetServerInfo`, `GetInstanceInfo`, `GetHostInfo` and
+  `GetClientInfo` (`prop.VirtualServerName`). Ones that exist on only one of
+  TeamSpeak 3 and 6, or only on the voice protocol, say so.
 - The new `perm` package names every permission TeamSpeak 3.13 and 6 servers
   list, as string constants for `PermissionByName`:
   `teamspeak.PermissionByName(perm.ClientTalkPower)`. Seven exist only on

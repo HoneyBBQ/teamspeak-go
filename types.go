@@ -9,7 +9,8 @@ import (
 // Properties are a server's raw properties, by their wire names, unescaped,
 // as it sent them: the open-ended answers — serverinfo, clientinfo, hostinfo,
 // instanceinfo — whose fields depend on the server's version and the caller's
-// permissions, and the settings EditServer and EditInstance pass through.
+// permissions, and the settings EditServer and EditInstance pass through. The
+// prop package names their keys.
 type Properties map[string]string
 
 // ClientInfo is a connected client, as clientlist or notifycliententerview

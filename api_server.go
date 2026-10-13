@@ -72,7 +72,8 @@ func (c *Commands) ListServerGroups(ctx context.Context) ([]ServerGroup, error) 
 	return out, nil
 }
 
-// GetServerInfo returns the server's own settings, unfiltered.
+// GetServerInfo returns the server's own settings, unfiltered; the prop
+// package names the keys.
 //
 // Properties rather than a struct: serverinfo carries well over a hundred
 // fields and which appear depends on permissions, so anything narrower would
@@ -81,7 +82,8 @@ func (c *Commands) GetServerInfo(ctx context.Context) (Properties, error) {
 	return c.firstRow(ctx, "serverinfo")
 }
 
-// EditServer changes the virtual server's settings.
+// EditServer changes the virtual server's settings; the prop package marks
+// the editable keys.
 //
 // Settings are passed through as given — virtualserver_name, virtualserver_
 // maxclients and so on — rather than enumerated: there are well over a hundred,
@@ -91,7 +93,8 @@ func (c *Commands) EditServer(ctx context.Context, settings Properties) error {
 	return c.exec(ctx, "serveredit", stringParams(settings))
 }
 
-// GetHostInfo returns the host process's settings.
+// GetHostInfo returns the host process's settings; the prop package names the
+// keys.
 //
 // Needs an instance-level permission (b_serverinstance_*), which not even the
 // Server Admin group holds by default — expect error 2568 until it is granted.
@@ -100,7 +103,8 @@ func (c *Commands) GetHostInfo(ctx context.Context) (Properties, error) {
 	return c.firstRow(ctx, "hostinfo")
 }
 
-// GetInstanceInfo returns the server instance's settings.
+// GetInstanceInfo returns the server instance's settings; the prop package
+// names the keys.
 //
 // Needs an instance-level permission (b_serverinstance_*), which not even the
 // Server Admin group holds by default — expect error 2568 until it is granted.
@@ -109,7 +113,8 @@ func (c *Commands) GetInstanceInfo(ctx context.Context) (Properties, error) {
 	return c.firstRow(ctx, "instanceinfo")
 }
 
-// EditInstance changes the server instance's settings.
+// EditInstance changes the server instance's settings; the prop package marks
+// the editable keys.
 func (c *Commands) EditInstance(ctx context.Context, settings Properties) error {
 	return c.exec(ctx, "instanceedit", stringParams(settings))
 }

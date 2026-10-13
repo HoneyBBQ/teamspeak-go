@@ -1,7 +1,7 @@
-// Package commands escapes and unescapes values in TeamSpeak command lines: a
-// name followed by key=value parameters, with values escaped so a space or a
-// pipe cannot end them early. The voice protocol and ServerQuery share the
-// format.
+// Package commands is the TeamSpeak command language: the names of the
+// commands, and the escaping of their values. A command line is a name
+// followed by key=value parameters, with values escaped so a space or a pipe
+// cannot end them early. The voice protocol and ServerQuery share the format.
 //
 // It is what a caller of Exec needs to build a raw line by hand. Reading and
 // building whole lines is the clients' own business.

@@ -486,8 +486,8 @@ func (c *Client) disconnectBanned(h *transport.PacketHandler) {
 
 // ExecNoWait sends a raw command line without waiting for an answer, for the
 // few commands the server answers with nothing at all. Like Exec, it sends the
-// line as given. ctx bounds only the wait for the flood throttle. Without an open connection it returns
-// teamspeak.ErrNotConnected.
+// line as given. ctx bounds only the wait for the flood throttle. Without an
+// open connection it returns teamspeak.ErrNotConnected.
 func (c *Client) ExecNoWait(ctx context.Context, cmd string) error {
 	h := c.connectedHandler()
 	if h == nil {
@@ -503,9 +503,10 @@ func (c *Client) ExecNoWait(ctx context.Context, cmd string) error {
 }
 
 // Exec sends a raw command line and returns the rows that answer it: the
-// escape hatch for a command the typed methods do not cover. The line is sent
-// as given, so its values must already be escaped (commands.Escape) and any
-// channel password already hashed.
+// escape hatch for a command the typed methods do not cover; the commands
+// package names commands and escapes values. The line is sent as given, so its
+// values must already be escaped (commands.Escape) and any channel password
+// already hashed.
 //
 // Without a deadline on ctx the command gives up after ten seconds.
 func (c *Client) Exec(ctx context.Context, cmd string) ([]map[string]string, error) {

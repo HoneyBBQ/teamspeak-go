@@ -99,7 +99,8 @@ func (c *Commands) ListClients(ctx context.Context, options ClientListOptions) (
 	return clients, nil
 }
 
-// GetClientInfo returns one connected client's detail, unfiltered.
+// GetClientInfo returns one connected client's detail, unfiltered; the prop
+// package names the keys.
 //
 // Returned as the server sent it, as Properties, rather than narrowed to a
 // struct: clientinfo
