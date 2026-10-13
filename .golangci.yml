@@ -90,6 +90,10 @@ linters:
       # an ErrXxx prefix on all 196 of them would only add noise.
       - path: errcode/errcode.go
         linters: [errname]
+      # Permission names such as b_channel_modify_password, not credentials.
+      - path: perm/perm.go
+        linters: [gosec]
+        text: "G101"
       - path: handshake/crypt_handshake.go
         linters: [gosec]
         text: "G115"

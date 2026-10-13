@@ -543,6 +543,31 @@ func TestBansReturnTheIDsTheServerReports(t *testing.T) {
 	}
 }
 
+// The voice protocol's notifypermissionlist names no permid: a permission's
+// id is its place among the named rows, as both servers' failed_permid
+// confirms. ServerQuery sends the id, which wins.
+func TestListPermissions_NumbersThePermissionsTheVoiceProtocolLeavesUnnumbered(t *testing.T) {
+	voice := &script{replies: []reply{{rows: []map[string]string{
+		{"group_id_end": "0"},
+		{"group_id_end": "2"},
+		{"group_id_end": "2", "permname": "b_serverinstance_help_view", "permdesc": "help"},
+		{"group_id_end": "2", "permname": "b_serverinstance_info_view", "permdesc": "info"},
+	}}}}
+	perms, err := NewCommands(voice).ListPermissions(t.Context())
+	if err != nil || len(perms) != 2 || perms[0].ID != 1 || perms[1].ID != 2 || perms[1].Description != "info" {
+		t.Fatalf("voice ListPermissions = %+v, %v; want ids 1 and 2", perms, err)
+	}
+
+	query := &script{replies: []reply{{rows: []map[string]string{
+		{"permid": "1", "permname": "b_serverinstance_help_view"},
+		{"permid": "32769", "permname": "i_needed_modify_power_serverinstance_help_view"},
+	}}}}
+	perms, err = NewCommands(query).ListPermissions(t.Context())
+	if err != nil || len(perms) != 2 || perms[0].ID != 1 || perms[1].ID != 32769 {
+		t.Fatalf("ServerQuery ListPermissions = %+v, %v; want ids 1 and 32769", perms, err)
+	}
+}
+
 // Every list answers 1281 with an empty result, the permission lists among
 // them.
 func TestEveryListTreatsAnEmptyResultAsEmpty(t *testing.T) {

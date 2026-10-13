@@ -235,7 +235,8 @@ err = c.MoveClient(ctx, c.ClientID(), cid, teamspeak.ClientMoveOptions{Password:
 err = c.SendChannelMessage(ctx, "hello")
 
 // A permission is named by id or by name; the zero Permission is refused.
-err = c.AddChannelPermission(ctx, cid, teamspeak.PermissionByName("i_channel_needed_join_power"), 50)
+// The perm package has a constant for every name the servers list.
+err = c.AddChannelPermission(ctx, cid, teamspeak.PermissionByName(perm.ChannelNeededJoinPower), 50)
 
 // 0 bans permanently; anything else is sent in whole seconds. The server bans
 // the client's uid and IP (and MyTeamSpeak id); over the voice protocol it
@@ -432,6 +433,8 @@ teamspeak-go/
 ├── client/            # package client — the voice client: session, events,
 │                      #   voice, reconnection, voice-only commands
 ├── identity/          # creating, storing and inspecting identities
+├── errcode/           # the server's error codes, as constants
+├── perm/              # the permission names, as constants
 ├── commands/          # the command language: escaping, parsing, building
 └── internal/          # crypto, handshake, transport, discovery; wire and
                        #   servererr, the line format both protocols share;

@@ -24,7 +24,8 @@ func PermissionByID(id PermissionID) Permission {
 }
 
 // PermissionByName names a permission by its name, such as
-// "i_client_talk_power".
+// "i_client_talk_power". The perm package names the ones servers know:
+// PermissionByName(perm.ClientTalkPower).
 func PermissionByName(name string) Permission {
 	return Permission{name: name}
 }

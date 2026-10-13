@@ -234,6 +234,10 @@ type PermissionInfo struct {
 // ListPermissions returns the server's full permission catalogue. Rows that
 // name no permission — the group markers some servers interleave — are left
 // out.
+//
+// ServerQuery sends each permission's id. The voice protocol sends none: there
+// a permission's id is its place in the list, counting from 1, which the ID
+// field is set to.
 func (c *Commands) ListPermissions(ctx context.Context) ([]PermissionInfo, error) {
 	rows, err := c.list(ctx, "permissionlist", nil)
 	if err != nil {
@@ -241,13 +245,19 @@ func (c *Commands) ListPermissions(ctx context.Context) ([]PermissionInfo, error
 	}
 
 	out := make([]PermissionInfo, 0, len(rows))
+	var position PermissionID
 	for _, row := range rows {
 		name, ok := row["permname"]
 		if !ok {
 			continue
 		}
+		position++
+		id := position
+		if _, sent := row["permid"]; sent {
+			id = PermissionID(fieldUint32(row, "permid"))
+		}
 		out = append(out, PermissionInfo{
-			ID:          PermissionID(fieldUint32(row, "permid")),
+			ID:          id,
 			Name:        name,
 			Description: fieldStr(row, "permdesc"),
 		})

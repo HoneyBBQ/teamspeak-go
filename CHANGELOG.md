@@ -3,6 +3,18 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+- The new `perm` package names every permission TeamSpeak 3.13 and 6 servers
+  list, as string constants for `PermissionByName`:
+  `teamspeak.PermissionByName(perm.ClientTalkPower)`. Seven exist only on
+  TeamSpeak 6 and say so.
+- `ListPermissions` gave every permission the id 0 over the voice protocol,
+  whose `notifypermissionlist` sends no `permid`. There a permission's id is
+  its place in the list, counting from 1, which the `failed_permid` of refused
+  commands confirms on TeamSpeak 3 and 6; `ID` is now that. Over ServerQuery
+  the id the server sends is used.
+
 ## v1.0.0-beta.1 (2026-10-12)
 
 The API settled for 1.0. Almost every signature changed; the
@@ -326,7 +338,7 @@ Raw commands:
 | `SendCommandNoWait(line)` | `ExecNoWait(ctx, line)` |
 
 Optional parameters are pointer fields, set with Go's `new`: `ChannelCreateOptions{Name: "Room", Topic: new("hello")}`. A
-permission is `teamspeak.PermissionByName("i_client_talk_power")` or
+permission is `teamspeak.PermissionByName(perm.ClientTalkPower)` or
 `PermissionByID(id)`, in place of the `permID`, `permSID` pair. Text messages
 are `SendPrivateMessage`, `SendChannelMessage` and `SendServerMessage`. A
 missing pointer field still means "not sent"; an empty string is sent empty.
