@@ -228,7 +228,30 @@ func fieldBool(row map[string]string, key string) bool {
 // fieldUint32 reads a field the protocol defines as 32-bit unsigned, clamping
 // rather than wrapping.
 func fieldUint32(row map[string]string, key string) uint32 {
-	return uint32(min(fieldUint(row, key), math.MaxUint32))
+	value := fieldUint(row, key)
+	if value > math.MaxUint32 {
+		return math.MaxUint32
+	}
+
+	return uint32(value)
+}
+
+// fieldUint8 reads a field the protocol defines as one byte, clamping rather
+// than wrapping.
+func fieldUint8(row map[string]string, key string) uint8 {
+	value := fieldUint(row, key)
+	if value > math.MaxUint8 {
+		return math.MaxUint8
+	}
+
+	return uint8(value)
+}
+
+// fieldEnum reads an enumeration value. The protocol's enumerations are
+// 32-bit, and an int is only that wide on some platforms, so the value is
+// bounded to 32 bits rather than truncated by a conversion.
+func fieldEnum(row map[string]string, key string) int {
+	return int(fieldInt32(row, key))
 }
 
 // fieldFloat32 reads a decimal field, such as a transfer speed. Reading one as
@@ -280,12 +303,15 @@ func fieldTime(row map[string]string, key string) time.Time {
 // overflowing.
 func fieldDuration(row map[string]string, key string, unit time.Duration) time.Duration {
 	value := fieldUint(row, key)
-	limit := uint64(math.MaxInt64 / unit) //nolint:gosec // unit is a positive constant
-	if value > limit {
+	if value > math.MaxInt64 {
+		return time.Duration(math.MaxInt64)
+	}
+	count := int64(value)
+	if count > math.MaxInt64/int64(unit) {
 		return time.Duration(math.MaxInt64)
 	}
 
-	return time.Duration(value) * unit //nolint:gosec // bounded above
+	return time.Duration(count) * unit
 }
 
 // fieldInt32 reads a signed field the protocol defines as 32-bit.

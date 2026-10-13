@@ -46,11 +46,11 @@ func parseServerGroup(row map[string]string) ServerGroup {
 	return ServerGroup{
 		ID:                ServerGroupID(fieldUint(row, "sgid")),
 		Name:              fieldStr(row, "name"),
-		Type:              GroupType(fieldInt(row, "type")),
+		Type:              GroupType(fieldEnum(row, "type")),
 		IconID:            fieldIconID(row, "iconid"),
 		SavedInDatabase:   fieldBool(row, "savedb"),
 		SortID:            fieldInt32(row, "sortid"),
-		NameMode:          GroupNameMode(fieldInt(row, "namemode")),
+		NameMode:          GroupNameMode(fieldEnum(row, "namemode")),
 		ModifyPower:       fieldInt32(row, "n_modifyp"),
 		MemberAddPower:    fieldInt32(row, "n_member_addp"),
 		MemberRemovePower: fieldInt32(row, "n_member_removep"),

@@ -24,7 +24,7 @@ func parseClient(row map[string]string) ClientInfo {
 		UID:            UID(fieldStr(row, "client_unique_identifier")),
 		ChannelID:      ChannelID(fieldUint(row, "cid")),
 		ChannelGroupID: ChannelGroupID(fieldUint(row, "client_channel_group_id")),
-		Type:           ClientType(fieldInt(row, "client_type")),
+		Type:           ClientType(fieldEnum(row, "client_type")),
 		ServerGroups:   fieldIDList[ServerGroupID](row, "client_servergroups"),
 		IsAway:         fieldBool(row, "client_away"),
 		IsRecording:    fieldBool(row, "client_is_recording"),

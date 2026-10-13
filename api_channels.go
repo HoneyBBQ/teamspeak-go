@@ -3,7 +3,6 @@ package teamspeak
 import (
 	"context"
 	"errors"
-	"math"
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/errcode"
@@ -74,7 +73,7 @@ func parseChannel(row map[string]string) Channel {
 		HasPassword:     fieldBool(row, "channel_flag_password"),
 		IsDefault:       fieldBool(row, "channel_flag_default"),
 		IsPermanent:     fieldBool(row, "channel_flag_permanent"),
-		Codec:           Codec(min(fieldUint(row, "channel_codec"), math.MaxUint8)),
+		Codec:           Codec(fieldUint8(row, "channel_codec")),
 		CodecQuality:    fieldInt32(row, "channel_codec_quality"),
 		MaxClients:      fieldInt32(row, "channel_maxclients"),
 		NeededTalkPower: fieldInt32(row, "channel_needed_talk_power"),

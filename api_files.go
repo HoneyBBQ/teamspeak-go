@@ -220,7 +220,7 @@ func (c *Commands) ListActiveTransfers(ctx context.Context) ([]ActiveTransfer, e
 			ClientFileTransferID: ClientFileTransferID(fieldUint16(row, "clientftfid")),
 			ServerFileTransferID: ServerFileTransferID(fieldUint16(row, "serverftfid")),
 			Sender:               fieldStr(row, "sender"),
-			Status:               int(fieldInt(row, "status")),
+			Status:               fieldEnum(row, "status"),
 			CurrentSpeed:         fieldFloat32(row, "current_speed"),
 			AverageSpeed:         fieldFloat32(row, "average_speed"),
 			Runtime:              fieldDuration(row, "runtime", time.Second),

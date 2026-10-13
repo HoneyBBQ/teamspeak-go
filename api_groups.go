@@ -41,11 +41,11 @@ func parseChannelGroup(row map[string]string) ChannelGroup {
 	return ChannelGroup{
 		ID:                ChannelGroupID(fieldUint(row, "cgid")),
 		Name:              fieldStr(row, "name"),
-		Type:              GroupType(fieldInt(row, "type")),
+		Type:              GroupType(fieldEnum(row, "type")),
 		IconID:            fieldIconID(row, "iconid"),
 		SavedInDatabase:   fieldBool(row, "savedb"),
 		SortID:            fieldInt32(row, "sortid"),
-		NameMode:          GroupNameMode(fieldInt(row, "namemode")),
+		NameMode:          GroupNameMode(fieldEnum(row, "namemode")),
 		ModifyPower:       fieldInt32(row, "n_modifyp"),
 		MemberAddPower:    fieldInt32(row, "n_member_addp"),
 		MemberRemovePower: fieldInt32(row, "n_member_removep"),
@@ -316,7 +316,7 @@ type PermissionLocation struct {
 // meaning depends on t. It reports false for a target it does not know.
 func parseLocation(row map[string]string) (PermissionLocation, bool) {
 	loc := PermissionLocation{
-		Target:     PermissionTarget(fieldInt(row, "t")),
+		Target:     PermissionTarget(fieldEnum(row, "t")),
 		Permission: PermissionID(fieldUint32(row, "p")),
 	}
 	id1, id2 := fieldUint(row, "id1"), fieldUint(row, "id2")
@@ -447,7 +447,7 @@ type PrivilegeKey struct {
 func parseKey(row map[string]string) PrivilegeKey {
 	key := PrivilegeKey{
 		Token:       fieldStr(row, "token"),
-		Type:        PrivilegeKeyType(fieldInt(row, "token_type")),
+		Type:        PrivilegeKeyType(fieldEnum(row, "token_type")),
 		Description: fieldStr(row, "token_description"),
 		Created:     fieldTime(row, "token_created"),
 	}

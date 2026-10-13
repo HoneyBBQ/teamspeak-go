@@ -3,6 +3,7 @@ package teamspeak
 import (
 	"context"
 	"errors"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -656,5 +657,27 @@ func TestFindsWithNoMatchAreEmpty(t *testing.T) {
 	_, ok, err = NewCommands(&script{}).GetPermissionIDByName(t.Context(), "x")
 	if ok || err != nil {
 		t.Errorf("GetPermissionIDByName with no row = %v, %v; want not found", ok, err)
+	}
+}
+
+// A value wider than its field is clamped, not truncated by a conversion: on a
+// 32-bit platform an int would otherwise wrap an enumeration the server sent.
+func TestFieldReaders_ClampOversizedValues(t *testing.T) {
+	row := map[string]string{"wide": "4294967296", "neg": "-5000000000"}
+	if got := fieldEnum(row, "wide"); got != math.MaxInt32 {
+		t.Errorf("fieldEnum(2^32) = %d, want MaxInt32", got)
+	}
+	if got := fieldEnum(row, "neg"); got != math.MinInt32 {
+		t.Errorf("fieldEnum(-5e9) = %d, want MinInt32", got)
+	}
+	if got := fieldUint8(row, "wide"); got != math.MaxUint8 {
+		t.Errorf("fieldUint8(2^32) = %d, want MaxUint8", got)
+	}
+	if got := fieldUint32(row, "wide"); got != math.MaxUint32 {
+		t.Errorf("fieldUint32(2^32) = %d, want MaxUint32", got)
+	}
+	huge := map[string]string{"d": "18446744073709551615"}
+	if got := fieldDuration(huge, "d", time.Second); got != time.Duration(math.MaxInt64) {
+		t.Errorf("fieldDuration(MaxUint64 s) = %v, want the longest Duration", got)
 	}
 }
