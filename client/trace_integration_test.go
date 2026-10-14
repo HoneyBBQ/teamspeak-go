@@ -17,8 +17,8 @@ import (
 // The trace must report a real connection's milestones in order, with timings
 // that grow, on TeamSpeak 3 and 6 alike.
 //
-//nolint:funlen // one scenario, recorded hook by hook
-func TestIntegration_ConnectTrace(t *testing.T) {
+//nolint:cyclop,funlen,gocyclo // one scenario, recorded hook by hook
+func TestIntegration_Trace(t *testing.T) {
 	addr := requireTeamSpeakAddr(t)
 	id, err := identity.Generate(context.Background(), 8)
 	if err != nil {
@@ -31,19 +31,38 @@ func TestIntegration_ConnectTrace(t *testing.T) {
 	var handshake client.HandshakeDoneInfo
 	var session client.SessionStartInfo
 	var welcome client.WelcomeDoneInfo
+	var connectDone client.ConnectDoneInfo
+	var disconnectDone client.DisconnectDoneInfo
+	var sessionEnd client.SessionEndInfo
+	ended := make(chan struct{})
 	welcomed := make(chan struct{})
 	record := func(name string) {
 		mu.Lock()
 		order = append(order, name)
 		mu.Unlock()
 	}
-	trace := &client.ConnectTrace{
+	trace := &client.Trace{
 		ResolveStart: func(client.ResolveStartInfo) { record("ResolveStart") },
 		ResolveDone: func(i client.ResolveDoneInfo) {
 			record("ResolveDone")
 			resolveDone = i
 		},
 		ConnectStart: func(client.ConnectStartInfo) { record("ConnectStart") },
+		ConnectDone: func(i client.ConnectDoneInfo) {
+			record("ConnectDone")
+			connectDone = i
+		},
+		DisconnectStart: func(client.DisconnectStartInfo) { record("DisconnectStart") },
+		DisconnectDone: func(i client.DisconnectDoneInfo) {
+			record("DisconnectDone")
+			disconnectDone = i
+		},
+		SessionEnd: func(i client.SessionEndInfo) {
+			record("SessionEnd")
+			sessionEnd = i
+			close(ended)
+		},
+		ReconnectStopped: func(client.ReconnectStoppedInfo) { record("ReconnectStopped") },
 		HandshakeDone: func(i client.HandshakeDoneInfo) {
 			record("HandshakeDone")
 			handshake = i
@@ -61,7 +80,7 @@ func TestIntegration_ConnectTrace(t *testing.T) {
 		ReconnectScheduled: func(client.ReconnectScheduledInfo) { record("ReconnectScheduled") },
 	}
 
-	opts := append(integrationClientOptions(nil), client.WithConnectTrace(trace))
+	opts := append(integrationClientOptions(nil), client.WithTrace(trace))
 	c := newClient(t, id, addr, "connect-trace", opts...)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
@@ -69,7 +88,12 @@ func TestIntegration_ConnectTrace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
+	disconnected := false
+	t.Cleanup(func() {
+		if !disconnected {
+			_ = c.Disconnect(context.Background())
+		}
+	})
 
 	select {
 	case <-welcomed:
@@ -79,10 +103,13 @@ func TestIntegration_ConnectTrace(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	want := []string{"ResolveStart", "ResolveDone", "ConnectStart", "HandshakeDone", "SessionStart", "WelcomeDone"}
+	want := []string{
+		"ResolveStart", "ResolveDone", "ConnectStart", "ConnectDone", "HandshakeDone", "SessionStart", "WelcomeDone",
+	}
 	if !slices.Equal(order, want) {
 		t.Fatalf("hooks = %v, want %v", order, want)
 	}
+	requireNewTraceFields(t, c, "connect-trace", resolveDone, connectDone, handshake, session, welcome)
 	if session.ClientID != c.ClientID() || session.ClientID == 0 {
 		t.Errorf("SessionStart.ClientID = %d, ClientID() = %d", session.ClientID, c.ClientID())
 	}
@@ -103,13 +130,75 @@ func TestIntegration_ConnectTrace(t *testing.T) {
 	if resolveDone.Target == "" {
 		t.Error("ResolveDone.Target is empty")
 	}
-	t.Logf("resolve %v, handshake %v, session %v, welcome %v (%s)",
-		resolveDone.Duration, handshake.Duration, session.Duration, welcome.Duration, session.Capabilities.Version)
+	t.Logf("resolve %v, handshake %v (puzzle level %d, %d resends), session %v, welcome %v (%s)",
+		resolveDone.Duration, handshake.Duration, handshake.PuzzleLevel, handshake.Resends,
+		session.Duration, welcome.Duration, session.Capabilities.Version)
+
+	mu.Unlock()
+	disconnected = true
+	err = c.Disconnect(context.Background())
+	mu.Lock()
+	if err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SessionEnd was not reported")
+	}
+	tail := order[len(order)-3:]
+	if !slices.Equal(tail, []string{"DisconnectStart", "DisconnectDone", "SessionEnd"}) {
+		t.Errorf("hooks after Disconnect = %v", tail)
+	}
+	if !disconnectDone.Acknowledged || disconnectDone.Duration <= 0 {
+		t.Errorf("DisconnectDone = %+v, want the goodbye acknowledged", disconnectDone)
+	}
+	if sessionEnd.Cause != nil || sessionEnd.ClientID != session.ClientID || sessionEnd.Duration <= 0 {
+		t.Errorf("SessionEnd = %+v", sessionEnd)
+	}
+}
+
+// requireNewTraceFields checks what the milestones know on a real server, which
+// is the same on TeamSpeak 3 and 6.
+func requireNewTraceFields(
+	t *testing.T, c *client.Client, nickname string, resolveDone client.ResolveDoneInfo,
+	connectDone client.ConnectDoneInfo, handshake client.HandshakeDoneInfo, session client.SessionStartInfo,
+	welcome client.WelcomeDoneInfo,
+) {
+	t.Helper()
+	if len(resolveDone.Candidates) == 0 && resolveDone.Source != "Fallback" {
+		t.Errorf("ResolveDone has no candidates and did not fall back: %+v", resolveDone)
+	}
+	if connectDone.LocalAddr == "" || connectDone.Duration <= 0 {
+		t.Errorf("ConnectDone = %+v", connectDone)
+	}
+	if handshake.PuzzleLevel <= 0 || handshake.PuzzleDuration <= 0 {
+		t.Errorf("HandshakeDone puzzle = level %d in %v, want both positive", handshake.PuzzleLevel, handshake.PuzzleDuration)
+	}
+	if handshake.ServerPublicKey == "" {
+		t.Error("HandshakeDone.ServerPublicKey is empty")
+	}
+	if session.Nickname != nickname {
+		t.Errorf("SessionStart.Nickname = %q, want %q", session.Nickname, nickname)
+	}
+	if session.Capabilities.ServerID <= 0 {
+		t.Errorf("Capabilities.ServerID = %d, want > 0", session.Capabilities.ServerID)
+	}
+	if _, secret := session.InitServer["client_server_password"]; secret || len(session.InitServer) == 0 {
+		t.Errorf("SessionStart.InitServer = %d keys, secret present: %v", len(session.InitServer), secret)
+	}
+	if welcome.ChannelID == 0 || welcome.ChannelID != c.ChannelID() {
+		t.Errorf("WelcomeDone.ChannelID = %d, ChannelID() = %d, want equal and > 0", welcome.ChannelID, c.ChannelID())
+	}
+	// The fixture has Default Channel, Alpha and Secret.
+	if welcome.Channels < 3 || welcome.Clients < 1 {
+		t.Errorf("WelcomeDone = %d channels, %d clients, want at least 3 and 1", welcome.Channels, welcome.Clients)
+	}
 }
 
 // Nothing listens on the port, so the attempt fails before any session: it is
 // reported as AttemptFailed, never as SessionStart.
-func TestIntegration_ConnectTraceAttemptFailed(t *testing.T) {
+func TestIntegration_TraceAttemptFailed(t *testing.T) {
 	var lc net.ListenConfig
 	pc, err := lc.ListenPacket(t.Context(), "udp", "127.0.0.1:0")
 	if err != nil {
@@ -125,7 +214,7 @@ func TestIntegration_ConnectTraceAttemptFailed(t *testing.T) {
 	var mu sync.Mutex
 	var failures []client.AttemptFailedInfo
 	sessions := 0
-	trace := &client.ConnectTrace{
+	trace := &client.Trace{
 		SessionStart: func(client.SessionStartInfo) {
 			mu.Lock()
 			sessions++
@@ -137,7 +226,7 @@ func TestIntegration_ConnectTraceAttemptFailed(t *testing.T) {
 			mu.Unlock()
 		},
 	}
-	c := newClient(t, id, closed, "connect-trace-fail", client.WithConnectTrace(trace))
+	c := newClient(t, id, closed, "connect-trace-fail", client.WithTrace(trace))
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 

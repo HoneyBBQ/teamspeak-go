@@ -8,6 +8,8 @@ const CodecOpusVoice Codec = 4
 const CodecSpeexNarrowband Codec = 0
 const CodecSpeexUltraWideband Codec = 2
 const CodecSpeexWideband Codec = 1
+const FileTransferStageDial FileTransferStage = "dial"
+const FileTransferStageTransfer FileTransferStage = "transfer"
 const GroupNameAfter GroupNameMode = 2
 const GroupNameBefore GroupNameMode = 1
 const GroupNameHidden GroupNameMode = 0
@@ -406,12 +408,37 @@ type FileRenameOptions struct
 field FileRenameOptions.Password string
 field FileRenameOptions.TargetChannelPassword string
 field FileRenameOptions.TargetChannelID ChannelID
+type FileTransferDialDoneInfo struct
+field FileTransferDialDoneInfo.Addr string
+field FileTransferDialDoneInfo.LocalAddr string
+field FileTransferDialDoneInfo.Duration time.Duration
+type FileTransferDialStartInfo struct
+field FileTransferDialStartInfo.Addr string
 type FileTransferDialer interface
 method (FileTransferDialer) DialContext(ctx context.Context, network string, address string) (net.Conn, error)
+type FileTransferDoneInfo struct
+field FileTransferDoneInfo.Bytes int64
+field FileTransferDoneInfo.Duration time.Duration
+type FileTransferFailedInfo struct
+field FileTransferFailedInfo.Err error
+field FileTransferFailedInfo.Stage FileTransferStage
+field FileTransferFailedInfo.Bytes int64
+field FileTransferFailedInfo.Duration time.Duration
 type FileTransferOptions struct
 field FileTransferOptions.Dialer FileTransferDialer
+field FileTransferOptions.Trace *FileTransferTrace
+type FileTransferProgressInfo struct
+field FileTransferProgressInfo.Bytes int64
+field FileTransferProgressInfo.Total int64
+type FileTransferStage string
 type FileTransferStopOptions struct
 field FileTransferStopOptions.RemovePartialFile bool
+type FileTransferTrace struct
+field FileTransferTrace.DialStart func(FileTransferDialStartInfo)
+field FileTransferTrace.DialDone func(FileTransferDialDoneInfo)
+field FileTransferTrace.Progress func(FileTransferProgressInfo)
+field FileTransferTrace.Done func(FileTransferDoneInfo)
+field FileTransferTrace.Failed func(FileTransferFailedInfo)
 type FileUploadInfo struct
 field FileUploadInfo.FileTransferKey string
 field FileUploadInfo.SeekPosition uint64

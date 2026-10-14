@@ -16,6 +16,7 @@ import (
 	"math/big"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/identitykey"
@@ -70,12 +71,17 @@ type Crypt struct {
 	// connection answers one challenge. Only the read loop touches them.
 	RSAChallenge []byte
 	// RSAAnswer is the answer to RSAChallenge.
-	RSAAnswer    []byte
-	cachedKeys   map[uint64]KeyNonce
-	ivStruct     []byte
-	fakeSig      [fakeSignatureSize]byte
-	keyMu        sync.Mutex
-	initComplete atomic.Bool
+	RSAAnswer []byte
+	// PuzzleLevel is the level of the RSA puzzle the server demanded, and
+	// PuzzleDuration the time spent solving it; zero until a puzzle was
+	// solved. Only the read loop writes them.
+	PuzzleLevel    int
+	PuzzleDuration time.Duration
+	cachedKeys     map[uint64]KeyNonce
+	ivStruct       []byte
+	fakeSig        [fakeSignatureSize]byte
+	keyMu          sync.Mutex
+	initComplete   atomic.Bool
 }
 
 // KeyNonce is a derived AES key and EAX nonce for one direction, packet type

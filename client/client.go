@@ -175,8 +175,8 @@ type Client struct {
 	lookupNicknames bool
 	identity        *identity.Identity
 	attempt         *connectAttempt
-	// trace is the caller's ConnectTrace, copied by WithConnectTrace.
-	trace  ConnectTrace
+	// trace is the caller's Trace, copied by WithTrace.
+	trace  Trace
 	logger *slog.Logger
 	// handler is the current connection's packet handler, which owns that
 	// connection's crypto state. It is replaced, under mu, by every Connect;
@@ -216,6 +216,9 @@ type Client struct {
 	stopped bool
 	// leaving is the Disconnect saying goodbye, nil when there is none.
 	leaving *leaving
+	// goodbye is closed when the server announces that this client left while
+	// a Disconnect waits for its goodbye to be answered; nil otherwise.
+	goodbye chan struct{}
 	// disconnects counts Disconnect calls, so a Connect waiting for one to
 	// finish can tell whether another arrived meanwhile.
 	disconnects    uint64
@@ -494,6 +497,7 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 	}
 	c.status = StatusDisconnected
 	report := c.endAttemptLocked(errDisconnectedDuringHandshake)
+	sessionEnd := c.endSessionLocked(nil)
 	handler := c.handler
 	l := &leaving{done: make(chan struct{})}
 	c.leaving = l
@@ -503,15 +507,50 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 	c.logger.InfoContext(ctx, "disconnecting from server")
 
 	if oldStatus == StatusConnected {
-		goodbyeCtx, cancel := context.WithTimeout(ctx, disconnectTimeout)
-		_, _ = c.execOn(goodbyeCtx, handler, "clientdisconnect reasonmsg=Shutdown")
-		cancel()
+		c.sayGoodbye(ctx, handler)
 	}
 
 	err := handler.Close()
+	// Before finishLeaving queues disconnected.
+	if sessionEnd != nil {
+		sessionEnd()
+	}
 	c.finishLeaving(l, err)
 
 	return err
+}
+
+// sayGoodbye tells the server on handler that the client is leaving, waiting
+// for its acknowledgement for disconnectTimeout at most, with the trace's
+// DisconnectStart and DisconnectDone.
+func (c *Client) sayGoodbye(ctx context.Context, handler *transport.PacketHandler) {
+	c.traceDisconnectStart()
+	start := time.Now()
+	goodbyeCtx, cancel := context.WithTimeout(ctx, disconnectTimeout)
+
+	// The server answers clientdisconnect with a notifyclientleftview about
+	// this client and no error line, so either one ends the wait.
+	left := make(chan struct{})
+	c.mu.Lock()
+	c.goodbye = left
+	c.mu.Unlock()
+	answered := make(chan error, 1)
+	go func() {
+		_, err := c.execOn(goodbyeCtx, handler, "clientdisconnect reasonmsg=Shutdown")
+		answered <- err
+	}()
+	var acknowledged bool
+	select {
+	case err := <-answered:
+		acknowledged = err == nil
+	case <-left:
+		acknowledged = true
+	}
+	cancel()
+	c.mu.Lock()
+	c.goodbye = nil
+	c.mu.Unlock()
+	c.traceDisconnectDone(acknowledged, time.Since(start))
 }
 
 // finishLeaving ends Disconnect l with err: it fails the commands still
@@ -668,21 +707,21 @@ func (c *Client) resolveAndOpen(
 ) error {
 	c.traceResolveStart(stamp)
 	resolveBegan := time.Now()
-	targetAddr, source, resolveErr := c.resolveConnectTarget(ctx, finalAddr)
-	c.traceResolveDone(attempt, stamp, targetAddr, source, time.Since(resolveBegan), resolveErr)
+	targetAddr, source, candidates, resolveErr := c.resolveConnectTarget(ctx, finalAddr)
+	c.traceResolveDone(attempt, stamp, ResolveDoneInfo{
+		Target: targetAddr, Source: source, Candidates: candidates, Err: resolveErr,
+		Duration: time.Since(resolveBegan),
+	})
 	c.logger.InfoContext(ctx, "connecting to server", slog.String("address", targetAddr), slog.String("source", source))
 
 	// A resolver's answer is checked as the caller's address is.
 	err := validateAddress(targetAddr)
 	if err == nil {
 		c.traceConnectStart(attempt, stamp, targetAddr)
+		// ConnectDone comes from the transport, once the connection is
+		// attached and before the first handshake packet goes out.
+		handler.OnOpen = func(localAddr string) { c.traceConnectDone(attempt, stamp, targetAddr, localAddr) }
 		err = open(ctx, previous, handler, packetConn, targetAddr)
-	}
-	if err == nil {
-		// From here a failure belongs to the handshake, not the opening.
-		c.mu.Lock()
-		attempt.opened = true
-		c.mu.Unlock()
 	}
 
 	return err
@@ -828,7 +867,9 @@ func (c *Client) resetForConnectLocked() string {
 // the budget for the whole of resolution. The resolver — the default chain or
 // the caller's own — gets a context with that deadline, and is not waited for
 // past it even if it ignores the context.
-func (c *Client) resolveConnectTarget(ctx context.Context, fallbackAddr string) (string, string, error) {
+func (c *Client) resolveConnectTarget(
+	ctx context.Context, fallbackAddr string,
+) (string, string, []ResolvedAddr, error) {
 	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
 
@@ -853,10 +894,10 @@ func (c *Client) resolveConnectTarget(ctx context.Context, fallbackAddr string) 
 		// An empty answer used to index resolved[0] and panic.
 		c.logger.WarnContext(ctx, "address resolution failed, falling back to direct", slog.Any("error", err))
 
-		return fallbackAddr, "Fallback", err
+		return fallbackAddr, "Fallback", nil, err
 	}
 
-	return resolved[0].Addr, resolved[0].Source, nil
+	return resolved[0].Addr, resolved[0].Source, resolved, nil
 }
 
 // newHandler creates a packet handler wired to this client. Its OnClosed is
@@ -970,6 +1011,7 @@ func (c *Client) handleConnectionClosed(h *transport.PacketHandler, err error) {
 	if err == nil {
 		err = errConnectionClosed
 	}
+	c.runSessionEndLocked(c.endSessionLocked(err))
 	// Announced first, then retried: a caller watching OnDisconnected should
 	// hear about the drop even when a reconnect is already on its way, because
 	// a silent recovery hides an outage.
@@ -979,12 +1021,32 @@ func (c *Client) handleConnectionClosed(h *transport.PacketHandler, err error) {
 	go c.scheduleReconnect(err)
 }
 
+// runSessionEndLocked runs the SessionEnd report, if there is one, with c.mu
+// released and held again on return, so that the hook runs with no lock held
+// but still before disconnected is queued. A leaving stands in for a
+// Disconnect meanwhile, so a Connect waits for it as it waits for one, and the
+// old session's disconnected still comes before the new one's connected.
+func (c *Client) runSessionEndLocked(report func()) {
+	if report == nil {
+		return
+	}
+	l := &leaving{done: make(chan struct{})}
+	c.leaving = l
+	c.mu.Unlock()
+	report()
+	c.mu.Lock()
+	c.leaving = nil
+	close(l.done)
+}
+
 // scheduleReconnect retries a dropped connection according to the policy.
 //
 // Never runs after an explicit Disconnect, and never more than one at a time:
 // two failures in quick succession would otherwise start competing loops, and a
 // loop shorter than the server's antiflood window bans the IP rather than
 // reconnecting it.
+//
+//nolint:funlen // one loop with its exits, each of which reports why it ended
 func (c *Client) scheduleReconnect(connErr error) {
 	options, ok := c.beginReconnect(connErr)
 	if !ok {
@@ -998,12 +1060,16 @@ func (c *Client) scheduleReconnect(connErr error) {
 		shouldRetry = DefaultShouldRetry
 	}
 
+	made := 0
 	for attempt := 1; options.Backoff.MaxAttempts == 0 || attempt <= options.Backoff.MaxAttempts; attempt++ {
 		if c.isStopped() {
+			c.traceReconnectStopped(made, nil)
+
 			return
 		}
 		if !shouldRetry(connErr, attempt) {
 			c.logger.Info("not retrying", slog.Int("attempt", attempt), slog.Any("error", connErr))
+			c.traceReconnectStopped(made, connErr)
 
 			return
 		}
@@ -1013,10 +1079,15 @@ func (c *Client) scheduleReconnect(connErr error) {
 		c.traceReconnectScheduled(attempt, delay, connErr)
 
 		if !c.sleepWhileRunning(delay) {
+			c.traceReconnectStopped(made, nil)
+
 			return
 		}
 
 		retryErr := c.runConnect(attempt)
+		if !errors.Is(retryErr, errStopped) && !errors.Is(retryErr, ErrAlreadyConnected) {
+			made++
+		}
 		if retryErr == nil {
 			c.logger.Info("reconnected", slog.Int("attempt", attempt))
 
@@ -1027,6 +1098,10 @@ func (c *Client) scheduleReconnect(connErr error) {
 		// way there is nothing left to retry.
 		if errors.Is(retryErr, errStopped) || errors.Is(retryErr, ErrAlreadyConnected) {
 			c.logger.Info("reconnect no longer needed", slog.Any("reason", retryErr))
+			if errors.Is(retryErr, errStopped) {
+				retryErr = nil
+			}
+			c.traceReconnectStopped(made, retryErr)
 
 			return
 		}
@@ -1034,12 +1109,14 @@ func (c *Client) scheduleReconnect(connErr error) {
 		connErr = retryErr
 		if options.ShouldRetry == nil && !DefaultShouldRetry(retryErr, attempt) {
 			c.logger.Info("reconnect refused", slog.Int("attempt", attempt), slog.Any("error", retryErr))
+			c.traceReconnectStopped(made, retryErr)
 
 			return
 		}
 	}
 
 	c.logger.Warn("reconnect attempts exhausted", slog.Int("attempts", options.Backoff.MaxAttempts))
+	c.traceReconnectStopped(made, connErr)
 }
 
 // runConnect makes reconnection attempt number attempt.

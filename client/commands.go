@@ -398,12 +398,21 @@ func (c *Client) handleCommand(h *transport.PacketHandler, s string) {
 	case "error":
 		c.handleError(h, cmd)
 	default:
-		// A named command the SDK does not model. Held under its own name, so
-		// it answers a command only if that command declared it — not merely
-		// by arriving while one is in flight.
-		c.cmdTrack.collect(cmd.Params, cmd.Name)
-		c.logger.Debug("unhandled or data command", slog.String("name", cmd.Name), slog.Int("params", len(cmd.Params)))
+		c.handleOtherCommand(h, cmd)
 	}
+}
+
+// handleOtherCommand holds a named command the SDK does not model under its
+// own name, so it answers a command only if that command declared it — not
+// merely by arriving while one is in flight.
+func (c *Client) handleOtherCommand(h *transport.PacketHandler, cmd *wire.Command) {
+	if cmd.Name == "channellist" {
+		// A channel of the welcome sequence, counted for the trace; the answer
+		// to a command that asked for the list is held as any named row is.
+		c.countWelcomeChannel(h)
+	}
+	c.cmdTrack.collect(cmd.Params, cmd.Name)
+	c.logger.Debug("unhandled or data command", slog.String("name", cmd.Name), slog.Int("params", len(cmd.Params)))
 }
 
 // handledBeforeCryptoInit reports whether a command named name is handled

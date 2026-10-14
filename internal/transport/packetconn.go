@@ -50,6 +50,9 @@ func NewPacketConnAdapter(pc net.PacketConn, remote net.Addr) io.ReadWriteCloser
 	return &packetConnAdapter{pc: pc, remote: remote}
 }
 
+// LocalAddr is the address of the caller's PacketConn.
+func (a *packetConnAdapter) LocalAddr() net.Addr { return a.pc.LocalAddr() }
+
 func (a *packetConnAdapter) Read(p []byte) (int, error) {
 	if a.closed.Load() {
 		return 0, net.ErrClosed

@@ -113,11 +113,18 @@ func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Comm
 	}
 	isSelf := clid == c.clid
 	delete(c.clients, clid)
+	// This client leaving while a Disconnect waits is the answer to its
+	// goodbye, not the server removing it.
+	answersGoodbye := isSelf && c.goodbye != nil
+	if answersGoodbye {
+		close(c.goodbye)
+		c.goodbye = nil
+	}
 	c.mu.Unlock()
 
 	c.emitEvent(evt)
 
-	if !isSelf {
+	if !isSelf || answersGoodbye {
 		return
 	}
 	if evt.Reason == teamspeak.ReasonKickServer || evt.Reason == teamspeak.ReasonKickServerBan {

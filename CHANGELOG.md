@@ -5,11 +5,26 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ## Unreleased
 
-- `WithConnectTrace` reports the milestones of every connection attempt, the
-  one `Connect` makes and each reconnection: resolution, opening, handshake,
-  session start, the end of the welcome sequence, a failure with its phase, and
-  a scheduled reconnect. Each is an optional hook of `ConnectTrace`, called
+- `Disconnect` waited a full second every time. It waited for an error line in
+  answer to its goodbye, but TeamSpeak 3 and 6 answer `clientdisconnect` with
+  a `notifyclientleftview` about the client itself and no error line, which
+  the client also took for the server removing it. That announcement now ends
+  the wait, so a disconnect takes a few milliseconds.
+- `WithTrace` reports the milestones of a client's connection attempts and
+  sessions: resolution (with every candidate the resolver gave), opening, the
+  handshake (with the RSA puzzle level and time, the packets sent again and the
+  server's public key), the session start (with the accepted nickname, talk
+  power and the `initserver` parameters), the end of the welcome sequence (with
+  the channel the client landed in), a failed attempt with its phase and
+  target, `Disconnect`'s goodbye, the end of every session with its cause, and
+  the reconnect loop's decisions. Each is an optional hook of `Trace`, called
   synchronously and with no lock held.
+- `FileTransferOptions.Trace` reports one `UploadFileData`, `DownloadFileData`
+  or `DialFileTransfer` call: the dial, progress (at most once per 64 KiB,
+  and a final count), and exactly one of done and failed with the stage it
+  failed in. The transfer key is never reported.
+- `ServerCapabilities` gains `ServerID`, `ServerUID`, `HostMessage` and
+  `HostMessageMode`, read from `initserver`.
 
 ## v1.0.0-beta.3 (2026-10-14)
 

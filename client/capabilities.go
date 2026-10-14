@@ -64,8 +64,21 @@ type ServerCapabilities struct {
 	// Read from the family rather than offered as a setting: the server decides
 	// this, and a client that picks differently never matches.
 	UIDAlgorithm identity.UIDAlgorithm
+	// ServerUID is the virtual server's unique identifier
+	// (virtualserver_unique_identifier), or "" when the server did not send
+	// it.
+	ServerUID string
+	// HostMessage is the message the server asks clients to show
+	// (virtualserver_hostmessage), or "" when none is set.
+	HostMessage string
 	// Major is the parsed major version, or 0 when it could not be parsed.
 	Major int
+	// ServerID is the virtual server's id (virtualserver_id).
+	ServerID teamspeak.ServerID
+	// HostMessageMode is how HostMessage is to be shown
+	// (virtualserver_hostmessage_mode): 0 not at all, 1 in the chat log, 2 as
+	// a modal dialog, 3 as a modal dialog and then disconnect.
+	HostMessageMode int
 	// IconID is the server's icon (virtualserver_icon_id), or 0 for none. The
 	// server sends the icon's CRC32, sometimes as a negative 32-bit number;
 	// this is the unsigned value, which names the icon file.
@@ -91,7 +104,17 @@ func parseServerCapabilities(initserver map[string]string) ServerCapabilities {
 		family = ServerFamilyTS6
 	}
 
+	serverID, _ := strconv.ParseUint(initserver["virtualserver_id"], 10, 64)
+	hostMessageMode, err := strconv.Atoi(initserver["virtualserver_hostmessage_mode"])
+	if err != nil {
+		hostMessageMode = 0
+	}
+
 	return ServerCapabilities{
+		ServerID:           teamspeak.ServerID(serverID),
+		ServerUID:          initserver["virtualserver_unique_identifier"],
+		HostMessage:        initserver["virtualserver_hostmessage"],
+		HostMessageMode:    hostMessageMode,
 		Version:            version,
 		Major:              major,
 		Family:             family,

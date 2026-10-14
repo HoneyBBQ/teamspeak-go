@@ -147,10 +147,13 @@ func buildInit1Step4Packet(tc *crypto.Crypt, data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: RSA challenge level %d is above %d",
 			ErrMalformedInit1, rawLevel, crypto.MaxRSAChallengeLevel)
 	}
+	solveStart := time.Now()
 	y, err := tc.SolveRsaChallenge(data, 1, int(rawLevel))
 	if err != nil {
 		return nil, err
 	}
+	tc.PuzzleLevel = int(rawLevel)
+	tc.PuzzleDuration = time.Since(solveStart)
 
 	tc.AlphaTmp = make([]byte, 10)
 	_, err = rand.Read(tc.AlphaTmp)

@@ -141,10 +141,14 @@ type PacketHandler struct {
 	initPacketCheck *resendPacket
 	packetProcessCh chan *pooledBuffer
 	OnClosed        func(err error)
-	logger          *slog.Logger
-	OnAck           func(id uint16)
-	OnPacket        func(p *Packet)
-	TsCrypt         *crypto.Crypt
+	// OnOpen, when set before Start, is called once the connection is attached
+	// and before the first handshake packet is sent, with the local address of
+	// the connection ("" if it has none).
+	OnOpen   func(localAddr string)
+	logger   *slog.Logger
+	OnAck    func(id uint16)
+	OnPacket func(p *Packet)
+	TsCrypt  *crypto.Crypt
 	// readerDone is closed when the receive loop has stopped reading.
 	readerDone        chan struct{}
 	generationCounter [9]uint32
@@ -154,6 +158,8 @@ type PacketHandler struct {
 	lifecycleMu sync.Mutex
 	closed      atomic.Bool
 	started     atomic.Bool
+	// resends counts the packets sent again by the resend loop.
+	resends atomic.Int64
 	// queuedBytes is the payload size of everything in commandQueue and
 	// commandLowQueue. Guarded by mu.
 	queuedBytes   int
@@ -208,6 +214,26 @@ func NewPacketHandler(tsCrypt *crypto.Crypt, logger *slog.Logger) *PacketHandler
 	h.clientEkID.Store(-1)
 
 	return h
+}
+
+// Resends is how many packets the handler has sent again, handshake packets
+// and commands alike, since it was created. A handler serves one connection
+// attempt, so it is the attempt's count.
+func (h *PacketHandler) Resends() int {
+	return int(h.resends.Load())
+}
+
+// LocalAddr is the host:port of the connection's local end, or "" when the
+// connection does not say. Valid once the handler has started.
+func (h *PacketHandler) LocalAddr() string {
+	type localAddrer interface{ LocalAddr() net.Addr }
+	if l, ok := h.conn.(localAddrer); ok {
+		if a := l.LocalAddr(); a != nil {
+			return a.String()
+		}
+	}
+
+	return ""
 }
 
 // SetClientID sets the client id the server assigned, which every packet the
@@ -273,6 +299,10 @@ func (h *PacketHandler) Start(conn io.ReadWriteCloser) error {
 	go h.processLoop()
 	go h.resendLoop()
 	go h.pingLoop()
+
+	if h.OnOpen != nil {
+		h.OnOpen(h.LocalAddr())
+	}
 
 	init1Data, err := handshake.StartInit1()
 	if err != nil {
@@ -1091,6 +1121,7 @@ func (h *PacketHandler) doResend(rp *resendPacket, now time.Time) {
 	if now.Sub(rp.lastSend) >= rp.nextInterval {
 		rp.lastSend = now
 		rp.retryCount++
+		h.resends.Add(1)
 		rp.nextInterval *= 2
 		if rp.nextInterval > MaxRetryInterval {
 			rp.nextInterval = MaxRetryInterval

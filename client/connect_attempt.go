@@ -16,12 +16,18 @@ import "time"
 // The remaining fields are the trace's record of the attempt and are guarded
 // by the client's lock.
 type connectAttempt struct {
-	err  error
-	done chan struct{}
+	// resolveStart, connectStart and sessionStartedAt are the clocks of the
+	// durations.
+	resolveStart     time.Time
+	connectStart     time.Time
+	sessionStartedAt time.Time
+	err              error
+	done             chan struct{}
 
-	// resolveStart and connectStart are the clocks of the durations.
-	resolveStart time.Time
-	connectStart time.Time
+	// target is the host:port being dialled, set at ResolveDone.
+	target string
+	// channels counts the channel rows of the welcome sequence.
+	channels int
 	// number and reconnect are the Attempt and Reconnect of every hook.
 	number    int
 	reconnect bool
@@ -35,7 +41,9 @@ type connectAttempt struct {
 	opened         bool
 	handshakeDone  bool
 	sessionStarted bool
-	welcomeDone    bool
+	// sessionEnded is set by the one call that reports the session's end.
+	sessionEnded bool
+	welcomeDone  bool
 }
 
 func newConnectAttempt() *connectAttempt {
@@ -53,7 +61,10 @@ func (a *connectAttempt) begin(number int, reconnect bool) {
 	a.opened = false
 	a.handshakeDone = false
 	a.sessionStarted = false
+	a.sessionEnded = false
 	a.welcomeDone = false
+	a.target = ""
+	a.channels = 0
 }
 
 // phase is where the attempt is now, and so where it fails if it fails now.

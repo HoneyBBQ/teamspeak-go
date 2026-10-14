@@ -93,6 +93,8 @@ func TestLive_CreateChannelReturnsTheNewID(t *testing.T) {
 
 // The key arrives in a notification after the command has already returned;
 // without it there is nothing to dial.
+//
+//nolint:funlen // one round trip, step by step
 func TestLive_FileTransferRoundTrip(t *testing.T) {
 	c := requireSharedClient(t)
 	addr := requireTeamSpeakAddr(t)
@@ -108,8 +110,10 @@ func TestLive_FileTransferRoundTrip(t *testing.T) {
 	if upload.FileTransferKey == "" {
 		t.Fatal("upload negotiated without a key")
 	}
+	var steps traceSteps
 	requireNoErr(t, teamspeak.UploadFileData(t.Context(), host, upload,
-		bytes.NewReader(payload), teamspeak.FileTransferOptions{}))
+		bytes.NewReader(payload), teamspeak.FileTransferOptions{Trace: steps.trace()}))
+	steps.require(t, int64(len(payload)))
 	t.Cleanup(func() {
 		_ = c.DeleteFile(context.WithoutCancel(t.Context()), cid, []string{path}, teamspeak.FileOptions{})
 	})
@@ -125,9 +129,56 @@ func TestLive_FileTransferRoundTrip(t *testing.T) {
 	download, err := c.InitFileDownload(t.Context(), cid, path, teamspeak.FileDownloadOptions{})
 	requireNoErr(t, err)
 	var got bytes.Buffer
-	requireNoErr(t, teamspeak.DownloadFileData(t.Context(), host, download, &got, teamspeak.FileTransferOptions{}))
+	var downSteps traceSteps
+	requireNoErr(t, teamspeak.DownloadFileData(t.Context(), host, download, &got,
+		teamspeak.FileTransferOptions{Trace: downSteps.trace()}))
 	if !bytes.Equal(got.Bytes(), payload) {
 		t.Errorf("downloaded %q, want %q", got.Bytes(), payload)
+	}
+	downSteps.require(t, int64(len(payload)))
+	if downSteps.lastTotal != int64(len(payload)) {
+		t.Errorf("download Progress.Total = %d, want %d", downSteps.lastTotal, len(payload))
+	}
+}
+
+// traceSteps records a FileTransferTrace for the round trip.
+type traceSteps struct {
+	failedWith error
+	order      []string
+	lastBytes  int64
+	lastTotal  int64
+	doneBytes  int64
+}
+
+func (s *traceSteps) trace() *teamspeak.FileTransferTrace {
+	return &teamspeak.FileTransferTrace{
+		DialStart: func(teamspeak.FileTransferDialStartInfo) { s.order = append(s.order, "DialStart") },
+		DialDone:  func(teamspeak.FileTransferDialDoneInfo) { s.order = append(s.order, "DialDone") },
+		Progress: func(i teamspeak.FileTransferProgressInfo) {
+			s.order = append(s.order, "Progress")
+			s.lastBytes, s.lastTotal = i.Bytes, i.Total
+		},
+		Done: func(i teamspeak.FileTransferDoneInfo) {
+			s.order = append(s.order, "Done")
+			s.doneBytes = i.Bytes
+		},
+		Failed: func(i teamspeak.FileTransferFailedInfo) {
+			s.order = append(s.order, "Failed")
+			s.failedWith = i.Err
+		},
+	}
+}
+
+// require checks the order of the milestones and that the last Progress and
+// Done count size bytes.
+func (s *traceSteps) require(t *testing.T, size int64) {
+	t.Helper()
+	if len(s.order) < 4 || s.order[0] != "DialStart" || s.order[1] != "DialDone" ||
+		s.order[len(s.order)-1] != "Done" || s.order[len(s.order)-2] != "Progress" {
+		t.Fatalf("trace = %v (failed with %v), want DialStart, DialDone, Progress and Done", s.order, s.failedWith)
+	}
+	if s.lastBytes != size || s.doneBytes != size {
+		t.Errorf("final Progress.Bytes = %d, Done.Bytes = %d, want %d", s.lastBytes, s.doneBytes, size)
 	}
 }
 

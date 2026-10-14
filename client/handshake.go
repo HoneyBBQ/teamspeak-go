@@ -36,7 +36,7 @@ func (c *Client) handleHandshakeInitIV(h *transport.PacketHandler, cmd *wire.Com
 	}
 
 	c.logger.Info("crypto initialized, sending clientinit")
-	c.traceHandshakeDone(h)
+	c.traceHandshakeDone(h, cmd.Params["omega"])
 	c.sendClientInit(h)
 }
 
@@ -69,7 +69,7 @@ func (c *Client) handleHandshakeExpand2(h *transport.PacketHandler, cmd *wire.Co
 
 		return
 	}
-	c.traceHandshakeDone(h)
+	c.traceHandshakeDone(h, omega)
 	c.sendClientInit(h)
 }
 
@@ -159,7 +159,7 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 	// Decided under the lock, announced after it: the SessionStart hook runs
 	// with no lock held, before Connect is released and before connected is
 	// queued below.
-	report := c.startSessionLocked()
+	report := c.startSessionLocked(cmd.Params)
 	selfID := c.clid
 	c.mu.Unlock()
 

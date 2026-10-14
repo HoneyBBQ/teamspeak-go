@@ -375,60 +375,83 @@ Connection auth options:
 - `WithDefaultChannel(channel)` requests a default channel during `clientinit`
 - `WithDefaultChannelPassword(password)` accepts the plain-text channel password and sends the TeamSpeak protocol hash for the configured default channel
 
-### Tracing a connection
+### Tracing
 
-`WithConnectTrace` reports the milestones of every connection attempt, the one
-`Connect` makes and each one the reconnect loop makes. Every hook is optional.
+`WithTrace` reports the milestones of a client's connection attempts and its
+session, and `FileTransferOptions.Trace` those of one file transfer. Every hook
+is optional.
 
 ```go
-start := time.Now()
 c, err := client.New(id, "ts.example.com", "Bot",
-	client.WithConnectTrace(&client.ConnectTrace{
+	client.WithTrace(&client.Trace{
 		ResolveDone: func(i client.ResolveDoneInfo) {
 			slog.Info("resolved", "target", i.Target, "took", i.Duration)
 		},
 		HandshakeDone: func(i client.HandshakeDoneInfo) {
-			slog.Info("handshake", "took", i.Duration)
+			slog.Info("handshake", "took", i.Duration, "puzzle", i.PuzzleLevel, "resends", i.Resends)
 		},
 		SessionStart: func(i client.SessionStartInfo) {
-			slog.Info("connected", "clid", i.ClientID, "took", i.Duration)
+			slog.Info("connected", "clid", i.ClientID, "nickname", i.Nickname, "took", i.Duration)
 		},
 		WelcomeDone: func(i client.WelcomeDoneInfo) {
-			slog.Info("welcome sequence done", "took", i.Duration)
+			slog.Info("welcome done", "channel", i.ChannelID, "channels", i.Channels, "clients", i.Clients)
 		},
 		AttemptFailed: func(i client.AttemptFailedInfo) {
-			slog.Warn("attempt failed", "phase", i.Phase, "err", i.Err, "after", i.Duration)
+			slog.Warn("attempt failed", "phase", i.Phase, "target", i.Target, "err", i.Err)
+		},
+		SessionEnd: func(i client.SessionEndInfo) {
+			slog.Info("session ended", "after", i.Duration, "cause", i.Cause)
 		},
 		ReconnectScheduled: func(i client.ReconnectScheduledInfo) {
 			slog.Info("reconnecting", "attempt", i.Attempt, "in", i.Delay, "cause", i.Cause)
+		},
+		ReconnectStopped: func(i client.ReconnectStoppedInfo) {
+			slog.Warn("gave up reconnecting", "attempts", i.Attempts, "cause", i.Cause)
 		},
 	}),
 )
 ```
 
 An attempt that succeeds calls `ResolveStart`, `ResolveDone`, `ConnectStart`,
-`HandshakeDone`, `SessionStart` and `WelcomeDone`, in that order. One that does
-not reach `SessionStart` ends with `AttemptFailed` instead, saying in which
-phase (`open`, `handshake` or `join`) it failed. A connection that drops later
-is reported by the disconnected event, followed by `ReconnectScheduled` when
-reconnecting.
+`ConnectDone`, `HandshakeDone`, `SessionStart` and `WelcomeDone`, in that order.
+One that does not reach `SessionStart` ends with `AttemptFailed` instead, saying
+in which phase (`open`, `handshake` or `join`) it failed. Every session ends
+with one `SessionEnd`, before the disconnected event; `Disconnect` also calls
+`DisconnectStart` and `DisconnectDone` (which says whether the server
+acknowledged the goodbye). After a drop, `ReconnectScheduled` precedes each
+retry, and `ReconnectStopped` says when the loop gives up.
 
 The rules for a hook:
 
 - It is called synchronously, at the milestone, and its return value is
   ignored: it cannot change or stop the connection.
 - It must be quick. Do slow work on your own goroutine.
-- It may be called from different goroutines (yours for `Connect`, the receive
-  goroutine for the handshake, the reconnect goroutine for a retry), so it must
-  be safe for that. No client lock is held, so it can read `Status` or
-  `ClientID`.
-- It must not call `Connect` or `Disconnect`. To abandon an attempt, cancel
-  the context you gave `Connect`; to leave once connected, call `Disconnect`
-  from an `OnConnected` handler.
+- It may be called from different goroutines (yours for `Connect` and
+  `Disconnect`, the receive goroutine for the handshake and a drop, the
+  reconnect goroutine for a retry), so it must be safe for that. No client lock
+  is held, so it can read `Status` or `ClientID`.
+- It must not call `Connect` or `Disconnect`. To abandon an attempt, cancel the
+  context you gave `Connect`; to leave once connected, call `Disconnect` from an
+  `OnConnected` handler.
 - A hook that panics is recovered and logged at Error; the connection goes on.
 
-The client copies the `ConnectTrace` in `New`, so changing it afterwards has no
-effect.
+The client copies the `Trace` in `New`, so changing it afterwards has no effect.
+
+A file transfer reports `DialStart`, `DialDone`, `Progress` (at most once per
+64 KiB, and once more at the end with the final count) and then `Done` or
+`Failed`, which says whether it failed while dialling or while transferring. The
+transfer key is never in any of them. These hooks run on the goroutine that
+called `UploadFileData` or `DownloadFileData`, and a panic in one is not
+recovered: it reaches your code, after the connection is closed.
+
+```go
+err := teamspeak.UploadFileData(ctx, host, upload, file, teamspeak.FileTransferOptions{
+	Trace: &teamspeak.FileTransferTrace{
+		Progress: func(i teamspeak.FileTransferProgressInfo) { bar.Set(i.Bytes) },
+		Failed:   func(i teamspeak.FileTransferFailedInfo) { slog.Warn("upload", "stage", i.Stage, "err", i.Err) },
+	},
+})
+```
 
 ### Errors
 
