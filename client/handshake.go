@@ -36,6 +36,7 @@ func (c *Client) handleHandshakeInitIV(h *transport.PacketHandler, cmd *wire.Com
 	}
 
 	c.logger.Info("crypto initialized, sending clientinit")
+	c.traceHandshakeDone(h)
 	c.sendClientInit(h)
 }
 
@@ -68,6 +69,7 @@ func (c *Client) handleHandshakeExpand2(h *transport.PacketHandler, cmd *wire.Co
 
 		return
 	}
+	c.traceHandshakeDone(h)
 	c.sendClientInit(h)
 }
 
@@ -154,11 +156,15 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 		c.uidAlgorithm = c.capabilities.UIDAlgorithm
 	}
 
-	c.attempt.finish(nil)
+	// Decided under the lock, announced after it: the SessionStart hook runs
+	// with no lock held, before Connect is released and before connected is
+	// queued below.
+	report := c.startSessionLocked()
 	selfID := c.clid
 	c.mu.Unlock()
 
 	c.logger.Info("connected to server", slog.Uint64("self_id", uint64(selfID)))
+	report()
 
 	// The handshake's own command: sent on h, the session it completes, not
 	// through ExecNoWait, which would send on whatever session is current.

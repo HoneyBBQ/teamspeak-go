@@ -175,7 +175,9 @@ type Client struct {
 	lookupNicknames bool
 	identity        *identity.Identity
 	attempt         *connectAttempt
-	logger          *slog.Logger
+	// trace is the caller's ConnectTrace, copied by WithConnectTrace.
+	trace  ConnectTrace
+	logger *slog.Logger
 	// handler is the current connection's packet handler, which owns that
 	// connection's crypto state. It is replaced, under mu, by every Connect;
 	// read it with currentHandler.
@@ -443,7 +445,7 @@ func WithDefaultChannelPassword(password string) Option {
 //
 // Connect does not wait for event handlers, so a handler may call it.
 func (c *Client) Connect(ctx context.Context) error {
-	return c.connect(ctx, true)
+	return c.connect(ctx, true, 1)
 }
 
 // Disconnect leaves the server and closes the connection.
@@ -491,11 +493,12 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 		return nil
 	}
 	c.status = StatusDisconnected
-	c.attempt.finish(errDisconnectedDuringHandshake)
+	report := c.endAttemptLocked(errDisconnectedDuringHandshake)
 	handler := c.handler
 	l := &leaving{done: make(chan struct{})}
 	c.leaving = l
 	c.mu.Unlock()
+	report()
 
 	c.logger.InfoContext(ctx, "disconnecting from server")
 
@@ -583,8 +586,8 @@ func (c *Client) describe() (string, Status) {
 // connect runs one connection attempt. Only an explicit Connect (fromCaller)
 // undoes a Disconnect; a reconnect that finds the client stopped gives up,
 // whenever the Disconnect landed.
-func (c *Client) connect(ctx context.Context, fromCaller bool) error {
-	attempt, handler, err := c.start(ctx, fromCaller)
+func (c *Client) connect(ctx context.Context, fromCaller bool, number int) error {
+	attempt, handler, err := c.start(ctx, fromCaller, number)
 	if err != nil {
 		return err
 	}
@@ -608,7 +611,9 @@ func (c *Client) connect(ctx context.Context, fromCaller bool) error {
 // that the handshake will resolve and the handler running it. fromCaller clears a previous Disconnect;
 // otherwise a stopped client is refused with errStopped, checked under the
 // same lock Disconnect takes so that one landing just before cannot be undone.
-func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, *transport.PacketHandler, error) {
+func (c *Client) start(
+	ctx context.Context, fromCaller bool, number int,
+) (*connectAttempt, *transport.PacketHandler, error) {
 	// Checked before anything changes: an address that can never work leaves
 	// the client as it was, with no attempt to announce the end of.
 	err := validateAddress(c.addr)
@@ -628,20 +633,15 @@ func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, *
 	previous := c.handler
 	finalAddr := c.resetForConnectLocked() //nolint:contextcheck // see above
 	attempt := c.attempt
+	attempt.begin(number, !fromCaller)
+	stamp, _ := c.stampLocked()
 
 	c.status = StatusConnecting
 	handler := c.handler
 	packetConn := c.packetConn
 	c.mu.Unlock()
 
-	targetAddr, source := c.resolveConnectTarget(ctx, finalAddr)
-	c.logger.InfoContext(ctx, "connecting to server", slog.String("address", targetAddr), slog.String("source", source))
-
-	// A resolver's answer is checked as the caller's address is.
-	err = validateAddress(targetAddr)
-	if err == nil {
-		err = open(ctx, previous, handler, packetConn, targetAddr)
-	}
+	err = c.resolveAndOpen(ctx, attempt, stamp, previous, handler, packetConn, finalAddr)
 	if err != nil {
 		// Without this the client stays in StatusConnecting and every later
 		// Connect fails with ErrAlreadyConnected.
@@ -658,6 +658,34 @@ func (c *Client) start(ctx context.Context, fromCaller bool) (*connectAttempt, *
 	}
 
 	return attempt, handler, nil
+}
+
+// resolveAndOpen resolves the server's address and opens the transport, with
+// the trace milestones of both.
+func (c *Client) resolveAndOpen(
+	ctx context.Context, attempt *connectAttempt, stamp attemptStamp,
+	previous, handler *transport.PacketHandler, packetConn net.PacketConn, finalAddr string,
+) error {
+	c.traceResolveStart(stamp)
+	resolveBegan := time.Now()
+	targetAddr, source, resolveErr := c.resolveConnectTarget(ctx, finalAddr)
+	c.traceResolveDone(attempt, stamp, targetAddr, source, time.Since(resolveBegan), resolveErr)
+	c.logger.InfoContext(ctx, "connecting to server", slog.String("address", targetAddr), slog.String("source", source))
+
+	// A resolver's answer is checked as the caller's address is.
+	err := validateAddress(targetAddr)
+	if err == nil {
+		c.traceConnectStart(attempt, stamp, targetAddr)
+		err = open(ctx, previous, handler, packetConn, targetAddr)
+	}
+	if err == nil {
+		// From here a failure belongs to the handshake, not the opening.
+		c.mu.Lock()
+		attempt.opened = true
+		c.mu.Unlock()
+	}
+
+	return err
 }
 
 // mayStartLocked reports whether a connection attempt may start, with the
@@ -778,7 +806,7 @@ func (c *Client) resetForConnectLocked() string {
 	c.handler = c.newHandler()
 	// Keep an attempt nobody has resolved yet: something may already be
 	// waiting on it, and must be released by this connection's handshake.
-	if c.attempt.finished() {
+	if c.attempt.claimed {
 		c.attempt = newConnectAttempt()
 	}
 	c.cmdTrack.reset(teamspeak.ErrNotConnected)
@@ -800,7 +828,7 @@ func (c *Client) resetForConnectLocked() string {
 // the budget for the whole of resolution. The resolver — the default chain or
 // the caller's own — gets a context with that deadline, and is not waited for
 // past it even if it ignores the context.
-func (c *Client) resolveConnectTarget(ctx context.Context, fallbackAddr string) (string, string) {
+func (c *Client) resolveConnectTarget(ctx context.Context, fallbackAddr string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
 
@@ -825,10 +853,10 @@ func (c *Client) resolveConnectTarget(ctx context.Context, fallbackAddr string) 
 		// An empty answer used to index resolved[0] and panic.
 		c.logger.WarnContext(ctx, "address resolution failed, falling back to direct", slog.Any("error", err))
 
-		return fallbackAddr, "Fallback"
+		return fallbackAddr, "Fallback", err
 	}
 
-	return resolved[0].Addr, resolved[0].Source
+	return resolved[0].Addr, resolved[0].Source, nil
 }
 
 // newHandler creates a packet handler wired to this client. Its OnClosed is
@@ -878,9 +906,12 @@ func (c *Client) failConnectionLocked(err error) {
 
 		return
 	}
-	c.attempt.finish(err)
+	// The report runs with the lock released: the AttemptFailed hook may read
+	// the client.
+	report := c.endAttemptLocked(err)
 	if c.status == StatusDisconnected {
 		c.mu.Unlock()
+		report()
 
 		return
 	}
@@ -888,6 +919,7 @@ func (c *Client) failConnectionLocked(err error) {
 	handler := c.handler
 	emit(c, &c.onDisconnected, "Disconnected", err)
 	c.mu.Unlock()
+	report()
 
 	_ = handler.Close()
 }
@@ -978,12 +1010,13 @@ func (c *Client) scheduleReconnect(connErr error) {
 
 		delay := options.Backoff.Delay(attempt)
 		c.logger.Info("reconnecting", slog.Int("attempt", attempt), slog.Duration("delay", delay))
+		c.traceReconnectScheduled(attempt, delay, connErr)
 
 		if !c.sleepWhileRunning(delay) {
 			return
 		}
 
-		retryErr := c.runConnect()
+		retryErr := c.runConnect(attempt)
 		if retryErr == nil {
 			c.logger.Info("reconnected", slog.Int("attempt", attempt))
 
@@ -1009,12 +1042,12 @@ func (c *Client) scheduleReconnect(connErr error) {
 	c.logger.Warn("reconnect attempts exhausted", slog.Int("attempts", options.Backoff.MaxAttempts))
 }
 
-// runConnect makes one reconnection attempt.
-func (c *Client) runConnect() error {
+// runConnect makes reconnection attempt number attempt.
+func (c *Client) runConnect(attempt int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), reconnectAttemptTimeout)
 	defer cancel()
 
-	return c.connect(ctx, false)
+	return c.connect(ctx, false, attempt)
 }
 
 // beginReconnect claims the reconnect slot, reporting false when reconnection

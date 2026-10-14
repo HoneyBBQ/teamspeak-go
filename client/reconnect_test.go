@@ -123,7 +123,7 @@ func TestReconnectAttemptRefusesAStoppedClient(t *testing.T) {
 	c.stopped = true
 	c.mu.Unlock()
 
-	err := c.runConnect()
+	err := c.runConnect(1)
 	if !errors.Is(err, errStopped) {
 		t.Fatalf("reconnect attempt after Disconnect = %v, want errStopped", err)
 	}

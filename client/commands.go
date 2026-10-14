@@ -377,6 +377,7 @@ func (c *Client) handleCommand(h *transport.PacketHandler, s string) {
 	// carries no data of its own, so it is the only reliable marker.
 	if cmd.Name == "channellistfinished" {
 		c.cmdTrack.signalWelcomeComplete()
+		c.traceWelcomeDone(h)
 
 		return
 	}

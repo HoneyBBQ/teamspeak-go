@@ -351,8 +351,7 @@ the client sends on its own during the handshake, do not pass through it.
 ```go
 timeCommands := func(next teamspeak.Executor) teamspeak.Executor {
 	return teamspeak.ExecutorFunc(func(ctx context.Context, req teamspeak.Request) ([]map[string]string, error) {
-		start := time.Now()
-		rows, err := next.Send(ctx, req)
+				rows, err := next.Send(ctx, req)
 		slog.Debug("command", "name", req.Command(), "took", time.Since(start), "err", err)
 
 		return rows, err
@@ -375,6 +374,61 @@ Connection auth options:
 - `WithServerPassword(password)` accepts the plain-text server password, keeps only the TeamSpeak protocol hash, and sends it during `clientinit`
 - `WithDefaultChannel(channel)` requests a default channel during `clientinit`
 - `WithDefaultChannelPassword(password)` accepts the plain-text channel password and sends the TeamSpeak protocol hash for the configured default channel
+
+### Tracing a connection
+
+`WithConnectTrace` reports the milestones of every connection attempt, the one
+`Connect` makes and each one the reconnect loop makes. Every hook is optional.
+
+```go
+start := time.Now()
+c, err := client.New(id, "ts.example.com", "Bot",
+	client.WithConnectTrace(&client.ConnectTrace{
+		ResolveDone: func(i client.ResolveDoneInfo) {
+			slog.Info("resolved", "target", i.Target, "took", i.Duration)
+		},
+		HandshakeDone: func(i client.HandshakeDoneInfo) {
+			slog.Info("handshake", "took", i.Duration)
+		},
+		SessionStart: func(i client.SessionStartInfo) {
+			slog.Info("connected", "clid", i.ClientID, "took", i.Duration)
+		},
+		WelcomeDone: func(i client.WelcomeDoneInfo) {
+			slog.Info("welcome sequence done", "took", i.Duration)
+		},
+		AttemptFailed: func(i client.AttemptFailedInfo) {
+			slog.Warn("attempt failed", "phase", i.Phase, "err", i.Err, "after", i.Duration)
+		},
+		ReconnectScheduled: func(i client.ReconnectScheduledInfo) {
+			slog.Info("reconnecting", "attempt", i.Attempt, "in", i.Delay, "cause", i.Cause)
+		},
+	}),
+)
+```
+
+An attempt that succeeds calls `ResolveStart`, `ResolveDone`, `ConnectStart`,
+`HandshakeDone`, `SessionStart` and `WelcomeDone`, in that order. One that does
+not reach `SessionStart` ends with `AttemptFailed` instead, saying in which
+phase (`open`, `handshake` or `join`) it failed. A connection that drops later
+is reported by the disconnected event, followed by `ReconnectScheduled` when
+reconnecting.
+
+The rules for a hook:
+
+- It is called synchronously, at the milestone, and its return value is
+  ignored: it cannot change or stop the connection.
+- It must be quick. Do slow work on your own goroutine.
+- It may be called from different goroutines (yours for `Connect`, the receive
+  goroutine for the handshake, the reconnect goroutine for a retry), so it must
+  be safe for that. No client lock is held, so it can read `Status` or
+  `ClientID`.
+- It must not call `Connect` or `Disconnect`. To abandon an attempt, cancel
+  the context you gave `Connect`; to leave once connected, call `Disconnect`
+  from an `OnConnected` handler.
+- A hook that panics is recovered and logged at Error; the connection goes on.
+
+The client copies the `ConnectTrace` in `New`, so changing it afterwards has no
+effect.
 
 ### Errors
 

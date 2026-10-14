@@ -3,6 +3,14 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+- `WithConnectTrace` reports the milestones of every connection attempt, the
+  one `Connect` makes and each reconnection: resolution, opening, handshake,
+  session start, the end of the welcome sequence, a failure with its phase, and
+  a scheduled reconnect. Each is an optional hook of `ConnectTrace`, called
+  synchronously and with no lock held.
+
 ## v1.0.0-beta.3 (2026-10-14)
 
 - `ListChannels` now fills in the fields `Channel` declares: topic, default,
