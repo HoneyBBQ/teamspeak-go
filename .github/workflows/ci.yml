@@ -23,6 +23,12 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: latest
+      # The public API is recorded in api/*.txt and reviewed like code. This
+      # fails, with a diff, when the code and the record disagree, so a change
+      # to the API cannot land without showing up in the commit that makes it.
+      # To accept a deliberate change: go run ./internal/tools/apidump
+      - name: Public API report is current
+        run: go run ./internal/tools/apidump -check
 
   test:
     name: Test
