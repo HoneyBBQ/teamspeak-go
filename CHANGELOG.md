@@ -3,6 +3,18 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+- `ListChannels` now fills in the fields `Channel` declares: topic, default,
+  permanent and password flags, codec, client limit and icon were always empty
+  or zero because the request left out the flags that make the server send
+  them. `Channel` also gains `IsSemiPermanent`, `MaxFamilyClients`,
+  `TotalClients`, `TotalFamilyClients` and `NeededSubscribePower`.
+  `Description` and `UID` are still not part of the list; `GetChannelInfo` has
+  them.
+- The event types are defined in the root package; `client`'s names are
+  aliases, so code using them compiles unchanged.
+
 ## v1.0.0-beta.2 (2026-10-14)
 
 - Three packages name what goes over the wire, as string constants: `commands`

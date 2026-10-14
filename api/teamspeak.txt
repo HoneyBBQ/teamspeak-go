@@ -103,9 +103,14 @@ field Channel.IconID IconID
 field Channel.Codec Codec
 field Channel.CodecQuality int32
 field Channel.MaxClients int32
+field Channel.MaxFamilyClients int32
+field Channel.TotalClients int32
+field Channel.TotalFamilyClients int32
+field Channel.NeededSubscribePower int32
 field Channel.NeededTalkPower int32
 field Channel.IsDefault bool
 field Channel.IsPermanent bool
+field Channel.IsSemiPermanent bool
 field Channel.HasPassword bool
 type ChannelCreateOptions struct
 field ChannelCreateOptions.Order *ChannelID
@@ -187,6 +192,8 @@ field ClientDatabaseEntry.TotalConnections uint64
 type ClientEditOptions struct
 field ClientEditOptions.Description *string
 field ClientEditOptions.IsTalker *bool
+type ClientEnterEvent struct
+embed ClientEnterEvent ClientInfo
 type ClientFileTransferID uint16
 type ClientID uint16
 type ClientInfo struct
@@ -205,6 +212,13 @@ field ClientInfo.IsRecording bool
 field ClientInfo.IsTalker bool
 type ClientKickOptions struct
 field ClientKickOptions.ReasonMessage string
+type ClientLeaveEvent struct
+field ClientLeaveEvent.ReasonMessage string
+field ClientLeaveEvent.InvokerName string
+field ClientLeaveEvent.InvokerUID UID
+field ClientLeaveEvent.Reason Reason
+field ClientLeaveEvent.ClientID ClientID
+field ClientLeaveEvent.InvokerID ClientID
 type ClientListOptions struct
 field ClientListOptions.OmitUID bool
 field ClientListOptions.Away bool
@@ -220,6 +234,13 @@ field ClientMatch.Nickname string
 field ClientMatch.ID ClientID
 type ClientMoveOptions struct
 field ClientMoveOptions.Password string
+type ClientMovedEvent struct
+field ClientMovedEvent.InvokerName string
+field ClientMovedEvent.InvokerUID UID
+field ClientMovedEvent.TargetChannelID ChannelID
+field ClientMovedEvent.Reason Reason
+field ClientMovedEvent.ClientID ClientID
+field ClientMovedEvent.InvokerID ClientID
 type ClientPermissionOptions struct
 field ClientPermissionOptions.Skip bool
 type ClientType int
@@ -356,6 +377,8 @@ field Complaint.TargetDatabaseID ClientDBID
 field Complaint.FromDatabaseID ClientDBID
 type ComplaintListOptions struct
 field ComplaintListOptions.TargetDatabaseID ClientDBID
+type Event interface
+sealed Event
 type Executor interface
 method (Executor) Send(ctx context.Context, req Request) ([]map[string]string, error)
 type ExecutorFunc func(ctx context.Context, req Request) ([]map[string]string, error)
@@ -409,6 +432,12 @@ method (GroupNameMode) String() string
 type GroupType int
 method (GroupType) String() string
 type IconID uint32
+type KickedEvent struct
+field KickedEvent.ReasonMessage string
+field KickedEvent.InvokerName string
+field KickedEvent.InvokerUID UID
+field KickedEvent.Reason Reason
+field KickedEvent.InvokerID ClientID
 type LogLevel int
 method (LogLevel) String() string
 type LogPage struct
@@ -421,6 +450,9 @@ field LogViewOptions.Lines uint
 field LogViewOptions.Reverse bool
 field LogViewOptions.Instance bool
 type MessageID uint64
+type NotificationEvent struct
+field NotificationEvent.Params map[string]string
+field NotificationEvent.Name string
 type OfflineMessage struct
 field OfflineMessage.Sent time.Time
 field OfflineMessage.UID UID
@@ -457,6 +489,11 @@ field PermissionOverviewEntry.Negated bool
 field PermissionOverviewEntry.Skip bool
 type PermissionTarget int
 method (PermissionTarget) String() string
+type PokeEvent struct
+field PokeEvent.InvokerName string
+field PokeEvent.InvokerUID UID
+field PokeEvent.Message string
+field PokeEvent.InvokerID ClientID
 type PrivilegeKey struct
 field PrivilegeKey.Created time.Time
 field PrivilegeKey.Token string
@@ -552,9 +589,21 @@ field TempPasswordOptions.Description string
 field TempPasswordOptions.TargetChannelPassword string
 field TempPasswordOptions.Duration time.Duration
 field TempPasswordOptions.TargetChannelID ChannelID
+type TextMessageEvent struct
+field TextMessageEvent.InvokerName string
+field TextMessageEvent.InvokerUID UID
+field TextMessageEvent.Message string
+field TextMessageEvent.InvokerGroups []ServerGroupID
+field TextMessageEvent.TargetMode TextMessageTarget
+field TextMessageEvent.TargetID ClientID
+field TextMessageEvent.InvokerID ClientID
 type TextMessageTarget int
 method (TextMessageTarget) String() string
 type UID string
+type VoiceDataEvent struct
+field VoiceDataEvent.Data []byte
+field VoiceDataEvent.ClientID ClientID
+field VoiceDataEvent.Codec Codec
 type WhoAmI struct
 field WhoAmI.ServerStatus string
 field WhoAmI.ServerUID string

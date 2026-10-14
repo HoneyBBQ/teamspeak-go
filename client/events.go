@@ -252,7 +252,7 @@ func (c *Client) dispatchEvent(evt Event) {
 
 // eventName is the event's type name, as the panic log reports it.
 func eventName(evt Event) string {
-	return strings.TrimPrefix(fmt.Sprintf("%T", evt), "client.")
+	return strings.TrimPrefix(fmt.Sprintf("%T", evt), "teamspeak.")
 }
 
 // subscribers are the handlers registered for one kind of event. The zero

@@ -171,42 +171,17 @@ method (Client) UpdateMessageFlag(ctx context.Context, messageID teamspeak.Messa
 method (Client) UsePrivilegeKey(ctx context.Context, token string) error
 method (Client) ViewLog(ctx context.Context, opts teamspeak.LogViewOptions) (teamspeak.LogPage, error)
 method (Client) WhoAmI(ctx context.Context) (teamspeak.WhoAmI, error)
-type ClientEnterEvent struct
-embed ClientEnterEvent teamspeak.ClientInfo
-type ClientLeaveEvent struct
-field ClientLeaveEvent.ReasonMessage string
-field ClientLeaveEvent.InvokerName string
-field ClientLeaveEvent.InvokerUID teamspeak.UID
-field ClientLeaveEvent.Reason teamspeak.Reason
-field ClientLeaveEvent.ClientID teamspeak.ClientID
-field ClientLeaveEvent.InvokerID teamspeak.ClientID
-type ClientMovedEvent struct
-field ClientMovedEvent.InvokerName string
-field ClientMovedEvent.InvokerUID teamspeak.UID
-field ClientMovedEvent.TargetChannelID teamspeak.ChannelID
-field ClientMovedEvent.Reason teamspeak.Reason
-field ClientMovedEvent.ClientID teamspeak.ClientID
-field ClientMovedEvent.InvokerID teamspeak.ClientID
+type ClientEnterEvent = teamspeak.ClientEnterEvent
+type ClientLeaveEvent = teamspeak.ClientLeaveEvent
+type ClientMovedEvent = teamspeak.ClientMovedEvent
 type CommandMiddleware func(next teamspeak.Executor) teamspeak.Executor
-type Event interface
-sealed Event
+type Event = teamspeak.Event
 type EventMiddleware func(next func(Event)) func(Event)
-type KickedEvent struct
-field KickedEvent.ReasonMessage string
-field KickedEvent.InvokerName string
-field KickedEvent.InvokerUID teamspeak.UID
-field KickedEvent.Reason teamspeak.Reason
-field KickedEvent.InvokerID teamspeak.ClientID
-type NotificationEvent struct
-field NotificationEvent.Params map[string]string
-field NotificationEvent.Name string
+type KickedEvent = teamspeak.KickedEvent
+type NotificationEvent = teamspeak.NotificationEvent
 type Option interface
 sealed Option
-type PokeEvent struct
-field PokeEvent.InvokerName string
-field PokeEvent.InvokerUID teamspeak.UID
-field PokeEvent.Message string
-field PokeEvent.InvokerID teamspeak.ClientID
+type PokeEvent = teamspeak.PokeEvent
 type ReconnectOptions struct
 field ReconnectOptions.ShouldRetry ShouldRetryFunc
 field ReconnectOptions.Backoff BackoffPolicy
@@ -233,15 +208,5 @@ method (ServerFamily) String() string
 type ShouldRetryFunc func(err error, attempt int) bool
 type Status int
 method (Status) String() string
-type TextMessageEvent struct
-field TextMessageEvent.InvokerName string
-field TextMessageEvent.InvokerUID teamspeak.UID
-field TextMessageEvent.Message string
-field TextMessageEvent.InvokerGroups []teamspeak.ServerGroupID
-field TextMessageEvent.TargetMode teamspeak.TextMessageTarget
-field TextMessageEvent.TargetID teamspeak.ClientID
-field TextMessageEvent.InvokerID teamspeak.ClientID
-type VoiceDataEvent struct
-field VoiceDataEvent.Data []byte
-field VoiceDataEvent.ClientID teamspeak.ClientID
-field VoiceDataEvent.Codec teamspeak.Codec
+type TextMessageEvent = teamspeak.TextMessageEvent
+type VoiceDataEvent = teamspeak.VoiceDataEvent

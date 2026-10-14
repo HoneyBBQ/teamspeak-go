@@ -2,7 +2,12 @@
 
 package client_test
 
-import "testing"
+import (
+	"testing"
+
+	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/client"
+)
 
 // The typed channel layer issues real commands rather than building strings
 // that happen to compile.
@@ -17,6 +22,8 @@ func TestIntegration_ChannelAPI(t *testing.T) {
 	if len(channels) == 0 {
 		t.Fatal("expected at least one channel")
 	}
+
+	checkListedChannelFlags(t, c, channels)
 
 	first := channels[0]
 	if first.Name == "" {
@@ -48,5 +55,24 @@ func TestIntegration_ChannelAPI(t *testing.T) {
 	_, descErr := c.GetChannelDescription(t.Context(), first.ID)
 	if descErr != nil {
 		t.Errorf("GetChannelDescription: %v", descErr)
+	}
+}
+
+func checkListedChannelFlags(t *testing.T, c *client.Client, channels []teamspeak.Channel) {
+	t.Helper()
+	// channellist is asked for its flags, so they are filled in: the shared
+	// client's own channel holds at least the client itself.
+	permanent := false
+	for _, ch := range channels {
+		permanent = permanent || ch.IsPermanent
+		if ch.ID == c.ChannelID() && ch.TotalClients < 1 {
+			t.Errorf("channel %d holds this client but TotalClients = %d", ch.ID, ch.TotalClients)
+		}
+		if ch.IsDefault && !ch.IsPermanent {
+			t.Errorf("default channel %d is not permanent", ch.ID)
+		}
+	}
+	if !permanent {
+		t.Error("no channel is permanent: the flags were not requested")
 	}
 }

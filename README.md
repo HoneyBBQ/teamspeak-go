@@ -139,6 +139,9 @@ func main() {
 
 ### Events
 
+The event types are defined in the root `teamspeak` package and `client`
+re-exports them as aliases, so a future ServerQuery client shares them.
+
 | Method | Description |
 |---|---|
 | `OnConnected(func())` | Fires when fully connected |
@@ -429,7 +432,7 @@ languages differ:
 teamspeak-go/
 ├── *.go               # package teamspeak — what the clients share: the
 │                      #   typed commands (Commands, on any Executor), their
-│                      #   results, errors, and file transfer data
+│                      #   results, events, errors, and file transfer data
 ├── client/            # package client — the voice client: session, events,
 │                      #   voice, reconnection, voice-only commands
 ├── identity/          # creating, storing and inspecting identities

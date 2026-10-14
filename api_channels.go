@@ -20,12 +20,14 @@ import (
 type Channel struct {
 	// UID is the channel's unique identifier (channel_unique_identifier),
 	// which the server assigns once; empty when the server does not send it.
+	// channellist does not, so ListChannels leaves it empty.
 	UID ChannelUID
 	// Name is the channel's name (channel_name).
 	Name string
 	// Topic is the topic shown under the name (channel_topic).
 	Topic string
-	// Description is the channel description (channel_description).
+	// Description is the channel description (channel_description). channellist
+	// does not carry it, so ListChannels leaves it empty; GetChannelInfo has it.
 	Description string
 	// ID is the channel's id (cid).
 	ID ChannelID
@@ -43,8 +45,22 @@ type Channel struct {
 	Codec Codec
 	// CodecQuality is the codec's quality, 0 to 10 (channel_codec_quality).
 	CodecQuality int32
-	// MaxClients is how many clients may be in the channel (channel_maxclients).
+	// MaxClients is how many clients may be in the channel (channel_maxclients);
+	// -1 when the server sends it as unlimited.
 	MaxClients int32
+	// MaxFamilyClients is how many clients may be in the channel and its
+	// subchannels together (channel_maxfamilyclients); -1 when the server sends
+	// it as unlimited.
+	MaxFamilyClients int32
+	// TotalClients is how many clients are in the channel (total_clients).
+	// Only channellist reports it.
+	TotalClients int32
+	// TotalFamilyClients is how many clients are in the channel and its
+	// subchannels (total_clients_family). Only channellist reports it.
+	TotalFamilyClients int32
+	// NeededSubscribePower is the power a client needs to subscribe to the
+	// channel (channel_needed_subscribe_power).
+	NeededSubscribePower int32
 	// NeededTalkPower is the talk power a client needs to speak here
 	// (channel_needed_talk_power).
 	NeededTalkPower int32
@@ -53,6 +69,9 @@ type Channel struct {
 	// IsPermanent reports a channel that survives a server restart
 	// (channel_flag_permanent).
 	IsPermanent bool
+	// IsSemiPermanent reports a channel that survives its last client leaving
+	// but not a server restart (channel_flag_semi_permanent).
+	IsSemiPermanent bool
 	// HasPassword reports a password-protected channel (channel_flag_password).
 	HasPassword bool
 }
@@ -64,21 +83,26 @@ func parseChannel(row map[string]string) Channel {
 	}
 
 	return Channel{
-		ID:              ChannelID(fieldUint(row, "cid")),
-		ParentID:        ChannelID(parent),
-		Name:            fieldStr(row, "channel_name"),
-		Topic:           fieldStr(row, "channel_topic"),
-		Description:     fieldStr(row, "channel_description"),
-		Order:           ChannelID(fieldUint(row, "channel_order")),
-		HasPassword:     fieldBool(row, "channel_flag_password"),
-		IsDefault:       fieldBool(row, "channel_flag_default"),
-		IsPermanent:     fieldBool(row, "channel_flag_permanent"),
-		Codec:           Codec(fieldUint8(row, "channel_codec")),
-		CodecQuality:    fieldInt32(row, "channel_codec_quality"),
-		MaxClients:      fieldInt32(row, "channel_maxclients"),
-		NeededTalkPower: fieldInt32(row, "channel_needed_talk_power"),
-		IconID:          fieldIconID(row, "channel_icon_id"),
-		UID:             ChannelUID(fieldStr(row, "channel_unique_identifier")),
+		ID:                   ChannelID(fieldUint(row, "cid")),
+		ParentID:             ChannelID(parent),
+		Name:                 fieldStr(row, "channel_name"),
+		Topic:                fieldStr(row, "channel_topic"),
+		Description:          fieldStr(row, "channel_description"),
+		Order:                ChannelID(fieldUint(row, "channel_order")),
+		HasPassword:          fieldBool(row, "channel_flag_password"),
+		IsDefault:            fieldBool(row, "channel_flag_default"),
+		IsPermanent:          fieldBool(row, "channel_flag_permanent"),
+		Codec:                Codec(fieldUint8(row, "channel_codec")),
+		CodecQuality:         fieldInt32(row, "channel_codec_quality"),
+		MaxClients:           fieldInt32(row, "channel_maxclients"),
+		MaxFamilyClients:     fieldInt32(row, "channel_maxfamilyclients"),
+		TotalClients:         fieldInt32(row, "total_clients"),
+		TotalFamilyClients:   fieldInt32(row, "total_clients_family"),
+		NeededSubscribePower: fieldInt32(row, "channel_needed_subscribe_power"),
+		IsSemiPermanent:      fieldBool(row, "channel_flag_semi_permanent"),
+		NeededTalkPower:      fieldInt32(row, "channel_needed_talk_power"),
+		IconID:               fieldIconID(row, "channel_icon_id"),
+		UID:                  ChannelUID(fieldStr(row, "channel_unique_identifier")),
 	}
 }
 
@@ -124,7 +148,8 @@ type ChannelCreateOptions struct {
 	IsDefault *bool
 	// Topic is the topic shown under the name (channel_topic).
 	Topic *string
-	// Description is the channel description (channel_description).
+	// Description is the channel description (channel_description). channellist
+	// does not carry it, so ListChannels leaves it empty; GetChannelInfo has it.
 	Description *string
 	// Password is the channel password (channel_password), in cleartext: the
 	// voice client hashes it on the wire. A pointer to "" sets none.
@@ -178,7 +203,8 @@ type ChannelEditOptions struct {
 	Name *string
 	// Topic is the topic shown under the name (channel_topic).
 	Topic *string
-	// Description is the channel description (channel_description).
+	// Description is the channel description (channel_description). channellist
+	// does not carry it, so ListChannels leaves it empty; GetChannelInfo has it.
 	Description *string
 	// Password is the channel password (channel_password), in cleartext: the
 	// voice client hashes it on the wire. A pointer to "" removes it.
@@ -258,9 +284,20 @@ func (c *Commands) DeleteChannel(ctx context.Context, cid ChannelID, opts Channe
 	})
 }
 
-// ListChannels returns every channel on the server, in the server's sort order.
+// ListChannels returns every channel on the server, in the server's sort order,
+// with the topic, flags, voice settings, limits and icon: it asks channellist
+// for -topic -flags -voice -limits -icon, without which the server answers
+// only the id, parent, order, name, client count and subscribe power.
+//
+// Description and UID are not part of channellist and stay empty; use
+// GetChannelInfo, or the voice client's GetChannelDescription, for them.
 func (c *Commands) ListChannels(ctx context.Context) ([]Channel, error) {
-	rows, err := c.list(ctx, "channellist", nil)
+	flags := []string{"-topic", "-flags", "-voice", "-limits", "-icon"}
+	params := make([]param, 0, len(flags))
+	for _, flag := range flags {
+		params = append(params, boolArg(flag, true))
+	}
+	rows, err := c.list(ctx, "channellist", params)
 	if err != nil {
 		return nil, err
 	}
