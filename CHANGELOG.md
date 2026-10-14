@@ -64,7 +64,7 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 ## v1.0.0-beta.1 (2026-10-12)
 
 The API settled for 1.0. Almost every signature changed; the
-[migration guide](#migrating-from-v02-and-v03) below walks through each one.
+[migration guide](#migrating-from-v02-and-v03) walks through each one.
 ServerQuery is not in this beta: its executor exists as
 `internal/serverquery` and is published as `serverquery` once implemented,
 before v1.0.0.

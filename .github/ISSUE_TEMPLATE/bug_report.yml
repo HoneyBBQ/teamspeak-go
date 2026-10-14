@@ -1,0 +1,82 @@
+name: Bug report
+description: Something does not work as documented, or fails against a TeamSpeak server
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. If you found a security vulnerability, please do not open an issue: use [private vulnerability reporting](https://github.com/HoneyBBQ/teamspeak-go/security/advisories/new).
+  - type: input
+    id: version
+    attributes:
+      label: Module version
+      description: The version of github.com/honeybbq/teamspeak-go you use, from go.mod or `go list -m`. For an unreleased commit, give the commit hash.
+      placeholder: v1.0.0-beta.3
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Go version
+      description: The output of `go version`.
+      placeholder: go1.26.0 linux/amd64
+    validations:
+      required: true
+  - type: input
+    id: server
+    attributes:
+      label: TeamSpeak server version
+      description: The version the server reports, for example from the server log or `version` in a ServerQuery session.
+      placeholder: 3.13.7
+    validations:
+      required: true
+  - type: dropdown
+    id: generation
+    attributes:
+      label: TeamSpeak 3 or TeamSpeak 6
+      options:
+        - TeamSpeak 3
+        - TeamSpeak 6
+        - Both
+        - Not related to a particular server
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15, Ubuntu 24.04, Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: A short Go program or test that shows the problem. Leave out anything that is not needed to trigger it.
+      render: go
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and errors
+      description: |
+        Error messages, stack traces, or log output from the library or the server.
+
+        Before you paste anything, remove server and channel passwords, privilege keys, and exported identities. An exported identity contains a private key.
+      render: text
+    validations:
+      required: false

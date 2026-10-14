@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest a new capability or a change to the API
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do and what stops you. Describe the need, not only the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API
+      description: How you would like to call it. A few lines of Go are enough.
+      render: go
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways you tried or considered, including what you do today.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Protocol details
+      description: If you know which TeamSpeak command or notification this involves, and whether it differs between TeamSpeak 3 and 6, say so. Please do not paste material from TeamSpeak's proprietary SDK or applications.
+    validations:
+      required: false
