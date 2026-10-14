@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -112,8 +113,8 @@ func TestDialFileTransfer_DefaultDialerRespectsTheDeadline(t *testing.T) {
 	cancel()
 
 	_, err := teamspeak.DialFileTransfer(ctx, "127.0.0.1", 9, "k", teamspeak.FileTransferOptions{})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v, want context.Canceled", err)
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, teamspeak.ErrFileTransfer) {
+		t.Fatalf("err = %v, want context.Canceled and ErrFileTransfer", err)
 	}
 }
 
@@ -132,8 +133,8 @@ func TestDownloadFileData_StopsWhenCancelled(t *testing.T) {
 	var got bytes.Buffer
 	info := &teamspeak.FileDownloadInfo{FileTransferKey: "key", Port: 30033, Size: 1 << 20}
 	err := teamspeak.DownloadFileData(ctx, "transfer.example", info, &got, viaDialer(dialer))
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v, want context.Canceled", err)
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, teamspeak.ErrFileTransfer) {
+		t.Fatalf("err = %v, want context.Canceled and ErrFileTransfer", err)
 	}
 	if got.String() != "partial" {
 		t.Errorf("dest = %q, want what arrived before the cancel", got.String())
@@ -155,8 +156,8 @@ func TestUploadFileData_StopsWhenCancelled(t *testing.T) {
 	info := &teamspeak.FileUploadInfo{FileTransferKey: "key", Port: 30033}
 	data := bytes.NewReader(make([]byte, 1<<20))
 	err := teamspeak.UploadFileData(ctx, "transfer.example", info, data, viaDialer(dialer))
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v, want context.Canceled", err)
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, teamspeak.ErrFileTransfer) {
+		t.Fatalf("err = %v, want context.Canceled and ErrFileTransfer", err)
 	}
 }
 
@@ -183,4 +184,117 @@ func TestDownloadFileData_ReadsUntilTheServerCloses(t *testing.T) {
 
 func viaDialer(d teamspeak.FileTransferDialer) teamspeak.FileTransferOptions {
 	return teamspeak.FileTransferOptions{Dialer: d}
+}
+
+func TestDownloadFileData_FailsOnMoreThanTheAnnouncedSize(t *testing.T) {
+	dialer, server := pipeDialer(t)
+	go func() {
+		key := make([]byte, len("key"))
+		_, _ = io.ReadFull(server, key)
+		_, _ = server.Write([]byte("0123456789"))
+		_ = server.Close()
+	}()
+
+	var got bytes.Buffer
+	info := &teamspeak.FileDownloadInfo{FileTransferKey: "key", Port: 30033, Size: 4}
+	err := teamspeak.DownloadFileData(t.Context(), "h", info, &got, viaDialer(dialer))
+	if !errors.Is(err, teamspeak.ErrFileTransfer) {
+		t.Fatalf("err = %v, want ErrFileTransfer", err)
+	}
+	if got.String() != "0123" {
+		t.Errorf("dest = %q, want only the announced 4 bytes", got.String())
+	}
+}
+
+func TestDownloadFileData_FailsWhenItEndsShort(t *testing.T) {
+	dialer, server := pipeDialer(t)
+	go func() {
+		key := make([]byte, len("key"))
+		_, _ = io.ReadFull(server, key)
+		_, _ = server.Write([]byte("012"))
+		_ = server.Close()
+	}()
+
+	info := &teamspeak.FileDownloadInfo{FileTransferKey: "key", Port: 30033, Size: 10}
+	err := teamspeak.DownloadFileData(t.Context(), "h", info, io.Discard, viaDialer(dialer))
+	if !errors.Is(err, teamspeak.ErrFileTransfer) || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("err = %v, want ErrFileTransfer wrapping io.ErrUnexpectedEOF", err)
+	}
+}
+
+func idleOptions(d teamspeak.FileTransferDialer) teamspeak.FileTransferOptions {
+	return teamspeak.FileTransferOptions{Dialer: d, IdleTimeout: 50 * time.Millisecond}
+}
+
+func requireIdleError(t *testing.T, err error) {
+	t.Helper()
+	if !errors.Is(err, teamspeak.ErrFileTransfer) || !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("err = %v, want ErrFileTransfer wrapping os.ErrDeadlineExceeded", err)
+	}
+}
+
+func TestDownloadFileData_FailsWhenIdle(t *testing.T) {
+	dialer, server := pipeDialer(t)
+	go func() {
+		key := make([]byte, len("key"))
+		_, _ = io.ReadFull(server, key)
+		_, _ = server.Write([]byte("part"))
+		// Then nothing.
+	}()
+
+	info := &teamspeak.FileDownloadInfo{FileTransferKey: "key", Port: 30033, Size: 10}
+	requireIdleError(t, teamspeak.DownloadFileData(t.Context(), "h", info, io.Discard, idleOptions(dialer)))
+}
+
+func TestUploadFileData_FailsWhenIdle(t *testing.T) {
+	dialer, server := pipeDialer(t)
+	go func() {
+		key := make([]byte, len("key"))
+		_, _ = io.ReadFull(server, key)
+		// Then the server never reads the data.
+	}()
+
+	info := &teamspeak.FileUploadInfo{FileTransferKey: "key", Port: 30033}
+	err := teamspeak.UploadFileData(t.Context(), "h", info, bytes.NewReader([]byte("data")), idleOptions(dialer))
+	requireIdleError(t, err)
+}
+
+func TestDialFileTransfer_FailsWhenTheKeyIsNotTaken(t *testing.T) {
+	dialer, _ := pipeDialer(t)
+
+	_, err := teamspeak.DialFileTransfer(t.Context(), "h", 30033, "key", idleOptions(dialer))
+	requireIdleError(t, err)
+}
+
+func TestDownloadFileData_NegativeIdleTimeoutDisablesIt(t *testing.T) {
+	dialer, server := pipeDialer(t)
+	go func() {
+		key := make([]byte, len("key"))
+		_, _ = io.ReadFull(server, key)
+		time.Sleep(150 * time.Millisecond)
+		_, _ = server.Write([]byte("late"))
+		_ = server.Close()
+	}()
+
+	info := &teamspeak.FileDownloadInfo{FileTransferKey: "key", Port: 30033, Size: 4}
+	opts := teamspeak.FileTransferOptions{Dialer: dialer, IdleTimeout: -1}
+	err := teamspeak.DownloadFileData(t.Context(), "h", info, io.Discard, opts)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+var errTestRefused = errors.New("refused")
+
+func TestDialFileTransfer_ErrorsWrapErrFileTransfer(t *testing.T) {
+	boom := errTestRefused
+	dialer := dialerFunc(func(context.Context, string, string) (net.Conn, error) { return nil, boom })
+
+	_, err := teamspeak.DialFileTransfer(t.Context(), "h", 1, "key", viaDialer(dialer))
+	if !errors.Is(err, teamspeak.ErrFileTransfer) || !errors.Is(err, boom) {
+		t.Fatalf("err = %v", err)
+	}
+	if want := "file transfer: dial h:1: refused"; err.Error() != want {
+		t.Errorf("err = %q, want %q", err, want)
+	}
 }

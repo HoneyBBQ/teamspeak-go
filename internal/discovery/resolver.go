@@ -178,6 +178,19 @@ func (r *Resolver) resolveSRV(ctx context.Context, host string) ([]ResolvedAddr,
 		return nil, false
 	}
 
+	results := srvAddrs(srvs)
+	r.log.Debug("dns srv succeeded", slog.String("host", host), slog.String("result", results[0].Addr))
+
+	return results, true
+}
+
+// srvAddrs turns SRV answers into addresses, keeping their order.
+//
+// RFC 2782 wants the lowest priority tried first and, within a priority, a
+// weighted random choice. net.Resolver.LookupSRV already returns the records
+// sorted by priority and randomised by weight within each priority, so the
+// order is the one to try and is deliberately not changed here.
+func srvAddrs(srvs []*net.SRV) []ResolvedAddr {
 	results := make([]ResolvedAddr, 0, len(srvs))
 	for _, srv := range srvs {
 		target := strings.TrimSuffix(srv.Target, ".")
@@ -186,9 +199,8 @@ func (r *Resolver) resolveSRV(ctx context.Context, host string) ([]ResolvedAddr,
 			Source: "SRV",
 		})
 	}
-	r.log.Debug("dns srv succeeded", slog.String("host", host), slog.String("result", results[0].Addr))
 
-	return results, true
+	return results
 }
 
 func (r *Resolver) resolveTSDNSSRV(ctx context.Context, domains []string, queryHost string) (string, bool) {

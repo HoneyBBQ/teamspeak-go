@@ -2,6 +2,7 @@ package teamspeak
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -9,6 +10,15 @@ import (
 	"strconv"
 	"time"
 )
+
+// defaultFileTransferIdleTimeout is FileTransferOptions.IdleTimeout when it is
+// zero.
+const defaultFileTransferIdleTimeout = 30 * time.Second
+
+// fileTransferChunk is the most one Write call hands the connection, so the
+// idle deadline is renewed as an upload progresses even when the caller's
+// reader hands over its data in one piece.
+const fileTransferChunk = 32 << 10
 
 // fileTransferDialTimeout bounds the default dialer's connect, so a transfer
 // started without a deadline cannot hang on a port nobody answers.
@@ -39,6 +49,86 @@ type FileTransferOptions struct {
 	// Trace, when set, reports the milestones of the call; see
 	// FileTransferTrace. It is read when the call starts.
 	Trace *FileTransferTrace
+	// IdleTimeout is the longest a transfer may go without moving any byte:
+	// the deadline of the transfer key's write and of each read from, and
+	// write to, the connection, renewed every time it is called. A transfer
+	// that exceeds it fails with an error wrapping ErrFileTransfer and
+	// os.ErrDeadlineExceeded. Zero means the default, 30 seconds; a negative
+	// value disables it. It does not cover the wait on an upload's own reader
+	// or a download's own writer, and not the connection DialFileTransfer
+	// returns, which the caller drives.
+	IdleTimeout time.Duration
+}
+
+// idle returns the idle timeout in effect, 0 when there is none.
+func (o FileTransferOptions) idle() time.Duration {
+	switch {
+	case o.IdleTimeout == 0:
+		return defaultFileTransferIdleTimeout
+	case o.IdleTimeout < 0:
+		return 0
+	}
+
+	return o.IdleTimeout
+}
+
+// idleConn renews the connection's deadlines before every read and write, so
+// that they measure idleness rather than the length of the transfer. A
+// connection that does not support deadlines is used without them.
+type idleConn struct {
+	conn net.Conn
+	idle time.Duration
+}
+
+func (c idleConn) Read(p []byte) (int, error) {
+	if c.idle > 0 {
+		_ = c.conn.SetReadDeadline(time.Now().Add(c.idle))
+	}
+
+	return c.conn.Read(p)
+}
+
+func (c idleConn) Write(p []byte) (int, error) {
+	total := 0
+	for {
+		chunk := p[total:min(len(p), total+fileTransferChunk)]
+		if c.idle > 0 {
+			_ = c.conn.SetWriteDeadline(time.Now().Add(c.idle))
+		}
+		n, err := c.conn.Write(chunk)
+		total += n
+		if err != nil || total >= len(p) {
+			return total, err
+		}
+	}
+}
+
+// errTooMuchData is a download that sent more than the size announced.
+var errTooMuchData = errors.New("the server sent more data than the announced size")
+
+// sizedWriter writes to w at most size bytes, and fails on the first byte
+// beyond that without writing it.
+type sizedWriter struct {
+	w       io.Writer
+	size    uint64
+	written uint64
+}
+
+func (s *sizedWriter) Write(p []byte) (int, error) {
+	room := s.size - s.written
+	if uint64(len(p)) > room {
+		n, err := s.w.Write(p[:room])
+		s.written += uint64(n) //nolint:gosec // n is never negative
+		if err != nil {
+			return n, err
+		}
+
+		return n, errTooMuchData
+	}
+	n, err := s.w.Write(p)
+	s.written += uint64(n) //nolint:gosec // n is never negative
+
+	return n, err
 }
 
 // fileTransferProgressStep is how many bytes move between two Progress calls.
@@ -241,7 +331,8 @@ func (c countingWriter) Write(p []byte) (int, error) {
 // the ftkey handshake. The caller is responsible for closing the returned
 // connection.
 //
-// ctx bounds the dial and the handshake, not the connection returned.
+// ctx bounds the dial and the handshake, not the connection returned. Every
+// error wraps ErrFileTransfer, one that ctx ended wraps ctx's error too.
 func DialFileTransfer(
 	ctx context.Context, host string, port uint16, key string, opts FileTransferOptions,
 ) (net.Conn, error) {
@@ -263,10 +354,15 @@ func dialFileTransfer(ctx context.Context, addr, key string, opts FileTransferOp
 
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to file transfer server %s: %w", addr, err)
+		return nil, fmt.Errorf("%w: dial %s: %w", ErrFileTransfer, addr, err)
 	}
 
 	err = runOnConn(ctx, conn, func() error {
+		if idle := opts.idle(); idle > 0 {
+			_ = conn.SetWriteDeadline(time.Now().Add(idle))
+			// The caller, or the transfer, sets its own from here.
+			defer func() { _ = conn.SetWriteDeadline(time.Time{}) }()
+		}
 		_, writeErr := io.WriteString(conn, key)
 
 		return writeErr
@@ -274,7 +370,7 @@ func dialFileTransfer(ctx context.Context, addr, key string, opts FileTransferOp
 	if err != nil {
 		_ = conn.Close()
 
-		return nil, fmt.Errorf("failed to send transfer key: %w", err)
+		return nil, fmt.Errorf("%w: send key: %w", ErrFileTransfer, err)
 	}
 
 	return conn, nil
@@ -283,8 +379,9 @@ func dialFileTransfer(ctx context.Context, addr, key string, opts FileTransferOp
 // UploadFileData transfers data to the server using credentials from
 // InitFileUpload.
 //
-// If ctx is done first the connection is closed and the upload stops with
-// ctx's error. An upload waiting on data's Read notices at its next write.
+// If ctx is done first the connection is closed and the upload stops with an
+// error wrapping ctx's error. An upload waiting on data's Read notices at its
+// next write. Every error wraps ErrFileTransfer.
 func UploadFileData(
 	ctx context.Context, host string, info *FileUploadInfo, data io.Reader, opts FileTransferOptions,
 ) error {
@@ -300,12 +397,12 @@ func UploadFileData(
 		src = countingReader{r: data, run: run}
 	}
 	err = runOnConn(ctx, conn, func() error {
-		_, copyErr := io.Copy(conn, src)
+		_, copyErr := io.Copy(idleConn{conn: conn, idle: opts.idle()}, src)
 
 		return copyErr
 	})
 	if err != nil {
-		return run.failed(FileTransferStageTransfer, fmt.Errorf("failed to upload file data: %w", err))
+		return run.failed(FileTransferStageTransfer, fmt.Errorf("%w: upload: %w", ErrFileTransfer, err))
 	}
 	run.finish()
 
@@ -315,8 +412,13 @@ func UploadFileData(
 // DownloadFileData receives data from the server using credentials from
 // InitFileDownload, writing it to dest until the server closes the connection.
 //
+// The server announces the size, info.Size. A download that ends short of it
+// fails with an error wrapping io.ErrUnexpectedEOF; one that sends more fails
+// after the announced size, and the excess is not written to dest.
+//
 // If ctx is done first the connection is closed and the download stops with
-// ctx's error; dest keeps whatever had arrived.
+// an error wrapping ctx's error; dest keeps whatever had arrived. Every error
+// wraps ErrFileTransfer.
 func DownloadFileData(
 	ctx context.Context, host string, info *FileDownloadInfo, dest io.Writer, opts FileTransferOptions,
 ) error {
@@ -327,17 +429,22 @@ func DownloadFileData(
 	}
 	defer func() { _ = conn.Close() }()
 
-	sink := dest
+	sized := &sizedWriter{w: dest, size: info.Size}
+	var sink io.Writer = sized
 	if run.trace.Progress != nil {
-		sink = countingWriter{w: dest, run: run}
+		sink = countingWriter{w: sized, run: run}
 	}
 	err = runOnConn(ctx, conn, func() error {
-		_, copyErr := io.Copy(sink, conn)
+		_, copyErr := io.Copy(sink, idleConn{conn: conn, idle: opts.idle()})
+		if copyErr == nil && sized.written < info.Size {
+			// The connection closed before the announced size arrived.
+			return fmt.Errorf("%d of %d bytes: %w", sized.written, info.Size, io.ErrUnexpectedEOF)
+		}
 
 		return copyErr
 	})
 	if err != nil {
-		return run.failed(FileTransferStageTransfer, fmt.Errorf("failed to download file data: %w", err))
+		return run.failed(FileTransferStageTransfer, fmt.Errorf("%w: download: %w", ErrFileTransfer, err))
 	}
 	run.finish()
 

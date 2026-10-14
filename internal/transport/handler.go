@@ -437,7 +437,8 @@ func (h *PacketHandler) receiveLoop() {
 
 				return
 			default:
-				h.logger.Error("udp read failed", slog.Any("error", err))
+				// Debug, not Error: the error goes to OnClosed, which reports it.
+				h.logger.Debug("udp read failed", slog.Any("error", err))
 				finalErr = err
 
 				return
@@ -1271,6 +1272,9 @@ func (h *PacketHandler) checkWhisper(targetClientIDs []uint16) error {
 func (h *PacketHandler) IsOpen() bool {
 	return h.started.Load() && !h.closed.Load()
 }
+
+// Done returns a channel closed when the handler is closed.
+func (h *PacketHandler) Done() <-chan struct{} { return h.stopCh }
 
 // Close stops the handler and closes its connection.
 func (h *PacketHandler) Close() error {

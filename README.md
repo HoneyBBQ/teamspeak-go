@@ -293,7 +293,14 @@ line and returns the rows that answer it.
 
 The data travels over its own TCP connection to the file transfer port. `ctx`
 bounds the whole transfer: when it is done the connection is closed and the
-call returns `ctx.Err()`, so `errors.Is(err, context.Canceled)` holds.
+call returns an error wrapping `ctx.Err()`, so `errors.Is(err, context.Canceled)`
+holds. Every error of these calls also matches `teamspeak.ErrFileTransfer`.
+`FileTransferOptions.IdleTimeout` is the longest a transfer may go without
+moving a byte (default 30 seconds, negative disables it); beyond it the call
+fails with an error wrapping `ErrFileTransfer` and `os.ErrDeadlineExceeded`.
+A download that sends more bytes than the size the server announced fails
+after that size, and one that ends short of it fails with
+`io.ErrUnexpectedEOF`.
 `FileTransferOptions.Dialer` is a `teamspeak.FileTransferDialer` — anything
 with `DialContext(ctx, network, addr)`, such as a `*net.Dialer` or a
 `golang.org/x/net/proxy` `ContextDialer`; the zero options dial directly, with

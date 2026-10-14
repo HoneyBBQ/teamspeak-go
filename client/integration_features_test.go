@@ -56,41 +56,54 @@ func TestIntegration_ChannelIDReportsOwnChannel(t *testing.T) {
 
 func TestIntegration_BatchedEnterInheritsOmittedFields(t *testing.T) {
 	// TeamSpeak omits, in each row of a pipe-separated batch, any field that
-	// repeats the previous row, so a second client joining the same channel
-	// arrives with no ctid at all. The shared client plus the peer in the same
-	// channel produce exactly that batch for a newly subscribing observer.
+	// repeats the previous row, so a second client in the same channel
+	// arrives with no ctid at all. The shared client and the peer, in the same
+	// channel, produce exactly that batch in the welcome of a client joining
+	// after them, so the observer's handler is registered before it connects.
 	addr := requireTeamSpeakAddr(t)
 	requireSharedClient(t)
-	peer := requireIntegrationPeer(t, addr)
-	if peer == nil {
-		t.Fatal("peer unavailable")
+	requireIntegrationPeer(t, addr)
+
+	id, err := identity.Generate(t.Context(), 8)
+	if err != nil {
+		t.Fatalf("identity.Generate: %v", err)
 	}
-
-	// Reuse the peer as the observer: TS3 only tolerates about three rapid
-	// connections per IP, and the suite already spends them on the shared
-	// client, the peer and the disconnect test.
-	requireSharedClient(t)
-	observer := requireIntegrationPeer(t, addr)
-
+	observer := newClient(t, id, addr, "teamspeak-go-observer", integrationClientOptions(nil)...)
 	var mu sync.Mutex
 	seen := make(map[string]teamspeak.ChannelID)
-	unsubscribe := observer.OnClientEnter(func(info client.ClientEnterEvent) {
+	welcomed := make(chan struct{})
+	observer.OnClientEnter(func(info client.ClientEnterEvent) {
 		mu.Lock()
+		defer mu.Unlock()
 		seen[info.Nickname] = info.ChannelID
-		mu.Unlock()
+		_, shared := seen["teamspeak-go-integ"]
+		_, peer := seen["teamspeak-go-peer"]
+		if shared && peer {
+			select {
+			case <-welcomed:
+			default:
+				close(welcomed)
+			}
+		}
 	})
-	defer unsubscribe()
-	time.Sleep(2 * time.Second)
+	err = connectWithRetries(t.Context(), t, observer)
+	if err != nil {
+		t.Fatalf("observer Connect: %v", err)
+	}
+	t.Cleanup(func() { _ = observer.Disconnect(context.Background()) })
+
+	select {
+	case <-welcomed:
+	case <-time.After(10 * time.Second):
+		mu.Lock()
+		defer mu.Unlock()
+		t.Fatalf("the observer's welcome did not show both clients: %v", seen)
+	}
 
 	mu.Lock()
-	shared, okShared := seen["teamspeak-go-integ"]
-	peerCid, okPeer := seen["teamspeak-go-peer"]
+	shared, peerCid := seen["teamspeak-go-integ"], seen["teamspeak-go-peer"]
 	mu.Unlock()
-	t.Logf("batched enter: shared cid=%d (seen=%t) peer cid=%d (seen=%t)", shared, okShared, peerCid, okPeer)
-
-	if !okShared || !okPeer {
-		t.Skipf("observer did not see both clients yet: %v", seen)
-	}
+	t.Logf("batched enter: shared cid=%d peer cid=%d", shared, peerCid)
 	if shared == 0 {
 		t.Error("expected a non-zero channel ID for the first row of the batch")
 	}

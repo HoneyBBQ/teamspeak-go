@@ -5,6 +5,22 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ## Unreleased
 
+- `teamspeak.ErrFileTransfer` is wrapped by every error `UploadFileData`,
+  `DownloadFileData` and `DialFileTransfer` return, a cancelled context's
+  included, which still matches `context.Canceled` or
+  `context.DeadlineExceeded`. The messages lose their "failed to" stutter:
+  `file transfer: dial host:port: ...`, `file transfer: send key: ...`,
+  `file transfer: upload: ...`, `file transfer: download: ...`.
+- `FileTransferOptions.IdleTimeout` fails a transfer that moves no byte for
+  that long, with an error wrapping `ErrFileTransfer` and
+  `os.ErrDeadlineExceeded`. Zero means 30 seconds; a negative value disables
+  it. Before, a server that went silent held a transfer until its context
+  ended.
+- `DownloadFileData` checks the size the server announced: a download that
+  sends more fails after that size, without writing the excess, and one that
+  ends short of it fails with `io.ErrUnexpectedEOF`. Both used to succeed.
+- Reconnect attempts end at once when `Disconnect` is called, rather than at
+  their own timeout; `AddrResolver` implementations must honour their context.
 - `Disconnect` waited a full second every time. It waited for an error line in
   answer to its goodbye, but TeamSpeak 3 and 6 answer `clientdisconnect` with
   a `notifyclientleftview` about the client itself and no error line, which

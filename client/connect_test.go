@@ -295,8 +295,9 @@ func completeHandshake(t *testing.T, c *Client) *transport.PacketHandler {
 func TestDisconnectThenConnect_HandlersSeeTheOldSessionEndFirst(t *testing.T) {
 	c := leavingClient(t)
 	var log eventLog
+	releaseHandler := make(chan struct{})
 	c.OnDisconnected(func(err error) {
-		time.Sleep(100 * time.Millisecond) // a slow handler holds the queue
+		<-releaseHandler // a slow handler holds the queue
 		log.add(fmt.Sprintf("disconnected(%v)", err))
 	})
 	c.OnConnected(func() { log.add("connected") })
@@ -320,14 +321,12 @@ func TestDisconnectThenConnect_HandlersSeeTheOldSessionEndFirst(t *testing.T) {
 	}
 	c.handlePacket(old, commandPacket("notifytextmessage targetmode=1 msg=old invokerid=5"))
 	c.handlePacket(h, commandPacket("notifytextmessage targetmode=1 msg=new invokerid=5"))
+	close(releaseHandler)
+	// Events are delivered in order: once this marker has run, so has
+	// everything queued before it, and nothing of the old session is left.
+	waitDelivered(t, c)
 
 	want := []string{"disconnected(<nil>)", "connected", "text new"}
-	for deadline := time.Now().Add(2 * time.Second); len(log.snapshot()) < len(want); time.Sleep(time.Millisecond) {
-		if time.Now().After(deadline) {
-			break
-		}
-	}
-	time.Sleep(50 * time.Millisecond)
 	if got := log.snapshot(); !slices.Equal(got, want) {
 		t.Errorf("handlers saw %q, want %q", got, want)
 	}

@@ -181,9 +181,15 @@ func TestHandleCommand_UndeclaredNamedCommand_IsNotData(t *testing.T) {
 
 func TestExec_Success(t *testing.T) {
 	c := newTestClient(t)
+	sent := make(chan struct{})
+	c.wireHook = func(string) error {
+		close(sent)
+
+		return nil
+	}
 
 	go func() {
-		time.Sleep(20 * time.Millisecond)
+		<-sent // the command is registered by the time it is sent
 		// The command Exec sends contains "return_code=N".
 		// Simulate server data row then ok error line with matching return_code.
 		c.handleCommandLines(c.handler, "somekey=someval\nerror id=0 msg=ok return_code=1")
@@ -217,9 +223,15 @@ func TestExec_Timeout(t *testing.T) {
 
 func TestExec_ServerError(t *testing.T) {
 	c := newTestClient(t)
+	sent := make(chan struct{})
+	c.wireHook = func(string) error {
+		close(sent)
+
+		return nil
+	}
 
 	go func() {
-		time.Sleep(20 * time.Millisecond)
+		<-sent
 		c.handleCommandLines(c.handler, "error id=512 msg=invalid_size return_code=1")
 	}()
 

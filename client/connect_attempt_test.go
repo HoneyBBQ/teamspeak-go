@@ -107,11 +107,18 @@ func TestWaitConnected_ErrorAfterConnectDoesNotDisconnect(t *testing.T) {
 
 func TestWaitConnected_CalledBeforeConnectIsReleasedByTheHandshake(t *testing.T) {
 	c := newTestClient(t)
+	c.mu.Lock()
+	before := c.attempt
+	c.mu.Unlock()
 	result := make(chan error, 1)
 	go func() { result <- waitWithin(t, c, 2*time.Second) }()
-	time.Sleep(50 * time.Millisecond) // let the waiter grab the attempt
 
 	reconnect(t, c)
+	// The attempt nobody has resolved is kept, so a waiter that grabbed it
+	// before the reconnect, or after, is released by this handshake.
+	if c.attempt != before {
+		t.Fatal("reconnect replaced an unresolved attempt")
+	}
 	completeCryptoInit(t, c.handler)
 	c.handleCommand(c.handler, "initserver aclid=3 virtualserver_name=X")
 
@@ -168,7 +175,7 @@ func TestErrorFromAReplacedHandlerIsIgnored(t *testing.T) {
 			reconnect(t, c)
 
 			c.handleCommand(stale, line)
-			time.Sleep(50 * time.Millisecond) // a ban disconnects from a goroutine
+			c.background.Wait() // a ban disconnects from a goroutine
 
 			if got := c.Status(); got != StatusConnecting {
 				t.Errorf("status = %v after a stale %s, want StatusConnecting", got, name)

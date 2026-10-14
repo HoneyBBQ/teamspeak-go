@@ -6,6 +6,7 @@ package discovery
 import (
 	"context"
 	"log/slog"
+	"net"
 	"os"
 	"testing"
 )
@@ -159,5 +160,27 @@ func TestResolveIPNotCached(t *testing.T) {
 	}
 	if !addrs[0].Expiry.IsZero() {
 		t.Error("IP resolution should not set a cache expiry")
+	}
+}
+
+// net.Resolver.LookupSRV hands the records back in the order RFC 2782 wants
+// them tried; the conversion must not reorder them.
+func TestSRVAddrsKeepsTheResolversOrder(t *testing.T) {
+	t.Parallel()
+
+	got := srvAddrs([]*net.SRV{
+		{Target: "low.example.", Port: 1, Priority: 0, Weight: 5},
+		{Target: "mid.example.", Port: 2, Priority: 10, Weight: 90},
+		{Target: "mid2.example.", Port: 3, Priority: 10, Weight: 10},
+		{Target: "high.example.", Port: 4, Priority: 20, Weight: 0},
+	})
+	want := []string{"low.example:1", "mid.example:2", "mid2.example:3", "high.example:4"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d addresses, want %d", len(got), len(want))
+	}
+	for i, w := range want {
+		if got[i].Addr != w || got[i].Source != "SRV" {
+			t.Errorf("address %d = %+v, want %s from SRV", i, got[i], w)
+		}
 	}
 }

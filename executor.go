@@ -140,8 +140,8 @@ type Commands struct {
 	fileTransferID atomic.Uint32
 }
 
-// NewCommands returns the typed commands running on executor. A nil executor
-// is a programming error, and panics.
+// NewCommands returns the typed commands running on executor. It panics if
+// executor is nil: that is a programming error, not a condition to handle.
 func NewCommands(executor Executor) *Commands {
 	if executor == nil {
 		panic("teamspeak: NewCommands needs an Executor")

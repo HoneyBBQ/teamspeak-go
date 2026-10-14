@@ -91,6 +91,10 @@ type ResolvedAddr struct {
 
 // AddrResolver resolves a TeamSpeak server address to host:port endpoints.
 // Implementations may replace the default chain (SRV, TSDNS, direct).
+//
+// Implementations must honour ctx. The client stops waiting for a resolution
+// when its budget is spent, but cannot stop the resolver: one that ignores ctx
+// keeps its goroutine, and whatever it holds, until it returns.
 type AddrResolver interface {
 	// Resolve returns the addresses to try for addr, in order.
 	Resolve(ctx context.Context, addr string) ([]ResolvedAddr, error)
@@ -211,9 +215,16 @@ type Client struct {
 	// rather than lose it.
 	reconnectPending    bool
 	reconnectPendingErr error
+	// background counts the goroutines the client starts on its own behalf
+	// that nobody waits on, so a test can wait for them instead of sleeping.
+	background sync.WaitGroup
 	// stopped is set by an explicit Disconnect, which must never be undone by a
 	// retry.
 	stopped bool
+	// stop is closed while stopped is set, so a wait can select on it instead
+	// of polling; it is replaced by a fresh channel when Connect clears the
+	// stop. Read it with stopChan; change it only through setStoppedLocked.
+	stop chan struct{}
 	// leaving is the Disconnect saying goodbye, nil when there is none.
 	leaving *leaving
 	// goodbye is closed when the server announces that this client left while
@@ -300,6 +311,7 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 		throttle: newCommandThrottle(),
 		cmdTrack: newCommandTracker(),
 		attempt:  newConnectAttempt(),
+		stop:     make(chan struct{}),
 	}
 
 	c.typedCommands = teamspeak.NewCommands(c)
@@ -481,7 +493,7 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 	}
 	// Recorded before anything else: a dropped socket during the goodbye below
 	// must not be mistaken for an outage worth retrying.
-	c.stopped = true
+	c.setStoppedLocked(true)
 	c.disconnects++
 	if l := c.leaving; l != nil {
 		// Another Disconnect is saying goodbye: join it.
@@ -738,7 +750,7 @@ func (c *Client) mayStartLocked(ctx context.Context, fromCaller bool) error {
 		return err
 	}
 	if fromCaller {
-		c.stopped = false
+		c.setStoppedLocked(false)
 	} else if c.stopped {
 		return errStopped
 	}
@@ -1055,6 +1067,11 @@ func (c *Client) scheduleReconnect(connErr error) {
 
 	defer c.endReconnect()
 
+	// The loop's logging context; it ends with the loop or when Disconnect
+	// stops the client.
+	ctx, cancel := contextUntil(context.Background(), c.stopChan())
+	defer cancel()
+
 	shouldRetry := options.ShouldRetry
 	if shouldRetry == nil {
 		shouldRetry = DefaultShouldRetry
@@ -1068,14 +1085,14 @@ func (c *Client) scheduleReconnect(connErr error) {
 			return
 		}
 		if !shouldRetry(connErr, attempt) {
-			c.logger.Info("not retrying", slog.Int("attempt", attempt), slog.Any("error", connErr))
+			c.logger.InfoContext(ctx, "not retrying", slog.Int("attempt", attempt), slog.Any("error", connErr))
 			c.traceReconnectStopped(made, connErr)
 
 			return
 		}
 
 		delay := options.Backoff.Delay(attempt)
-		c.logger.Info("reconnecting", slog.Int("attempt", attempt), slog.Duration("delay", delay))
+		c.logger.InfoContext(ctx, "reconnecting", slog.Int("attempt", attempt), slog.Duration("delay", delay))
 		c.traceReconnectScheduled(attempt, delay, connErr)
 
 		if !c.sleepWhileRunning(delay) {
@@ -1089,7 +1106,7 @@ func (c *Client) scheduleReconnect(connErr error) {
 			made++
 		}
 		if retryErr == nil {
-			c.logger.Info("reconnected", slog.Int("attempt", attempt))
+			c.logger.InfoContext(ctx, "reconnected", slog.Int("attempt", attempt))
 
 			return
 		}
@@ -1097,7 +1114,7 @@ func (c *Client) scheduleReconnect(connErr error) {
 		// attempt. Already connected: the caller reconnected by hand. Either
 		// way there is nothing left to retry.
 		if errors.Is(retryErr, errStopped) || errors.Is(retryErr, ErrAlreadyConnected) {
-			c.logger.Info("reconnect no longer needed", slog.Any("reason", retryErr))
+			c.logger.InfoContext(ctx, "reconnect no longer needed", slog.Any("reason", retryErr))
 			if errors.Is(retryErr, errStopped) {
 				retryErr = nil
 			}
@@ -1108,20 +1125,25 @@ func (c *Client) scheduleReconnect(connErr error) {
 
 		connErr = retryErr
 		if options.ShouldRetry == nil && !DefaultShouldRetry(retryErr, attempt) {
-			c.logger.Info("reconnect refused", slog.Int("attempt", attempt), slog.Any("error", retryErr))
+			c.logger.InfoContext(ctx, "reconnect refused", slog.Int("attempt", attempt), slog.Any("error", retryErr))
 			c.traceReconnectStopped(made, retryErr)
 
 			return
 		}
 	}
 
-	c.logger.Warn("reconnect attempts exhausted", slog.Int("attempts", options.Backoff.MaxAttempts))
+	c.logger.WarnContext(ctx, "reconnect attempts exhausted", slog.Int("attempts", options.Backoff.MaxAttempts))
 	c.traceReconnectStopped(made, connErr)
 }
 
 // runConnect makes reconnection attempt number attempt.
+//
+// The attempt belongs to the client, not to any caller: it ends when it times
+// out or when Disconnect stops the client, whichever comes first.
 func (c *Client) runConnect(attempt int) error {
-	ctx, cancel := context.WithTimeout(context.Background(), reconnectAttemptTimeout)
+	stopCtx, stopCancel := contextUntil(context.Background(), c.stopChan())
+	defer stopCancel()
+	ctx, cancel := context.WithTimeout(stopCtx, reconnectAttemptTimeout)
 	defer cancel()
 
 	return c.connect(ctx, false, attempt)
@@ -1174,19 +1196,56 @@ func (c *Client) isStopped() bool {
 	return c.stopped
 }
 
+// setStoppedLocked records an explicit Disconnect, or its undoing by Connect,
+// and keeps the stop channel in step. The caller holds c.mu.
+func (c *Client) setStoppedLocked(stopped bool) {
+	if stopped == c.stopped {
+		return
+	}
+	c.stopped = stopped
+	if stopped {
+		close(c.stop)
+	} else {
+		c.stop = make(chan struct{})
+	}
+}
+
+// stopChan returns the channel that is closed when the client is stopped by
+// Disconnect. A Connect that clears the stop replaces it, so a waiter takes it
+// once, when it starts to wait.
+func (c *Client) stopChan() <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.stop
+}
+
+// contextUntil returns a context cancelled when done is closed or cancel is
+// called, whichever comes first.
+func contextUntil(parent context.Context, done <-chan struct{}) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	go func() {
+		select {
+		case <-done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	return ctx, cancel
+}
+
 // sleepWhileRunning waits for d, returning false if the client was stopped
 // meanwhile so the retry loop can end promptly rather than finishing its delay.
 func (c *Client) sleepWhileRunning(d time.Duration) bool {
-	const step = 50 * time.Millisecond
+	stop := c.stopChan()
+	timer := time.NewTimer(d)
+	defer timer.Stop()
 
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		if c.isStopped() {
-			return false
-		}
-
-		time.Sleep(min(time.Until(deadline), step))
+	select {
+	case <-stop:
+		return false
+	case <-timer.C:
+		return !c.isStopped()
 	}
-
-	return !c.isStopped()
 }

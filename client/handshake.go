@@ -25,7 +25,7 @@ func (c *Client) handleHandshakeInitIV(h *transport.PacketHandler, cmd *wire.Com
 
 		return
 	}
-	c.logger.Info("received crypto negotiation")
+	c.logger.Debug("received crypto negotiation")
 	h.ReceivedFinalInitAck()
 
 	err := h.TsCrypt.InitCrypto(cmd.Params["alpha"], cmd.Params["beta"], cmd.Params["omega"])
@@ -35,7 +35,7 @@ func (c *Client) handleHandshakeInitIV(h *transport.PacketHandler, cmd *wire.Com
 		return
 	}
 
-	c.logger.Info("crypto initialized, sending clientinit")
+	c.logger.Debug("crypto initialized, sending clientinit")
 	c.traceHandshakeDone(h, cmd.Params["omega"])
 	c.sendClientInit(h)
 }
@@ -49,7 +49,7 @@ func (c *Client) handleHandshakeExpand2(h *transport.PacketHandler, cmd *wire.Co
 
 		return
 	}
-	c.logger.Info("received initivexpand2")
+	c.logger.Debug("received initivexpand2")
 	h.ReceivedFinalInitAck()
 	license := cmd.Params["l"]
 	omega := cmd.Params["omega"]
@@ -76,8 +76,6 @@ func (c *Client) handleHandshakeExpand2(h *transport.PacketHandler, cmd *wire.Co
 func (c *Client) sendClientEkPacket(h *transport.PacketHandler, beta string) ([]byte, error) {
 	publicKey, privateKey, err := crypto.GenerateTemporaryKey()
 	if err != nil {
-		c.logger.Error("failed to generate temporary key", slog.Any("error", err))
-
 		return nil, err
 	}
 	ekBase64 := base64.StdEncoding.EncodeToString(publicKey)
@@ -102,8 +100,6 @@ func (c *Client) sendClientEkPacket(h *transport.PacketHandler, beta string) ([]
 func (c *Client) buildClientEkProof(h *transport.PacketHandler, publicKey []byte, beta string) (string, error) {
 	betaBytes, err := base64.StdEncoding.DecodeString(beta)
 	if err != nil {
-		c.logger.Error("failed to decode beta", slog.Any("error", err))
-
 		return "", err
 	}
 	toSign := make([]byte, 86)
@@ -114,8 +110,6 @@ func (c *Client) buildClientEkProof(h *transport.PacketHandler, publicKey []byte
 	copy(toSign[32:], betaBytes)
 	sign, err := crypto.Sign(identitykey.PrivateKey(h.TsCrypt.Identity), toSign)
 	if err != nil {
-		c.logger.Error("failed to sign clientek proof", slog.Any("error", err))
-
 		return "", err
 	}
 
@@ -169,11 +163,15 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 	// The handshake's own command: sent on h, the session it completes, not
 	// through ExecNoWait, which would send on whatever session is current.
 	go func() {
+		// Ends with the session: a closed handler must not leave this waiting
+		// on the flood throttle.
+		ctx, cancel := contextUntil(context.Background(), h.Done())
+		defer cancel()
 		updateCmd := wire.BuildCommand("clientupdate", map[string]string{
 			"client_input_muted":  "0",
 			"client_output_muted": "0",
 		})
-		if c.throttle.wait(context.Background()) == nil {
+		if c.throttle.wait(ctx) == nil {
 			_ = c.sendLine(h, updateCmd)
 		}
 	}()

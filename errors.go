@@ -24,6 +24,15 @@ var ErrNotConnected = errors.New("not connected")
 // value. A list that comes back empty is not this error.
 var ErrNoData = errors.New("the server answered with no data")
 
+// ErrFileTransfer reports a file transfer that failed: dialling the transfer
+// port, sending the key, or moving the data. errors.Is matches it, and the
+// underlying error is wrapped too, so errors.Is(err, context.Canceled) still
+// holds for a transfer ctx ended, as does os.ErrDeadlineExceeded for one that
+// went idle. Every error UploadFileData, DownloadFileData and DialFileTransfer
+// return wraps it, a ctx error included: such an error matches both
+// ErrFileTransfer and ctx.Err().
+var ErrFileTransfer = errors.New("file transfer")
+
 // ErrInvalidCommand reports a command the client refuses to send as given.
 var ErrInvalidCommand = errors.New("invalid command")
 

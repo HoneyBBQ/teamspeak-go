@@ -451,7 +451,7 @@ func TestHandleError_BanBeforeCryptoInit_FailsTheAttemptOnly(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("the attempt did not end")
 	}
-	time.Sleep(50 * time.Millisecond) // the ban path runs on its own goroutine
+	c.background.Wait() // the ban path runs on its own goroutine
 	if c.isStopped() {
 		t.Error("a pre-init ban stopped the client")
 	}

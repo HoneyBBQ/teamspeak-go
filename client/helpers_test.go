@@ -299,3 +299,16 @@ func TestCommandThrottle_ReleasesInArrivalOrder(t *testing.T) {
 		}
 	}
 }
+
+// waitDelivered returns once every event queued so far has been delivered:
+// events run in order, so a marker queued now runs after them.
+func waitDelivered(t *testing.T, c *Client) {
+	t.Helper()
+	delivered := make(chan struct{})
+	c.events.push(func() { close(delivered) })
+	select {
+	case <-delivered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the queued events were not delivered")
+	}
+}

@@ -285,7 +285,7 @@ func TestFileTransferTrace_APanicPropagatesAfterTheConnectionIsClosed(t *testing
 
 				return &closeRecorder{Conn: c, closed: &closed}, err
 			})
-			info := &teamspeak.FileDownloadInfo{FileTransferKey: traceKey, Port: 1}
+			info := &teamspeak.FileDownloadInfo{FileTransferKey: traceKey, Port: 1, Size: 4}
 
 			func() {
 				defer func() {
@@ -324,7 +324,8 @@ func TestFileTransferTrace_NoTraceNoHooks(t *testing.T) {
 		_ = server.Close()
 	}()
 	var got bytes.Buffer
-	err := teamspeak.DownloadFileData(t.Context(), "h", &teamspeak.FileDownloadInfo{FileTransferKey: "key", Port: 1},
+	info := &teamspeak.FileDownloadInfo{FileTransferKey: "key", Port: 1, Size: 1}
+	err := teamspeak.DownloadFileData(t.Context(), "h", info,
 		&got, tracedOptions(dialer, &teamspeak.FileTransferTrace{}))
 	if err != nil || got.String() != "x" {
 		t.Fatalf("err = %v, got %q", err, got.String())

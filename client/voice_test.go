@@ -59,5 +59,7 @@ func TestHandleVoicePacket_IgnoresTruncatedPackets(t *testing.T) {
 	c.OnVoiceData(func(VoiceDataEvent) { t.Error("handler called for a truncated packet") })
 
 	c.handleVoicePacket(&transport.Packet{Data: []byte{0, 1, 2}})
-	time.Sleep(100 * time.Millisecond)
+	// Events are delivered in order: once this marker has run, a delivery the
+	// packet had queued would have run too.
+	waitDelivered(t, c)
 }

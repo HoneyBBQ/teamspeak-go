@@ -320,7 +320,8 @@ func (c *Client) failHandshake(h *transport.PacketHandler, err error) {
 
 		return
 	}
-	c.logger.Error("handshake failed", slog.Any("error", err))
+	// Debug, not Error: the error reaches Connect, which returns it.
+	c.logger.Debug("handshake failed", slog.Any("error", err))
 	c.failConnectionLocked(fmt.Errorf("%w: %w", ErrHandshake, err))
 }
 
@@ -467,7 +468,7 @@ func (c *Client) handleError(h *transport.PacketHandler, cmd *wire.Command) {
 		// client for good. It still fails this attempt, below.
 		if serverErr.Code == errcode.ConnectFailedBanned && h.TsCrypt.InitComplete() {
 			c.logger.Warn("banned by the server, closing the connection")
-			go c.disconnectBanned(h)
+			c.background.Go(func() { c.disconnectBanned(h) })
 		}
 	}
 
@@ -493,6 +494,10 @@ func (c *Client) handleError(h *transport.PacketHandler, cmd *wire.Command) {
 // disconnectBanned disconnects after the server banned the connection h ran,
 // unless a later Connect has replaced it by the time this goroutine runs.
 func (c *Client) disconnectBanned(h *transport.PacketHandler) {
+	// Detached on purpose: nobody is waiting on this goroutine and there is no
+	// caller context. It is bounded all the same: the goodbye waits
+	// disconnectTimeout at most, and joining a Disconnect already in progress
+	// waits for that one's goodbye, which has the same bound.
 	disconnectErr := c.disconnect(context.Background(), h)
 	if disconnectErr != nil {
 		c.logger.Warn("disconnect after fatal error failed", slog.Any("error", disconnectErr))

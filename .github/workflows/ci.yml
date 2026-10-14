@@ -9,10 +9,17 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request supersedes the run in progress. Runs on main and
+# on tags are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -22,7 +29,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: latest
+          version: v2.14.0
       # The public API is recorded in api/*.txt and reviewed like code. This
       # fails, with a diff, when the code and the record disagree, so a change
       # to the API cannot land without showing up in the commit that makes it.
@@ -31,11 +38,14 @@ jobs:
         run: go run ./internal/tools/apidump -check
 
   test:
-    name: Test
+    name: Test (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
-        go-version: ["1.26"]
+        # The module requires 1.26; 1.27 is the current stable.
+        go-version: ["1.26", "1.27"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -56,6 +66,7 @@ jobs:
   integration:
     name: Integration (${{ matrix.server.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -96,7 +107,16 @@ jobs:
           go-version: "1.26"
           cache: true
       - name: Wait for server to be ready
-        run: sleep 15
+        run: |
+          for i in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/127.0.0.1/${{ matrix.server.query_port }}) 2>/dev/null; then
+              echo "query port answered after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the query port did not answer within 60s" >&2
+          exit 1
       # The suite needs channels, permissions and relaxed antiflood. Skipping
       # this is how the tests pass while testing nothing: they skip on
       # permissions instead of failing, which hid a row-parsing bug for months.

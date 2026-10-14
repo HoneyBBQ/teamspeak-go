@@ -42,6 +42,7 @@ const ReasonSubscription Reason = 2
 const TextMessageTargetChannel TextMessageTarget = 2
 const TextMessageTargetClient TextMessageTarget = 1
 const TextMessageTargetServer TextMessageTarget = 3
+var ErrFileTransfer error
 var ErrInvalidCommand error
 var ErrNoData error
 var ErrNotConnected error
@@ -427,6 +428,7 @@ field FileTransferFailedInfo.Duration time.Duration
 type FileTransferOptions struct
 field FileTransferOptions.Dialer FileTransferDialer
 field FileTransferOptions.Trace *FileTransferTrace
+field FileTransferOptions.IdleTimeout time.Duration
 type FileTransferProgressInfo struct
 field FileTransferProgressInfo.Bytes int64
 field FileTransferProgressInfo.Total int64
