@@ -3,7 +3,7 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
-## Unreleased
+## v1.0.0-beta.2 (2026-10-14)
 
 - Three packages name what goes over the wire, as string constants: `commands`
   now holds the 155 command names (`commands.ServerGroupAddPerm`) next to its
