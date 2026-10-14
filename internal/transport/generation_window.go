@@ -71,15 +71,23 @@ func (g *GenerationWindow) IsInWindow(mappedValue int) bool {
 }
 
 // MappedToIndex returns the offset from the window base; negative means stale, >= receiveWindow too far ahead.
+// An id up to receiveWindow behind the base across the last wrap, which reads as
+// a high number, is stale too.
 func (g *GenerationWindow) MappedToIndex(mappedValue int) int {
 	if g.IsNextGen(mappedValue) {
 		return (mappedValue + g.mod) - g.mappedBaseOffset
 	}
+	index := mappedValue - g.mappedBaseOffset
+	if g.isBehindAcrossWrap(index) {
+		return index - g.mod
+	}
 
-	return mappedValue - g.mappedBaseOffset
+	return index
 }
 
-// IsOldPacket reports whether mappedValue is before the receive window.
+// IsOldPacket reports whether mappedValue is before the receive window: a packet
+// whose acknowledgement was lost is sent again after the window has moved past
+// it, also when the move wrapped the 16-bit id.
 func (g *GenerationWindow) IsOldPacket(mappedValue int) bool {
 	index := g.MappedToIndex(mappedValue)
 
@@ -100,11 +108,15 @@ func (g *GenerationWindow) IsNextGen(mappedValue int) bool {
 		mappedValue < (g.mappedBaseOffset+g.receiveWindow)-g.mod
 }
 
-// GetGeneration returns the generation mappedValue belongs to, one past the
-// current generation if the id has already wrapped.
+// GetGeneration returns the generation mappedValue belongs to: one past the
+// current generation if the id has already wrapped, one before it if the id is
+// just behind the base across the last wrap.
 func (g *GenerationWindow) GetGeneration(mappedValue int) uint32 {
 	if g.IsNextGen(mappedValue) {
 		return g.generation + 1
+	}
+	if g.isBehindAcrossWrap(mappedValue - g.mappedBaseOffset) {
+		return g.generation - 1
 	}
 
 	return g.generation
@@ -114,4 +126,12 @@ func (g *GenerationWindow) GetGeneration(mappedValue int) uint32 {
 func (g *GenerationWindow) Reset() {
 	g.mappedBaseOffset = 0
 	g.generation = 0
+}
+
+// isBehindAcrossWrap reports whether an id index past the base is really up to
+// receiveWindow behind it, in the generation before: the base has wrapped
+// since, so the id reads as nearly a whole generation ahead. Before the first
+// wrap no id lies behind the base across it.
+func (g *GenerationWindow) isBehindAcrossWrap(index int) bool {
+	return g.generation > 0 && index >= g.receiveWindow && index >= g.mod-g.receiveWindow
 }

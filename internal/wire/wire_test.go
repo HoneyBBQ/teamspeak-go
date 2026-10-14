@@ -1,7 +1,9 @@
 package wire_test
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/honeybbq/teamspeak-go/errcode"
@@ -67,6 +69,168 @@ func TestSplitRows_LaterRowOverridesInheritedField(t *testing.T) {
 		if rows[i] != want[i] {
 			t.Errorf("row[%d] = %q, want %q", i, rows[i], want[i])
 		}
+	}
+}
+
+// ctid is sent once, on the first row of a notifycliententerview batch, and
+// holds for the rows after it.
+func TestSplitRows_EnterBatchInheritsTheChannelFromItsFirstRow(t *testing.T) {
+	rows := wire.SplitRows("notifycliententerview cfid=0 ctid=2 clid=10|clid=11|clid=12")
+	want := []string{
+		"notifycliententerview cfid=0 ctid=2 clid=10",
+		"notifycliententerview cfid=0 ctid=2 clid=11",
+		"notifycliententerview cfid=0 ctid=2 clid=12",
+	}
+	if !reflect.DeepEqual(rows, want) {
+		t.Errorf("rows = %q, want %q", rows, want)
+	}
+}
+
+// A value a row changes holds for the rows after it, until another changes it.
+func TestSplitRows_CarriesAChangedValueToTheNextRow(t *testing.T) {
+	rows := wire.SplitRows("notifycliententerview ctid=2 clid=10|ctid=5 clid=11|clid=12|clid=13 ctid=2")
+	want := []string{
+		"notifycliententerview ctid=2 clid=10",
+		"notifycliententerview ctid=5 clid=11",
+		"notifycliententerview ctid=5 clid=12",
+		"notifycliententerview clid=13 ctid=2",
+	}
+	if !reflect.DeepEqual(rows, want) {
+		t.Errorf("rows = %q, want %q", rows, want)
+	}
+}
+
+// A field that first appears on a later row holds for the rows after it, as any
+// field the row before had does.
+func TestSplitRows_CarriesAFieldFirstSeenOnALaterRow(t *testing.T) {
+	rows := wire.SplitRows("notifycliententerview ctid=2 clid=10|clid=11 away=1|clid=12")
+	want := []string{
+		"notifycliententerview ctid=2 clid=10",
+		"notifycliententerview ctid=2 clid=11 away=1",
+		"notifycliententerview ctid=2 away=1 clid=12",
+	}
+	if !reflect.DeepEqual(rows, want) {
+		t.Errorf("rows = %q, want %q", rows, want)
+	}
+}
+
+// The first row of a permission list is a marker with a field of its own, and
+// the rows after it carry the fields that follow.
+func TestSplitRows_CarriesFieldsAcrossAMarkerRow(t *testing.T) {
+	rows := wire.SplitRows("notifypermissionlist group_id_end=0|permname=a permdesc=x|permname=b|permdesc=y")
+	want := []string{
+		"notifypermissionlist group_id_end=0",
+		"notifypermissionlist group_id_end=0 permname=a permdesc=x",
+		"notifypermissionlist group_id_end=0 permdesc=x permname=b",
+		"notifypermissionlist group_id_end=0 permname=b permdesc=y",
+	}
+	if !reflect.DeepEqual(rows, want) {
+		t.Errorf("rows = %q, want %q", rows, want)
+	}
+}
+
+// dropLimit is the most the rows of a line of n bytes may hold together: twice
+// the larger of four times the line and 64 KiB, and never 64 times the line.
+func dropLimit(n int) int {
+	return min(2*max(4*n, 64<<10), 64*n)
+}
+
+// rowsSize returns the bytes the rows hold together.
+func rowsSize(rows []string) int {
+	total := 0
+	for _, row := range rows {
+		total += len(row)
+	}
+
+	return total
+}
+
+// Rows with a key of their own each would inherit every key before them, and
+// the rows together would grow with the square of the line. They are held to
+// the budget, and the rows after it carry their own tokens only.
+func TestSplitRows_RowsOfDistinctKeysStayWithinTheBudget(t *testing.T) {
+	const count = 2000
+	var line strings.Builder
+	line.WriteString("notifyfoo ")
+	for i := range count {
+		if i > 0 {
+			line.WriteByte('|')
+		}
+		fmt.Fprintf(&line, "k%d=1", i)
+	}
+
+	rows := wire.SplitRows(line.String())
+	if len(rows) != count {
+		t.Fatalf("got %d rows, want %d", len(rows), count)
+	}
+	if limit := dropLimit(line.Len()); rowsSize(rows) > limit {
+		t.Errorf("%d rows hold %d bytes, more than %d for a %d-byte line", len(rows), rowsSize(rows), limit, line.Len())
+	}
+	if want := "notifyfoo k0=1 k1=1 k2=1"; rows[2] != want {
+		t.Errorf("row 2 = %q, want %q", rows[2], want)
+	}
+	if want := "notifyfoo k1999=1"; rows[count-1] != want {
+		t.Errorf("last row = %q, want it as sent once the budget was passed", rows[count-1])
+	}
+}
+
+// A first row of many fields followed by many short rows would give rows of the
+// first row's size each; once the budget is passed they carry their own tokens.
+func TestSplitRows_StopsInheritingPastTheBudget(t *testing.T) {
+	var line strings.Builder
+	line.WriteString("notifyfoo")
+	for i := range 3000 {
+		fmt.Fprintf(&line, " f%d=1", i)
+	}
+	for range 3000 {
+		line.WriteString("|g=2")
+	}
+
+	rows := wire.SplitRows(line.String())
+	if len(rows) != 3001 {
+		t.Fatalf("got %d rows, want 3001", len(rows))
+	}
+	if limit := dropLimit(line.Len()); rowsSize(rows) > limit {
+		t.Errorf("rows hold %d bytes, more than %d for a %d-byte line", rowsSize(rows), limit, line.Len())
+	}
+	if !strings.Contains(rows[1], " f2999=1") {
+		t.Errorf("second row lost the fields the first row had: %.60q", rows[1])
+	}
+	if last := rows[len(rows)-1]; last != "notifyfoo g=2" {
+		t.Errorf("last row = %q, want it as sent", last)
+	}
+}
+
+// The name is on every row, so a long name over many short rows grows the same
+// way, with nothing to stop inheriting; what does not fit is dropped.
+func TestSplitRows_DropsTheRowsPastTheBudget(t *testing.T) {
+	line := "n" + strings.Repeat("a", 4000) + " " + strings.Repeat("a=1|", 4000)
+
+	rows := wire.SplitRows(line)
+	if limit := dropLimit(len(line)); rowsSize(rows) > limit {
+		t.Errorf("rows hold %d bytes, more than %d for a %d-byte line", rowsSize(rows), limit, len(line))
+	}
+	if len(rows) == 0 || len(rows) >= 4000 {
+		t.Errorf("got %d rows, want some but not all 4000", len(rows))
+	}
+}
+
+// The parser splits a row on the space alone, so every other kind of space is
+// part of a value. Splitting on it too let a nickname such as "a\u00a0clid=1"
+// put a clid of its own on its row.
+func TestSplitRows_SplitsOnTheSpaceAlone(t *testing.T) {
+	for _, space := range []string{"\t", "\u00a0", "\u0085", "\u3000", "\v"} {
+		rows := wire.SplitRows("notifycliententerview clid=2 client_nickname=a" + space + "clid=1|clid=3")
+		if len(rows) != 2 {
+			t.Fatalf("%q: got %d rows: %q", space, len(rows), rows)
+		}
+		got := wire.ParseCommand(rows[0])
+		if got.Params["clid"] != "2" || got.Params["client_nickname"] != "a"+space+"clid=1" {
+			t.Errorf("%q: first row reads %v", space, got.Params)
+		}
+	}
+	if rows := wire.SplitRows("0 |\t"); len(rows) != 1 || rows[0] != "0 \t" {
+		t.Errorf("a row of one tab = %q, want it kept", rows)
 	}
 }
 

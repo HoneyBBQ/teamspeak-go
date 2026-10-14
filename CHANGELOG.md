@@ -25,6 +25,29 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   packet of the handshake, which it does under load: only the first packet
   was ever sent again. Every handshake step is now resent until the server
   answers the last one.
+- A client panicked, and the connection closed, when a notification that one
+  command in flight waits for arrived while a command the client has no answer
+  shape for, such as `whoami`, `clientlist` or anything sent through `Exec`,
+  was in flight too: `notifyservergrouplist` while `ServerGroupList` and
+  `ClientList` were both pending. Such a command is now passed over.
+- A tab, a no-break space or another Unicode space inside a value moved the
+  boundaries between the fields of a batched row, so a nickname such as
+  `a<no-break space>clid=1` could give its row a `clid` of its own. Rows are
+  split on the space alone, as the command parser does, and a value keeps
+  every other kind of space.
+- A line of rows that each named a field of their own made the rows grow with
+  the square of the line: TeamSpeak leaves out of a row the fields unchanged
+  from the one before, so every row took on all the fields of all the rows
+  before it, and one line of a few hundred kilobytes from a server, or from
+  anyone who could forge its first packets, expanded to gigabytes. The rows of
+  a line are now held to a size in proportion to the line itself; past it,
+  rows carry only the fields they were sent with. The rows of a real server's
+  line never come near it.
+- After the 16-bit packet id wrapped, a command the server sent again because
+  its acknowledgement was lost, with an id just behind the receive window, was
+  taken for one far ahead of it and dropped unanswered, so the server went on
+  sending it. It is now recognised as already delivered and acknowledged
+  again.
 
 ## v1.0.0-beta.1 (2026-10-12)
 

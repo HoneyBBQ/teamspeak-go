@@ -13,6 +13,13 @@ import (
 	"github.com/honeybbq/teamspeak-go/errcode"
 )
 
+// The bytes the rows of a line may hold together, see rowLimits.
+const (
+	minRowBudget        = 64 << 10
+	rowGrowth           = 4
+	maxRowAmplification = 64
+)
+
 // SplitRows expands a pipe-separated multi-row command line into individual
 // rows.
 //
@@ -20,47 +27,152 @@ import (
 // nameless response (cldbid=1|cldbid=2) stays nameless. Whether the first token
 // is a name is the parser's own rule — deciding it here by position is how a
 // nameless batch with no space in it went through unsplit, and a one-field
-// response came back as a single row.
+// response came back as a single row. Tokens are split on the space and on
+// nothing else, as the parser splits them: a tab or a no-break space inside a
+// value stays inside it, since an escaped value never holds a raw space.
+//
+// TeamSpeak compresses a batch by leaving out of a row the fields whose value
+// is unchanged from the previous row: in a notifycliententerview batch, ctid is
+// often present only on the first row. A row is therefore the fields of the
+// previous row, as that row came out, that it does not name itself, followed by
+// its own. Tokens stay escaped so the command parser still performs its single
+// unescape pass.
+//
+// A row that names a field of its own each time makes every row carry all the
+// fields before it, so the rows would grow with the square of the line. The
+// rows of a real server's line are a little larger than their own parts and
+// never come near the limits that stop this: once the rows together would hold
+// more than the larger of four times the line and 64 KiB, the rows after that
+// carry only their own tokens. A name repeated on every row can grow them on its
+// own, so at twice that the rows stop, and the rest of the line is dropped.
+// Neither limit passes 64 times the line.
 func SplitRows(line string) []string {
 	name, rest := splitName(line)
 	if !strings.Contains(rest, "|") {
 		return []string{line}
 	}
-	parts := strings.Split(rest, "|")
-	rows := make([]string, 0, len(parts))
-	// TeamSpeak compresses pipe-separated rows by omitting fields whose value is
-	// unchanged from the previous row: in a notifycliententerview batch, ctid is
-	// often present only on the first row. Carry those fields forward. Tokens stay
-	// escaped so the command parser still performs its single unescape pass.
-	var previous []string
-	for _, part := range parts {
+	batch := newRowBatch(name, len(line))
+
+	var rows []string
+	for part := range strings.SplitSeq(rest, "|") {
 		if part == "" {
 			continue
 		}
-		tokens := strings.Fields(part)
-		present := make(map[string]struct{}, len(tokens))
-		for _, token := range tokens {
-			present[fieldName(token)] = struct{}{}
-		}
-		resolved := make([]string, 0, len(previous)+len(tokens))
-		for _, token := range previous {
-			if _, ok := present[fieldName(token)]; !ok {
-				resolved = append(resolved, token)
-			}
-		}
-		resolved = append(resolved, tokens...)
-		row := strings.Join(resolved, " ")
-		if name != "" {
-			row = name + " " + row
+		row, ok := batch.next(splitTokens(part))
+		if !ok {
+			break
 		}
 		rows = append(rows, row)
-		previous = resolved
 	}
 	if len(rows) == 0 {
 		return []string{line}
 	}
 
 	return rows
+}
+
+// rowBatch resolves the rows of one line, one after another.
+type rowBatch struct {
+	prefix string
+	// previous holds the fields of the row before, each once, with the token
+	// that row gave it, in the order the row had them. It is nil once rows stop
+	// inheriting.
+	previous []string
+	// used counts the bytes of the rows so far.
+	used         int
+	inheritLimit int
+	dropLimit    int
+	inherit      bool
+}
+
+func newRowBatch(name string, lineLen int) *rowBatch {
+	b := &rowBatch{inherit: true}
+	b.inheritLimit, b.dropLimit = rowLimits(lineLen)
+	if name != "" {
+		b.prefix = name + " "
+	}
+
+	return b
+}
+
+// next returns the next row of the line, given its own tokens, or false once
+// the rows have reached their limit.
+func (b *rowBatch) next(tokens []string) (string, bool) {
+	row := b.prefix + strings.Join(tokens, " ")
+	if b.inherit {
+		resolved := b.resolve(tokens)
+		if inherited := b.prefix + strings.Join(resolved, " "); b.used+len(inherited) <= b.inheritLimit {
+			row = inherited
+			b.previous = lastPerField(resolved)
+		} else {
+			b.inherit, b.previous = false, nil
+		}
+	}
+	if b.used+len(row) > b.dropLimit {
+		return "", false
+	}
+	b.used += len(row)
+
+	return row, true
+}
+
+// resolve returns the tokens of a row: the fields of the previous row that the
+// row does not name, then the row's own tokens.
+func (b *rowBatch) resolve(tokens []string) []string {
+	named := make(map[string]struct{}, len(tokens))
+	for _, token := range tokens {
+		named[fieldName(token)] = struct{}{}
+	}
+	resolved := make([]string, 0, len(b.previous)+len(tokens))
+	for _, token := range b.previous {
+		if _, ok := named[fieldName(token)]; !ok {
+			resolved = append(resolved, token)
+		}
+	}
+
+	return append(resolved, tokens...)
+}
+
+// lastPerField keeps the last token of each field, in the order the fields
+// first appear.
+func lastPerField(tokens []string) []string {
+	at := make(map[string]int, len(tokens))
+	kept := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		key := fieldName(token)
+		if i, ok := at[key]; ok {
+			kept[i] = token
+
+			continue
+		}
+		at[key] = len(kept)
+		kept = append(kept, token)
+	}
+
+	return kept
+}
+
+// rowLimits returns how many bytes the rows of a line of n bytes may hold
+// together before they stop inheriting fields, and before they stop.
+func rowLimits(n int) (int, int) {
+	inherit := max(rowGrowth*n, minRowBudget)
+	drop := min(2*inherit, maxRowAmplification*n)
+
+	return min(inherit, drop), drop
+}
+
+// splitTokens splits a row on the space, dropping the empty tokens that
+// repeated spaces leave, as the parser does.
+func splitTokens(part string) []string {
+	tokens := strings.Split(part, " ")
+	kept := tokens[:0]
+	for _, token := range tokens {
+		if token != "" {
+			kept = append(kept, token)
+		}
+	}
+
+	return kept
 }
 
 // splitName separates a line's command name, if it has one, from its rows,

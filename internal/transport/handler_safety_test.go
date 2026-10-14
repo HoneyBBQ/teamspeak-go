@@ -193,6 +193,57 @@ func TestHandlerRefusesAPacketOfAnotherGeneration(t *testing.T) {
 	}
 }
 
+// countingConn counts the datagrams written to it.
+type countingConn struct {
+	discardConn
+
+	writes int
+}
+
+func (c *countingConn) Write(b []byte) (int, error) {
+	c.writes++
+
+	return len(b), nil
+}
+
+// A command whose acknowledgement was lost is sent again after the window has
+// moved past it. Across the 16-bit wrap it is sent under the generation before
+// the window's: it must decrypt there, be acknowledged, and not be delivered a
+// second time. Under any other generation, or before the first wrap, it is not
+// taken at all.
+func TestHandlerAcknowledgesAnOldPacketAcrossTheWrap(t *testing.T) {
+	payload := []byte("notifytextmessage targetmode=1 msg=again invokerid=5")
+	newWrapped := func() (*PacketHandler, *countingConn, *int) {
+		h, delivered := newFuzzHandler(t, true)
+		conn := &countingConn{}
+		h.conn = conn
+		h.nextCommandID = 1
+		h.recvWindowCommand.Advance(1<<16 + 1) // base 1 of generation 1
+
+		return h, conn, delivered
+	}
+
+	h, conn, delivered := newWrapped()
+	h.handleRawPacket(sealReal(t, h.TsCrypt, 65535, 0, payload))
+	if conn.writes != 1 || *delivered != 0 {
+		t.Errorf("the generation before: %d acknowledgements, %d delivered, want 1 and 0", conn.writes, *delivered)
+	}
+
+	h, conn, delivered = newWrapped()
+	h.handleRawPacket(sealReal(t, h.TsCrypt, 65535, 1, payload))
+	if conn.writes != 0 || *delivered != 0 {
+		t.Errorf("the window's generation: %d acknowledgements, %d delivered, want 0 and 0", conn.writes, *delivered)
+	}
+
+	h, delivered = newFuzzHandler(t, true)
+	conn = &countingConn{}
+	h.conn = conn
+	h.handleRawPacket(sealReal(t, h.TsCrypt, 65535, 0, payload))
+	if conn.writes != 0 || *delivered != 0 {
+		t.Errorf("before the first wrap: %d acknowledgements, %d delivered, want 0 and 0", conn.writes, *delivered)
+	}
+}
+
 // A datagram larger than 4096 bytes is dropped whole, and the connection
 // goes on; one of exactly 4096 is taken.
 func TestHandlerDropsDatagramsLargerThan4096(t *testing.T) {

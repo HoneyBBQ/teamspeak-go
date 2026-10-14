@@ -150,8 +150,13 @@ func (t *commandTracker) offerCorrelated(name string, params map[string]string) 
 	defer t.mu.Unlock()
 
 	for rc, p := range t.pending {
+		// A command the table has no entry for (whoami, clientlist, anything
+		// sent through Exec) has no spec, and so no correlation to match.
+		if p.spec == nil || p.spec.Correlated == nil || !p.hasCorrelation {
+			continue
+		}
 		c := p.spec.Correlated
-		if c == nil || !p.hasCorrelation || !slices.Contains(c.Notifications, name) {
+		if !slices.Contains(c.Notifications, name) {
 			continue
 		}
 		if params[c.Key] != p.correlation {

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("notifycliententerview clid=2 client_nickname=a\u00a0clid=1|clid=3")

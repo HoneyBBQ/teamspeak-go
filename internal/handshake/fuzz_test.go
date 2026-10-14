@@ -9,8 +9,10 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/handshake"
 )
 
-// FuzzProcessInit1 checks that no Init1 payload panics: each is answered or
-// refused with an error.
+// FuzzProcessInit1 checks that no Init1 payload panics, and that each is
+// answered, refused with an error, or, as documented, ignored: an unknown step,
+// and a second RSA challenge, get no answer and no error. A step the client
+// knows and can answer never does.
 func FuzzProcessInit1(f *testing.F) {
 	f.Add([]byte{})
 	f.Add([]byte{0x7F})
@@ -30,8 +32,12 @@ func FuzzProcessInit1(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		out, err := handshake.ProcessInit1(crypto.NewCrypt(id), data)
-		if err == nil && out == nil {
-			t.Fatal("no answer and no error")
+		if err != nil && out != nil {
+			t.Fatalf("an answer of %d bytes and an error: %v", len(out), err)
+		}
+		answered := len(data) > 0 && (data[0] <= 2 || data[0] == 0x7F)
+		if err == nil && out == nil && (len(data) == 0 || answered) {
+			t.Fatalf("a %d-byte payload got no answer and no error", len(data))
 		}
 	})
 }

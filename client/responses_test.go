@@ -102,6 +102,53 @@ func TestCommandTracker_AcceptsAnAnswerThatBeatsTheError(t *testing.T) {
 	}
 }
 
+// A command the table has no entry for (whoami, clientlist, anything sent
+// through Exec) has no spec. A notification another command in flight declares
+// used to be offered to it all the same, which read through the missing spec
+// and panicked, and the transport closed the connection.
+func TestCommandTracker_OffersANotificationPastACommandWithoutASpec(t *testing.T) {
+	tr := newReadyCommandTracker()
+	_, bare := tr.register(nil, "", false)
+	_, bareCorrelated := tr.register(nil, "4", true)
+	rc, upload := tr.register(responseFor("ftinitupload"), "4", true)
+	tr.resolve(rc, nil, 0)
+
+	tr.offerCorrelated("notifystartupload", map[string]string{"clientftfid": "4", "ftkey": "mine"})
+
+	if got := receive(t, upload).Data; len(got) != 1 || got[0]["ftkey"] != "mine" {
+		t.Errorf("data = %v, want the declared answer", got)
+	}
+	for name, done := range map[string]<-chan commandResult{"bare": bare, "bare correlated": bareCorrelated} {
+		select {
+		case res := <-done:
+			t.Errorf("%s command settled by a notification it did not declare: %v", name, res)
+		default:
+		}
+	}
+}
+
+// The same through the client: whoami and servergrouplist are in flight
+// together, and the group list's notification arrives while both are.
+func TestHandleCommandLines_NotificationDeclaredByAnotherCommandInFlight(t *testing.T) {
+	c := newTestClient(t)
+	whoami, whoamiDone := c.cmdTrack.register(responseFor("whoami"), "", false)
+	groups, groupsDone := c.cmdTrack.register(responseFor("servergrouplist"), "", false)
+
+	c.handleCommandLines(c.handler, strings.Join([]string{
+		"client_id=7 client_nickname=me",
+		"error id=0 msg=ok return_code=" + mustUint32Str(whoami),
+		"notifyservergrouplist sgid=6 name=Admin",
+		"error id=0 msg=ok return_code=" + mustUint32Str(groups),
+	}, "\n"))
+
+	if got := receive(t, whoamiDone); got.Err != nil || len(got.Data) != 1 || got.Data[0]["client_id"] != "7" {
+		t.Errorf("whoami = %+v", got)
+	}
+	if got := receive(t, groupsDone); got.Err != nil || len(got.Data) != 1 || got.Data[0]["sgid"] != "6" {
+		t.Errorf("servergrouplist = %+v", got)
+	}
+}
+
 // The voice protocol answers a refused upload with error id=0 and then a status
 // notification; reporting that as success with no key is how the refusal used
 // to vanish.

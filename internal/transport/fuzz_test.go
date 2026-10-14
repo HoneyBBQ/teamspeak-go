@@ -133,3 +133,55 @@ func FuzzQlzDecompress(f *testing.F) {
 		}
 	})
 }
+
+// FuzzGenerationWindow checks the receive window over the 16-bit id wrap, which
+// a server steers by the ids it sends: that the generation counts the wraps,
+// that each id in the window sits at its absolute position and so in its
+// generation, that "in the window" is "neither old nor ahead", and that an id
+// just behind the window is old and in the generation it was sent in, across the
+// wrap as well. Each three bytes of steps advance the window by a 17-bit amount.
+func FuzzGenerationWindow(f *testing.F) {
+	const mod = 1 << 16
+	f.Add([]byte{}, uint16(0))
+	f.Add([]byte{0, 0xff, 0xff, 0, 0, 1}, uint16(65535))
+	f.Add([]byte{1, 0, 0, 0, 0, 5}, uint16(3))
+	f.Add([]byte{0, 0xfb, 0xff}, uint16(2))
+	f.Add([]byte{1, 0, 1}, uint16(65535))
+	f.Add([]byte{1, 0, 0, 0, 4, 0}, uint16(64000))
+
+	f.Fuzz(func(t *testing.T, steps []byte, probe uint16) {
+		w := NewGenerationWindow(mod, ReceivePacketWindowSize)
+		absolute := 0
+		for i := 0; i+2 < len(steps); i += 3 {
+			amount := int(steps[i]&1)<<16 | int(steps[i+1])<<8 | int(steps[i+2])
+			w.Advance(amount)
+			absolute += amount
+		}
+
+		if got, want := w.generation, uint32(absolute/mod); got != want {
+			t.Fatalf("generation %d after %d ids, want %d", got, absolute, want)
+		}
+		id := int(probe)
+		if w.IsInWindow(id) != (!w.IsOldPacket(id) && !w.IsFuturePacket(id)) {
+			t.Fatalf("id %d at %d: in window %v, old %v, ahead %v",
+				id, absolute, w.IsInWindow(id), w.IsOldPacket(id), w.IsFuturePacket(id))
+		}
+		for offset := range ReceivePacketWindowSize {
+			at := (absolute + offset) % mod
+			if !w.IsInWindow(at) || w.MappedToIndex(at) != offset ||
+				w.GetGeneration(at) != uint32((absolute+offset)/mod) {
+				t.Fatalf("id %d at %d+%d: in window %v, index %d, generation %d",
+					at, absolute, offset, w.IsInWindow(at), w.MappedToIndex(at), w.GetGeneration(at))
+			}
+		}
+		// An id that was ever sent: none lies behind the very first one.
+		for behind := 1; behind <= ReceivePacketWindowSize && behind <= absolute; behind++ {
+			at := (absolute - behind) % mod
+			if w.IsInWindow(at) || !w.IsOldPacket(at) || w.IsFuturePacket(at) ||
+				w.GetGeneration(at) != uint32((absolute-behind)/mod) {
+				t.Fatalf("id %d, %d behind the window at %d: in window %v, old %v, ahead %v, generation %d",
+					at, behind, absolute, w.IsInWindow(at), w.IsOldPacket(at), w.IsFuturePacket(at), w.GetGeneration(at))
+			}
+		}
+	})
+}

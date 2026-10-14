@@ -219,6 +219,37 @@ func TestParseUint64Value_Invalid_ReturnsError(t *testing.T) {
 	}
 }
 
+// A channel id is 0 to 2^64-1 in plain decimal; a sign, a prefix, a fraction or
+// a value that does not fit names no channel, and reads as 0 without an error
+// for the caller to forget.
+func TestParseChannelID_ReadsOnlyPlainDecimalUint64(t *testing.T) {
+	cases := map[string]uint64{
+		"0":                          0,
+		"42":                         42,
+		"18446744073709551615":       18446744073709551615,
+		"000000000000000000000042":   42,
+		"":                           0,
+		"-1":                         0,
+		"+5":                         0,
+		"0x10":                       0,
+		"1e3":                        0,
+		"1.5":                        0,
+		"1_000":                      0,
+		"18446744073709551616":       0,
+		"-18446744073709551616":      0,
+		"0x1ffffffffffffffff":        0,
+		"99999999999999999999999999": 0,
+	}
+	for raw, want := range cases {
+		if got := parseChannelID(raw); uint64(got) != want {
+			t.Errorf("parseChannelID(%q) = %d, want %d", raw, got, want)
+		}
+	}
+	if got := parseChannelID("\u00205"); got != 0 {
+		t.Errorf("parseChannelID(\" 5\") = %d, want 0", got)
+	}
+}
+
 // Waiters are released in the order they arrived, and one that gives up
 // leaves its place to the next.
 func TestCommandThrottle_ReleasesInArrivalOrder(t *testing.T) {
