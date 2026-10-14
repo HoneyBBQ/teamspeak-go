@@ -3,7 +3,7 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
-## Unreleased
+## v1.0.0-beta.3 (2026-10-14)
 
 - `ListChannels` now fills in the fields `Channel` declares: topic, default,
   permanent and password flags, codec, client limit and icon were always empty
