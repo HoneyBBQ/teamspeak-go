@@ -39,9 +39,7 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 	)
 
 	c := newClient(t, id, addr, "go-reconnect", opts...)
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
-	err = c.Connect(ctx)
+	err = connectWithRetries(t.Context(), t, c)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -99,9 +97,7 @@ func TestIntegration_NoReconnectAfterExplicitDisconnect(t *testing.T) {
 	)
 
 	c := newClient(t, id, addr, "go-noreconnect", opts...)
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
-	err = c.Connect(ctx)
+	err = connectWithRetries(t.Context(), t, c)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

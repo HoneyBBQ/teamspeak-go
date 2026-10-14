@@ -26,6 +26,7 @@ func (c *Client) handleHandshakeInitIV(h *transport.PacketHandler, cmd *wire.Com
 		return
 	}
 	c.logger.Info("received crypto negotiation")
+	h.ReceivedFinalInitAck()
 
 	err := h.TsCrypt.InitCrypto(cmd.Params["alpha"], cmd.Params["beta"], cmd.Params["omega"])
 	if err != nil {

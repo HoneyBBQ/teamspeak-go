@@ -21,6 +21,10 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   its place in the list, counting from 1, which the `failed_permid` of refused
   commands confirms on TeamSpeak 3 and 6; `ID` is now that. Over ServerQuery
   the id the server sends is used.
+- A connection attempt could hang until its timeout when the server dropped a
+  packet of the handshake, which it does under load: only the first packet
+  was ever sent again. Every handshake step is now resent until the server
+  answers the last one.
 
 ## v1.0.0-beta.1 (2026-10-12)
 

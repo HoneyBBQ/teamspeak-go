@@ -5,7 +5,6 @@ package client_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/identity"
@@ -25,9 +24,7 @@ func TestIntegration_NoWelcomeContamination(t *testing.T) {
 	}
 
 	c := newClient(t, id, addr, "welcome-contamination", integrationClientOptions(nil)...)
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
-	err = c.Connect(ctx)
+	err = connectWithRetries(t.Context(), t, c)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

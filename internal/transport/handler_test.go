@@ -13,6 +13,7 @@ import (
 
 	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
+	"github.com/honeybbq/teamspeak-go/internal/handshake"
 )
 
 // packetPipe is one leg of an in-memory datagram pair: one Write is one Read message.
@@ -601,6 +602,147 @@ func TestHandlerCheckResends_InitPacket_ReSent(t *testing.T) {
 	if resent[12]&0x0F != byte(PacketTypeInit1) {
 		t.Errorf("expected PacketTypeInit1, got type %d", resent[12]&0x0F)
 	}
+}
+
+// answerInit1 makes h answer each Init1 packet it receives the way the client
+// does: from inside delivery, with whatever step ProcessInit1 gives, or nothing.
+func answerInit1(h *PacketHandler) {
+	h.OnPacket = func(p *Packet) {
+		if p.Type() != PacketTypeInit1 {
+			return
+		}
+		response, err := handshake.ProcessInit1(h.TsCrypt, p.Data)
+		if err != nil || response == nil {
+			return
+		}
+		_ = h.SendPacket(byte(PacketTypeInit1), response, 0)
+	}
+}
+
+// injectInit1 delivers an Init1 packet from the server whose payload starts
+// with step, and returns what the handler sent while handling it. The packet
+// is followed by a ping: the handler handles packets in order, so its pong
+// means the Init1 is entirely handled, state updates after delivery included.
+func injectInit1(t *testing.T, serverConn *packetPipe, step byte) [][]byte {
+	t.Helper()
+
+	data := make([]byte, 21)
+	data[0] = step
+	_, err := serverConn.Write(buildS2CPacket(make([]byte, 8), 0, byte(PacketTypeInit1), data))
+	if err != nil {
+		t.Fatalf("Write Init1: %v", err)
+	}
+	ping := buildS2CPacket(make([]byte, 8), 1, byte(PacketTypePing)|byte(PacketFlagUnencrypted), []byte{0, 1})
+	_, err = serverConn.Write(ping)
+	if err != nil {
+		t.Fatalf("Write ping: %v", err)
+	}
+
+	var sent [][]byte
+	for {
+		pkt := readPacket(t, serverConn)
+		if len(pkt) >= 13 && pkt[12]&0x0F == byte(PacketTypePong) {
+			return sent
+		}
+		sent = append(sent, pkt)
+	}
+}
+
+// makeInitResendDue moves the pending Init1 packet's last send back, so the
+// next checkResends sends it again.
+func makeInitResendDue(h *PacketHandler) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.initPacketCheck != nil {
+		h.initPacketCheck.lastSend = time.Now().Add(-time.Minute)
+	}
+}
+
+// expectNoPacket fails if the handler sends anything within d.
+func expectNoPacket(t *testing.T, serverConn *packetPipe, d time.Duration) {
+	t.Helper()
+	select {
+	case pkt := <-serverConn.recv:
+		t.Errorf("expected nothing to be sent, got a packet of %d bytes (type %d)", len(pkt), pkt[12]&0x0F)
+	case <-time.After(d):
+	}
+}
+
+func TestHandlerCheckResends_StepAnsweredInDelivery_IsTheOneResent(t *testing.T) {
+	h, serverConn := newTestHandler(t)
+	defer func() { _ = h.Close() }()
+	step0 := readPacket(t, serverConn)
+	answerInit1(h)
+
+	// The server's reply to step 0 is answered from inside delivery, so the
+	// client's next step is sent while the received Init1 is still being handled.
+	sent := injectInit1(t, serverConn, 0)
+	if len(sent) != 1 {
+		t.Fatalf("handler sent %d packets in answer to the server's step, want 1", len(sent))
+	}
+	answer := sent[0]
+	if bytes.Equal(answer, step0) {
+		t.Fatal("the answer is the same packet as step 0, the test cannot tell them apart")
+	}
+
+	makeInitResendDue(h)
+	h.checkResends()
+
+	resent := readPacket(t, serverConn)
+	if bytes.Equal(resent, step0) {
+		t.Error("resent step 0 after the client moved on to its next step")
+	}
+	if !bytes.Equal(resent, answer) {
+		t.Errorf("resent packet is not the client's latest step:\n got %x\nwant %x", resent, answer)
+	}
+}
+
+func TestHandlerCheckResends_IgnoredInit1_KeepsPendingStepResending(t *testing.T) {
+	h, serverConn := newTestHandler(t)
+	defer func() { _ = h.Close() }()
+	step0 := readPacket(t, serverConn)
+	answerInit1(h)
+
+	// A step the client does not know gets no answer.
+	sent := injectInit1(t, serverConn, 0x55)
+	if len(sent) != 0 {
+		t.Fatalf("handler answered a step it does not know with %d packets", len(sent))
+	}
+
+	makeInitResendDue(h)
+	h.checkResends()
+
+	resent := readPacket(t, serverConn)
+	if !bytes.Equal(resent, step0) {
+		t.Errorf("resent packet is not the pending step:\n got %x\nwant %x", resent, step0)
+	}
+}
+
+func TestHandlerCheckResends_AfterFinalInitAck_NothingResent(t *testing.T) {
+	h, serverConn := newTestHandler(t)
+	defer func() { _ = h.Close() }()
+	_ = readPacket(t, serverConn)
+	answerInit1(h)
+
+	sent := injectInit1(t, serverConn, 0)
+	if len(sent) != 1 {
+		t.Fatalf("handler sent %d packets in answer to the server's step, want 1", len(sent))
+	}
+
+	// Until the final acknowledgement, the step the client sent is still pending.
+	makeInitResendDue(h)
+	h.checkResends()
+	resent := readPacket(t, serverConn)
+	if !bytes.Equal(resent, sent[0]) {
+		t.Fatalf("pending step was not resent before the final acknowledgement:\n got %x\nwant %x", resent, sent[0])
+	}
+
+	h.ReceivedFinalInitAck()
+	makeInitResendDue(h)
+	h.checkResends()
+
+	// Longer than the resend loop's interval, so its own run is covered too.
+	expectNoPacket(t, serverConn, 3*resendLoopInterval)
 }
 
 func TestHandlerCheckResends_IdleTimeout_ClosesHandler(t *testing.T) {

@@ -1,8 +1,9 @@
 // Package transport speaks the TeamSpeak voice protocol's packet layer over
 // UDP: it encrypts and decrypts packets, numbers them per type with wrapping
-// id generations, acknowledges and resends commands, splits and reassembles
-// fragmented commands, decompresses QuickLZ payloads, and keeps the
-// connection alive with pings.
+// id generations, acknowledges and resends commands, resends the handshake's
+// Init1 packets until the server's final reply, splits and reassembles
+// fragmented commands, decompresses QuickLZ payloads, and keeps the connection
+// alive with pings.
 //
 // Callers above it see whole, decrypted packets through PacketHandler.OnPacket.
 package transport
@@ -132,13 +133,18 @@ type PacketHandler struct {
 	sendWindowCommand    *GenerationWindow
 	sendWindowCommandLow *GenerationWindow
 	ackManager           map[uint32]*resendPacket
-	initPacketCheck      *resendPacket
-	packetProcessCh      chan *pooledBuffer
-	OnClosed             func(err error)
-	logger               *slog.Logger
-	OnAck                func(id uint16)
-	OnPacket             func(p *Packet)
-	TsCrypt              *crypto.Crypt
+	// initPacketCheck is the last Init1 packet the client sent, resent until
+	// the handshake's final acknowledgement. Init1 packets are not acknowledged
+	// one by one: each step the client sends replaces it, and only
+	// ReceivedFinalInitAck clears it. Receiving an Init1 does not, as the
+	// client may have nothing to answer with. Guarded by mu.
+	initPacketCheck *resendPacket
+	packetProcessCh chan *pooledBuffer
+	OnClosed        func(err error)
+	logger          *slog.Logger
+	OnAck           func(id uint16)
+	OnPacket        func(p *Packet)
+	TsCrypt         *crypto.Crypt
 	// readerDone is closed when the receive loop has stopped reading.
 	readerDone        chan struct{}
 	generationCounter [9]uint32
@@ -798,12 +804,6 @@ func (h *PacketHandler) updatePostReceiveState(p *Packet) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if p.Type() == PacketTypeInit1 {
-		h.logger.Debug("received init1 response, cleared init packet check")
-		h.initPacketCheck = nil
-
-		return
-	}
 	if (p.Type() == PacketTypeAck || p.Type() == PacketTypeAckLow) && len(p.Data) >= 2 {
 		ackID := binary.BigEndian.Uint16(p.Data[0:2])
 		targetType := uint32(PacketTypeCommand)
@@ -1048,8 +1048,11 @@ func (h *PacketHandler) resendLoop() {
 	}
 }
 
-// ReceivedFinalInitAck stops resending the last Init1 packet; the server's
-// initivexpand2 command is what acknowledges it, not an Init1 reply.
+// ReceivedFinalInitAck stops resending the last Init1 packet the client sent.
+// Until it is called, the latest step stays pending whatever the server sends
+// in between: a step the client does not answer, an unknown one or a second
+// RSA challenge, must not stop the resending of its own. The server's
+// initivexpand2 command acknowledges the last step, not an Init1 reply.
 func (h *PacketHandler) ReceivedFinalInitAck() {
 	h.mu.Lock()
 	h.initPacketCheck = nil

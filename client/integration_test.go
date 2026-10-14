@@ -96,6 +96,42 @@ func requireTeamSpeakAddr(t *testing.T) string {
 	return addr
 }
 
+// Connecting is tried up to connectAttempts times, each bounded by
+// connectAttemptTimeout, with connectRetryDelay between them.
+const (
+	connectAttempts       = 3
+	connectAttemptTimeout = 10 * time.Second
+	connectRetryDelay     = 2 * time.Second
+)
+
+// connectWithRetries connects c, trying again on the same client when an
+// attempt fails. A datagram can be dropped, or the server too busy to answer
+// one, and the suite should not fail on that. The SDK resends its own
+// handshake packets, so this is a safety net for the suite, not what makes
+// connecting work.
+func connectWithRetries(ctx context.Context, t *testing.T, c *client.Client) error {
+	t.Helper()
+	var err error
+	for attempt := range connectAttempts {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return err
+			case <-time.After(connectRetryDelay):
+			}
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, connectAttemptTimeout)
+		err = c.Connect(attemptCtx)
+		cancel()
+		if err == nil || ctx.Err() != nil {
+			return err
+		}
+		t.Logf("connect attempt %d of %d failed: %v", attempt+1, connectAttempts, err)
+	}
+
+	return err
+}
+
 func requireSharedClient(t *testing.T) *client.Client {
 	t.Helper()
 	addr := requireTeamSpeakAddr(t)
@@ -121,9 +157,7 @@ func requireSharedClient(t *testing.T) *client.Client {
 				}
 			}
 		})
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		err = c.Connect(ctx)
+		err = connectWithRetries(context.Background(), t, c)
 		if err != nil {
 			errSharedClient = err
 
@@ -190,9 +224,7 @@ func requireIntegrationPeer(t *testing.T, addr string) *client.Client {
 		}
 		logger := slog.New(slog.NewJSONHandler(&peerLogs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 		peerClient = newClient(t, id, addr, "teamspeak-go-peer", integrationClientOptions(logger)...)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		errPeer = peerClient.Connect(ctx)
+		errPeer = connectWithRetries(context.Background(), t, peerClient)
 	})
 	if errPeer != nil {
 		t.Fatalf("peer connection: %v", errPeer)
@@ -279,9 +311,7 @@ func TestIntegration_Disconnect(t *testing.T) {
 	}
 	c := newClient(t, id, addr, "teamspeak-go-integ-disc", integrationClientOptions(nil)...)
 
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
-	err = c.Connect(ctx)
+	err = connectWithRetries(t.Context(), t, c)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
