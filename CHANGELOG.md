@@ -3,7 +3,7 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
-## Unreleased
+## v1.0.0-beta.6 (2026-10-15)
 
 Breaking changes, made before v1.0.0 so that none of them needs a `/v2` import
 path later.

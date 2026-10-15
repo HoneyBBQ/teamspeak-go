@@ -41,7 +41,7 @@ Works with TeamSpeak 3 and TeamSpeak 6 servers. No proprietary SDK, no copied co
 pre-releases unless you ask for one, so name the version:
 
 ```bash
-go get github.com/honeybbq/teamspeak-go@v1.0.0-beta.5
+go get github.com/honeybbq/teamspeak-go@v1.0.0-beta.6
 ```
 
 Everything in this README is the 1.0 API. You need Go 1.26 or newer.
