@@ -3,7 +3,7 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
-## Unreleased
+## v1.0.0-beta.5 (2026-10-15)
 
 - `client.WithVersion` chooses the platform, version and signature `clientinit`
   sends, and the new `versions` package has the versions a server accepts, one
