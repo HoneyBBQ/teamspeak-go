@@ -85,6 +85,9 @@ type Client struct {
 	pending *pending
 	// closeErr is why the connection ended, nil after Close.
 	closeErr error
+	// transportErr is what closing the transport reported, kept so Close can
+	// return it when the read loop is what ended the connection.
+	transportErr error
 	// abandoned counts answers still to come for commands that gave up
 	// waiting. With only order to go on, each is read and discarded when it
 	// arrives; otherwise it would be taken for the next command's.
@@ -164,12 +167,17 @@ func (c *Client) Exec(ctx context.Context, line string) ([]map[string]string, er
 
 // Close ends the connection. Commands still waiting, and any sent later, fail
 // with teamspeak.ErrNotConnected.
+//
+// Ending the connection is end's work, so this is the same thing with no cause
+// to report; the transport's error is returned however the connection ended,
+// including when the read loop noticed before this was called.
 func (c *Client) Close() error {
-	if !c.end(nil) {
-		return nil
-	}
+	c.end(nil)
 
-	return c.transport.Close()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.transportErr
 }
 
 // send writes line as the command whose answer the next lines carry. The
@@ -284,12 +292,18 @@ func (c *Client) notify(line string) {
 	}
 }
 
-// end records the end of the connection and fails the command waiting, if
-// any. It reports whether this call was the one that ended it.
-func (c *Client) end(cause error) bool {
-	ended := false
+// end records the end of the connection, closes the transport and fails the
+// command waiting, if any. The first call does the work and the rest are
+// no-ops.
+//
+// The transport is closed here rather than by Close alone, because the read
+// loop is the other way a connection ends: a server that ends the session —
+// closing the shell, say — leaves the socket and whatever serves it open until
+// someone closes them, and nothing else is coming to. Closing something
+// already closed is the transport's to tolerate, and the error is kept for
+// Close to return.
+func (c *Client) end(cause error) {
 	c.closeOnce.Do(func() {
-		ended = true
 		c.mu.Lock()
 		c.closed = true
 		c.closeErr = cause
@@ -301,13 +315,17 @@ func (c *Client) end(cause error) bool {
 		if p != nil {
 			p.result <- result{err: c.notConnected()}
 		}
+
+		// Outside the lock: closing a connection waits for what serves it.
+		err := c.transport.Close()
+		c.mu.Lock()
+		c.transportErr = err
+		c.mu.Unlock()
 	})
 
-	if ended && c.OnClosed != nil {
+	if c.OnClosed != nil {
 		c.OnClosed(cause)
 	}
-
-	return ended
 }
 
 // notConnected is the error for a command the connection cannot carry, with
