@@ -139,8 +139,14 @@ func readModulePath(dir string) (string, bool, error) {
 	return "", false, fmt.Errorf("%w: %s", errModule, dir)
 }
 
+// tableDir is the module's package of client versions: over fifteen hundred
+// variables, one per version, which would bury every other change in the
+// report. Its tests keep the table sound and CI refuses to remove an entry.
+const tableDir = "versions"
+
 // publicDirs lists the directories of the module that may hold a public
-// package: all of them except internal/, testdata/ and the hidden ones.
+// package: all of them except internal/, testdata/, the hidden ones and the
+// table of client versions.
 func publicDirs(dir string) ([]string, error) {
 	var dirs []string
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
@@ -150,7 +156,7 @@ func publicDirs(dir string) ([]string, error) {
 		if !d.IsDir() {
 			return nil
 		}
-		if p != dir && skippedDir(d.Name()) {
+		if p != dir && skippedDir(d.Name()) || p == filepath.Join(dir, tableDir) {
 			return filepath.SkipDir
 		}
 		dirs = append(dirs, p)

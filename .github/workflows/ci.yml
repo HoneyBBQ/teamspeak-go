@@ -36,6 +36,25 @@ jobs:
       # To accept a deliberate change: go run ./internal/tools/apidump
       - name: Public API report is current
         run: go run ./internal/tools/apidump -check
+      # A client version that was exported can be in use: a pull request may
+      # add entries, never remove one.
+      - name: No client version was removed
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --depth=1 origin main
+          if ! git cat-file -e origin/main:versions/versions.go 2>/dev/null; then
+            echo "versions/versions.go is not on main yet"
+            exit 0
+          fi
+          names() { grep -oE '^var [A-Za-z0-9_]+' | sort; }
+          git show origin/main:versions/versions.go | names >"$RUNNER_TEMP/before"
+          names <versions/versions.go >"$RUNNER_TEMP/after"
+          removed=$(comm -23 "$RUNNER_TEMP/before" "$RUNNER_TEMP/after")
+          if [ -n "$removed" ]; then
+            echo "removed from versions/versions.go:"
+            echo "$removed"
+            exit 1
+          fi
 
   test:
     name: Test (Go ${{ matrix.go-version }})

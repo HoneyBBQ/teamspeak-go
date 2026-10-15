@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1" //nolint:gosec // SHA-1 used for TS3 HWID/UID format, not security
 	"encoding/base64"
+	"fmt"
 	"log/slog"
 	"strconv"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
+	"github.com/honeybbq/teamspeak-go/versions"
 )
 
 // handleHandshakeInitIV completes the legacy key exchange. Once a shared
@@ -213,20 +215,51 @@ func (c *Client) buildClientInitCommand(tc *crypto.Crypt) string {
 
 	return wire.BuildCommandOrdered("clientinit", [][2]string{
 		{"client_nickname", nickname},
-		{"client_version", "3.?.? [Build: 5680278000]"},
-		{"client_platform", "Windows"},
+		{"client_version", c.clientInitOptions.version.Version},
+		{"client_platform", c.clientInitOptions.version.Platform},
 		{"client_input_hardware", "1"},
 		{"client_output_hardware", "1"},
 		{"client_default_channel", c.clientInitOptions.defaultChannel},
 		{"client_default_channel_password", defaultChannelPassword},
 		{"client_server_password", serverPassword},
 		{"client_meta_data", ""},
-		{"client_version_sign", "DX5NIYLvfJEUjuIbCidnoeozxIDRRkpq3I9vVMBmE9L2qnekOoBzSenkzsg2lC9CMv8K5hkEzhr2TYUYSwUXCg=="},
+		{"client_version_sign", c.clientInitOptions.version.Sign},
 		{"client_key_offset", strconv.FormatUint(tc.Identity.Offset(), 10)},
 		{"client_nickname_phonetic", ""},
 		{"client_default_token", ""},
 		{"hwid", hwid},
 	})
+}
+
+// defaultClientVersion is what clientinit sends unless WithVersion says
+// otherwise. A test holds it equal to versions.Windows_3_X_X_5680278000.
+var defaultClientVersion = versions.ClientVersion{
+	Platform: "Windows",
+	Version:  "3.?.? [Build: 5680278000]",
+	Sign:     "DX5NIYLvfJEUjuIbCidnoeozxIDRRkpq3I9vVMBmE9L2qnekOoBzSenkzsg2lC9CMv8K5hkEzhr2TYUYSwUXCg==",
+}
+
+// ed25519SignatureSize is the length of the decoded Sign of a client version.
+const ed25519SignatureSize = 64
+
+// validateClientVersion checks the shape of v, not its signature: verifying
+// needs the signer's public key, and the server does it anyway.
+func validateClientVersion(v versions.ClientVersion) error {
+	switch {
+	case v.Platform == "":
+		return fmt.Errorf("%w: client version has no platform", ErrInvalidConfig)
+	case v.Version == "":
+		return fmt.Errorf("%w: client version has no version", ErrInvalidConfig)
+	case v.Sign == "":
+		return fmt.Errorf("%w: client version has no signature", ErrInvalidConfig)
+	}
+	raw, err := base64.StdEncoding.DecodeString(v.Sign)
+	if err != nil || len(raw) != ed25519SignatureSize {
+		return fmt.Errorf("%w: client version signature is not the base64 of %d bytes",
+			ErrInvalidConfig, ed25519SignatureSize)
+	}
+
+	return nil
 }
 
 func prepareClientPassword(password string) string {

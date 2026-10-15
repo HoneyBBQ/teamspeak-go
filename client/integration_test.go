@@ -38,6 +38,7 @@ import (
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/versions"
 )
 
 // ---------------------------------------------------------------------------
@@ -459,6 +460,32 @@ func TestIntegration_GetClientInfo(t *testing.T) {
 		t.Errorf("expected client_nickname in clientinfo response; got keys: %v", mapKeys(info))
 	}
 	t.Logf("clientinfo keys: %v", mapKeys(info))
+}
+
+// A version from the table, not the default, is accepted by the server and
+// shows up as what the server reports for this client.
+func TestIntegration_ConnectsWithATableVersion(t *testing.T) {
+	addr := requireTeamSpeakAddr(t)
+	want := versions.Windows_3_6_3_1701166057
+
+	id, err := identity.Generate(context.Background(), 8)
+	if err != nil {
+		t.Fatalf("GenerateIdentity: %v", err)
+	}
+	opts := append(integrationClientOptions(nil), client.WithVersion(want))
+	c := newClient(t, id, addr, "teamspeak-go-integ-ver", opts...)
+	err = connectWithRetries(t.Context(), t, c)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
+
+	info, err := c.GetClientInfo(t.Context(), c.ClientID())
+	requireNoErr(t, err)
+	if info["client_version"] != want.Version || info["client_platform"] != want.Platform {
+		t.Errorf("server reports %q on %q, want %q on %q",
+			info["client_version"], info["client_platform"], want.Version, want.Platform)
+	}
 }
 
 // ---------------------------------------------------------------------------
