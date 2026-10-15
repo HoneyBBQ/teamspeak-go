@@ -209,6 +209,33 @@ func (stubConn) Shell() (SSHShell, error) { return nil, errNoConn }
 
 func (stubConn) Close() error { return nil }
 
+// A host key check given alongside Open is refused: the connection Open
+// returns has already made its handshake, so the transport never sees the key
+// and the check could never run. Accepting it would read as a verified server
+// when nothing was verified, so the message says why.
+func TestNew_RefusesAHostKeyCheckThatCouldNeverRun(t *testing.T) {
+	open := func(_ context.Context, _ string) (SSHConn, error) { return stubConn{}, nil }
+
+	for name, check := range map[string]func(HostKey) error{
+		"a check that accepts": InsecureIgnoreHostKey(),
+		"a check that refuses": func(HostKey) error { return errWrongHost },
+	} {
+		d := SSHWith(testHostKeyAddr, "serveradmin", "pw",
+			SSHOptions{Open: open, HostKeyCheck: check})
+		_, err := New(d)
+		if !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("%s with Open: New = %v, want ErrInvalidConfig", name, err)
+
+			continue
+		}
+		for _, want := range []string{"HostKeyCheck", "Open", "handshake", "never"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%s with Open: the error does not mention %q: %v", name, want, err)
+			}
+		}
+	}
+}
+
 // The check runs before the login, so a server that is not the expected one
 // never sees the password: the key is handed to the policy during the
 // handshake, and a refusal ends the connection there.
