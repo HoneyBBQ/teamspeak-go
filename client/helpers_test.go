@@ -197,58 +197,8 @@ func TestCommandThrottle_Concurrent(t *testing.T) {
 	}
 }
 
-func TestParseUint64Value_Valid(t *testing.T) {
-	v, err := parseUint64Value("42")
-	if err != nil || v != 42 {
-		t.Fatalf("expected 42 with nil error, got value=%d err=%v", v, err)
-	}
-	v, err = parseUint64Value("0")
-	if err != nil || v != 0 {
-		t.Fatalf("expected 0 with nil error, got value=%d err=%v", v, err)
-	}
-}
-
-func TestParseUint64Value_Invalid_ReturnsError(t *testing.T) {
-	_, err := parseUint64Value("abc")
-	if err == nil {
-		t.Error("expected parse error for invalid input")
-	}
-	_, err = parseUint64Value("")
-	if err == nil {
-		t.Error("expected parse error for empty input")
-	}
-}
-
-// A channel id is 0 to 2^64-1 in plain decimal; a sign, a prefix, a fraction or
-// a value that does not fit names no channel, and reads as 0 without an error
-// for the caller to forget.
-func TestParseChannelID_ReadsOnlyPlainDecimalUint64(t *testing.T) {
-	cases := map[string]uint64{
-		"0":                          0,
-		"42":                         42,
-		"18446744073709551615":       18446744073709551615,
-		"000000000000000000000042":   42,
-		"":                           0,
-		"-1":                         0,
-		"+5":                         0,
-		"0x10":                       0,
-		"1e3":                        0,
-		"1.5":                        0,
-		"1_000":                      0,
-		"18446744073709551616":       0,
-		"-18446744073709551616":      0,
-		"0x1ffffffffffffffff":        0,
-		"99999999999999999999999999": 0,
-	}
-	for raw, want := range cases {
-		if got := parseChannelID(raw); uint64(got) != want {
-			t.Errorf("parseChannelID(%q) = %d, want %d", raw, got, want)
-		}
-	}
-	if got := parseChannelID("\u00205"); got != 0 {
-		t.Errorf("parseChannelID(\" 5\") = %d, want 0", got)
-	}
-}
+// Reading a channel id and a plain uint64 moved to internal/servernotify with
+// the rest of the notification parsing, so their tests went with them.
 
 // Waiters are released in the order they arrived, and one that gives up
 // leaves its place to the next.

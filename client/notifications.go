@@ -6,9 +6,15 @@ import (
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
+	"github.com/honeybbq/teamspeak-go/internal/servernotify"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
+
+// Reading a notification into its event lives in internal/servernotify, which
+// the ServerQuery client uses too. What is here is the state a notification
+// changes: the client list, which clid is ours, and whether a leave answers
+// this client's own Disconnect — none of which the other client has.
 
 func (c *Client) handleNotification(h *transport.PacketHandler, cmd *wire.Command) {
 	switch cmd.Name {
@@ -32,74 +38,46 @@ func (c *Client) handleNotification(h *transport.PacketHandler, cmd *wire.Comman
 }
 
 func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *wire.Command) {
-	nick := cmd.Params["client_nickname"]
-	uid := cmd.Params["client_unique_identifier"]
-	groupsStr := cmd.Params["client_servergroups"]
+	info := servernotify.ClientEnter(cmd.Params)
+	if info.ID == 0 {
+		return
+	}
 
-	clid := parseClientID(cmd.Params["clid"])
-	ctid := parseChannelID(cmd.Params["ctid"])
-	clientType, _ := parseIntValue(cmd.Params["client_type"])
-	channelGroup, _ := parseUint64Value(cmd.Params["client_channel_group_id"])
-
-	if clid != 0 {
-		info := teamspeak.ClientEntry{
-			ID:             clid,
-			Nickname:       nick,
-			UID:            teamspeak.UID(uid),
-			ChannelID:      ctid,
-			ChannelGroupID: teamspeak.ChannelGroupID(channelGroup),
-			Type:           teamspeak.ClientType(clientType),
-			ServerGroups:   parseIDList[teamspeak.ServerGroupID](groupsStr),
-			IsAway:         cmd.Params["client_away"] == "1",
-			IsRecording:    cmd.Params["client_is_recording"] == "1",
-			IsTalker:       cmd.Params["client_is_talker"] == "1",
-		}
-
-		c.mu.Lock()
-		if c.handler != h {
-			c.mu.Unlock()
-
-			return
-		}
-		c.clients[clid] = info
-		// Identify self by the clid initserver assigned, never by nickname alone:
-		// another client whose nickname is "<our nick><digits>" (the server's
-		// rename for a taken nickname) would otherwise be mistaken for us,
-		// poisoning every outgoing packet header with a foreign clientID until
-		// the server drops the connection for command-resend timeout.
-		switch {
-		case clid == c.clid:
-			// Carries the rename the server applied if our nickname was taken.
-			c.nickname = nick
-		case c.clid == 0 && isAutoNicknameMatch(c.nickname, nick):
-			// initserver carried no aclid, so the welcome enter is the only way
-			// to learn our clid. Once known, a later lookalike cannot take over.
-			c.clid = clid
-			h.SetClientID(uint16(clid))
-			c.nickname = nick
-		}
+	c.mu.Lock()
+	if c.handler != h {
 		c.mu.Unlock()
 
-		// The event's groups are its own: the last handler gets the event
-		// itself, and must not be able to edit the client list through it.
-		info.ServerGroups = slices.Clone(info.ServerGroups)
-		c.emitEvent(ClientEnterEvent{ClientEntry: info})
+		return
 	}
+	c.clients[info.ID] = info
+	// Identify self by the clid initserver assigned, never by nickname alone:
+	// another client whose nickname is "<our nick><digits>" (the server's
+	// rename for a taken nickname) would otherwise be mistaken for us,
+	// poisoning every outgoing packet header with a foreign clientID until
+	// the server drops the connection for command-resend timeout.
+	switch {
+	case info.ID == c.clid:
+		// Carries the rename the server applied if our nickname was taken.
+		c.nickname = info.Nickname
+	case c.clid == 0 && isAutoNicknameMatch(c.nickname, info.Nickname):
+		// initserver carried no aclid, so the welcome enter is the only way
+		// to learn our clid. Once known, a later lookalike cannot take over.
+		c.clid = info.ID
+		h.SetClientID(uint16(info.ID))
+		c.nickname = info.Nickname
+	}
+	c.mu.Unlock()
+
+	// The event's groups are its own: the last handler gets the event
+	// itself, and must not be able to edit the client list through it.
+	info.ServerGroups = slices.Clone(info.ServerGroups)
+	c.emitEvent(ClientEnterEvent{ClientEntry: info})
 }
 
 func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Command) {
-	clid := parseClientID(cmd.Params["clid"])
-	if clid == 0 {
+	evt := servernotify.ClientLeave(cmd.Params)
+	if evt.ClientID == 0 {
 		return
-	}
-	reasonID, _ := parseIntValue(cmd.Params["reasonid"])
-	evt := ClientLeaveEvent{
-		ClientID:      clid,
-		Reason:        teamspeak.Reason(reasonID),
-		ReasonMessage: cmd.Params["reasonmsg"],
-		InvokerID:     parseClientID(cmd.Params["invokerid"]),
-		InvokerName:   cmd.Params["invokername"],
-		InvokerUID:    teamspeak.UID(cmd.Params["invokeruid"]),
 	}
 
 	c.mu.Lock()
@@ -111,8 +89,8 @@ func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Comm
 
 		return
 	}
-	isSelf := clid == c.clid
-	delete(c.clients, clid)
+	isSelf := evt.ClientID == c.clid
+	delete(c.clients, evt.ClientID)
 	// This client leaving while a Disconnect waits is the answer to its
 	// goodbye, not the server removing it.
 	answersGoodbye := isSelf && c.goodbye != nil
@@ -128,13 +106,7 @@ func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Comm
 		return
 	}
 	if evt.Reason == teamspeak.ReasonKickServer || evt.Reason == teamspeak.ReasonKickServerBan {
-		emit(c, &c.onKicked, "KickedEvent", KickedEvent{
-			ReasonMessage: evt.ReasonMessage,
-			InvokerName:   evt.InvokerName,
-			InvokerUID:    evt.InvokerUID,
-			Reason:        evt.Reason,
-			InvokerID:     evt.InvokerID,
-		})
+		emit(c, &c.onKicked, "KickedEvent", servernotify.Kicked(evt.Reason, cmd.Params))
 	}
 	c.removedByServer(h, &RemovedError{ReasonMessage: evt.ReasonMessage, InvokerName: evt.InvokerName, Reason: evt.Reason})
 }
@@ -149,60 +121,35 @@ func (c *Client) removedByServer(h *transport.PacketHandler, cause error) {
 }
 
 func (c *Client) handleClientMoved(h *transport.PacketHandler, cmd *wire.Command) {
-	clid := parseClientID(cmd.Params["clid"])
-	ctid := parseChannelID(cmd.Params["ctid"])
-	reasonID, _ := parseIntValue(cmd.Params["reasonid"])
-
-	if clid == 0 {
+	evt := servernotify.ClientMoved(cmd.Params)
+	if evt.ClientID == 0 {
 		return
 	}
+
 	c.mu.Lock()
 	if c.handler != h {
 		c.mu.Unlock()
 
 		return
 	}
-	if info, ok := c.clients[clid]; ok {
-		info.ChannelID = ctid
-		c.clients[clid] = info
+	if info, ok := c.clients[evt.ClientID]; ok {
+		info.ChannelID = evt.TargetChannelID
+		c.clients[evt.ClientID] = info
 	}
-	isSelf := clid == c.clid
+	isSelf := evt.ClientID == c.clid
 	c.mu.Unlock()
 
-	evt := ClientMovedEvent{
-		ClientID:        clid,
-		TargetChannelID: ctid,
-		Reason:          teamspeak.Reason(reasonID),
-		InvokerID:       parseClientID(cmd.Params["invokerid"]),
-		InvokerName:     cmd.Params["invokername"],
-		InvokerUID:      teamspeak.UID(cmd.Params["invokeruid"]),
-		ReasonMessage:   cmd.Params["reasonmsg"],
-	}
 	c.emitEvent(evt)
 
 	// A channel kick moves the client to the default channel; it arrives as
 	// a move, not as leaving view, which is where it used to be looked for.
 	if isSelf && evt.Reason == teamspeak.ReasonKickChannel {
-		emit(c, &c.onKicked, "KickedEvent", KickedEvent{
-			ReasonMessage: cmd.Params["reasonmsg"],
-			InvokerName:   evt.InvokerName,
-			InvokerUID:    evt.InvokerUID,
-			Reason:        evt.Reason,
-			InvokerID:     evt.InvokerID,
-		})
+		emit(c, &c.onKicked, "KickedEvent", servernotify.Kicked(evt.Reason, cmd.Params))
 	}
 }
 
 func (c *Client) handleTextMessage(cmd *wire.Command) {
-	targetMode, _ := parseIntValue(cmd.Params["targetmode"])
-	msg := TextMessageEvent{
-		TargetMode:  teamspeak.TextMessageTarget(targetMode),
-		TargetID:    parseClientID(cmd.Params["target"]),
-		InvokerID:   parseClientID(cmd.Params["invokerid"]),
-		InvokerName: cmd.Params["invokername"],
-		InvokerUID:  teamspeak.UID(cmd.Params["invokeruid"]),
-		Message:     cmd.Params["msg"],
-	}
+	msg := servernotify.TextMessage(cmd.Params)
 
 	c.mu.Lock()
 	if info, ok := c.clients[msg.InvokerID]; ok {
@@ -223,7 +170,7 @@ func (c *Client) handleTextMessage(cmd *wire.Command) {
 
 func (c *Client) handleClientPoke(cmd *wire.Command) {
 	evt := PokeEvent{
-		InvokerID:   parseClientID(cmd.Params["invokerid"]),
+		InvokerID:   servernotify.ParseClientID(cmd.Params["invokerid"]),
 		InvokerName: cmd.Params["invokername"],
 		InvokerUID:  teamspeak.UID(cmd.Params["invokeruid"]),
 		Message:     cmd.Params["msg"],
