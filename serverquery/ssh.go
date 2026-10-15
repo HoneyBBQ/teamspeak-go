@@ -39,29 +39,47 @@ type SSHConn interface {
 	Close() error
 }
 
-// SSHOptions are the seam [SSHWith] leaves open. The zero value is what [SSH]
-// does.
+// SSHOptions are the seam [SSHWith] leaves open, and the host key policy it
+// requires.
 //
 // Experimental: this package may change in a minor release.
 type SSHOptions struct {
 	// Open connects to addr in place of the built-in dial. It is where an
 	// already-connected client, a jump host, or a test double goes; the
-	// transport asks the connection only for a shell.
+	// transport asks the connection only for a shell, and does not check the
+	// host key of a connection it did not make.
+	//
+	// It replaces HostKeyCheck rather than adding to it: whoever opens the
+	// connection is who can check the key.
 	//
 	// A connection opened here is closed by the transport. A refused login
 	// should be reported wrapping ErrAuth, which is what the built-in dial
 	// does.
 	Open func(ctx context.Context, addr string) (SSHConn, error)
+	// HostKeyCheck decides whether the server is the one expected, before the
+	// login is sent. See [HostKey] for what it is given.
+	//
+	// It has to be set, unless Open supplies the connection instead: the
+	// dial refuses to start without it rather than trusting whatever answers
+	// the port. [KnownHosts] checks against a known_hosts file and
+	// [InsecureIgnoreHostKey] accepts anything, which the name says out loud.
+	// Without either, SSHWith's dialer is refused by New with ErrInvalidConfig.
+	HostKeyCheck func(HostKey) error
 }
 
 // sshDialer is ServerQuery inside an SSH shell. The SSH login is the query
 // login, so the session is already the query account when it opens, and only
 // `use` is left. Only TeamSpeak 6 serves it, and off by default.
 type sshDialer struct {
-	conn     func(ctx context.Context, addr string) (SSHConn, error)
-	addr     string
-	user     string
-	password string
+	conn         func(ctx context.Context, addr string) (SSHConn, error)
+	hostKeyCheck func(HostKey) error
+	addr         string
+	user         string
+	password     string
+	// ownDial reports whether conn is the built-in dial, which is what has to
+	// check a host key. A connection the caller opened is the caller's to
+	// check, and the transport never sees its key.
+	ownDial bool
 }
 
 // SSH returns a Dialer for ServerQuery over SSH at addr, a host:port such as
@@ -71,22 +89,38 @@ type sshDialer struct {
 // this transport no query password goes over the wire at all. [WithLogin] is
 // refused here.
 //
-// The server's host key is not verified, so this authenticates the client to
-// the server and not the server to the client. Check the host key by other
-// means, or tunnel the connection, if that matters for where this runs.
+// The host key has to be checked, and this constructor takes no policy for it,
+// so it always produces a dialer that [New] refuses. Use [SSHWith] with
+// [KnownHosts], [InsecureIgnoreHostKey], or [SSHOptions.HostKeyCheck]:
+//
+//	check, err := serverquery.KnownHosts(filepath.Join(home, ".ssh", "known_hosts"))
+//	if err != nil { ... }
+//	d := serverquery.SSHWith("127.0.0.1:10022", "serveradmin", password,
+//		serverquery.SSHOptions{HostKeyCheck: check})
+//
+// The check runs before the login, so a server that is not the one expected
+// never sees the password. Accepting any key instead — InsecureIgnoreHostKey —
+// hands the query account, normally serveradmin, to whoever answers the port.
 //
 // Experimental: this package may change in a minor release.
 func SSH(addr, user, password string) Dialer {
 	return SSHWith(addr, user, password, SSHOptions{})
 }
 
-// SSHWith returns an SSH dialer with options applied; it is [SSH] when options
-// is the zero value. Use it to supply a connection the transport does not dial
-// itself, such as one through a jump host or a tunnel.
+// SSHWith returns an SSH dialer with options applied. It needs a host key
+// policy — HostKeyCheck, or Open where the connection is made elsewhere — so
+// New returns ErrInvalidConfig for a dialer built without one.
 //
 // Experimental: this package may change in a minor release.
 func SSHWith(addr, user, password string, options SSHOptions) Dialer {
-	d := sshDialer{addr: addr, user: user, password: password, conn: options.Open}
+	d := sshDialer{
+		addr:         addr,
+		user:         user,
+		password:     password,
+		conn:         options.Open,
+		hostKeyCheck: options.HostKeyCheck,
+		ownDial:      options.Open == nil,
+	}
 	if d.conn == nil {
 		d.conn = d.dial
 	}
@@ -107,6 +141,20 @@ func (d sshDialer) needsLogin() bool { return false }
 // needsQuit reports that the session ends with a `quit` command. The session
 // is a shell, so quitting closes it as ending the connection would.
 func (d sshDialer) needsQuit() bool { return true }
+
+// validate refuses a dialer with no host key policy, naming what to do about
+// it. A transport that dials for the caller must not accept whatever answers
+// the port, and must not go looking for a policy of its own: a library does
+// not read ~/.ssh/known_hosts unasked any more than it accepts anything.
+func (d sshDialer) validate() error {
+	if d.ownDial && d.hostKeyCheck == nil {
+		return fmt.Errorf("%w: the ssh dialer checks the host key before it logs in, and "+
+			"none of SSHOptions.HostKeyCheck, KnownHosts(...) or InsecureIgnoreHostKey() was given",
+			ErrInvalidConfig)
+	}
+
+	return nil
+}
 
 func (d sshDialer) open(ctx context.Context) (engine.Transport, error) {
 	conn, err := d.conn(ctx, d.addr)
@@ -150,9 +198,12 @@ func (d sshDialer) open(ctx context.Context) (engine.Transport, error) {
 // configured user.
 func (d sshDialer) dial(ctx context.Context, addr string) (SSHConn, error) {
 	config := &ssh.ClientConfig{
-		User:            d.user,
-		Auth:            []ssh.AuthMethod{ssh.Password(d.password)},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec // documented on SSH
+		User: d.user,
+		Auth: []ssh.AuthMethod{ssh.Password(d.password)},
+		// The caller's policy, converted: this is the only place the library's
+		// callback type is named, and validate has already refused a dialer
+		// without one.
+		HostKeyCallback: hostKeyCallback(addr, d.hostKeyCheck),
 	}
 	client, err := dialSSH(ctx, addr, config)
 	if err != nil {

@@ -78,6 +78,10 @@ func (d tcpDialer) needsLogin() bool { return true }
 // needsQuit reports that the session ends with a `quit` command.
 func (d tcpDialer) needsQuit() bool { return true }
 
+// validate accepts the dialer: there is no host key to check over raw TCP, and
+// no configuration it could be missing.
+func (d tcpDialer) validate() error { return nil }
+
 func (d tcpDialer) open(ctx context.Context) (engine.Transport, error) {
 	conn, err := d.dial(ctx, d.addr)
 	if err != nil {

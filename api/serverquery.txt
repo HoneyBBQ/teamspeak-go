@@ -8,9 +8,12 @@ const CategoryTextPrivate Category = "textprivate"
 const CategoryTextServer Category = "textserver"
 var ErrAuth error
 var ErrDial error
+var ErrHostKey error
 var ErrInvalidConfig error
 var ErrMissingDependency error
 func DefaultShouldRetry(err error, _ int) bool
+func InsecureIgnoreHostKey() func(HostKey) error
+func KnownHosts(path string) (func(HostKey) error, error)
 func New(d Dialer, opts ...Option) (*Client, error)
 func SSH(addr string, user string, password string) Dialer
 func SSHWith(addr string, user string, password string, options SSHOptions) Dialer
@@ -157,8 +160,15 @@ type Dialer interface
 sealed Dialer
 sealed Dialer
 sealed Dialer
+sealed Dialer
 method (Dialer) String() string
 method (Dialer) SupportsNotifications() bool
+type HostKey struct
+field HostKey.Hostname string
+field HostKey.KeyType string
+field HostKey.Fingerprint string
+field HostKey.Key []byte
+method (HostKey) String() string
 type Option interface
 sealed Option
 type SSHConn interface
@@ -166,6 +176,7 @@ method (SSHConn) Close() error
 method (SSHConn) Shell() (SSHShell, error)
 type SSHOptions struct
 field SSHOptions.Open func(ctx context.Context, addr string) (SSHConn, error)
+field SSHOptions.HostKeyCheck func(HostKey) error
 type SSHShell interface
 method (SSHShell) Close() error
 method (SSHShell) Stdin() io.Writer

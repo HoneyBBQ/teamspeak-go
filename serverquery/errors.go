@@ -30,6 +30,14 @@ var ErrDial = errors.New("could not open the query connection")
 // library's own error.
 var ErrAuth = errors.New("the query login was refused")
 
+// ErrHostKey reports an SSH server whose host key was not accepted: the check
+// failed, the key could not be read, or no check was given at all.
+//
+// A host that is not in the known_hosts file and a host whose key has changed
+// both wrap it; the wrapped error says which, so an unknown host is not
+// mistaken for an attack, nor the other way round.
+var ErrHostKey = errors.New("the ssh host key was not accepted")
+
 // ErrMissingDependency reports a transport whose dependency was left out of
 // the build. It is teamspeak.ErrMissingDependency, so a caller matching either
 // name matches both.

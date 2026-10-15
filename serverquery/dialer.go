@@ -29,6 +29,10 @@ type Dialer interface {
 	// transports that hold a session have one; WebQuery, which has none, is
 	// refused it.
 	needsQuit() bool
+	// validate reports a dialer that cannot be used as configured, before
+	// anything is dialled. The SSH dialer refuses to connect with no host key
+	// policy; the others have nothing to refuse.
+	validate() error
 	// open connects and starts the session, returning the transport the
 	// engine runs commands over.
 	open(ctx context.Context) (engine.Transport, error)

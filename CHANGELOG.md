@@ -5,6 +5,17 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ## Unreleased
 
+### Security
+
+- The SSH transport verifies the server's host key, and refuses to dial with
+  no policy rather than accepting whatever answers the port. `SSHWith` takes
+  `SSHOptions.HostKeyCheck`, with `KnownHosts(path)` checking against an
+  OpenSSH known_hosts file and `InsecureIgnoreHostKey()` accepting anything.
+  `SSH(addr, user, password)` on its own now produces a dialer `New` refuses,
+  naming the three ways to supply a policy: the query account it logs in as is
+  normally `serveradmin`, and an unchecked key hands that password to anyone
+  who can answer the port.
+
 ### Added
 
 - `serverquery`, a client for TeamSpeak's administrative interface, running the

@@ -89,6 +89,11 @@ func (d webDialer) needsLogin() bool { return false }
 // refuses `quit` with an out-of-scope error.
 func (d webDialer) needsQuit() bool { return false }
 
+// validate accepts the dialer: an http.Client uses the system's own trust
+// store for a https:// base URL, and there is nothing here that could be
+// missing the way an SSH host key policy can.
+func (d webDialer) validate() error { return nil }
+
 func (d webDialer) open(_ context.Context) (engine.Transport, error) {
 	base, err := url.Parse(d.baseURL)
 	if err != nil || base.Scheme == "" || base.Host == "" {

@@ -110,14 +110,15 @@ var handshakeCommands = map[string]bool{
 // Connect's goroutine, so the transport is held under the mutex rather than in
 // a plain field.
 type fakeDialer struct {
-	openErr error
-	opened  chan *fakeTransport
-	tr      *fakeTransport
-	pending []string
-	mu      sync.Mutex
-	notify  bool
-	login   bool
-	quit    bool
+	openErr     error
+	validateErr error
+	opened      chan *fakeTransport
+	tr          *fakeTransport
+	pending     []string
+	mu          sync.Mutex
+	notify      bool
+	login       bool
+	quit        bool
 }
 
 func newFakeDialer(notify bool) *fakeDialer {
@@ -128,6 +129,9 @@ func (d *fakeDialer) SupportsNotifications() bool { return d.notify }
 func (d *fakeDialer) String() string              { return "fake" }
 func (d *fakeDialer) needsLogin() bool            { return d.login }
 func (d *fakeDialer) needsQuit() bool             { return d.quit }
+
+// validate accepts the dialer unless the test wants it refused.
+func (d *fakeDialer) validate() error { return d.validateErr }
 
 func (d *fakeDialer) open(_ context.Context) (engine.Transport, error) {
 	if d.openErr != nil {

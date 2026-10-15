@@ -122,6 +122,11 @@ func New(d Dialer, opts ...Option) (*Client, error) {
 // validateConfig checks the assembled configuration, returning an error
 // wrapping ErrInvalidConfig for a combination the transport cannot serve.
 func validateConfig(c *Client) error {
+	err := c.dialer.validate()
+	if err != nil {
+		return err
+	}
+
 	if c.login != nil {
 		if !c.dialer.needsLogin() {
 			return fmt.Errorf("%w: %s logs in as itself, so WithLogin does not apply",

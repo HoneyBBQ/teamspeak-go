@@ -22,13 +22,19 @@ package serverquery_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/client"
@@ -50,7 +56,16 @@ const (
 	envSSHPort  = "TEAMSPEAK_QUERY_SSH_PORT"
 	envSSHUser  = "TEAMSPEAK_QUERY_SSH_USER"
 	envSSHPass  = "TEAMSPEAK_QUERY_SSH_PASSWORD"
+	// envSSHKnownHosts is a known_hosts file to verify the SSH host key
+	// against, when the caller has one. Without it the test records the key
+	// the server presents and verifies against that, so the check itself is
+	// always exercised; there is deliberately no way to accept any key.
+	envSSHKnownHosts = "TEAMSPEAK_QUERY_SSH_KNOWN_HOSTS"
 )
+
+// errKeyRecorded ends the probe dial once the host key has been captured,
+// before any authentication: the check runs first, which is the point.
+var errKeyRecorded = errors.New("the host key has been recorded")
 
 // waitForOtherSuites stands aside before connecting: the voice suite's live
 // client and this one against the same server, or a rerun straight after a
@@ -104,6 +119,47 @@ func sshVars(t *testing.T) (addr, user, password string) {
 	}
 
 	return host + ":" + port, user, password
+}
+
+// knownHostsFor returns the known_hosts file the SSH test verifies against:
+// the one the caller named, or one recorded from the server itself. There is
+// no path that accepts any key, so the check is exercised either way.
+func knownHostsFor(t *testing.T, addr string) string {
+	t.Helper()
+	if path := os.Getenv(envSSHKnownHosts); path != "" {
+		return path
+	}
+
+	// The host key is checked before authentication, so a probe that is
+	// refused for its credentials has still seen the key.
+	var key ssh.PublicKey
+	probe := &ssh.ClientConfig{
+		User: "probe",
+		Auth: []ssh.AuthMethod{ssh.Password("")},
+		HostKeyCallback: func(_ string, _ net.Addr, presented ssh.PublicKey) error {
+			key = presented
+
+			return errKeyRecorded
+		},
+	}
+	// The dial is expected to fail — the callback refuses the key — which is
+	// what ends the probe after the key has been captured.
+	client, _ := ssh.Dial("tcp", addr, probe)
+	if client != nil {
+		_ = client.Close()
+	}
+	if key == nil {
+		t.Fatalf("the server at %s presented no host key", addr)
+	}
+
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	err := os.WriteFile(path, []byte(knownhosts.Line([]string{addr}, key)+"\n"), 0o600)
+	if err != nil {
+		t.Fatalf("writing the recorded known_hosts: %v", err)
+	}
+	t.Logf("verifying %s against the key it presented: %s", addr, ssh.FingerprintSHA256(key))
+
+	return path
 }
 
 // assertCoreCommands runs the commands every transport serves, against the
@@ -268,7 +324,15 @@ func TestQuery_TS6OverSSH(t *testing.T) {
 	addr, user, password := sshVars(t)
 	waitForOtherSuites()
 
-	c, err := serverquery.New(serverquery.SSH(addr, user, password),
+	// The host key is verified, never accepted blindly: against the caller's
+	// known_hosts file when there is one, and otherwise against the key this
+	// server presents.
+	check, err := serverquery.KnownHosts(knownHostsFor(t, addr))
+	if err != nil {
+		t.Fatalf("KnownHosts: %v", err)
+	}
+	c, err := serverquery.New(serverquery.SSHWith(addr, user, password,
+		serverquery.SSHOptions{HostKeyCheck: check}),
 		serverquery.WithServer(1),
 	)
 	if err != nil {

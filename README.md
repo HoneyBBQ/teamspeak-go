@@ -540,7 +540,7 @@ which one a program can use:
 | Transport | Where | Server | Login | Events |
 |---|---|---|---|---|
 | `TCP(addr)` | 10011 | TeamSpeak 3 only | `WithLogin` | yes |
-| `SSH(addr, user, password)` | 10022 | TeamSpeak 6 only, off by default | the SSH login; `WithLogin` is refused | yes |
+| `SSHWith(addr, user, password, SSHOptions{...})` | 10022 | TeamSpeak 6 only, off by default | the SSH login; `WithLogin` is refused | yes |
 | `Web(baseURL, apiKey)` | 10080 | TeamSpeak 6 only | the api key; `WithLogin` is refused | **none** |
 
 TeamSpeak 6 dropped raw ServerQuery, so a TS6 server has no 10011 to connect
@@ -571,6 +571,24 @@ transport that cannot deliver them: they return a function that removes
 nothing, and the client logs one warning per method rather than failing the
 connect.
 
+### Host keys
+
+The SSH transport needs a host key policy. Without one it refuses to dial
+rather than trusting whatever answers the port, because the query account it
+logs in as is normally `serveradmin`:
+
+```go
+check, err := serverquery.KnownHosts(filepath.Join(home, ".ssh", "known_hosts"))
+c, err := serverquery.New(serverquery.SSHWith(addr, "serveradmin", password,
+	serverquery.SSHOptions{HostKeyCheck: check}))
+```
+
+`KnownHosts` verifies against an OpenSSH known_hosts file, which it reads when
+it is called and only from the path given: it is never read from `~/.ssh`
+behind your back. `InsecureIgnoreHostKey()` accepts anything, and is named so
+that the call site says out loud what it is giving up. A refusal wraps
+`ErrHostKey`, and tells an unknown host apart from a key that has changed.
+
 ### Reconnection
 
 `WithReconnect(teamspeak.ReconnectOptions{})` reconnects after a dropped
@@ -585,8 +603,8 @@ IP that connects too often.
 A refusal from the server is a `*teamspeak.ServerError`, exactly as it is for
 the voice client. The connection's own failures have their own sentinels:
 `ErrInvalidConfig` for a configuration `New` cannot honour, `ErrDial` for a
-connection that could not be opened, and `ErrAuth` for an SSH login the server
-refused.
+connection that could not be opened, `ErrAuth` for an SSH login the server
+refused, and `ErrHostKey` for a host key that was not accepted.
 
 ## Compatibility
 
