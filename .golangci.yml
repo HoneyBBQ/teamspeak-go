@@ -107,6 +107,11 @@ linters:
         linters: [funcorder, nestif]
       - path: transport/quicklz.go
         linters: [nestif]
+      # A table of fixed values: each name is <Platform>_<version>_<build>, as
+      # the version string reads, so the underscores are part of the name.
+      - path: versions/versions\.go
+        linters: [revive]
+        text: "var-naming"
 
 run:
   timeout: 10m
