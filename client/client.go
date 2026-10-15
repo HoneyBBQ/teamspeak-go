@@ -89,15 +89,15 @@ func (d defaultResolver) Resolve(ctx context.Context, addr string) ([]ResolvedAd
 	return out, nil
 }
 
-// CommandMiddleware wraps the typed commands' executor. It sees each request —
-// its name with Request.Command, never its parameters' secrets in a log line —
-// and the caller's context, and returns the rows or an error: so it can
-// observe a command, time it, retry it, or answer it itself without calling
-// next.
+// CommandMiddleware is teamspeak.CommandMiddleware: it wraps the typed
+// commands' executor. It sees each request — its name with Request.Command,
+// never its parameters' secrets in a log line — and the caller's context, and
+// returns the rows or an error: so it can observe a command, time it, retry
+// it, or answer it itself without calling next.
 //
 // Exec and ExecNoWait, which send a raw line, and the commands the client
 // sends on its own during the handshake and Disconnect do not pass through it.
-type CommandMiddleware func(next teamspeak.Executor) teamspeak.Executor
+type CommandMiddleware = teamspeak.CommandMiddleware
 
 // EventMiddleware wraps the delivery of server events. It may observe an
 // event, pass on a different one in its place, or drop it by not calling next.
