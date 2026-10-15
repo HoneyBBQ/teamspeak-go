@@ -86,6 +86,7 @@ field BanEntry.ID BanID
 field BanEntry.Duration time.Duration
 field BanEntry.InvokerDatabaseID ClientDBID
 type BanID uint64
+type BanListOptions struct
 type BanOptions struct
 field BanOptions.IP string
 field BanOptions.Name string
@@ -95,7 +96,7 @@ field BanOptions.Duration time.Duration
 type Binding struct
 field Binding.Subsystem string
 field Binding.IP string
-field Binding.Port uint16
+field Binding.Port *uint16
 type BindingListOptions struct
 field BindingListOptions.Subsystem string
 type Channel struct
@@ -111,9 +112,9 @@ field Channel.Codec Codec
 field Channel.CodecQuality int32
 field Channel.MaxClients int32
 field Channel.MaxFamilyClients int32
-field Channel.TotalClients int32
-field Channel.TotalFamilyClients int32
-field Channel.NeededSubscribePower int32
+field Channel.TotalClients *int32
+field Channel.TotalFamilyClients *int32
+field Channel.NeededSubscribePower *int32
 field Channel.NeededTalkPower int32
 field Channel.IsDefault bool
 field Channel.IsPermanent bool
@@ -172,11 +173,13 @@ field ChannelGroupClientListOptions.ChannelID ChannelID
 field ChannelGroupClientListOptions.DatabaseID ClientDBID
 field ChannelGroupClientListOptions.GroupID ChannelGroupID
 type ChannelGroupID uint64
+type ChannelGroupListOptions struct
 type ChannelGroupMembership struct
 field ChannelGroupMembership.ChannelID ChannelID
 field ChannelGroupMembership.DatabaseID ClientDBID
 field ChannelGroupMembership.GroupID ChannelGroupID
 type ChannelID uint64
+type ChannelListOptions struct
 type ChannelMatch struct
 field ChannelMatch.Name string
 field ChannelMatch.ID ChannelID
@@ -196,27 +199,33 @@ field ClientDatabaseEntry.Description string
 field ClientDatabaseEntry.LastIP string
 field ClientDatabaseEntry.DatabaseID ClientDBID
 field ClientDatabaseEntry.TotalConnections uint64
+type ClientDatabaseName struct
+field ClientDatabaseName.Name string
+field ClientDatabaseName.DatabaseID ClientDBID
+type ClientDatabasePageOptions struct
+field ClientDatabasePageOptions.Start int
+field ClientDatabasePageOptions.Limit int
 type ClientEditOptions struct
 field ClientEditOptions.Description *string
 field ClientEditOptions.IsTalker *bool
 type ClientEnterEvent struct
-embed ClientEnterEvent ClientInfo
+embed ClientEnterEvent ClientEntry
+type ClientEntry struct
+field ClientEntry.Created time.Time
+field ClientEntry.LastConnected time.Time
+field ClientEntry.IdleTime time.Duration
+field ClientEntry.Nickname string
+field ClientEntry.UID UID
+field ClientEntry.ServerGroups []ServerGroupID
+field ClientEntry.ChannelID ChannelID
+field ClientEntry.ChannelGroupID ChannelGroupID
+field ClientEntry.Type ClientType
+field ClientEntry.ID ClientID
+field ClientEntry.IsAway bool
+field ClientEntry.IsRecording bool
+field ClientEntry.IsTalker bool
 type ClientFileTransferID uint16
 type ClientID uint16
-type ClientInfo struct
-field ClientInfo.Created time.Time
-field ClientInfo.LastConnected time.Time
-field ClientInfo.IdleTime time.Duration
-field ClientInfo.Nickname string
-field ClientInfo.UID UID
-field ClientInfo.ServerGroups []ServerGroupID
-field ClientInfo.ChannelID ChannelID
-field ClientInfo.ChannelGroupID ChannelGroupID
-field ClientInfo.Type ClientType
-field ClientInfo.ID ClientID
-field ClientInfo.IsAway bool
-field ClientInfo.IsRecording bool
-field ClientInfo.IsTalker bool
 type ClientKickOptions struct
 field ClientKickOptions.ReasonMessage string
 type ClientLeaveEvent struct
@@ -244,6 +253,7 @@ field ClientMoveOptions.Password string
 type ClientMovedEvent struct
 field ClientMovedEvent.InvokerName string
 field ClientMovedEvent.InvokerUID UID
+field ClientMovedEvent.ReasonMessage string
 field ClientMovedEvent.TargetChannelID ChannelID
 field ClientMovedEvent.Reason Reason
 field ClientMovedEvent.ClientID ClientID
@@ -282,7 +292,6 @@ method (*Commands) AddPrivilegeKey(ctx context.Context, opts PrivilegeKeyOptions
 method (*Commands) AddServerGroupPermission(ctx context.Context, serverGroupID ServerGroupID, perm Permission, value int32, opts ServerGroupPermissionOptions) error
 method (*Commands) AddTempPassword(ctx context.Context, opts TempPasswordOptions) error
 method (*Commands) BanClient(ctx context.Context, clid ClientID, opts BanClientOptions) ([]BanID, error)
-method (*Commands) ClientDatabase(ctx context.Context) iter.Seq2[ClientDatabaseEntry, error]
 method (*Commands) CopyChannelGroup(ctx context.Context, sourceGroupID ChannelGroupID, targetGroupID ChannelGroupID, name string, groupType GroupType) (ChannelGroupID, error)
 method (*Commands) CopyServerGroup(ctx context.Context, sourceGroupID ServerGroupID, targetGroupID ServerGroupID, name string, groupType GroupType) (ServerGroupID, error)
 method (*Commands) CreateChannel(ctx context.Context, opts ChannelCreateOptions) (ChannelID, error)
@@ -318,10 +327,10 @@ method (*Commands) FindPermission(ctx context.Context, perm Permission) ([]Permi
 method (*Commands) GetChannelInfo(ctx context.Context, cid ChannelID) (Channel, error)
 method (*Commands) GetClientDBIDByUID(ctx context.Context, uid UID) (ClientDBID, error)
 method (*Commands) GetClientDatabaseInfo(ctx context.Context, clientDBID ClientDBID) (ClientDatabaseEntry, error)
-method (*Commands) GetClientIDs(ctx context.Context, uid UID) ([]ClientID, error)
-method (*Commands) GetClientInfo(ctx context.Context, clid ClientID) (Properties, error)
-method (*Commands) GetClientNameByDBID(ctx context.Context, clientDBID ClientDBID) (string, error)
-method (*Commands) GetClientNameByUID(ctx context.Context, uid UID) (ClientDBID, string, error)
+method (*Commands) GetClientIDs(ctx context.Context, uid UID) ([]ClientMatch, error)
+method (*Commands) GetClientNameByDBID(ctx context.Context, clientDBID ClientDBID) (ClientDatabaseName, error)
+method (*Commands) GetClientNameByUID(ctx context.Context, uid UID) (ClientDatabaseName, error)
+method (*Commands) GetClientProperties(ctx context.Context, clid ClientID) (Properties, error)
 method (*Commands) GetClientUIDByID(ctx context.Context, clid ClientID) (UID, error)
 method (*Commands) GetConnectionInfo(ctx context.Context) (ServerConnectionInfo, error)
 method (*Commands) GetFileInfo(ctx context.Context, channelID ChannelID, path string, opts FileOptions) (FileEntry, error)
@@ -336,26 +345,28 @@ method (*Commands) GetServerInfo(ctx context.Context) (Properties, error)
 method (*Commands) GetVersion(ctx context.Context) (ServerVersion, error)
 method (*Commands) InitFileDownload(ctx context.Context, channelID ChannelID, path string, opts FileDownloadOptions) (*FileDownloadInfo, error)
 method (*Commands) InitFileUpload(ctx context.Context, channelID ChannelID, path string, size uint64, opts FileUploadOptions) (*FileUploadInfo, error)
+method (*Commands) IterateClientDatabase(ctx context.Context, opts PagingOptions) iter.Seq2[ClientDatabaseEntry, error]
 method (*Commands) KickClient(ctx context.Context, clid ClientID, reason Reason, opts ClientKickOptions) error
 method (*Commands) ListActiveTransfers(ctx context.Context) ([]ActiveTransfer, error)
-method (*Commands) ListBans(ctx context.Context) ([]BanEntry, error)
+method (*Commands) ListBans(ctx context.Context, _ BanListOptions) ([]BanEntry, error)
 method (*Commands) ListBindings(ctx context.Context, opts BindingListOptions) ([]Binding, error)
 method (*Commands) ListChannelClientPermissions(ctx context.Context, cid ChannelID, clientDBID ClientDBID) ([]PermissionEntry, error)
 method (*Commands) ListChannelGroupClients(ctx context.Context, opts ChannelGroupClientListOptions) ([]ChannelGroupMembership, error)
 method (*Commands) ListChannelGroupPermissions(ctx context.Context, channelGroupID ChannelGroupID) ([]PermissionEntry, error)
-method (*Commands) ListChannelGroups(ctx context.Context) ([]ChannelGroup, error)
+method (*Commands) ListChannelGroups(ctx context.Context, _ ChannelGroupListOptions) ([]ChannelGroup, error)
 method (*Commands) ListChannelPermissions(ctx context.Context, cid ChannelID) ([]PermissionEntry, error)
-method (*Commands) ListChannels(ctx context.Context) ([]Channel, error)
+method (*Commands) ListChannels(ctx context.Context, _ ChannelListOptions) ([]Channel, error)
+method (*Commands) ListClientDatabase(ctx context.Context, opts ClientDatabasePageOptions) ([]ClientDatabaseEntry, error)
 method (*Commands) ListClientPermissions(ctx context.Context, clientDBID ClientDBID) ([]PermissionEntry, error)
-method (*Commands) ListClients(ctx context.Context, options ClientListOptions) ([]ClientInfo, error)
+method (*Commands) ListClients(ctx context.Context, options ClientListOptions) ([]ClientEntry, error)
 method (*Commands) ListComplaints(ctx context.Context, opts ComplaintListOptions) ([]Complaint, error)
 method (*Commands) ListFiles(ctx context.Context, channelID ChannelID, path string, opts FileOptions) ([]FileEntry, error)
-method (*Commands) ListMessages(ctx context.Context) ([]OfflineMessage, error)
+method (*Commands) ListMessages(ctx context.Context, _ MessageListOptions) ([]OfflineMessage, error)
 method (*Commands) ListPermissions(ctx context.Context) ([]PermissionInfo, error)
 method (*Commands) ListPrivilegeKeys(ctx context.Context) ([]PrivilegeKey, error)
 method (*Commands) ListServerGroupClients(ctx context.Context, serverGroupID ServerGroupID, opts ServerGroupClientListOptions) ([]ServerGroupMember, error)
 method (*Commands) ListServerGroupPermissions(ctx context.Context, serverGroupID ServerGroupID) ([]PermissionEntry, error)
-method (*Commands) ListServerGroups(ctx context.Context) ([]ServerGroup, error)
+method (*Commands) ListServerGroups(ctx context.Context, _ ServerGroupListOptions) ([]ServerGroup, error)
 method (*Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error)
 method (*Commands) MoveChannel(ctx context.Context, cid ChannelID, parentID ChannelID, opts ChannelMoveOptions) error
 method (*Commands) MoveClient(ctx context.Context, clid ClientID, channelID ChannelID, opts ClientMoveOptions) error
@@ -371,7 +382,7 @@ method (*Commands) SendServerMessage(ctx context.Context, message string) error
 method (*Commands) SetClientChannelGroup(ctx context.Context, channelGroupID ChannelGroupID, channelID ChannelID, clientDBID ClientDBID) error
 method (*Commands) StopFileTransfer(ctx context.Context, serverFileTransferID ServerFileTransferID, opts FileTransferStopOptions) error
 method (*Commands) UpdateClient(ctx context.Context, opts ClientUpdateOptions) error
-method (*Commands) UpdateMessageFlag(ctx context.Context, messageID MessageID, read bool) error
+method (*Commands) UpdateMessageFlag(ctx context.Context, messageID MessageID, flags MessageFlags) error
 method (*Commands) UsePrivilegeKey(ctx context.Context, token string) error
 method (*Commands) ViewLog(ctx context.Context, opts LogViewOptions) (LogPage, error)
 method (*Commands) WhoAmI(ctx context.Context) (WhoAmI, error)
@@ -484,7 +495,10 @@ field LogViewOptions.BeginPosition *uint64
 field LogViewOptions.Lines uint
 field LogViewOptions.Reverse bool
 field LogViewOptions.Instance bool
+type MessageFlags struct
+field MessageFlags.Read bool
 type MessageID uint64
+type MessageListOptions struct
 type NotificationEvent struct
 field NotificationEvent.Params map[string]string
 field NotificationEvent.Name string
@@ -495,6 +509,8 @@ field OfflineMessage.Subject string
 field OfflineMessage.Message string
 field OfflineMessage.ID MessageID
 field OfflineMessage.IsRead bool
+type PagingOptions struct
+field PagingOptions.PageSize int
 type Permission struct
 method (Permission) ID() PermissionID
 method (Permission) IsZero() bool
@@ -594,6 +610,7 @@ type ServerGroupClientListOptions struct
 field ServerGroupClientListOptions.Names bool
 field ServerGroupClientListOptions.UIDs bool
 type ServerGroupID uint64
+type ServerGroupListOptions struct
 type ServerGroupMember struct
 field ServerGroupMember.Nickname string
 field ServerGroupMember.UID UID

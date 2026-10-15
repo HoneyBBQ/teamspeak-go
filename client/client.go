@@ -192,7 +192,7 @@ type Client struct {
 	handler  *transport.PacketHandler
 	cmdTrack *commandTracker
 	throttle *commandThrottle
-	clients  map[teamspeak.ClientID]teamspeak.ClientInfo
+	clients  map[teamspeak.ClientID]teamspeak.ClientEntry
 	// evtChain is the event middleware wrapped around dispatchEvent.
 	evtChain func(Event)
 	addr     string
@@ -217,8 +217,12 @@ type Client struct {
 	// reconnectPending records a drop that arrived while a retry loop still
 	// held the slot, with its cause, so endReconnect can start another loop
 	// rather than lose it.
-	reconnectPending    bool
-	reconnectPendingErr error
+	reconnectPending        bool
+	reconnectPendingErr     error
+	reconnectPendingVerdict *retryVerdict
+	// attemptVerdict is the verdict on the reconnect attempt that just failed,
+	// left by failConnectionLocked for the loop to take.
+	attemptVerdict *retryVerdict
 	// background counts the goroutines the client starts on its own behalf
 	// that nobody waits on, so a test can wait for them instead of sleeping.
 	background sync.WaitGroup
@@ -250,8 +254,8 @@ type Client struct {
 	onClientEnter    subscribers[ClientEnterEvent]
 	onClientLeave    subscribers[ClientLeaveEvent]
 	onClientMoved    subscribers[ClientMovedEvent]
-	onConnected      subscribers[struct{}]
-	onDisconnected   subscribers[error]
+	onConnected      subscribers[ConnectedEvent]
+	onDisconnected   subscribers[DisconnectedEvent]
 	onPoked          subscribers[PokeEvent]
 	onKicked         subscribers[KickedEvent]
 	onVoiceData      subscribers[VoiceDataEvent]
@@ -311,7 +315,7 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 		logger:   slog.New(slog.DiscardHandler),
 		addr:     addr,
 		nickname: nickname,
-		clients:  make(map[teamspeak.ClientID]teamspeak.ClientInfo),
+		clients:  make(map[teamspeak.ClientID]teamspeak.ClientEntry),
 		throttle: newCommandThrottle(),
 		cmdTrack: newCommandTracker(),
 		attempt:  newConnectAttempt(),
@@ -599,7 +603,7 @@ func (c *Client) finishLeaving(l *leaving, err error) {
 	c.cmdTrack.reset(teamspeak.ErrNotConnected)
 	// Announced here; handleConnectionClosed stays quiet once the status is
 	// already Disconnected, so the handlers hear about it once.
-	emit(c, &c.onDisconnected, "Disconnected", nil)
+	emit(c, &c.onDisconnected, "Disconnected", DisconnectedEvent{})
 	c.leaving = nil
 	l.err = err
 	close(l.done)
@@ -883,7 +887,7 @@ func (c *Client) resetForConnectLocked() string {
 		c.attempt = newConnectAttempt()
 	}
 	c.cmdTrack.reset(teamspeak.ErrNotConnected)
-	c.clients = make(map[teamspeak.ClientID]teamspeak.ClientInfo)
+	c.clients = make(map[teamspeak.ClientID]teamspeak.ClientEntry)
 	c.clid = 0
 	// Reset to the TS3 default; initserver sets it from the server's version.
 	c.uidAlgorithm = identity.UIDSHA1
@@ -992,7 +996,7 @@ func (c *Client) failConnectionLocked(err error) {
 	}
 	c.status = StatusDisconnected
 	handler := c.handler
-	emit(c, &c.onDisconnected, "Disconnected", err)
+	c.emitDisconnectedLocked(err, c.failedAttemptVerdictLocked(err))
 	c.mu.Unlock()
 	report()
 
@@ -1049,10 +1053,11 @@ func (c *Client) handleConnectionClosed(h *transport.PacketHandler, err error) {
 	// Announced first, then retried: a caller watching OnDisconnected should
 	// hear about the drop even when a reconnect is already on its way, because
 	// a silent recovery hides an outage.
-	emit(c, &c.onDisconnected, "Disconnected", err)
+	verdict := c.newVerdictLocked(err, 1)
+	c.emitDisconnectedLocked(err, verdict)
 	c.mu.Unlock()
 
-	go c.scheduleReconnect(err)
+	go c.scheduleReconnect(err, verdict)
 }
 
 // runSessionEndLocked runs the SessionEnd report, if there is one, with c.mu
@@ -1081,8 +1086,14 @@ func (c *Client) runSessionEndLocked(report func()) {
 // reconnecting it.
 //
 //nolint:funlen // one loop with its exits, each of which reports why it ended
-func (c *Client) scheduleReconnect(connErr error) {
-	options, ok := c.beginReconnect(connErr)
+func (c *Client) scheduleReconnect(connErr error, verdict *retryVerdict) {
+	if verdict == nil {
+		c.mu.Lock()
+		verdict = c.newVerdictLocked(connErr, 1)
+		c.mu.Unlock()
+	}
+
+	options, ok := c.beginReconnect(connErr, verdict)
 	if !ok {
 		return
 	}
@@ -1094,11 +1105,6 @@ func (c *Client) scheduleReconnect(connErr error) {
 	ctx, cancel := contextUntil(context.Background(), c.stopChan())
 	defer cancel()
 
-	shouldRetry := options.ShouldRetry
-	if shouldRetry == nil {
-		shouldRetry = DefaultShouldRetry
-	}
-
 	made := 0
 	for attempt := 1; options.Backoff.MaxAttempts == 0 || attempt <= options.Backoff.MaxAttempts; attempt++ {
 		if c.isStopped() {
@@ -1106,7 +1112,7 @@ func (c *Client) scheduleReconnect(connErr error) {
 
 			return
 		}
-		if !shouldRetry(connErr, attempt) {
+		if !verdict.policy() {
 			c.logger.InfoContext(ctx, "not retrying", slog.Int("attempt", attempt), slog.Any("error", connErr))
 			c.traceReconnectStopped(made, connErr)
 
@@ -1146,7 +1152,8 @@ func (c *Client) scheduleReconnect(connErr error) {
 		}
 
 		connErr = retryErr
-		if options.ShouldRetry == nil && !DefaultShouldRetry(retryErr, attempt) {
+		verdict = c.takeVerdict(retryErr, attempt+1)
+		if options.ShouldRetry == nil && !verdict.policy() {
 			c.logger.InfoContext(ctx, "reconnect refused", slog.Int("attempt", attempt), slog.Any("error", retryErr))
 			c.traceReconnectStopped(made, retryErr)
 
@@ -1173,7 +1180,7 @@ func (c *Client) runConnect(attempt int) error {
 
 // beginReconnect claims the reconnect slot, reporting false when reconnection
 // is off, already running, or the client has been stopped deliberately.
-func (c *Client) beginReconnect(connErr error) (ReconnectOptions, bool) {
+func (c *Client) beginReconnect(connErr error, verdict *retryVerdict) (ReconnectOptions, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -1186,10 +1193,12 @@ func (c *Client) beginReconnect(connErr error) (ReconnectOptions, bool) {
 		// Leave a note so the drop is retried once it ends.
 		c.reconnectPending = true
 		c.reconnectPendingErr = connErr
+		c.reconnectPendingVerdict = verdict
 
 		return ReconnectOptions{}, false
 	}
 	c.reconnecting = true
+	c.attemptVerdict = nil
 
 	return *c.reconnectOptions, true
 }
@@ -1200,13 +1209,13 @@ func (c *Client) beginReconnect(connErr error) (ReconnectOptions, bool) {
 func (c *Client) endReconnect() {
 	c.mu.Lock()
 	c.reconnecting = false
-	pending, pendingErr := c.reconnectPending, c.reconnectPendingErr
-	c.reconnectPending, c.reconnectPendingErr = false, nil
+	pending, pendingErr, pendingVerdict := c.reconnectPending, c.reconnectPendingErr, c.reconnectPendingVerdict
+	c.reconnectPending, c.reconnectPendingErr, c.reconnectPendingVerdict = false, nil, nil
 	restart := pending && !c.stopped && c.status == StatusDisconnected
 	c.mu.Unlock()
 
 	if restart {
-		go c.scheduleReconnect(pendingErr)
+		go c.scheduleReconnect(pendingErr, pendingVerdict)
 	}
 }
 

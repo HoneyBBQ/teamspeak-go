@@ -13,13 +13,13 @@ import (
 // prop package names their keys.
 type Properties map[string]string
 
-// ClientInfo is a connected client, as clientlist or notifycliententerview
+// ClientEntry is a connected client, as clientlist or notifycliententerview
 // reports one.
 //
 // One type covers both: the two carry the same client, and having separate
 // structs made the list and event paths disagree about what a client is —
 // including the type of ServerGroups.
-type ClientInfo struct {
+type ClientEntry struct {
 	// Created, LastConnected and IdleTime are reported only by ListClients
 	// with ClientListOptions.Times; otherwise they are zero.
 	//

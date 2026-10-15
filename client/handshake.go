@@ -141,6 +141,7 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 		return
 	}
 	c.status = StatusConnected
+	reconnected := c.attempt.reconnect
 	c.adoptClientIDLocked(h, cmd.Params)
 
 	// initserver is the only place the server names itself, and it determines
@@ -178,7 +179,7 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 		}
 	}()
 
-	emit(c, &c.onConnected, "Connected", struct{}{})
+	emit(c, &c.onConnected, "Connected", ConnectedEvent{Reconnected: reconnected})
 }
 
 // adoptClientIDLocked takes the client id initserver assigns, from aclid or

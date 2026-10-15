@@ -3,6 +3,51 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+Breaking changes, made before v1.0.0 so that none of them needs a `/v2` import
+path later.
+
+- `Channel.TotalClients`, `TotalFamilyClients` and `NeededSubscribePower` are
+  `*int32`, nil when the answer does not carry them, which is always so for
+  `GetChannelInfo`; `ListChannels` sets them. `Binding.Port` is `*uint16`, nil
+  when the server reports no port. Read `*ch.TotalClients` after a nil check;
+  to compare, use `reflect.DeepEqual` rather than `==` on a `Channel` or
+  `Binding`.
+- `ClientDatabase(ctx)` is `IterateClientDatabase(ctx, teamspeak.PagingOptions{})`;
+  `PageSize` is how many records to ask for per page, 0 meaning 100. The walk
+  also ends now on a page that starts at or before the last record seen, which
+  is a server ignoring `start`. The new `ListClientDatabase(ctx,
+  teamspeak.ClientDatabasePageOptions{Start, Limit})` reads one page.
+- `ListChannels`, `ListBans`, `ListServerGroups`, `ListChannelGroups` and
+  `ListMessages` take a final options argument: `teamspeak.ChannelListOptions{}`,
+  `BanListOptions{}`, `ServerGroupListOptions{}`, `ChannelGroupListOptions{}`
+  and `MessageListOptions{}`. They have no fields yet; pass the empty value.
+- `GetClientInfo` is `GetClientProperties`, and `teamspeak.ClientInfo`, the
+  entry `ListClients` returns and `ClientEnterEvent` embeds, is
+  `teamspeak.ClientEntry`. Rename the uses; `evt.ClientEntry` replaces
+  `evt.ClientInfo` on a `ClientEnterEvent`.
+- `GetClientNameByUID` returns `(teamspeak.ClientDatabaseName, error)` instead
+  of `(ClientDBID, string, error)`, and `GetClientNameByDBID` returns that
+  type instead of a `string`: use `.DatabaseID` and `.Name`. `GetClientIDs`
+  returns `[]teamspeak.ClientMatch` instead of `[]ClientID`: use `.ID`, and
+  `.Nickname` for the name it now carries.
+- `OnConnected` takes `func(client.ConnectedEvent)` and `OnDisconnected` takes
+  `func(client.DisconnectedEvent)`: write `func(e client.DisconnectedEvent)`
+  and read `e.Err`, which is nil after `Disconnect`. `e.WillReconnect` is true
+  when the reconnect loop will try again, and `ConnectedEvent.Reconnected` is
+  true when the connection came from that loop.
+- `TextMessageEvent.InvokerGroups` is documented as nil when neither the
+  notification nor the client knew the sender's groups; no code change.
+  `ClientMovedEvent.ReasonMessage` carries the notification's `reasonmsg`.
+- `SendWhisper(data, []ClientID{...}, codec)` is
+  `SendWhisper(data, client.WhisperTargets{Clients: []ClientID{...}}, codec)`.
+  Only clients can be addressed: the whisper packet carries no channel
+  targets, so `WhisperTargets` has no `Channels` field yet. `SendVoice` takes a
+  final `client.VoiceOptions{}`, an empty struct reserved for later.
+- `UpdateMessageFlag(ctx, id, true)` is
+  `UpdateMessageFlag(ctx, id, teamspeak.MessageFlags{Read: true})`.
+
 ## v1.0.0-beta.5 (2026-10-15)
 
 - `client.WithVersion` chooses the platform, version and signature `clientinit`

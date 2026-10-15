@@ -56,8 +56,12 @@ func parseBan(row map[string]string) BanEntry {
 	}
 }
 
+// BanListOptions are ListBans' optional parameters. It has no fields yet: it is
+// reserved for the parameters of banlist.
+type BanListOptions struct{}
+
 // ListBans returns every active ban.
-func (c *Commands) ListBans(ctx context.Context) ([]BanEntry, error) {
+func (c *Commands) ListBans(ctx context.Context, _ BanListOptions) ([]BanEntry, error) {
 	rows, err := c.list(ctx, "banlist", nil)
 	if err != nil {
 		return nil, err
@@ -276,8 +280,12 @@ func parseMessage(row map[string]string) OfflineMessage {
 	}
 }
 
+// MessageListOptions are ListMessages' optional parameters. It has no fields
+// yet: it is reserved for the parameters of messagelist.
+type MessageListOptions struct{}
+
 // ListMessages returns offline messages for this client.
-func (c *Commands) ListMessages(ctx context.Context) ([]OfflineMessage, error) {
+func (c *Commands) ListMessages(ctx context.Context, _ MessageListOptions) ([]OfflineMessage, error) {
 	rows, err := c.list(ctx, "messagelist", nil)
 	if err != nil {
 		return nil, err
@@ -306,11 +314,19 @@ func (c *Commands) DeleteMessage(ctx context.Context, messageID MessageID) error
 	return c.exec(ctx, "messagedel", []param{idArg("msgid", messageID)})
 }
 
-// UpdateMessageFlag marks a message read or unread.
-func (c *Commands) UpdateMessageFlag(ctx context.Context, messageID MessageID, read bool) error {
+// MessageFlags are the flags UpdateMessageFlag sets on an offline message. The
+// flags are sent whole, so a field left false clears its flag.
+type MessageFlags struct {
+	// Read marks the message read; false marks it unread (flag).
+	Read bool
+}
+
+// UpdateMessageFlag sets an offline message's flags, marking it read or
+// unread.
+func (c *Commands) UpdateMessageFlag(ctx context.Context, messageID MessageID, flags MessageFlags) error {
 	return c.exec(ctx, "messageupdateflag", []param{
 		idArg("msgid", messageID),
-		boolArg("flag", read),
+		boolArg("flag", flags.Read),
 	})
 }
 

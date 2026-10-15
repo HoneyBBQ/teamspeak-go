@@ -62,6 +62,7 @@ import (
 	"os/signal"
 	"time"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/client"
 	"github.com/honeybbq/teamspeak-go/identity"
 )
@@ -87,16 +88,16 @@ func main() {
 	}
 
 	// Register event handlers
-	c.OnConnected(func() {
-		fmt.Println("Connected to server!")
+	c.OnConnected(func(e client.ConnectedEvent) {
+		fmt.Println("Connected to server! Reconnected:", e.Reconnected)
 	})
 
 	c.OnTextMessage(func(msg client.TextMessageEvent) {
 		fmt.Printf("[%s]: %s\n", msg.InvokerName, msg.Message)
 	})
 
-	c.OnDisconnected(func(err error) {
-		fmt.Println("Disconnected:", err)
+	c.OnDisconnected(func(e client.DisconnectedEvent) {
+		fmt.Println("Disconnected:", e.Err, "will reconnect:", e.WillReconnect)
 	})
 
 	// Connect returns once the handshake completes.
@@ -107,7 +108,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	channels, err := c.ListChannels(ctx)
+	channels, err := c.ListChannels(ctx, teamspeak.ChannelListOptions{})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -144,10 +145,10 @@ re-exports them as aliases, so a future ServerQuery client shares them.
 
 | Method | Description |
 |---|---|
-| `OnConnected(func())` | Fires when fully connected |
-| `OnDisconnected(func(error))` | Fires on disconnect |
+| `OnConnected(func(ConnectedEvent))` | Fires when fully connected; `Reconnected` is true when the reconnect loop made the connection |
+| `OnDisconnected(func(DisconnectedEvent))` | Fires on disconnect; `Err` is nil after `Disconnect`, and `WillReconnect` says whether the reconnect loop will try again |
 | `OnTextMessage(func(TextMessageEvent))` | Fires on text messages |
-| `OnClientEnter(func(ClientEnterEvent))` | Fires when a client comes into view; the event embeds its `teamspeak.ClientInfo` |
+| `OnClientEnter(func(ClientEnterEvent))` | Fires when a client comes into view; the event embeds its `teamspeak.ClientEntry` |
 | `OnClientLeave(func(ClientLeaveEvent))` | Fires when a client leaves |
 | `OnClientMoved(func(ClientMovedEvent))` | Fires when a client moves channels |
 | `OnPoked(func(PokeEvent))` | Fires when the bot is poked |
@@ -224,7 +225,9 @@ zero time for "never") and durations `time.Duration`, rounded to the unit the
 server uses for that field.
 
 ```go
-channels, err := c.ListChannels(ctx)
+// A field the answer may leave out is a pointer, nil when absent:
+// GetChannelInfo has no TotalClients, ListChannels does.
+channels, err := c.ListChannels(ctx, teamspeak.ChannelListOptions{})
 
 cid, err := c.CreateChannel(ctx, teamspeak.ChannelCreateOptions{
 	Name:        "Lounge",
@@ -247,7 +250,7 @@ err = c.AddChannelPermission(ctx, cid, teamspeak.PermissionByName(perm.ChannelNe
 banIDs, err := c.BanClient(ctx, troll, teamspeak.BanClientOptions{Duration: 10 * time.Minute, Reason: "cool off"})
 
 // The client database is paged; the iterator fetches page after page.
-for entry, err := range c.ClientDatabase(ctx) {
+for entry, err := range c.IterateClientDatabase(ctx, teamspeak.PagingOptions{}) {
 	if err != nil {
 		return err
 	}

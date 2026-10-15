@@ -9,7 +9,7 @@
 //	c, err := client.New(id, "ts.example.com", "bot")
 //	err = c.Connect(ctx)
 //	defer c.Disconnect(context.WithoutCancel(ctx))
-//	channels, err := c.ListChannels(ctx)
+//	channels, err := c.ListChannels(ctx, teamspeak.ChannelListOptions{})
 //
 // The typed commands come from the embedded [teamspeak.Commands]; this package
 // adds the session itself — events, voice, whispers, reconnection — and the

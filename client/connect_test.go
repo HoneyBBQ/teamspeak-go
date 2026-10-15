@@ -296,11 +296,11 @@ func TestDisconnectThenConnect_HandlersSeeTheOldSessionEndFirst(t *testing.T) {
 	c := leavingClient(t)
 	var log eventLog
 	releaseHandler := make(chan struct{})
-	c.OnDisconnected(func(err error) {
+	c.OnDisconnected(func(e DisconnectedEvent) {
 		<-releaseHandler // a slow handler holds the queue
-		log.add(fmt.Sprintf("disconnected(%v)", err))
+		log.add(fmt.Sprintf("disconnected(%v)", e.Err))
 	})
-	c.OnConnected(func() { log.add("connected") })
+	c.OnConnected(func(ConnectedEvent) { log.add("connected") })
 	c.OnTextMessage(func(m TextMessageEvent) { log.add("text " + m.Message) })
 	old := c.currentHandler()
 
@@ -339,7 +339,7 @@ func TestLifecycleCallsFromAHandlerDoNotDeadlock(t *testing.T) {
 	fromConnected := make(chan error, 1)
 	fromDisconnected := make(chan error, 1)
 	var once sync.Once
-	c.OnConnected(func() {
+	c.OnConnected(func(ConnectedEvent) {
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		_ = c.Disconnect(ctx)
@@ -348,7 +348,7 @@ func TestLifecycleCallsFromAHandlerDoNotDeadlock(t *testing.T) {
 		default:
 		}
 	})
-	c.OnDisconnected(func(error) {
+	c.OnDisconnected(func(DisconnectedEvent) {
 		once.Do(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 			defer cancel()
@@ -385,7 +385,7 @@ func TestConnect_RefusesAnInvalidAddress(t *testing.T) {
 			t.Fatalf("New(%q): %v", addr, err)
 		}
 		heard := make(chan error, 1)
-		c.OnDisconnected(func(err error) { heard <- err })
+		c.OnDisconnected(func(e DisconnectedEvent) { heard <- e.Err })
 
 		err = c.Connect(t.Context())
 		if !errors.Is(err, ErrInvalidAddress) {

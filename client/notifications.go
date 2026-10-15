@@ -42,7 +42,7 @@ func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *wire.Com
 	channelGroup, _ := parseUint64Value(cmd.Params["client_channel_group_id"])
 
 	if clid != 0 {
-		info := teamspeak.ClientInfo{
+		info := teamspeak.ClientEntry{
 			ID:             clid,
 			Nickname:       nick,
 			UID:            teamspeak.UID(uid),
@@ -83,7 +83,7 @@ func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *wire.Com
 		// The event's groups are its own: the last handler gets the event
 		// itself, and must not be able to edit the client list through it.
 		info.ServerGroups = slices.Clone(info.ServerGroups)
-		c.emitEvent(ClientEnterEvent{ClientInfo: info})
+		c.emitEvent(ClientEnterEvent{ClientEntry: info})
 	}
 }
 
@@ -176,6 +176,7 @@ func (c *Client) handleClientMoved(h *transport.PacketHandler, cmd *wire.Command
 		InvokerID:       parseClientID(cmd.Params["invokerid"]),
 		InvokerName:     cmd.Params["invokername"],
 		InvokerUID:      teamspeak.UID(cmd.Params["invokeruid"]),
+		ReasonMessage:   cmd.Params["reasonmsg"],
 	}
 	c.emitEvent(evt)
 

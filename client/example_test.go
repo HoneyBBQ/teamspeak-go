@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/client"
 	"github.com/honeybbq/teamspeak-go/identity"
 )
@@ -74,7 +75,7 @@ func ExampleClient_ListChannels() { //nolint:testableexamples // connects to a s
 		log.Fatal(err)
 	}
 
-	channels, err := c.ListChannels(ctx)
+	channels, err := c.ListChannels(ctx, teamspeak.ChannelListOptions{})
 	_ = c.Disconnect(context.WithoutCancel(ctx))
 	if err != nil {
 		log.Fatal(err)

@@ -14,7 +14,7 @@ import (
 func TestIntegration_ChannelAPI(t *testing.T) {
 	c := requireSharedClient(t)
 
-	channels, err := c.ListChannels(t.Context())
+	channels, err := c.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
@@ -65,8 +65,10 @@ func checkListedChannelFlags(t *testing.T, c *client.Client, channels []teamspea
 	permanent := false
 	for _, ch := range channels {
 		permanent = permanent || ch.IsPermanent
-		if ch.ID == c.ChannelID() && ch.TotalClients < 1 {
-			t.Errorf("channel %d holds this client but TotalClients = %d", ch.ID, ch.TotalClients)
+		if ch.TotalClients == nil || ch.TotalFamilyClients == nil || ch.NeededSubscribePower == nil {
+			t.Errorf("channel %d: channellist left a count nil", ch.ID)
+		} else if ch.ID == c.ChannelID() && *ch.TotalClients < 1 {
+			t.Errorf("channel %d holds this client but TotalClients = %d", ch.ID, *ch.TotalClients)
 		}
 		if ch.IsDefault && !ch.IsPermanent {
 			t.Errorf("default channel %d is not permanent", ch.ID)

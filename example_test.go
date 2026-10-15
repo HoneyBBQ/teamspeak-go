@@ -33,14 +33,14 @@ func (r *recorded) Send(_ context.Context, req teamspeak.Request) ([]map[string]
 }
 
 // A typed command sends the request and reads the answer into typed values.
-// With a client, the same call is c.ListChannels(ctx).
+// With a client, the same call is c.ListChannels(ctx, teamspeak.ChannelListOptions{}).
 func ExampleCommands_ListChannels() {
 	cmds := teamspeak.NewCommands(&recorded{answers: []recordedAnswer{{rows: []map[string]string{
 		{"cid": "1", "pid": "0", "channel_name": "Lobby", "total_clients": "3"},
 		{"cid": "2", "pid": "1", "channel_name": "AFK", "total_clients": "0"},
 	}}}})
 
-	channels, err := cmds.ListChannels(context.Background())
+	channels, err := cmds.ListChannels(context.Background(), teamspeak.ChannelListOptions{})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func ExampleCommands_ListChannels() {
 
 // ClientDatabase pages through the server's client records, fetching the next
 // page as the loop reaches it. Breaking out of the loop stops the paging.
-func ExampleCommands_ClientDatabase() {
+func ExampleCommands_IterateClientDatabase() {
 	cmds := teamspeak.NewCommands(&recorded{answers: []recordedAnswer{
 		{rows: []map[string]string{
 			{"cldbid": "1", "client_nickname": "alice"},
@@ -64,7 +64,7 @@ func ExampleCommands_ClientDatabase() {
 		{err: &teamspeak.ServerError{Code: errcode.DatabaseEmptyResult}},
 	}})
 
-	for entry, err := range cmds.ClientDatabase(context.Background()) {
+	for entry, err := range cmds.IterateClientDatabase(context.Background(), teamspeak.PagingOptions{}) {
 		if err != nil {
 			log.Fatal(err)
 		}

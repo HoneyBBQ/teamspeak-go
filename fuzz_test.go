@@ -57,7 +57,7 @@ func FuzzTypedResponses(f *testing.F) {
 		if err == nil && len(clients) != len(rows) {
 			t.Fatalf("ListClients: %d clients from %d rows", len(clients), len(rows))
 		}
-		channels, err := c.ListChannels(ctx)
+		channels, err := c.ListChannels(ctx, ChannelListOptions{})
 		if err == nil && len(channels) != len(rows) {
 			t.Fatalf("ListChannels: %d channels from %d rows", len(channels), len(rows))
 		}
@@ -67,9 +67,9 @@ func FuzzTypedResponses(f *testing.F) {
 		readCreated(ctx, c)
 
 		seen := 0
-		for _, err := range c.ClientDatabase(ctx) {
+		for _, err := range c.IterateClientDatabase(ctx, PagingOptions{}) {
 			seen++
-			if err != nil || seen >= 3*clientDatabasePageSize {
+			if err != nil || seen >= 3*defaultPageSize {
 				break
 			}
 		}
@@ -79,10 +79,10 @@ func FuzzTypedResponses(f *testing.F) {
 // readLists runs the typed commands that list or find, whose rows each become
 // an entry.
 func readLists(ctx context.Context, c *Commands) {
-	_, _ = c.ListServerGroups(ctx)
-	_, _ = c.ListChannelGroups(ctx)
-	_, _ = c.ListBans(ctx)
-	_, _ = c.ListMessages(ctx)
+	_, _ = c.ListServerGroups(ctx, ServerGroupListOptions{})
+	_, _ = c.ListChannelGroups(ctx, ChannelGroupListOptions{})
+	_, _ = c.ListBans(ctx, BanListOptions{})
+	_, _ = c.ListMessages(ctx, MessageListOptions{})
 	_, _ = c.ListComplaints(ctx, ComplaintListOptions{})
 	_, _ = c.ListPrivilegeKeys(ctx)
 	_, _ = c.ListTempPasswords(ctx)
@@ -115,10 +115,10 @@ func readValues(ctx context.Context, c *Commands) {
 	_, _ = c.GetClientDBIDByUID(ctx, "uid")
 	_, _ = c.GetClientUIDByID(ctx, 1)
 	_, _ = c.GetClientNameByDBID(ctx, 1)
-	_, name, _ := c.GetClientNameByUID(ctx, "uid")
-	_ = name
+	byUID, _ := c.GetClientNameByUID(ctx, "uid")
+	_ = byUID
 	_, _ = c.GetClientDatabaseInfo(ctx, 1)
-	_, _ = c.GetClientInfo(ctx, 1)
+	_, _ = c.GetClientProperties(ctx, 1)
 	_, _ = c.GetChannelInfo(ctx, 1)
 	_, _ = c.GetServerInfo(ctx)
 	_, _ = c.GetHostInfo(ctx)

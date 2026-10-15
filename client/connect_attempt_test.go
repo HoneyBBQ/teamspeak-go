@@ -49,7 +49,7 @@ func waitWithin(t *testing.T, c *Client, d time.Duration) error {
 func TestWaitConnected_ReturnsServerErrorInsteadOfTimingOut(t *testing.T) {
 	c := connectingClient(t)
 	disconnected := make(chan error, 1)
-	c.OnDisconnected(func(err error) { disconnected <- err })
+	c.OnDisconnected(func(e DisconnectedEvent) { disconnected <- e.Err })
 
 	c.handleCommand(c.handler, `error id=1028 msg=invalid\sserver\spassword`)
 

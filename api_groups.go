@@ -52,8 +52,12 @@ func parseChannelGroup(row map[string]string) ChannelGroup {
 	}
 }
 
+// ChannelGroupListOptions are ListChannelGroups' optional parameters. It has no
+// fields yet: it is reserved for the parameters of channelgrouplist.
+type ChannelGroupListOptions struct{}
+
 // ListChannelGroups returns every channel group.
-func (c *Commands) ListChannelGroups(ctx context.Context) ([]ChannelGroup, error) {
+func (c *Commands) ListChannelGroups(ctx context.Context, _ ChannelGroupListOptions) ([]ChannelGroup, error) {
 	rows, err := c.list(ctx, "channelgrouplist", nil)
 	if err != nil {
 		return nil, err

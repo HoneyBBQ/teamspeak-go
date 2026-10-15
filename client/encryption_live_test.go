@@ -25,7 +25,7 @@ func TestLive_SessionNeedsNoUnencryptedCommands(t *testing.T) {
 	host, _, err := net.SplitHostPort(addr)
 	requireNoErr(t, err)
 
-	_, err = c.GetClientInfo(t.Context(), c.ClientID())
+	_, err = c.GetClientProperties(t.Context(), c.ClientID())
 	requireNoErr(t, err)
 
 	text := fmt.Sprintf("encrypted-only-%d", time.Now().UnixNano())

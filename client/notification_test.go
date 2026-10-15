@@ -154,7 +154,7 @@ func TestClientEventsForClidZeroAreDropped(t *testing.T) {
 
 func TestHandleClientLeftView_RemovesFromClients(t *testing.T) {
 	c := newTestClient(t)
-	c.clients[5] = teamspeak.ClientInfo{ID: 5, Nickname: "Alice"}
+	c.clients[5] = teamspeak.ClientEntry{ID: 5, Nickname: "Alice"}
 
 	cmd := wire.ParseCommand("notifyclientleftview clid=5 reasonid=8 reasonmsg=")
 	c.handleClientLeftView(c.handler, cmd)
@@ -175,7 +175,7 @@ func connectedTestClient(t *testing.T) *Client {
 	c.mu.Lock()
 	c.status = StatusConnected
 	c.clid = 5
-	c.clients[5] = teamspeak.ClientInfo{ID: 5}
+	c.clients[5] = teamspeak.ClientEntry{ID: 5}
 	c.mu.Unlock()
 
 	return c
@@ -186,7 +186,7 @@ func TestHandleClientLeftView_KickSelf_TriggersKickedAndEndsTheSession(t *testin
 	kicked := make(chan KickedEvent, 1)
 	c.OnKicked(func(e KickedEvent) { kicked <- e })
 	disconnected := make(chan error, 1)
-	c.OnDisconnected(func(err error) { disconnected <- err })
+	c.OnDisconnected(func(e DisconnectedEvent) { disconnected <- e.Err })
 
 	c.handleClientLeftView(c.handler, wire.ParseCommand(
 		`notifyclientleftview clid=5 reasonid=5 reasonmsg=behave invokerid=1 invokername=Admin`))
@@ -214,7 +214,7 @@ func TestHandleClientLeftView_ServerStop_EndsTheSessionAndIsRetried(t *testing.T
 	kicked := make(chan KickedEvent, 1)
 	c.OnKicked(func(e KickedEvent) { kicked <- e })
 	disconnected := make(chan error, 1)
-	c.OnDisconnected(func(err error) { disconnected <- err })
+	c.OnDisconnected(func(e DisconnectedEvent) { disconnected <- e.Err })
 
 	c.handleClientLeftView(c.handler, wire.ParseCommand(`notifyclientleftview clid=5 reasonid=11 reasonmsg=restart`))
 
@@ -246,6 +246,19 @@ func TestHandleClientMoved_ChannelKickOfSelf_TriggersKicked(t *testing.T) {
 	}
 }
 
+func TestHandleClientMoved_CarriesTheReasonMessage(t *testing.T) {
+	c := connectedTestClient(t)
+	moved := make(chan ClientMovedEvent, 1)
+	c.OnClientMoved(func(e ClientMovedEvent) { moved <- e })
+
+	c.handleClientMoved(c.handler, wire.ParseCommand(
+		`notifyclientmoved clid=6 ctid=1 reasonid=1 reasonmsg=sorry\sabout\sthat invokerid=1 invokername=Admin`))
+
+	if e := receive(t, moved); e.ReasonMessage != "sorry about that" {
+		t.Errorf("ReasonMessage = %q", e.ReasonMessage)
+	}
+}
+
 func TestHandleClientLeftView_OthersLeaving_NoKickedCallback(t *testing.T) {
 	c := connectedTestClient(t)
 	kicked := make(chan KickedEvent, 1)
@@ -267,7 +280,7 @@ func TestHandleClientLeftView_OthersLeaving_NoKickedCallback(t *testing.T) {
 func TestHandleClientMoved_UpdatesChannelID(t *testing.T) {
 	c := newTestClient(t)
 	c.mu.Lock()
-	c.clients[3] = teamspeak.ClientInfo{ID: 3, ChannelID: 10}
+	c.clients[3] = teamspeak.ClientEntry{ID: 3, ChannelID: 10}
 	c.mu.Unlock()
 
 	const moveCmd = "notifyclientmoved clid=3 ctid=20 reasonid=0" +
@@ -286,7 +299,7 @@ func TestHandleClientMoved_UpdatesChannelID(t *testing.T) {
 func TestHandleClientMoved_TriggersCallback(t *testing.T) {
 	c := newTestClient(t)
 	c.mu.Lock()
-	c.clients[3] = teamspeak.ClientInfo{ID: 3}
+	c.clients[3] = teamspeak.ClientEntry{ID: 3}
 	c.mu.Unlock()
 
 	moved := make(chan ClientMovedEvent, 1)
@@ -309,7 +322,7 @@ func TestHandleClientMoved_TriggersCallback(t *testing.T) {
 func TestHandleTextMessage_CallsCallback(t *testing.T) {
 	c := newTestClient(t)
 	c.mu.Lock()
-	c.clients[2] = teamspeak.ClientInfo{ID: 2, UID: "invokeruid"}
+	c.clients[2] = teamspeak.ClientEntry{ID: 2, UID: "invokeruid"}
 	c.mu.Unlock()
 
 	msgs := make(chan TextMessageEvent, 1)
@@ -340,7 +353,7 @@ func TestHandleTextMessage_CallsCallback(t *testing.T) {
 func TestHandleTextMessage_FallbackToClientCacheUID(t *testing.T) {
 	c := newTestClient(t)
 	c.mu.Lock()
-	c.clients[99] = teamspeak.ClientInfo{ID: 99, UID: "cacheduid"}
+	c.clients[99] = teamspeak.ClientEntry{ID: 99, UID: "cacheduid"}
 	c.mu.Unlock()
 
 	msgs := make(chan TextMessageEvent, 1)

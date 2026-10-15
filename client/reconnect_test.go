@@ -66,7 +66,7 @@ func TestReconnectRetriesADropThatArrivedWhileALoopRan(t *testing.T) {
 	c.mu.Unlock()
 
 	drop := errTestDrop
-	c.scheduleReconnect(drop)
+	c.scheduleReconnect(drop, nil)
 	select {
 	case err := <-asked:
 		t.Fatalf("a second loop ran alongside the first (asked about %v)", err)
@@ -140,12 +140,109 @@ func TestReconnectLoopEndsWhenAlreadyConnected(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		c.scheduleReconnect(errTestDrop)
+		c.scheduleReconnect(errTestDrop, nil)
 		close(done)
 	}()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("the reconnect loop kept retrying a client that is already connected")
+	}
+}
+
+func TestRetryVerdict_WillReconnect(t *testing.T) {
+	for name, tc := range map[string]struct {
+		setup   func(c *Client)
+		attempt int
+		want    bool
+	}{
+		"policy accepts":  {func(c *Client) { withFastReconnect(c, func(error, int) bool { return true }) }, 1, true},
+		"policy declines": {func(c *Client) { withFastReconnect(c, func(error, int) bool { return false }) }, 1, false},
+		"reconnect off":   {func(*Client) {}, 1, false},
+		"stopped": {func(c *Client) {
+			withFastReconnect(c, func(error, int) bool { return true })
+			c.mu.Lock()
+			c.stopped = true
+			c.mu.Unlock()
+		}, 1, false},
+		"attempts used up": {func(c *Client) {
+			withFastReconnect(c, func(error, int) bool { return true })
+			c.mu.Lock()
+			c.reconnectOptions.Backoff.MaxAttempts = 2
+			c.mu.Unlock()
+		}, 3, false},
+		"last attempt left": {func(c *Client) {
+			withFastReconnect(c, func(error, int) bool { return true })
+			c.mu.Lock()
+			c.reconnectOptions.Backoff.MaxAttempts = 2
+			c.mu.Unlock()
+		}, 2, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := newTestClient(t)
+			tc.setup(c)
+			c.mu.Lock()
+			v := c.newVerdictLocked(errTestDrop, tc.attempt)
+			c.mu.Unlock()
+
+			if got := v.willReconnect(); got != tc.want {
+				t.Errorf("willReconnect = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The loop and the event both ask, and the caller's ShouldRetry hears the
+// failure once.
+func TestRetryVerdict_AsksThePolicyOnce(t *testing.T) {
+	c := newTestClient(t)
+	var asked int
+	withFastReconnect(c, func(error, int) bool {
+		asked++
+
+		return true
+	})
+	c.mu.Lock()
+	v := c.newVerdictLocked(errTestDrop, 1)
+	c.mu.Unlock()
+
+	v.willReconnect()
+	v.policy()
+	v.willReconnect()
+	if asked != 1 {
+		t.Errorf("ShouldRetry asked %d times, want 1", asked)
+	}
+}
+
+func TestDisconnectedEvent_AFailedConnectWillNotReconnect(t *testing.T) {
+	c := newTestClient(t)
+	withFastReconnect(c, func(error, int) bool { return true })
+	markConnecting(c)
+	heard := make(chan DisconnectedEvent, 1)
+	c.OnDisconnected(func(e DisconnectedEvent) { heard <- e })
+
+	c.failConnection(c.handler, errTestDrop)
+
+	if e := receive(t, heard); !errors.Is(e.Err, errTestDrop) || e.WillReconnect {
+		t.Errorf("event = %+v, want the cause and no reconnect for a failed Connect", e)
+	}
+}
+
+func TestDisconnectedEvent_AFailedReconnectAttemptWillReconnectWhenThePolicyAllows(t *testing.T) {
+	for _, accept := range []bool{true, false} {
+		c := newTestClient(t)
+		withFastReconnect(c, func(error, int) bool { return accept })
+		markConnecting(c)
+		c.mu.Lock()
+		c.attempt.reconnect = true
+		c.mu.Unlock()
+		heard := make(chan DisconnectedEvent, 1)
+		c.OnDisconnected(func(e DisconnectedEvent) { heard <- e })
+
+		c.failConnection(c.handler, errTestDrop)
+
+		if e := receive(t, heard); e.WillReconnect != accept {
+			t.Errorf("policy accepts %v: WillReconnect = %v", accept, e.WillReconnect)
+		}
 	}
 }

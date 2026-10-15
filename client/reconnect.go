@@ -17,6 +17,7 @@ import (
 	"errors"
 	"math"
 	"math/rand/v2"
+	"sync"
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
@@ -179,4 +180,90 @@ func DefaultShouldRetry(err error, _ int) bool {
 	}
 
 	return true
+}
+
+// retryVerdict is whether the reconnect loop will try again after one failure.
+//
+// Both the loop and the DisconnectedEvent announcing the failure need the
+// answer, and ShouldRetry is the caller's function: the verdict asks it once,
+// from whichever of the two comes first, and the other reuses the answer. The
+// policy is asked with no lock held.
+type retryVerdict struct {
+	err     error
+	attempt int
+	// ask is the policy's decision; nil when reconnection is off or the client
+	// has been stopped, either of which rules out another attempt.
+	ask func(err error, attempt int) bool
+	// inBounds is false once the attempts are used up.
+	inBounds bool
+
+	once   sync.Once
+	accept bool
+}
+
+// policy is whether ShouldRetry accepts the failure, without regard to how
+// many attempts are left.
+func (v *retryVerdict) policy() bool {
+	v.once.Do(func() { v.accept = v.ask != nil && v.ask(v.err, v.attempt) })
+
+	return v.accept
+}
+
+// willReconnect is whether the loop will make attempt number v.attempt.
+func (v *retryVerdict) willReconnect() bool {
+	return v.ask != nil && v.inBounds && v.policy()
+}
+
+// newVerdictLocked is the verdict on err, the failure before attempt number
+// attempt. The caller holds c.mu.
+func (c *Client) newVerdictLocked(err error, attempt int) *retryVerdict {
+	v := &retryVerdict{err: err, attempt: attempt}
+	if c.reconnectOptions == nil || c.stopped {
+		return v
+	}
+	v.ask = c.reconnectOptions.ShouldRetry
+	if v.ask == nil {
+		v.ask = DefaultShouldRetry
+	}
+	maxAttempts := c.reconnectOptions.Backoff.MaxAttempts
+	v.inBounds = maxAttempts == 0 || attempt <= maxAttempts
+
+	return v
+}
+
+// failedAttemptVerdictLocked is the verdict on a failed connection attempt: a
+// reconnect attempt is followed by the next one, if the policy allows, while a
+// failed Connect is never retried. It is kept for the loop, which asks it
+// again. The caller holds c.mu.
+func (c *Client) failedAttemptVerdictLocked(err error) *retryVerdict {
+	if !c.attempt.reconnect {
+		return &retryVerdict{err: err}
+	}
+	c.attemptVerdict = c.newVerdictLocked(err, c.attempt.number+1)
+
+	return c.attemptVerdict
+}
+
+// takeVerdict returns the verdict left for the reconnect attempt that failed
+// with err, or makes one when the attempt failed before it began.
+func (c *Client) takeVerdict(err error, attempt int) *retryVerdict {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	v := c.attemptVerdict
+	c.attemptVerdict = nil
+	if v == nil {
+		v = c.newVerdictLocked(err, attempt)
+	}
+
+	return v
+}
+
+// emitDisconnectedLocked queues the disconnected event for err. WillReconnect
+// is worked out when it is delivered, on the event goroutine, because asking
+// ShouldRetry takes no lock and the caller holds c.mu.
+func (c *Client) emitDisconnectedLocked(err error, v *retryVerdict) {
+	c.events.push(func() {
+		c.onDisconnected.deliver(c.logger, "Disconnected", DisconnectedEvent{Err: err, WillReconnect: v.willReconnect()}, nil)
+	})
 }

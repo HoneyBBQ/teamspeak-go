@@ -7,7 +7,7 @@
 //
 //	c, err := client.New(id, "ts.example.com", "bot")
 //	...
-//	channels, err := c.ListChannels(ctx)
+//	channels, err := c.ListChannels(ctx, teamspeak.ChannelListOptions{})
 //
 // Import a client rather than this package on its own: [client] speaks the
 // voice protocol, the way the TeamSpeak application does. A ServerQuery client

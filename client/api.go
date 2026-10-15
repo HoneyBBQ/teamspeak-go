@@ -11,10 +11,14 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
+// VoiceOptions are SendVoice's optional parameters. It has no fields yet: it is
+// reserved for later.
+type VoiceOptions struct{}
+
 // SendVoice sends one encoded audio frame, normally teamspeak.CodecOpusVoice
 // or CodecOpusMusic. Without an open connection it returns
 // teamspeak.ErrNotConnected.
-func (c *Client) SendVoice(data []byte, codec teamspeak.Codec) error {
+func (c *Client) SendVoice(data []byte, codec teamspeak.Codec, _ VoiceOptions) error {
 	h := c.connectedHandler()
 	if h == nil {
 		return teamspeak.ErrNotConnected
@@ -40,13 +44,22 @@ var ErrNoWhisperTargets = transport.ErrNoWhisperTargets
 // address.
 var ErrTooManyWhisperTargets = transport.ErrTooManyWhisperTargets
 
-// SendWhisper sends Opus voice directly to up to 32 clients, regardless of which
-// channel they are in. The bot's server group needs i_client_whisper_power.
-// Without an open connection it returns teamspeak.ErrNotConnected.
-func (c *Client) SendWhisper(data []byte, targetClientIDs []teamspeak.ClientID, codec teamspeak.Codec) error {
-	targets := make([]uint16, len(targetClientIDs))
-	for i, id := range targetClientIDs {
-		targets[i] = uint16(id)
+// WhisperTargets are who SendWhisper reaches. Only clients can be addressed
+// today: the packet SendWhisper builds carries no channel targets. Fields are
+// added as the framing learns them, so build one with keyed fields.
+type WhisperTargets struct {
+	// Clients are the clients to whisper to, at least one and at most 32.
+	Clients []teamspeak.ClientID
+}
+
+// SendWhisper sends Opus voice directly to the clients in targets, regardless
+// of which channel they are in. The bot's server group needs
+// i_client_whisper_power. Without an open connection it returns
+// teamspeak.ErrNotConnected.
+func (c *Client) SendWhisper(data []byte, targets WhisperTargets, codec teamspeak.Codec) error {
+	clients := make([]uint16, len(targets.Clients))
+	for i, id := range targets.Clients {
+		clients[i] = uint16(id)
 	}
 
 	h := c.connectedHandler()
@@ -54,7 +67,7 @@ func (c *Client) SendWhisper(data []byte, targetClientIDs []teamspeak.ClientID, 
 		return teamspeak.ErrNotConnected
 	}
 
-	return notConnected(h.SendWhisperPacket(data, targets, byte(codec)))
+	return notConnected(h.SendWhisperPacket(data, clients, byte(codec)))
 }
 
 // ServerCapabilities reports what the connected server is: version, generation,

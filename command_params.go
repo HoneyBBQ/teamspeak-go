@@ -330,6 +330,28 @@ func fieldInt32(row map[string]string, key string) int32 {
 	return int32(value)
 }
 
+// fieldOptInt32 reads a signed 32-bit field that an answer may leave out. It
+// is nil when the key is absent or empty, and a pointer to the value, zero
+// included, when the server sent it: 0 and "not reported" mean different things.
+func fieldOptInt32(row map[string]string, key string) *int32 {
+	if row[key] == "" {
+		return nil
+	}
+	value := fieldInt32(row, key)
+
+	return &value
+}
+
+// fieldOptUint16 is fieldOptInt32 for a 16-bit unsigned field.
+func fieldOptUint16(row map[string]string, key string) *uint16 {
+	if row[key] == "" {
+		return nil
+	}
+	value := fieldUint16(row, key)
+
+	return &value
+}
+
 // createdGroupID returns the id of the group a create or copy just made.
 //
 // ServerQuery answers servergroupadd with the new id alone. The voice protocol
