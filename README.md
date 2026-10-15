@@ -509,6 +509,13 @@ members to `Status`, `ServerFamily`, `identity.UIDAlgorithm`, the set of
 the rest), and the server may send values this module does not name, so a
 `switch` over any of them should have a default case.
 
+### Supported Go versions
+
+The module supports the two newest Go major releases, as Go itself does; CI
+tests both, 1.26 and 1.27. The `go` line in `go.mod` is the oldest of them.
+When that release leaves support, a minor release may raise the line; that is
+not a breaking change.
+
 ### Differences from teamspeak-js
 
 The two SDKs make the same decisions and use the same names, except where the

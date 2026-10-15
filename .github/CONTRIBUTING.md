@@ -23,7 +23,9 @@ so in the pull request.
 
 ## Setup
 
-You need Go 1.26 or newer and [golangci-lint](https://golangci-lint.run/).
+You need Go 1.26 or newer and [golangci-lint](https://golangci-lint.run/). The Go versions the module supports, and how that changes over
+time, are described under [Supported Go versions](../README.md#supported-go-versions);
+CI tests them.
 
 ```sh
 git clone https://github.com/HoneyBBQ/teamspeak-go
