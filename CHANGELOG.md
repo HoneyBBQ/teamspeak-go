@@ -3,6 +3,16 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+- `GetChannelInfo` leaves `TotalClients`, `TotalFamilyClients` and
+  `NeededSubscribePower` at 0, because `channelinfo` does not carry them; the
+  documentation said only `channellist` reported them without saying what
+  `GetChannelInfo` returns. Use `ListChannels` for live counts.
+- `ListBindings` fills `Binding.Subsystem` with the subsystem asked for, or
+  `"voice"` when none was, where it came back empty. `Binding.Port` is 0 when
+  the server does not report one.
+
 ## v1.0.0-beta.4 (2026-10-14)
 
 - `teamspeak.ErrFileTransfer` is wrapped by every error `UploadFileData`,

@@ -37,3 +37,16 @@ func TestListChannels_ParsesEveryField(t *testing.T) {
 		t.Errorf("channel = %+v, want %+v", got[0], want)
 	}
 }
+
+func TestListBindings_FillsTheSubsystem(t *testing.T) {
+	for _, tc := range []struct{ asked, want string }{{"", "voice"}, {"query", "query"}} {
+		s := &script{replies: []reply{{rows: []map[string]string{{"ip": "0.0.0.0"}}}}}
+		got, err := NewCommands(s).ListBindings(t.Context(), BindingListOptions{Subsystem: tc.asked})
+		if err != nil || len(got) != 1 {
+			t.Fatalf("got %v, %v", got, err)
+		}
+		if want := (Binding{Subsystem: tc.want, IP: "0.0.0.0"}); got[0] != want {
+			t.Errorf("asked %q: binding = %+v, want %+v", tc.asked, got[0], want)
+		}
+	}
+}
