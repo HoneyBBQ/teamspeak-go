@@ -78,13 +78,15 @@ tag, so `go test ./...` does not run it. CI runs it against TeamSpeak 3 and 6.
 
 Start a server in Docker and provision it with the fixture script, which creates
 the channels the tests use, grants the permissions they exercise, relaxes
-anti-flood, and writes `ts3-fixture.env`:
+anti-flood, and writes an env file outside the repository. The file is
+`ts3-fixture.env` under `$TMPDIR` (or `/tmp`), or the path in
+`TS3_FIXTURE_ENV`; the script prints the path to source:
 
 ```sh
 docker run -d --name ts3 -e TS3SERVER_LICENSE=accept \
   -p 9987:9987/udp -p 10011:10011 -p 30033:30033 teamspeak:latest
 TS3_QUERY_HOST=127.0.0.1 ./scripts/ts3-fixture.sh
-set -a; . ./ts3-fixture.env; set +a
+set -a; . "${TS3_FIXTURE_ENV:-${TMPDIR:-/tmp}/ts3-fixture.env}"; set +a
 go test -race -tags integration -timeout 300s ./...
 ```
 

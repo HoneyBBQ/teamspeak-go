@@ -3,7 +3,7 @@ package teamspeak
 import "strconv"
 
 // Reason is why a client moved or left view, as the server reports it
-// (reasonid). The names follow ReSpeak/tsdeclarations.
+// (reasonid).
 type Reason int
 
 const (

@@ -463,7 +463,7 @@ func (c *Commands) ViewLog(ctx context.Context, opts LogViewOptions) (LogPage, e
 		LastPosition: fieldUint(rows[0], "last_pos"),
 		FileSize:     fieldUint(rows[0], "file_size"),
 	}
-	// One line per row, under the key l (tsdeclarations: ServerLog). This
+	// One line per row, under the key l. This
 	// used to read only a "log" field from the first row, which the server
 	// does not send; it is still read, should a server send the lines that
 	// way.
