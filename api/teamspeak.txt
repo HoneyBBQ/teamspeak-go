@@ -16,6 +16,10 @@ const GroupNameHidden GroupNameMode = 0
 const GroupQuery GroupType = 2
 const GroupRegular GroupType = 1
 const GroupTemplate GroupType = 0
+const HostMessageLog HostMessageMode = 1
+const HostMessageModal HostMessageMode = 2
+const HostMessageModalQuit HostMessageMode = 3
+const HostMessageNone HostMessageMode = 0
 const LogLevelDebug LogLevel = 3
 const LogLevelError LogLevel = 1
 const LogLevelInfo LogLevel = 4
@@ -460,6 +464,8 @@ type GroupNameMode int
 method (GroupNameMode) String() string
 type GroupType int
 method (GroupType) String() string
+type HostMessageMode int
+method (HostMessageMode) String() string
 type IconID uint32
 type KickedEvent struct
 field KickedEvent.ReasonMessage string

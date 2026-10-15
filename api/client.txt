@@ -261,7 +261,7 @@ field ServerCapabilities.ServerUID string
 field ServerCapabilities.HostMessage string
 field ServerCapabilities.Major int
 field ServerCapabilities.ServerID teamspeak.ServerID
-field ServerCapabilities.HostMessageMode int
+field ServerCapabilities.HostMessageMode teamspeak.HostMessageMode
 field ServerCapabilities.IconID teamspeak.IconID
 type ServerFamily string
 method (ServerFamily) String() string
