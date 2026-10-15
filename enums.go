@@ -166,6 +166,35 @@ func (t PermissionTarget) String() string {
 	return enumName(t, permissionTargetNames[:], "permission target")
 }
 
+// HostMessageMode is how a server's host message is to be shown
+// (virtualserver_hostmessage_mode).
+type HostMessageMode int
+
+const (
+	// HostMessageNone shows nothing.
+	HostMessageNone HostMessageMode = 0
+	// HostMessageLog shows the message in the log.
+	HostMessageLog HostMessageMode = 1
+	// HostMessageModal shows the message in a modal dialog.
+	HostMessageModal HostMessageMode = 2
+	// HostMessageModalQuit shows the message in a modal dialog and then
+	// disconnects.
+	HostMessageModalQuit HostMessageMode = 3
+)
+
+var hostMessageModeNames = [...]string{
+	HostMessageNone:      "none",
+	HostMessageLog:       "log",
+	HostMessageModal:     "modal",
+	HostMessageModalQuit: "modal then quit",
+}
+
+// String returns the host message mode's name, or "host message mode N" for a value this version does
+// not know.
+func (m HostMessageMode) String() string {
+	return enumName(m, hostMessageModeNames[:], "host message mode")
+}
+
 // enumName names v from names, indexed by value, or describes it by number: the
 // server may send a value newer than this package, and printing it beats
 // printing nothing.
