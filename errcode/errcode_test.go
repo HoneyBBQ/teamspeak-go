@@ -28,7 +28,7 @@ func TestCodeError(t *testing.T) {
 	if got := errcode.PermissionsClientInsufficient.Error(); got != "insufficient client permissions" {
 		t.Errorf("PermissionsClientInsufficient.Error() = %q", got)
 	}
-	// A code newer than tsdeclarations still says which code it is.
+	// A code this package does not know still says which code it is.
 	if got := errcode.Code(0xfffe).Error(); got != "error 65534" {
 		t.Errorf("unknown code = %q, want the number", got)
 	}

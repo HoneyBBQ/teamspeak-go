@@ -86,8 +86,8 @@ linters:
         linters: [govet]
         text: "fieldalignment"
       # errcode.Code is an error value, like syscall.Errno: the constants are
-      # the server's codes, named after tsdeclarations, not sentinel errors, so
-      # an ErrXxx prefix on all 196 of them would only add noise.
+      # the server's codes, not sentinel errors, so an
+      # ErrXxx prefix on all 196 of them would only add noise.
       - path: errcode/errcode.go
         linters: [errname]
       # Permission, command and property names such as

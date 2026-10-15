@@ -5,8 +5,7 @@
 //
 //	if errors.Is(err, errcode.PermissionsClientInsufficient) { ... }
 //
-// The names and messages follow ReSpeak/tsdeclarations (Errors.csv), which
-// records the codes TeamSpeak 3 and 6 servers share.
+// The codes are the ones TeamSpeak 3 and 6 servers share.
 package errcode
 
 import "strconv"
@@ -28,7 +27,7 @@ func (c Code) String() string {
 	return c.Error()
 }
 
-// The codes, named after tsdeclarations.
+// The codes.
 const (
 	// OK is success: the server answers "error id=0 msg=ok".
 	OK Code = 0x0000
@@ -36,9 +35,9 @@ const (
 	Undefined Code = 0x0001
 	// NotImplemented is "not implemented".
 	NotImplemented Code = 0x0002
-	// OKNoUpdate has no message in tsdeclarations.
+	// OKNoUpdate has no known message.
 	OKNoUpdate Code = 0x0003
-	// DontNotify has no message in tsdeclarations.
+	// DontNotify has no known message.
 	DontNotify Code = 0x0004
 	// LibTimeLimitReached is "library time limit reached".
 	LibTimeLimitReached Code = 0x0005
@@ -348,7 +347,7 @@ const (
 	AccountingAlreadyStarted Code = 0x0b0c
 	// AccountingNotStarted is "virtualserver not started".
 	AccountingNotStarted Code = 0x0b0d
-	// AccountingTooManyStarts has no message in tsdeclarations.
+	// AccountingTooManyStarts has no known message.
 	AccountingTooManyStarts Code = 0x0b0e
 	// MessageInvalidID is "invalid message id".
 	MessageInvalidID Code = 0x0c00
@@ -364,21 +363,21 @@ const (
 	TTSUnableToInitialize Code = 0x0e00
 	// PrivilegeKeyInvalid is "invalid privilege key".
 	PrivilegeKeyInvalid Code = 0x0f00
-	// VoipPjsua has no message in tsdeclarations.
+	// VoipPjsua has no known message.
 	VoipPjsua Code = 0x1000
-	// VoipAlreadyInitialized has no message in tsdeclarations.
+	// VoipAlreadyInitialized has no known message.
 	VoipAlreadyInitialized Code = 0x1001
-	// VoipTooManyAccounts has no message in tsdeclarations.
+	// VoipTooManyAccounts has no known message.
 	VoipTooManyAccounts Code = 0x1002
-	// VoipInvalidAccount has no message in tsdeclarations.
+	// VoipInvalidAccount has no known message.
 	VoipInvalidAccount Code = 0x1003
-	// VoipInternalError has no message in tsdeclarations.
+	// VoipInternalError has no known message.
 	VoipInternalError Code = 0x1004
-	// VoipInvalidConnectionID has no message in tsdeclarations.
+	// VoipInvalidConnectionID has no known message.
 	VoipInvalidConnectionID Code = 0x1005
-	// VoipCannotAnswerInitiatedCall has no message in tsdeclarations.
+	// VoipCannotAnswerInitiatedCall has no known message.
 	VoipCannotAnswerInitiatedCall Code = 0x1006
-	// VoipNotInitialized has no message in tsdeclarations.
+	// VoipNotInitialized has no known message.
 	VoipNotInitialized Code = 0x1007
 	// ProvisioningInvalidPassword is "invalid password".
 	ProvisioningInvalidPassword Code = 0x1100
@@ -412,13 +411,13 @@ const (
 	ProvisioningConnecting Code = 0x1114
 	// ProvisioningAlreadyConnected is "already connected".
 	ProvisioningAlreadyConnected Code = 0x1115
-	// ProvisioningNotConnected has no message in tsdeclarations.
+	// ProvisioningNotConnected has no known message.
 	ProvisioningNotConnected Code = 0x1116
 	// ProvisioningIOError is "io_error".
 	ProvisioningIOError Code = 0x1117
-	// ProvisioningInvalidTimeout has no message in tsdeclarations.
+	// ProvisioningInvalidTimeout has no known message.
 	ProvisioningInvalidTimeout Code = 0x1118
-	// ProvisioningTS3ServerNotFound has no message in tsdeclarations.
+	// ProvisioningTS3ServerNotFound has no known message.
 	ProvisioningTS3ServerNotFound Code = 0x1119
 	// ProvisioningNoPermission is "unknown permissionID".
 	ProvisioningNoPermission Code = 0x111A
