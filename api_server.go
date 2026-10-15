@@ -1,6 +1,7 @@
 package teamspeak
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -140,12 +141,13 @@ func stringParams(settings Properties) []param {
 
 // Binding is one active IP binding.
 type Binding struct {
-	// Subsystem is what the binding serves: "voice", "query" or "filetransfer"
-	// (subsystem).
+	// Subsystem is what the binding serves: "voice", "query" or "filetransfer".
+	// The server does not name it in each row, so it is the subsystem asked
+	// for, or "voice" when none was.
 	Subsystem string
 	// IP is the address bound (ip).
 	IP string
-	// Port is the port bound (port).
+	// Port is the port bound (port); 0 when the server does not report it.
 	Port uint16
 }
 
@@ -168,10 +170,15 @@ func (c *Commands) ListBindings(ctx context.Context, opts BindingListOptions) ([
 		return nil, err
 	}
 
+	subsystem := opts.Subsystem
+	if subsystem == "" {
+		subsystem = "voice"
+	}
+
 	out := make([]Binding, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, Binding{
-			Subsystem: fieldStr(row, "subsystem"),
+			Subsystem: cmp.Or(fieldStr(row, "subsystem"), subsystem),
 			IP:        fieldStr(row, "ip"),
 			Port:      fieldUint16(row, "port"),
 		})

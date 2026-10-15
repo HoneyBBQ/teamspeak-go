@@ -53,13 +53,16 @@ type Channel struct {
 	// it as unlimited.
 	MaxFamilyClients int32
 	// TotalClients is how many clients are in the channel (total_clients).
-	// Only channellist reports it.
+	// ListChannels reports it; GetChannelInfo leaves it 0, because channelinfo
+	// does not carry it.
 	TotalClients int32
 	// TotalFamilyClients is how many clients are in the channel and its
-	// subchannels (total_clients_family). Only channellist reports it.
+	// subchannels (total_clients_family). ListChannels reports it;
+	// GetChannelInfo leaves it 0, because channelinfo does not carry it.
 	TotalFamilyClients int32
 	// NeededSubscribePower is the power a client needs to subscribe to the
-	// channel (channel_needed_subscribe_power).
+	// channel (channel_needed_subscribe_power). ListChannels reports it;
+	// GetChannelInfo leaves it 0, because channelinfo does not carry it.
 	NeededSubscribePower int32
 	// NeededTalkPower is the talk power a client needs to speak here
 	// (channel_needed_talk_power).
@@ -311,6 +314,9 @@ func (c *Commands) ListChannels(ctx context.Context) ([]Channel, error) {
 }
 
 // GetChannelInfo returns one channel's full settings.
+//
+// TotalClients, TotalFamilyClients and NeededSubscribePower stay 0: channelinfo
+// does not carry them. ListChannels does.
 //
 // channelinfo answers with pid and the settings but no cid — the channel is
 // whatever was asked for — so the id is filled in from the argument rather than
