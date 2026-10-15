@@ -61,7 +61,6 @@ method (Client) AddServerGroupPermission(ctx context.Context, serverGroupID team
 method (Client) AddTempPassword(ctx context.Context, opts teamspeak.TempPasswordOptions) error
 method (Client) BanClient(ctx context.Context, clid teamspeak.ClientID, opts teamspeak.BanClientOptions) ([]teamspeak.BanID, error)
 method (*Client) ChannelID() teamspeak.ChannelID
-method (Client) ClientDatabase(ctx context.Context) iter.Seq2[teamspeak.ClientDatabaseEntry, error]
 method (*Client) ClientID() teamspeak.ClientID
 method (*Client) Connect(ctx context.Context) error
 method (Client) CopyChannelGroup(ctx context.Context, sourceGroupID teamspeak.ChannelGroupID, targetGroupID teamspeak.ChannelGroupID, name string, groupType teamspeak.GroupType) (teamspeak.ChannelGroupID, error)
@@ -103,10 +102,10 @@ method (*Client) GetChannelDescription(ctx context.Context, cid teamspeak.Channe
 method (Client) GetChannelInfo(ctx context.Context, cid teamspeak.ChannelID) (teamspeak.Channel, error)
 method (Client) GetClientDBIDByUID(ctx context.Context, uid teamspeak.UID) (teamspeak.ClientDBID, error)
 method (Client) GetClientDatabaseInfo(ctx context.Context, clientDBID teamspeak.ClientDBID) (teamspeak.ClientDatabaseEntry, error)
-method (Client) GetClientIDs(ctx context.Context, uid teamspeak.UID) ([]teamspeak.ClientID, error)
-method (Client) GetClientInfo(ctx context.Context, clid teamspeak.ClientID) (teamspeak.Properties, error)
-method (Client) GetClientNameByDBID(ctx context.Context, clientDBID teamspeak.ClientDBID) (string, error)
-method (Client) GetClientNameByUID(ctx context.Context, uid teamspeak.UID) (teamspeak.ClientDBID, string, error)
+method (Client) GetClientIDs(ctx context.Context, uid teamspeak.UID) ([]teamspeak.ClientMatch, error)
+method (Client) GetClientNameByDBID(ctx context.Context, clientDBID teamspeak.ClientDBID) (teamspeak.ClientDatabaseName, error)
+method (Client) GetClientNameByUID(ctx context.Context, uid teamspeak.UID) (teamspeak.ClientDatabaseName, error)
+method (Client) GetClientProperties(ctx context.Context, clid teamspeak.ClientID) (teamspeak.Properties, error)
 method (Client) GetClientUIDByID(ctx context.Context, clid teamspeak.ClientID) (teamspeak.UID, error)
 method (Client) GetConnectionInfo(ctx context.Context) (teamspeak.ServerConnectionInfo, error)
 method (Client) GetFileInfo(ctx context.Context, channelID teamspeak.ChannelID, path string, opts teamspeak.FileOptions) (teamspeak.FileEntry, error)
@@ -122,26 +121,28 @@ method (Client) GetVersion(ctx context.Context) (teamspeak.ServerVersion, error)
 method (*Client) GoString() string
 method (Client) InitFileDownload(ctx context.Context, channelID teamspeak.ChannelID, path string, opts teamspeak.FileDownloadOptions) (*teamspeak.FileDownloadInfo, error)
 method (Client) InitFileUpload(ctx context.Context, channelID teamspeak.ChannelID, path string, size uint64, opts teamspeak.FileUploadOptions) (*teamspeak.FileUploadInfo, error)
+method (Client) IterateClientDatabase(ctx context.Context, opts teamspeak.PagingOptions) iter.Seq2[teamspeak.ClientDatabaseEntry, error]
 method (Client) KickClient(ctx context.Context, clid teamspeak.ClientID, reason teamspeak.Reason, opts teamspeak.ClientKickOptions) error
 method (Client) ListActiveTransfers(ctx context.Context) ([]teamspeak.ActiveTransfer, error)
-method (Client) ListBans(ctx context.Context) ([]teamspeak.BanEntry, error)
+method (Client) ListBans(ctx context.Context, _ teamspeak.BanListOptions) ([]teamspeak.BanEntry, error)
 method (Client) ListBindings(ctx context.Context, opts teamspeak.BindingListOptions) ([]teamspeak.Binding, error)
 method (Client) ListChannelClientPermissions(ctx context.Context, cid teamspeak.ChannelID, clientDBID teamspeak.ClientDBID) ([]teamspeak.PermissionEntry, error)
 method (Client) ListChannelGroupClients(ctx context.Context, opts teamspeak.ChannelGroupClientListOptions) ([]teamspeak.ChannelGroupMembership, error)
 method (Client) ListChannelGroupPermissions(ctx context.Context, channelGroupID teamspeak.ChannelGroupID) ([]teamspeak.PermissionEntry, error)
-method (Client) ListChannelGroups(ctx context.Context) ([]teamspeak.ChannelGroup, error)
+method (Client) ListChannelGroups(ctx context.Context, _ teamspeak.ChannelGroupListOptions) ([]teamspeak.ChannelGroup, error)
 method (Client) ListChannelPermissions(ctx context.Context, cid teamspeak.ChannelID) ([]teamspeak.PermissionEntry, error)
-method (Client) ListChannels(ctx context.Context) ([]teamspeak.Channel, error)
+method (Client) ListChannels(ctx context.Context, _ teamspeak.ChannelListOptions) ([]teamspeak.Channel, error)
+method (Client) ListClientDatabase(ctx context.Context, opts teamspeak.ClientDatabasePageOptions) ([]teamspeak.ClientDatabaseEntry, error)
 method (Client) ListClientPermissions(ctx context.Context, clientDBID teamspeak.ClientDBID) ([]teamspeak.PermissionEntry, error)
-method (Client) ListClients(ctx context.Context, options teamspeak.ClientListOptions) ([]teamspeak.ClientInfo, error)
+method (Client) ListClients(ctx context.Context, options teamspeak.ClientListOptions) ([]teamspeak.ClientEntry, error)
 method (Client) ListComplaints(ctx context.Context, opts teamspeak.ComplaintListOptions) ([]teamspeak.Complaint, error)
 method (Client) ListFiles(ctx context.Context, channelID teamspeak.ChannelID, path string, opts teamspeak.FileOptions) ([]teamspeak.FileEntry, error)
-method (Client) ListMessages(ctx context.Context) ([]teamspeak.OfflineMessage, error)
+method (Client) ListMessages(ctx context.Context, _ teamspeak.MessageListOptions) ([]teamspeak.OfflineMessage, error)
 method (Client) ListPermissions(ctx context.Context) ([]teamspeak.PermissionInfo, error)
 method (Client) ListPrivilegeKeys(ctx context.Context) ([]teamspeak.PrivilegeKey, error)
 method (Client) ListServerGroupClients(ctx context.Context, serverGroupID teamspeak.ServerGroupID, opts teamspeak.ServerGroupClientListOptions) ([]teamspeak.ServerGroupMember, error)
 method (Client) ListServerGroupPermissions(ctx context.Context, serverGroupID teamspeak.ServerGroupID) ([]teamspeak.PermissionEntry, error)
-method (Client) ListServerGroups(ctx context.Context) ([]teamspeak.ServerGroup, error)
+method (Client) ListServerGroups(ctx context.Context, _ teamspeak.ServerGroupListOptions) ([]teamspeak.ServerGroup, error)
 method (Client) ListTempPasswords(ctx context.Context) ([]teamspeak.TempPassword, error)
 method (*Client) LogValue() slog.Value
 method (Client) MoveChannel(ctx context.Context, cid teamspeak.ChannelID, parentID teamspeak.ChannelID, opts teamspeak.ChannelMoveOptions) error
@@ -149,8 +150,8 @@ method (Client) MoveClient(ctx context.Context, clid teamspeak.ClientID, channel
 method (*Client) OnClientEnter(handler func(ClientEnterEvent)) func()
 method (*Client) OnClientLeave(handler func(ClientLeaveEvent)) func()
 method (*Client) OnClientMoved(handler func(ClientMovedEvent)) func()
-method (*Client) OnConnected(handler func()) func()
-method (*Client) OnDisconnected(handler func(err error)) func()
+method (*Client) OnConnected(handler func(ConnectedEvent)) func()
+method (*Client) OnDisconnected(handler func(DisconnectedEvent)) func()
 method (*Client) OnKicked(handler func(KickedEvent)) func()
 method (*Client) OnNotification(handler func(NotificationEvent)) func()
 method (*Client) OnPoked(handler func(PokeEvent)) func()
@@ -166,8 +167,8 @@ method (*Client) Send(ctx context.Context, req teamspeak.Request) ([]map[string]
 method (Client) SendChannelMessage(ctx context.Context, message string) error
 method (Client) SendPrivateMessage(ctx context.Context, clid teamspeak.ClientID, message string) error
 method (Client) SendServerMessage(ctx context.Context, message string) error
-method (*Client) SendVoice(data []byte, codec teamspeak.Codec) error
-method (*Client) SendWhisper(data []byte, targetClientIDs []teamspeak.ClientID, codec teamspeak.Codec) error
+method (*Client) SendVoice(data []byte, codec teamspeak.Codec, _ VoiceOptions) error
+method (*Client) SendWhisper(data []byte, targets WhisperTargets, codec teamspeak.Codec) error
 method (*Client) ServerCapabilities() ServerCapabilities
 method (Client) SetClientChannelGroup(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, channelID teamspeak.ChannelID, clientDBID teamspeak.ClientDBID) error
 method (*Client) Status() Status
@@ -179,7 +180,7 @@ method (*Client) UID() teamspeak.UID
 method (*Client) UnsubscribeAllChannels(ctx context.Context) error
 method (*Client) UnsubscribeChannel(ctx context.Context, cid teamspeak.ChannelID) error
 method (Client) UpdateClient(ctx context.Context, opts teamspeak.ClientUpdateOptions) error
-method (Client) UpdateMessageFlag(ctx context.Context, messageID teamspeak.MessageID, read bool) error
+method (Client) UpdateMessageFlag(ctx context.Context, messageID teamspeak.MessageID, flags teamspeak.MessageFlags) error
 method (Client) UsePrivilegeKey(ctx context.Context, token string) error
 method (Client) ViewLog(ctx context.Context, opts teamspeak.LogViewOptions) (teamspeak.LogPage, error)
 method (Client) WhoAmI(ctx context.Context) (teamspeak.WhoAmI, error)
@@ -199,10 +200,15 @@ type ConnectStartInfo struct
 field ConnectStartInfo.Target string
 field ConnectStartInfo.Attempt int
 field ConnectStartInfo.Reconnect bool
+type ConnectedEvent struct
+field ConnectedEvent.Reconnected bool
 type DisconnectDoneInfo struct
 field DisconnectDoneInfo.Acknowledged bool
 field DisconnectDoneInfo.Duration time.Duration
 type DisconnectStartInfo struct
+type DisconnectedEvent struct
+field DisconnectedEvent.Err error
+field DisconnectedEvent.WillReconnect bool
 type Event = teamspeak.Event
 type EventMiddleware func(next func(Event)) func(Event)
 type HandshakeDoneInfo struct
@@ -299,6 +305,7 @@ field Trace.SessionEnd func(SessionEndInfo)
 field Trace.ReconnectScheduled func(ReconnectScheduledInfo)
 field Trace.ReconnectStopped func(ReconnectStoppedInfo)
 type VoiceDataEvent = teamspeak.VoiceDataEvent
+type VoiceOptions struct
 type WelcomeDoneInfo struct
 field WelcomeDoneInfo.ChannelID teamspeak.ChannelID
 field WelcomeDoneInfo.Channels int
@@ -306,3 +313,5 @@ field WelcomeDoneInfo.Clients int
 field WelcomeDoneInfo.Duration time.Duration
 field WelcomeDoneInfo.Attempt int
 field WelcomeDoneInfo.Reconnect bool
+type WhisperTargets struct
+field WhisperTargets.Clients []teamspeak.ClientID

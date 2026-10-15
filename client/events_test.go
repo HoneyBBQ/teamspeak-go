@@ -66,8 +66,9 @@ func TestOnDisconnected_HearsADeliberateDisconnectAsNil(t *testing.T) {
 	c.mu.Lock()
 	c.status = StatusConnecting
 	c.mu.Unlock()
-	called := make(chan error, 1)
-	c.OnDisconnected(func(err error) { called <- err })
+	called := make(chan DisconnectedEvent, 1)
+	c.OnDisconnected(func(e DisconnectedEvent) { called <- e })
+	withFastReconnect(c, func(error, int) bool { return true })
 
 	err := c.Disconnect(context.Background())
 	if err != nil {
@@ -75,8 +76,8 @@ func TestOnDisconnected_HearsADeliberateDisconnectAsNil(t *testing.T) {
 	}
 
 	got := receive(t, called)
-	if got != nil {
-		t.Errorf("OnDisconnected got %v, want nil after Disconnect", got)
+	if got.Err != nil || got.WillReconnect {
+		t.Errorf("OnDisconnected got %+v, want nil and no reconnect after Disconnect", got)
 	}
 }
 
@@ -108,7 +109,7 @@ func TestEvents_ArriveInOrder(t *testing.T) {
 	want := make([]teamspeak.ClientID, 0, 200)
 	for i := range teamspeak.ClientID(200) {
 		want = append(want, i)
-		c.emitEvent(ClientEnterEvent{ClientInfo: teamspeak.ClientInfo{ID: i}})
+		c.emitEvent(ClientEnterEvent{ClientEntry: teamspeak.ClientEntry{ID: i}})
 	}
 	settle(t, c)
 
@@ -143,11 +144,11 @@ func TestEvents_UnsubscribeStopsDelivery(t *testing.T) {
 func TestEvents_UnsubscribeCoversQueuedEvents(t *testing.T) {
 	c := newTestClient(t)
 	release := make(chan struct{})
-	c.OnConnected(func() { <-release })
+	c.OnConnected(func(ConnectedEvent) { <-release })
 	called := make(chan TextMessageEvent, 1)
 	unsubscribe := c.OnTextMessage(func(m TextMessageEvent) { called <- m })
 
-	emit(c, &c.onConnected, "Connected", struct{}{}) // holds the queue
+	emit(c, &c.onConnected, "Connected", ConnectedEvent{}) // holds the queue
 	c.emitEvent(TextMessageEvent{Message: "queued"})
 	unsubscribe()
 	close(release)
@@ -210,7 +211,7 @@ func TestCommandMiddleware_SeesTypedCommands(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	_, err := c.ListChannels(ctx)
+	_, err := c.ListChannels(ctx, teamspeak.ChannelListOptions{})
 	if !errors.Is(err, errCaptured) {
 		t.Fatalf("ListChannels = %v, want the wire hook's error", err)
 	}
@@ -236,7 +237,7 @@ func TestCommandMiddleware_ChainOrder(t *testing.T) {
 	c := newTestClient(t, WithCommandMiddleware(record("first"), record("second")))
 	c.wireHook = func(string) error { return errCaptured }
 
-	_, _ = c.ListChannels(t.Context())
+	_, _ = c.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
 
 	if !slices.Equal(order, []string{"first", "second"}) {
 		t.Errorf("middleware order = %v, want first, second", order)
@@ -258,7 +259,7 @@ func TestCommandMiddleware_CanAnswerACommand(t *testing.T) {
 	}
 
 	start := time.Now()
-	channels, err := c.ListChannels(t.Context())
+	channels, err := c.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
 	}
@@ -379,9 +380,9 @@ func TestEventMiddleware_DoesNotSeeLifecycleEvents(t *testing.T) {
 		}
 	}))
 	connected := make(chan struct{}, 1)
-	c.OnConnected(func() { connected <- struct{}{} })
+	c.OnConnected(func(ConnectedEvent) { connected <- struct{}{} })
 
-	emit(c, &c.onConnected, "Connected", struct{}{})
+	emit(c, &c.onConnected, "Connected", ConnectedEvent{})
 	receive(t, connected)
 
 	select {
@@ -547,13 +548,13 @@ func TestHandlerPanicIsLoggedAndDeliveryContinues(t *testing.T) {
 	got := make(chan string, 4)
 	defer c.OnPoked(func(PokeEvent) { panic("boom") })()
 	defer c.OnPoked(func(e PokeEvent) { got <- e.Message })()
-	defer c.OnDisconnected(func(error) { panic("lifecycle boom") })()
-	defer c.OnConnected(func() { got <- "connected" })()
+	defer c.OnDisconnected(func(DisconnectedEvent) { panic("lifecycle boom") })()
+	defer c.OnConnected(func(ConnectedEvent) { got <- "connected" })()
 
 	c.emitEvent(PokeEvent{Message: "first"})
 	c.emitEvent(PokeEvent{Message: "second"})
-	emit(c, &c.onDisconnected, "Disconnected", error(nil))
-	emit(c, &c.onConnected, "Connected", struct{}{})
+	emit(c, &c.onDisconnected, "Disconnected", DisconnectedEvent{})
+	emit(c, &c.onConnected, "Connected", ConnectedEvent{})
 
 	for _, want := range []string{"first", "second", "connected"} {
 		if v := receive(t, got); v != want {

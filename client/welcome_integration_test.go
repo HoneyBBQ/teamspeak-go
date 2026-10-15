@@ -32,7 +32,7 @@ func TestIntegration_NoWelcomeContamination(t *testing.T) {
 
 	// No settling delay: the point is to ask while the welcome is still
 	// arriving, which is exactly when contamination used to happen.
-	channels, err := c.ListChannels(t.Context())
+	channels, err := c.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
@@ -51,7 +51,7 @@ func TestIntegration_NoWelcomeContamination(t *testing.T) {
 
 	// A second read must agree with the first; contamination made the early
 	// read longer than the settled one.
-	again, err := c.ListChannels(t.Context())
+	again, err := c.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
 	if err != nil {
 		t.Fatalf("ListChannels (second): %v", err)
 	}

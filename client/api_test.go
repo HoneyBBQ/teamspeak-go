@@ -89,11 +89,11 @@ func TestSendsWithoutAConnectionReturnErrNotConnected(t *testing.T) {
 	}
 	c := mustNew(t, id, "idle")
 
-	err = c.SendVoice([]byte{1}, teamspeak.CodecOpusVoice)
+	err = c.SendVoice([]byte{1}, teamspeak.CodecOpusVoice, VoiceOptions{})
 	if !errors.Is(err, teamspeak.ErrNotConnected) {
 		t.Errorf("SendVoice = %v, want ErrNotConnected", err)
 	}
-	err = c.SendWhisper([]byte{1}, []teamspeak.ClientID{1}, teamspeak.CodecOpusVoice)
+	err = c.SendWhisper([]byte{1}, WhisperTargets{Clients: []teamspeak.ClientID{1}}, teamspeak.CodecOpusVoice)
 	if !errors.Is(err, teamspeak.ErrNotConnected) {
 		t.Errorf("SendWhisper = %v, want ErrNotConnected", err)
 	}
@@ -140,12 +140,12 @@ func TestSendsWhileConnectingReturnErrNotConnected(t *testing.T) {
 	}
 
 	checks := map[string]error{
-		"SendVoice":   c.SendVoice([]byte{1}, teamspeak.CodecOpusVoice),
-		"SendWhisper": c.SendWhisper([]byte{1}, []teamspeak.ClientID{1}, teamspeak.CodecOpusVoice),
+		"SendVoice":   c.SendVoice([]byte{1}, teamspeak.CodecOpusVoice, VoiceOptions{}),
+		"SendWhisper": c.SendWhisper([]byte{1}, WhisperTargets{Clients: []teamspeak.ClientID{1}}, teamspeak.CodecOpusVoice),
 		"ExecNoWait":  c.ExecNoWait(t.Context(), "clientupdate"),
 	}
 	_, checks["Exec"] = c.Exec(t.Context(), "whoami")
-	_, checks["ListChannels"] = c.ListChannels(t.Context())
+	_, checks["ListChannels"] = c.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
 	for name, err := range checks {
 		if !errors.Is(err, teamspeak.ErrNotConnected) {
 			t.Errorf("%s = %v, want ErrNotConnected", name, err)

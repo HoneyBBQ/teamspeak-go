@@ -20,7 +20,7 @@ import (
 func TestIntegration_ListChannelsExposesOrder(t *testing.T) {
 	c := requireSharedClient(t)
 
-	channels, err := c.ListChannels(t.Context())
+	channels, err := c.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
@@ -122,7 +122,7 @@ func TestIntegration_ClientMoveIntoPasswordProtectedChannel(t *testing.T) {
 
 	c := requireSharedClient(t)
 
-	channels, err := c.ListChannels(t.Context())
+	channels, err := c.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
@@ -182,7 +182,7 @@ func TestIntegration_SendWhisperReachesAnotherChannel(t *testing.T) {
 
 	frame := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 	for range 12 {
-		sendErr := sender.SendWhisper(frame, []teamspeak.ClientID{listener.ClientID()}, teamspeak.CodecOpusMusic)
+		sendErr := sender.SendWhisper(frame, client.WhisperTargets{Clients: []teamspeak.ClientID{listener.ClientID()}}, teamspeak.CodecOpusMusic)
 		if sendErr != nil {
 			t.Fatalf("SendWhisper: %v", sendErr)
 		}
@@ -219,7 +219,7 @@ func TestIntegration_ReportsHandshakeFailureAndDisconnects(t *testing.T) {
 		client.WithServerPassword("definitely-not-the-password"),
 	)
 	disconnected := make(chan error, 1)
-	rejected.OnDisconnected(func(err error) { disconnected <- err })
+	rejected.OnDisconnected(func(e client.DisconnectedEvent) { disconnected <- e.Err })
 	t.Cleanup(func() { _ = rejected.Disconnect(context.Background()) })
 
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)

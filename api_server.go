@@ -58,8 +58,12 @@ func parseServerGroup(row map[string]string) ServerGroup {
 	}
 }
 
+// ServerGroupListOptions are ListServerGroups' optional parameters. It has no
+// fields yet: it is reserved for the parameters of servergrouplist.
+type ServerGroupListOptions struct{}
+
 // ListServerGroups returns every server group.
-func (c *Commands) ListServerGroups(ctx context.Context) ([]ServerGroup, error) {
+func (c *Commands) ListServerGroups(ctx context.Context, _ ServerGroupListOptions) ([]ServerGroup, error) {
 	rows, err := c.list(ctx, "servergrouplist", nil)
 	if err != nil {
 		return nil, err
@@ -147,8 +151,8 @@ type Binding struct {
 	Subsystem string
 	// IP is the address bound (ip).
 	IP string
-	// Port is the port bound (port); 0 when the server does not report it.
-	Port uint16
+	// Port is the port bound (port); nil when the server does not report it.
+	Port *uint16
 }
 
 // BindingListOptions are ListBindings' optional parameters.
@@ -180,7 +184,7 @@ func (c *Commands) ListBindings(ctx context.Context, opts BindingListOptions) ([
 		out = append(out, Binding{
 			Subsystem: cmp.Or(fieldStr(row, "subsystem"), subsystem),
 			IP:        fieldStr(row, "ip"),
-			Port:      fieldUint16(row, "port"),
+			Port:      fieldOptUint16(row, "port"),
 		})
 	}
 

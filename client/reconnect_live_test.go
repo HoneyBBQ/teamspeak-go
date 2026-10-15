@@ -69,7 +69,7 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 		if c.Status() == client.StatusConnected && c.ClientID() != firstID && c.ClientID() != 0 {
 			t.Logf("recovered, clid=%d (was %d)", c.ClientID(), firstID)
 
-			_, listErr := c.ListChannels(t.Context())
+			_, listErr := c.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
 			if listErr != nil {
 				t.Errorf("reconnected session is not usable: %v", listErr)
 			}
@@ -150,7 +150,7 @@ func sendCommandsUntilStopped(t *testing.T, c *client.Client) func() {
 				ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 				_, _ = c.WhoAmI(ctx)
 				_ = c.ExecNoWait(ctx, "clientupdate client_away=0")
-				_ = c.SendVoice([]byte{0}, teamspeak.CodecOpusVoice)
+				_ = c.SendVoice([]byte{0}, teamspeak.CodecOpusVoice, client.VoiceOptions{})
 				cancel()
 				time.Sleep(100 * time.Millisecond)
 			}

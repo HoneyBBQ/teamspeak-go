@@ -97,8 +97,8 @@ func runConnectedSession(t *testing.T, data string, connecting bool, first, seco
 	c.OnPoked(func(PokeEvent) {})
 	c.OnKicked(func(KickedEvent) {})
 	c.OnNotification(func(NotificationEvent) {})
-	c.OnConnected(func() {})
-	c.OnDisconnected(func(error) {})
+	c.OnConnected(func(ConnectedEvent) {})
+	c.OnDisconnected(func(DisconnectedEvent) {})
 
 	answers := make([]<-chan commandResult, 0, 2)
 	for _, pick := range []uint8{first, second} {

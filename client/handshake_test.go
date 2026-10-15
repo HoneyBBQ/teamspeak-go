@@ -65,15 +65,35 @@ func TestHandleInitServer_TriggersOnConnected(t *testing.T) {
 	c := newTestClient(t)
 	markConnecting(c)
 
-	connected := make(chan struct{}, 1)
-	c.OnConnected(func() { connected <- struct{}{} })
+	connected := make(chan ConnectedEvent, 1)
+	c.OnConnected(func(e ConnectedEvent) { connected <- e })
 
 	c.handleCommand(c.handler, "initserver aclid=1")
 
 	select {
-	case <-connected:
+	case e := <-connected:
+		if e.Reconnected {
+			t.Error("a Connect's handshake was reported as a reconnection")
+		}
 	case <-time.After(time.Second):
 		t.Error("OnConnected not called after initserver")
+	}
+}
+
+func TestHandleInitServer_ReportsAReconnectionFromTheLoop(t *testing.T) {
+	c := newTestClient(t)
+	markConnecting(c)
+	c.mu.Lock()
+	c.attempt.reconnect = true
+	c.mu.Unlock()
+
+	connected := make(chan ConnectedEvent, 1)
+	c.OnConnected(func(e ConnectedEvent) { connected <- e })
+
+	c.handleCommand(c.handler, "initserver aclid=1")
+
+	if e := receive(t, connected); !e.Reconnected {
+		t.Error("the reconnect loop's handshake was not reported as a reconnection")
 	}
 }
 
@@ -102,7 +122,7 @@ func TestHandleInitServer_AfterDisconnect_StaysDisconnected(t *testing.T) {
 	c := newTestClient(t)
 	markConnecting(c)
 	connected := make(chan struct{}, 1)
-	c.OnConnected(func() { connected <- struct{}{} })
+	c.OnConnected(func(ConnectedEvent) { connected <- struct{}{} })
 
 	err := c.Disconnect(t.Context())
 	if err != nil {

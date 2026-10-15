@@ -138,7 +138,9 @@ func TestClient_RunsTheTypedCommands(t *testing.T) {
 	c, transport := newClient(t)
 	cmds := teamspeak.NewCommands(c)
 
-	channels := run(func() ([]teamspeak.Channel, error) { return cmds.ListChannels(t.Context()) })
+	channels := run(func() ([]teamspeak.Channel, error) {
+		return cmds.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
+	})
 	if sent := transport.next(t); !strings.HasPrefix(sent, "channellist") {
 		t.Errorf("sent %q, want channellist", sent)
 	}
@@ -189,7 +191,7 @@ func TestClient_WalksAPagedCommandUntilTheEnd(t *testing.T) {
 
 	walk := run(func() ([]teamspeak.ClientDBID, error) {
 		var seen []teamspeak.ClientDBID
-		for entry, err := range cmds.ClientDatabase(t.Context()) {
+		for entry, err := range cmds.IterateClientDatabase(t.Context(), teamspeak.PagingOptions{}) {
 			if err != nil {
 				return seen, err
 			}
@@ -220,7 +222,7 @@ func TestClient_ReadsAnEmptyListAsEmpty(t *testing.T) {
 	c, transport := newClient(t)
 	cmds := teamspeak.NewCommands(c)
 
-	bans := run(func() ([]teamspeak.BanEntry, error) { return cmds.ListBans(t.Context()) })
+	bans := run(func() ([]teamspeak.BanEntry, error) { return cmds.ListBans(t.Context(), teamspeak.BanListOptions{}) })
 	transport.next(t)
 	transport.receive(`error id=1281 msg=database\sempty\sresult\sset`)
 

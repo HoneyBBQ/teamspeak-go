@@ -47,7 +47,7 @@ import (
 
 var (
 	sharedClient      *client.Client
-	sharedClientEnter chan teamspeak.ClientInfo
+	sharedClientEnter chan teamspeak.ClientEntry
 	sharedOnce        sync.Once
 	errSharedClient   error
 )
@@ -145,9 +145,9 @@ func requireSharedClient(t *testing.T) *client.Client {
 			return
 		}
 		c := newClient(t, id, addr, "teamspeak-go-integ", integrationClientOptions(nil)...)
-		sharedClientEnter = make(chan teamspeak.ClientInfo, 1)
+		sharedClientEnter = make(chan teamspeak.ClientEntry, 1)
 		c.OnClientEnter(func(enter client.ClientEnterEvent) {
-			info := enter.ClientInfo
+			info := enter.ClientEntry
 			// Compare via the client rather than a precomputed UID: the hash
 			// depends on the server version (TS3 SHA-1, TS6 SHA-256), which is
 			// only known once the handshake has read initserver.
@@ -318,7 +318,7 @@ func TestIntegration_Disconnect(t *testing.T) {
 	}
 
 	disconnected := make(chan error, 1)
-	c.OnDisconnected(func(e error) { disconnected <- e })
+	c.OnDisconnected(func(e client.DisconnectedEvent) { disconnected <- e.Err })
 
 	err = c.Disconnect(context.Background())
 	if err != nil {
@@ -370,7 +370,7 @@ func TestIntegration_ListClientsTimes(t *testing.T) {
 
 	clients, err := c.ListClients(t.Context(), teamspeak.ClientListOptions{Times: true})
 	requireNoErr(t, err)
-	idx := slices.IndexFunc(clients, func(cl teamspeak.ClientInfo) bool { return cl.ID == c.ClientID() })
+	idx := slices.IndexFunc(clients, func(cl teamspeak.ClientEntry) bool { return cl.ID == c.ClientID() })
 	if idx < 0 {
 		t.Fatal("own client not in clientlist")
 	}
@@ -387,7 +387,7 @@ func TestIntegration_ListClientsTimes(t *testing.T) {
 func TestIntegration_ListChannels(t *testing.T) {
 	c := requireSharedClient(t)
 
-	channels, err := c.ListChannels(t.Context())
+	channels, err := c.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
@@ -405,7 +405,7 @@ func TestIntegration_JoinsConfiguredDefaultChannel(t *testing.T) {
 
 	c := requireSharedClient(t)
 
-	channels, err := c.ListChannels(t.Context())
+	channels, err := c.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
 	requireNoErr(t, err)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
@@ -417,7 +417,7 @@ func TestIntegration_JoinsConfiguredDefaultChannel(t *testing.T) {
 		t.Fatalf("ListClients: %v", err)
 	}
 
-	var self *teamspeak.ClientInfo
+	var self *teamspeak.ClientEntry
 	for i := range clients {
 		if clients[i].ID == c.ClientID() {
 			self = &clients[i]
@@ -448,10 +448,10 @@ func TestIntegration_JoinsConfiguredDefaultChannel(t *testing.T) {
 func TestIntegration_GetClientInfo(t *testing.T) {
 	c := requireSharedClient(t)
 
-	info, err := c.GetClientInfo(t.Context(), c.ClientID())
+	info, err := c.GetClientProperties(t.Context(), c.ClientID())
 	requireNoErr(t, err)
 	if err != nil {
-		t.Fatalf("GetClientInfo: %v", err)
+		t.Fatalf("GetClientProperties: %v", err)
 	}
 	if len(info) == 0 {
 		t.Fatal("expected non-empty client info map")
@@ -480,7 +480,7 @@ func TestIntegration_ConnectsWithATableVersion(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
 
-	info, err := c.GetClientInfo(t.Context(), c.ClientID())
+	info, err := c.GetClientProperties(t.Context(), c.ClientID())
 	requireNoErr(t, err)
 	if info["client_version"] != want.Version || info["client_platform"] != want.Platform {
 		t.Errorf("server reports %q on %q, want %q on %q",
@@ -505,7 +505,7 @@ func TestIntegration_TextPrivateNotifyFields(t *testing.T) {
 	// connection budget. The receiver still gets a separate session so the
 	// notification crosses the wire between two clients.
 	sender := requireSharedClient(t)
-	senderInfo, err := sender.GetClientInfo(t.Context(), sender.ClientID())
+	senderInfo, err := sender.GetClientProperties(t.Context(), sender.ClientID())
 	requireNoErr(t, err)
 	senderUID := teamspeak.UID(strings.TrimSpace(senderInfo["client_unique_identifier"]))
 

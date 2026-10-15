@@ -320,7 +320,7 @@ func dbPage(start, n int) []map[string]string {
 func collect(t *testing.T, s *script, limit int) ([]ClientDatabaseEntry, error) {
 	t.Helper()
 	var entries []ClientDatabaseEntry
-	for entry, err := range NewCommands(s).ClientDatabase(t.Context()) {
+	for entry, err := range NewCommands(s).IterateClientDatabase(t.Context(), PagingOptions{}) {
 		if err != nil {
 			return entries, err
 		}
@@ -336,15 +336,15 @@ func collect(t *testing.T, s *script, limit int) ([]ClientDatabaseEntry, error) 
 // The server ends the database with 1281 rather than an empty page.
 func TestClientDatabase_StopsOnEmptyResult(t *testing.T) {
 	s := &script{replies: []reply{
-		{rows: dbPage(0, clientDatabasePageSize)},
-		{rows: dbPage(clientDatabasePageSize, clientDatabasePageSize)},
+		{rows: dbPage(0, defaultPageSize)},
+		{rows: dbPage(defaultPageSize, defaultPageSize)},
 		{err: &ServerError{Code: errcode.DatabaseEmptyResult}},
 	}}
 	entries, err := collect(t, s, -1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 2*clientDatabasePageSize || entries[150].DatabaseID != 151 {
+	if len(entries) != 2*defaultPageSize || entries[150].DatabaseID != 151 {
 		t.Errorf("got %d entries", len(entries))
 	}
 	if entries[0].Created.Unix() != 1791774523 {
@@ -383,23 +383,23 @@ func TestClientDatabase_StopsOnAShortPage(t *testing.T) {
 func TestClientDatabase_YieldsAnErrorAndStops(t *testing.T) {
 	refusal := &ServerError{Code: errcode.PermissionsClientInsufficient}
 	s := &script{replies: []reply{
-		{rows: dbPage(0, clientDatabasePageSize)},
+		{rows: dbPage(0, defaultPageSize)},
 		{err: refusal},
-		{rows: dbPage(clientDatabasePageSize, 1)},
+		{rows: dbPage(defaultPageSize, 1)},
 	}}
 	entries, err := collect(t, s, -1)
 	if !errors.Is(err, errcode.PermissionsClientInsufficient) {
 		t.Errorf("err = %v, want the refusal", err)
 	}
-	if len(entries) != clientDatabasePageSize || len(s.sent) != 2 {
+	if len(entries) != defaultPageSize || len(s.sent) != 2 {
 		t.Errorf("got %d entries in %d requests", len(entries), len(s.sent))
 	}
 }
 
 func TestClientDatabase_StopsWhenTheLoopDoes(t *testing.T) {
 	s := &script{replies: []reply{
-		{rows: dbPage(0, clientDatabasePageSize)},
-		{rows: dbPage(clientDatabasePageSize, clientDatabasePageSize)},
+		{rows: dbPage(0, defaultPageSize)},
+		{rows: dbPage(defaultPageSize, defaultPageSize)},
 	}}
 	entries, err := collect(t, s, 10)
 	if err != nil {
@@ -416,7 +416,7 @@ func TestLists_AnEmptyResultIsNoRowsNotAnError(t *testing.T) {
 	empty := &ServerError{Code: errcode.DatabaseEmptyResult, Message: "database empty result set"}
 	c := NewCommands(&script{replies: []reply{{err: empty}, {err: empty}}})
 
-	bans, err := c.ListBans(t.Context())
+	bans, err := c.ListBans(t.Context(), BanListOptions{})
 	if err != nil || len(bans) != 0 {
 		t.Errorf("ListBans = %v, %v; want no bans and no error", bans, err)
 	}
@@ -426,7 +426,7 @@ func TestLists_AnEmptyResultIsNoRowsNotAnError(t *testing.T) {
 	}
 
 	other := &ServerError{Code: errcode.PermissionsClientInsufficient}
-	_, err = NewCommands(&script{replies: []reply{{err: other}}}).ListBans(t.Context())
+	_, err = NewCommands(&script{replies: []reply{{err: other}}}).ListBans(t.Context(), BanListOptions{})
 	if !errors.Is(err, errcode.PermissionsClientInsufficient) {
 		t.Errorf("ListBans = %v, want the refusal passed through", err)
 	}
@@ -468,8 +468,8 @@ func TestRequiredRowsFailWithErrNoData(t *testing.T) {
 		"GetChannelInfo": func(c *Commands) error {
 			return errOf(c.GetChannelInfo(t.Context(), 1))
 		},
-		"GetClientInfo": func(c *Commands) error {
-			return errOf(c.GetClientInfo(t.Context(), 1))
+		"GetClientProperties": func(c *Commands) error {
+			return errOf(c.GetClientProperties(t.Context(), 1))
 		},
 		"GetClientDBIDByUID": func(c *Commands) error {
 			return errOf(c.GetClientDBIDByUID(t.Context(), "u"))
@@ -481,9 +481,7 @@ func TestRequiredRowsFailWithErrNoData(t *testing.T) {
 			return errOf(c.GetClientNameByDBID(t.Context(), 1))
 		},
 		"GetClientNameByUID": func(c *Commands) error {
-			_, _, err := c.GetClientNameByUID(t.Context(), "u")
-
-			return err
+			return errOf(c.GetClientNameByUID(t.Context(), "u"))
 		},
 		"GetServerIDByPort": func(c *Commands) error {
 			return errOf(c.GetServerIDByPort(t.Context(), 9987))
@@ -506,7 +504,7 @@ func TestRequiredRowsFailWithErrNoData(t *testing.T) {
 	}
 	for name, call := range calls {
 		for _, rows := range [][]map[string]string{nil, {{"unrelated": "1"}}} {
-			if name == "GetChannelInfo" || name == "GetClientInfo" || name == "GetMessage" ||
+			if name == "GetChannelInfo" || name == "GetClientProperties" || name == "GetMessage" ||
 				name == "GetServerInfo" || name == "LogView" || name == "GetClientNameByDBID" {
 				if rows != nil {
 					continue // any row will do for these
@@ -601,10 +599,14 @@ func TestEveryListTreatsAnEmptyResultAsEmpty(t *testing.T) {
 		"ListBindings": func(c *Commands) error {
 			return errOf(c.ListBindings(t.Context(), BindingListOptions{}))
 		},
-		"ListChannels":      func(c *Commands) error { return errOf(c.ListChannels(t.Context())) },
-		"ListChannelGroups": func(c *Commands) error { return errOf(c.ListChannelGroups(t.Context())) },
-		"ListServerGroups":  func(c *Commands) error { return errOf(c.ListServerGroups(t.Context())) },
-		"ListPermissions":   func(c *Commands) error { return errOf(c.ListPermissions(t.Context())) },
+		"ListChannels": func(c *Commands) error { return errOf(c.ListChannels(t.Context(), ChannelListOptions{})) },
+		"ListChannelGroups": func(c *Commands) error {
+			return errOf(c.ListChannelGroups(t.Context(), ChannelGroupListOptions{}))
+		},
+		"ListServerGroups": func(c *Commands) error {
+			return errOf(c.ListServerGroups(t.Context(), ServerGroupListOptions{}))
+		},
+		"ListPermissions": func(c *Commands) error { return errOf(c.ListPermissions(t.Context())) },
 		"ListClients": func(c *Commands) error {
 			return errOf(c.ListClients(t.Context(), ClientListOptions{}))
 		},
@@ -709,5 +711,97 @@ func TestFieldReaders_ClampOversizedValues(t *testing.T) {
 	huge := map[string]string{"d": "18446744073709551615"}
 	if got := fieldDuration(huge, "d", time.Second); got != time.Duration(math.MaxInt64) {
 		t.Errorf("fieldDuration(MaxUint64 s) = %v, want the longest Duration", got)
+	}
+}
+
+func TestIterateClientDatabase_PageSize(t *testing.T) {
+	s := &script{replies: []reply{{rows: dbPage(0, 2)}, {rows: dbPage(2, 1)}}}
+	var n int
+	for _, err := range NewCommands(s).IterateClientDatabase(t.Context(), PagingOptions{PageSize: 2}) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		n++
+	}
+	want := []string{"clientdblist start=0 duration=2", "clientdblist start=2 duration=2"}
+	if n != 3 || !slices.Equal(s.sent, want) {
+		t.Errorf("got %d entries, requests %q, want 3 and %q", n, s.sent, want)
+	}
+}
+
+func TestIterateClientDatabase_RefusesANegativePageSize(t *testing.T) {
+	s := &script{}
+	for _, err := range NewCommands(s).IterateClientDatabase(t.Context(), PagingOptions{PageSize: -1}) {
+		if !errors.Is(err, ErrInvalidCommand) {
+			t.Errorf("err = %v, want ErrInvalidCommand", err)
+		}
+	}
+	if len(s.sent) != 0 {
+		t.Errorf("sent %q, want nothing", s.sent)
+	}
+}
+
+// A server that ignores start answers its first page again and again.
+func TestIterateClientDatabase_StopsWhenAPageDoesNotAdvance(t *testing.T) {
+	s := &script{replies: []reply{{rows: dbPage(0, 3)}, {rows: dbPage(0, 3)}, {rows: dbPage(0, 3)}}}
+	entries, err := collect(t, s, -1)
+	if err != nil || len(entries) != 3 || len(s.sent) != 2 {
+		t.Errorf("got %d entries in %d requests (%v), want 3 in 2", len(entries), len(s.sent), err)
+	}
+}
+
+func TestListClientDatabase_SendsOnlyWhatIsSet(t *testing.T) {
+	for _, tc := range []struct {
+		want string
+		opts ClientDatabasePageOptions
+	}{
+		{"clientdblist", ClientDatabasePageOptions{}},
+		{"clientdblist start=5 duration=10", ClientDatabasePageOptions{Start: 5, Limit: 10}},
+	} {
+		s := &script{replies: []reply{{rows: dbPage(0, 1)}}}
+		got, err := NewCommands(s).ListClientDatabase(t.Context(), tc.opts)
+		if err != nil || len(got) != 1 || s.sent[0] != tc.want {
+			t.Errorf("%+v: got %v, %v, sent %q, want %q", tc.opts, got, err, s.sent, tc.want)
+		}
+	}
+
+	_, err := NewCommands(&script{}).ListClientDatabase(t.Context(), ClientDatabasePageOptions{Start: -1})
+	if !errors.Is(err, ErrInvalidCommand) {
+		t.Errorf("negative start: err = %v, want ErrInvalidCommand", err)
+	}
+}
+
+func TestClientLookups_ReturnTheirRecords(t *testing.T) {
+	c := NewCommands(&script{replies: []reply{
+		{rows: []map[string]string{{"cldbid": "7", "name": "Ann"}}},
+		{rows: []map[string]string{{"name": "Bob"}}},
+		{rows: []map[string]string{{"clid": "3", "name": "Cy"}, {"clid": "4", "name": "Di"}}},
+	}})
+	byUID, err := c.GetClientNameByUID(t.Context(), "u")
+	if err != nil || byUID != (ClientDatabaseName{DatabaseID: 7, Name: "Ann"}) {
+		t.Errorf("by uid = %+v, %v", byUID, err)
+	}
+	byDBID, err := c.GetClientNameByDBID(t.Context(), 9)
+	if err != nil || byDBID != (ClientDatabaseName{DatabaseID: 9, Name: "Bob"}) {
+		t.Errorf("by database id = %+v, %v", byDBID, err)
+	}
+	ids, err := c.GetClientIDs(t.Context(), "u")
+	if err != nil || len(ids) != 2 || ids[1] != (ClientMatch{ID: 4, Nickname: "Di"}) {
+		t.Errorf("ids = %+v, %v", ids, err)
+	}
+}
+
+func TestUpdateMessageFlag_SendsTheFlags(t *testing.T) {
+	for _, tc := range []struct {
+		want  string
+		flags MessageFlags
+	}{
+		{"messageupdateflag msgid=3 flag=1", MessageFlags{Read: true}},
+		{"messageupdateflag msgid=3 flag=0", MessageFlags{}},
+	} {
+		line := encoded(t, func(c *Commands) error { return c.UpdateMessageFlag(t.Context(), 3, tc.flags) })
+		if line != tc.want {
+			t.Errorf("%+v: line = %q, want %q", tc.flags, line, tc.want)
+		}
 	}
 }

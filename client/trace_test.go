@@ -1011,7 +1011,7 @@ func TestTrace_GoodbyeAnsweredByLeftView(t *testing.T) {
 	rec := &traceRecorder{}
 	c := connectedClient(t, rec)
 	var removed atomic.Bool
-	c.OnDisconnected(func(err error) { removed.Store(err != nil) })
+	c.OnDisconnected(func(e DisconnectedEvent) { removed.Store(e.Err != nil) })
 	go func() {
 		deadline := time.Now().Add(2 * time.Second)
 		for time.Now().Before(deadline) {
@@ -1052,7 +1052,7 @@ func TestTrace_GoodbyeAnsweredByLeftView(t *testing.T) {
 func TestTrace_DisconnectOrderAcknowledged(t *testing.T) {
 	rec := &traceRecorder{}
 	c := connectedClient(t, rec)
-	c.OnDisconnected(func(error) { rec.mu.Lock(); rec.note("disconnected"); rec.mu.Unlock() })
+	c.OnDisconnected(func(DisconnectedEvent) { rec.mu.Lock(); rec.note("disconnected"); rec.mu.Unlock() })
 	answerGoodbye(c)
 
 	err := c.Disconnect(t.Context())
@@ -1119,9 +1119,9 @@ func TestTrace_DisconnectWithoutASessionReportsNothing(t *testing.T) {
 func TestTrace_SessionEndOnADropCarriesTheCauseAndComesBeforeDisconnected(t *testing.T) {
 	rec := &traceRecorder{}
 	c := connectedClient(t, rec)
-	c.OnDisconnected(func(error) { rec.mu.Lock(); rec.note("disconnected"); rec.mu.Unlock() })
+	c.OnDisconnected(func(DisconnectedEvent) { rec.mu.Lock(); rec.note("disconnected"); rec.mu.Unlock() })
 	causes := make(chan error, 1)
-	c.OnDisconnected(func(err error) { causes <- err })
+	c.OnDisconnected(func(e DisconnectedEvent) { causes <- e.Err })
 
 	_ = c.DropConnectionForTest()
 	waitUntil(t, "the disconnected event", func() bool { return rec.count("disconnected") == 1 })

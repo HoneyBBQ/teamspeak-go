@@ -1,8 +1,10 @@
 package teamspeak
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"time"
 
@@ -17,8 +19,8 @@ import (
 // and ClientDBID — rather than leaving the reader to tell a uint16 from a
 // uint64.
 
-func parseClient(row map[string]string) ClientInfo {
-	return ClientInfo{
+func parseClient(row map[string]string) ClientEntry {
+	return ClientEntry{
 		ID:             ClientID(fieldUint16(row, "clid")),
 		Nickname:       fieldStr(row, "client_nickname"),
 		UID:            UID(fieldStr(row, "client_unique_identifier")),
@@ -63,7 +65,7 @@ type ClientListOptions struct {
 
 // ListClients returns every client currently connected, with the optional
 // fields options asks for.
-func (c *Commands) ListClients(ctx context.Context, options ClientListOptions) ([]ClientInfo, error) {
+func (c *Commands) ListClients(ctx context.Context, options ClientListOptions) ([]ClientEntry, error) {
 	params := make([]param, 0, 9)
 	if !options.OmitUID {
 		params = append(params, boolArg("-uid", true))
@@ -91,7 +93,7 @@ func (c *Commands) ListClients(ctx context.Context, options ClientListOptions) (
 		return nil, err
 	}
 
-	clients := make([]ClientInfo, 0, len(rows))
+	clients := make([]ClientEntry, 0, len(rows))
 	for _, row := range rows {
 		clients = append(clients, parseClient(row))
 	}
@@ -99,15 +101,14 @@ func (c *Commands) ListClients(ctx context.Context, options ClientListOptions) (
 	return clients, nil
 }
 
-// GetClientInfo returns one connected client's detail, unfiltered; the prop
-// package names the keys.
+// GetClientProperties returns one connected client's detail, unfiltered; the
+// prop package names the keys.
 //
 // Returned as the server sent it, as Properties, rather than narrowed to a
-// struct: clientinfo
-// carries well over a hundred fields and which ones appear depends on
-// permissions, so anything narrower would silently drop data the caller asked
-// for. Use ListClients for parsed fields.
-func (c *Commands) GetClientInfo(ctx context.Context, clid ClientID) (Properties, error) {
+// struct: clientinfo carries well over a hundred fields and which ones appear
+// depends on permissions, so anything narrower would silently drop data the
+// caller asked for. Use ListClients for parsed fields.
+func (c *Commands) GetClientProperties(ctx context.Context, clid ClientID) (Properties, error) {
 	return c.queryRow(ctx, "clientinfo", "", []param{idArg("clid", clid)})
 }
 
@@ -225,7 +226,8 @@ func (c *Commands) PokeClient(ctx context.Context, clid ClientID, message string
 	})
 }
 
-// ClientMatch is one row of a clientfind result.
+// ClientMatch is a client a lookup found, as clientfind and clientgetids
+// report one.
 type ClientMatch struct {
 	// Nickname is the client's nickname (client_nickname).
 	Nickname string
@@ -304,13 +306,72 @@ func parseDatabaseEntry(row map[string]string) ClientDatabaseEntry {
 	}
 }
 
-// clientDatabasePageSize is how many records ClientDatabase asks for at a time.
-const clientDatabasePageSize = 100
+// ClientDatabasePageOptions select one page of ListClientDatabase.
+type ClientDatabasePageOptions struct {
+	// Start is the offset of the first record; 0 is the first (start).
+	Start int
+	// Limit is how many records to read at most; 0 leaves it to the server's
+	// default. The server caps it (duration).
+	Limit int
+}
 
-// ClientDatabase walks every persistent client record, fetching them from the
-// server a page at a time as the loop asks for more:
+// ListClientDatabase returns one page of persistent client records. The server
+// caps a page, so a short page does not mean the last; IterateClientDatabase
+// walks all of it. A Start past the last record is an empty page. A negative
+// Start or Limit is refused with ErrInvalidCommand.
+func (c *Commands) ListClientDatabase(
+	ctx context.Context, opts ClientDatabasePageOptions,
+) ([]ClientDatabaseEntry, error) {
+	params := make([]param, 0, 2)
+	if opts.Start != 0 {
+		params = append(params, nonNegativeArg("start", opts.Start))
+	}
+	if opts.Limit != 0 {
+		params = append(params, nonNegativeArg("duration", opts.Limit))
+	}
+
+	return c.clientDatabasePage(ctx, params)
+}
+
+func (c *Commands) clientDatabasePage(ctx context.Context, params []param) ([]ClientDatabaseEntry, error) {
+	rows, err := c.list(ctx, "clientdblist", params)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]ClientDatabaseEntry, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, parseDatabaseEntry(row))
+	}
+
+	return out, nil
+}
+
+func nonNegativeArg(key string, value int) param {
+	if value < 0 {
+		return invalidArg(fmt.Sprintf("%s: negative %d", key, value))
+	}
+
+	return uintArg(key, uint64(value))
+}
+
+// PagingOptions say how a paged command is walked, as by
+// IterateClientDatabase.
+type PagingOptions struct {
+	// PageSize is how many records to ask for per page; 0 means 100. The server
+	// may cap a page below it, which the walk allows for. A negative size is
+	// yielded as an error wrapping ErrInvalidCommand.
+	PageSize int
+}
+
+// defaultPageSize is how many records IterateClientDatabase asks for at a time
+// when PagingOptions.PageSize is 0.
+const defaultPageSize = 100
+
+// IterateClientDatabase walks every persistent client record, fetching them
+// from the server a page at a time as the loop asks for more:
 //
-//	for entry, err := range c.ClientDatabase(ctx) {
+//	for entry, err := range c.IterateClientDatabase(ctx, teamspeak.PagingOptions{}) {
 //		if err != nil {
 //			return err
 //		}
@@ -322,39 +383,55 @@ const clientDatabasePageSize = 100
 // end of the walk rather than an error. A page shorter than an earlier one
 // ends it too. The first page cannot end it that way: the server may cap a
 // page below what was asked, so a short first page might be a capped one, and
-// the walk asks once more to find out.
+// the walk asks once more to find out. A page that starts at or before the
+// last record already seen ends it as well: that is a server ignoring start,
+// which would otherwise be asked for its first page forever.
 //
 // Any other error is yielded once, with a zero entry, and ends the walk.
 // Records added or removed during the walk can be skipped or seen twice, since
 // each page is a separate query.
-func (c *Commands) ClientDatabase(ctx context.Context) iter.Seq2[ClientDatabaseEntry, error] {
+func (c *Commands) IterateClientDatabase(
+	ctx context.Context, opts PagingOptions,
+) iter.Seq2[ClientDatabaseEntry, error] {
 	return func(yield func(ClientDatabaseEntry, error) bool) {
+		pageSize := cmp.Or(opts.PageSize, defaultPageSize)
+		if pageSize < 0 {
+			yield(ClientDatabaseEntry{}, fmt.Errorf("%w: a page size is positive, not %d", ErrInvalidCommand, pageSize))
+
+			return
+		}
+
 		var start, fullPage int
+		var last *ClientDatabaseEntry
 		for {
-			rows, err := c.query(ctx, "clientdblist", []param{
+			page, err := c.clientDatabasePage(ctx, []param{
 				uintArg("start", uint64(start)),
-				uintArg("duration", clientDatabasePageSize),
+				uintArg("duration", uint64(pageSize)),
 			})
-			if errors.Is(err, errcode.DatabaseEmptyResult) {
-				return
-			}
 			if err != nil {
 				yield(ClientDatabaseEntry{}, err)
 
 				return
 			}
+			if len(page) == 0 {
+				return
+			}
+			if last != nil && page[0].DatabaseID <= last.DatabaseID {
+				return
+			}
 
-			for _, row := range rows {
-				if !yield(parseDatabaseEntry(row), nil) {
+			for _, entry := range page {
+				if !yield(entry, nil) {
 					return
 				}
 			}
 
-			if len(rows) == 0 || len(rows) < fullPage {
+			last = &page[len(page)-1]
+			if len(page) < fullPage {
 				return
 			}
-			fullPage = max(fullPage, len(rows))
-			start += len(rows)
+			fullPage = max(fullPage, len(page))
+			start += len(page)
 		}
 	}
 }
@@ -479,16 +556,19 @@ func (c *Commands) GetClientDBIDByUID(ctx context.Context, uid UID) (ClientDBID,
 	return ClientDBID(fieldUint(row, "cldbid")), nil
 }
 
-// GetClientIDs returns every clid currently using a uid.
-func (c *Commands) GetClientIDs(ctx context.Context, uid UID) ([]ClientID, error) {
+// GetClientIDs returns every client currently using a uid, with its nickname.
+func (c *Commands) GetClientIDs(ctx context.Context, uid UID) ([]ClientMatch, error) {
 	rows, err := c.list(ctx, "clientgetids", []param{strArg("cluid", string(uid))})
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]ClientID, 0, len(rows))
+	out := make([]ClientMatch, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, ClientID(fieldUint16(row, "clid")))
+		out = append(out, ClientMatch{
+			ID:       ClientID(fieldUint16(row, "clid")),
+			Nickname: fieldStr(row, "name"),
+		})
 	}
 
 	return out, nil
@@ -504,24 +584,40 @@ func (c *Commands) GetClientUIDByID(ctx context.Context, clid ClientID) (UID, er
 	return UID(fieldStr(row, "cluid")), nil
 }
 
-// GetClientNameByDBID returns the nickname recorded for a database id.
-func (c *Commands) GetClientNameByDBID(ctx context.Context, clientDBID ClientDBID) (string, error) {
+// ClientDatabaseName is the database record a lookup by name names.
+type ClientDatabaseName struct {
+	// Name is the nickname the client last used (name).
+	Name string
+	// DatabaseID is the client's database id (cldbid).
+	DatabaseID ClientDBID
+}
+
+// GetClientNameByDBID returns the database id and nickname recorded for a
+// database id.
+func (c *Commands) GetClientNameByDBID(ctx context.Context, clientDBID ClientDBID) (ClientDatabaseName, error) {
 	row, err := c.queryRow(ctx, "clientgetnamefromdbid", "", []param{idArg("cldbid", clientDBID)})
 	if err != nil {
-		return "", err
+		return ClientDatabaseName{}, err
 	}
 
-	return fieldStr(row, "name"), nil
+	// The answer need not repeat the id it was asked about.
+	return ClientDatabaseName{
+		DatabaseID: cmp.Or(ClientDBID(fieldUint(row, "cldbid")), clientDBID),
+		Name:       fieldStr(row, "name"),
+	}, nil
 }
 
 // GetClientNameByUID returns the database id and nickname recorded for a uid.
-func (c *Commands) GetClientNameByUID(ctx context.Context, uid UID) (ClientDBID, string, error) {
+func (c *Commands) GetClientNameByUID(ctx context.Context, uid UID) (ClientDatabaseName, error) {
 	row, err := c.queryRow(ctx, "clientgetnamefromuid", "cldbid", []param{strArg("cluid", string(uid))})
 	if err != nil {
-		return 0, "", err
+		return ClientDatabaseName{}, err
 	}
 
-	return ClientDBID(fieldUint(row, "cldbid")), fieldStr(row, "name"), nil
+	return ClientDatabaseName{
+		DatabaseID: ClientDBID(fieldUint(row, "cldbid")),
+		Name:       fieldStr(row, "name"),
+	}, nil
 }
 
 // ListClientPermissions returns the permissions granted to a client from the

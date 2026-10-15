@@ -52,18 +52,18 @@ type Channel struct {
 	// subchannels together (channel_maxfamilyclients); -1 when the server sends
 	// it as unlimited.
 	MaxFamilyClients int32
-	// TotalClients is how many clients are in the channel (total_clients).
-	// ListChannels reports it; GetChannelInfo leaves it 0, because channelinfo
-	// does not carry it.
-	TotalClients int32
+	// TotalClients is how many clients are in the channel (total_clients). It
+	// is nil when the answer does not carry it, as channelinfo's does not, so
+	// GetChannelInfo always leaves it nil; ListChannels sets it.
+	TotalClients *int32
 	// TotalFamilyClients is how many clients are in the channel and its
-	// subchannels (total_clients_family). ListChannels reports it;
-	// GetChannelInfo leaves it 0, because channelinfo does not carry it.
-	TotalFamilyClients int32
+	// subchannels (total_clients_family). It is nil when the answer does not
+	// carry it, as channelinfo's does not; ListChannels sets it.
+	TotalFamilyClients *int32
 	// NeededSubscribePower is the power a client needs to subscribe to the
-	// channel (channel_needed_subscribe_power). ListChannels reports it;
-	// GetChannelInfo leaves it 0, because channelinfo does not carry it.
-	NeededSubscribePower int32
+	// channel (channel_needed_subscribe_power). It is nil when the answer does
+	// not carry it, as channelinfo's does not; ListChannels sets it.
+	NeededSubscribePower *int32
 	// NeededTalkPower is the talk power a client needs to speak here
 	// (channel_needed_talk_power).
 	NeededTalkPower int32
@@ -99,9 +99,9 @@ func parseChannel(row map[string]string) Channel {
 		CodecQuality:         fieldInt32(row, "channel_codec_quality"),
 		MaxClients:           fieldInt32(row, "channel_maxclients"),
 		MaxFamilyClients:     fieldInt32(row, "channel_maxfamilyclients"),
-		TotalClients:         fieldInt32(row, "total_clients"),
-		TotalFamilyClients:   fieldInt32(row, "total_clients_family"),
-		NeededSubscribePower: fieldInt32(row, "channel_needed_subscribe_power"),
+		TotalClients:         fieldOptInt32(row, "total_clients"),
+		TotalFamilyClients:   fieldOptInt32(row, "total_clients_family"),
+		NeededSubscribePower: fieldOptInt32(row, "channel_needed_subscribe_power"),
 		IsSemiPermanent:      fieldBool(row, "channel_flag_semi_permanent"),
 		NeededTalkPower:      fieldInt32(row, "channel_needed_talk_power"),
 		IconID:               fieldIconID(row, "channel_icon_id"),
@@ -287,6 +287,11 @@ func (c *Commands) DeleteChannel(ctx context.Context, cid ChannelID, opts Channe
 	})
 }
 
+// ChannelListOptions are ListChannels' optional parameters. It has no fields
+// yet: it is reserved for the flags of channellist, which ListChannels sends
+// in full today.
+type ChannelListOptions struct{}
+
 // ListChannels returns every channel on the server, in the server's sort order,
 // with the topic, flags, voice settings, limits and icon: it asks channellist
 // for -topic -flags -voice -limits -icon, without which the server answers
@@ -294,7 +299,7 @@ func (c *Commands) DeleteChannel(ctx context.Context, cid ChannelID, opts Channe
 //
 // Description and UID are not part of channellist and stay empty; use
 // GetChannelInfo, or the voice client's GetChannelDescription, for them.
-func (c *Commands) ListChannels(ctx context.Context) ([]Channel, error) {
+func (c *Commands) ListChannels(ctx context.Context, _ ChannelListOptions) ([]Channel, error) {
 	flags := []string{"-topic", "-flags", "-voice", "-limits", "-icon"}
 	params := make([]param, 0, len(flags))
 	for _, flag := range flags {
@@ -315,8 +320,8 @@ func (c *Commands) ListChannels(ctx context.Context) ([]Channel, error) {
 
 // GetChannelInfo returns one channel's full settings.
 //
-// TotalClients, TotalFamilyClients and NeededSubscribePower stay 0: channelinfo
-// does not carry them. ListChannels does.
+// TotalClients, TotalFamilyClients and NeededSubscribePower are nil:
+// channelinfo does not carry them. ListChannels does.
 //
 // channelinfo answers with pid and the settings but no cid — the channel is
 // whatever was asked for — so the id is filled in from the argument rather than

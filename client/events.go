@@ -116,7 +116,7 @@ func (c *Client) OnNotification(handler func(NotificationEvent)) func() {
 }
 
 // OnConnected registers a handler for the handshake completing, on Connect and
-// on every reconnection. It returns a function that removes the handler.
+// on every reconnection; the event's Reconnected tells them apart. It returns a function that removes the handler.
 //
 // The event is queued as the handshake completes, when Connect returns nil,
 // and delivered on the event goroutine: register the handler before Connect
@@ -124,15 +124,16 @@ func (c *Client) OnNotification(handler func(NotificationEvent)) func() {
 //
 // A panic in handler is recovered and logged at Error with the event type;
 // the other handlers and later events are still delivered.
-func (c *Client) OnConnected(handler func()) func() {
-	return c.onConnected.add(func(struct{}) { handler() })
+func (c *Client) OnConnected(handler func(ConnectedEvent)) func() {
+	return c.onConnected.add(handler)
 }
 
-// OnDisconnected registers a handler for the connection ending. It receives
-// nil after Disconnect, and the cause otherwise: a failed handshake,
-// ErrConnectionTimeout for a server that stopped answering, or a
-// *RemovedError for a kick, a ban or a server stopping. It returns a function
-// that removes the handler.
+// OnDisconnected registers a handler for the connection ending, or a
+// connection attempt failing. The event's Err is nil after Disconnect, and the
+// cause otherwise: a failed handshake, ErrConnectionTimeout for a server that
+// stopped answering, or a *RemovedError for a kick, a ban or a server
+// stopping; its WillReconnect says whether the reconnect loop will try again.
+// It returns a function that removes the handler.
 //
 // Disconnect returns once the connection is closed and this event queued;
 // the handlers run later, in order. Events go through one ordered queue, and
@@ -142,7 +143,7 @@ func (c *Client) OnConnected(handler func()) func() {
 //
 // A panic in handler is recovered and logged at Error with the event type;
 // the other handlers and later events are still delivered.
-func (c *Client) OnDisconnected(handler func(err error)) func() {
+func (c *Client) OnDisconnected(handler func(DisconnectedEvent)) func() {
 	return c.onDisconnected.add(handler)
 }
 

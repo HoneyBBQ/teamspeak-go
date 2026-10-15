@@ -5,6 +5,8 @@ package client_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/honeybbq/teamspeak-go"
 )
 
 // Once crypto init completes the client accepts the public dummy key for one
@@ -16,7 +18,7 @@ func TestIntegration_NoDummyKeyPacketsAfterCryptoInit(t *testing.T) {
 	addr := requireTeamSpeakAddr(t)
 	peer := requireIntegrationPeer(t, addr)
 
-	_, err := peer.ListChannels(t.Context())
+	_, err := peer.ListChannels(t.Context(), teamspeak.ChannelListOptions{})
 	requireNoErr(t, err)
 	_, err = peer.WhoAmI(t.Context())
 	requireNoErr(t, err)

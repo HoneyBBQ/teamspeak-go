@@ -28,12 +28,12 @@ func (NotificationEvent) serverEvent() {}
 // (notifycliententerview): on connecting, for everyone already there, and
 // whenever someone joins or becomes visible.
 //
-// It embeds the ClientInfo the server described, so its fields read as the
-// event's own (evt.Nickname). It is a struct of its own rather than ClientInfo
-// itself so that ClientInfo stays a plain description of a client, which also
+// It embeds the ClientEntry the server described, so its fields read as the
+// event's own (evt.Nickname). It is a struct of its own rather than ClientEntry
+// itself so that ClientEntry stays a plain description of a client, which also
 // answers a client list, and only the event is an Event.
 type ClientEnterEvent struct {
-	ClientInfo
+	ClientEntry
 }
 
 // NotificationEvent is a notification exactly as the server sent it: its name,
@@ -63,7 +63,8 @@ type TextMessageEvent struct {
 	Message string
 	// InvokerGroups are the sender's server groups. A notification does not
 	// carry them, so a client fills them in from what it knows of the sender;
-	// empty if it knows nothing.
+	// nil means the notification did not carry them and the client did not
+	// know them either, which is not the same as the sender holding none.
 	InvokerGroups []ServerGroupID
 	// TargetMode is whether the message went to a client, a channel or the
 	// server (targetmode).
@@ -83,6 +84,8 @@ type ClientMovedEvent struct {
 	// InvokerUID is the identity of who moved the client (invokeruid); empty
 	// when it moved itself.
 	InvokerUID UID
+	// ReasonMessage is the reason the invoker gave (reasonmsg), if any.
+	ReasonMessage string
 	// TargetChannelID is the channel the client moved to (ctid).
 	TargetChannelID ChannelID
 	// Reason is why it moved (reasonid): ReasonMoved for a move by someone,

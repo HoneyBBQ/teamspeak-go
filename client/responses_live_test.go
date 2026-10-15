@@ -22,7 +22,7 @@ import (
 func TestLive_ClientLookupsAnswerWithTheirData(t *testing.T) {
 	c := requireSharedClient(t)
 	clid := c.ClientID()
-	me, err := c.GetClientInfo(t.Context(), clid)
+	me, err := c.GetClientProperties(t.Context(), clid)
 	requireNoErr(t, err)
 	uid := teamspeak.UID(me["client_unique_identifier"])
 	rawDBID, err := strconv.ParseUint(me["client_database_id"], 10, 64)
@@ -36,23 +36,24 @@ func TestLive_ClientLookupsAnswerWithTheirData(t *testing.T) {
 	requireNoErr(t, err)
 	byDBID, err := c.GetClientNameByDBID(t.Context(), dbid)
 	requireNoErr(t, err)
-	nameDBID, byUID, err := c.GetClientNameByUID(t.Context(), uid)
+	byUID, err := c.GetClientNameByUID(t.Context(), uid)
 	requireNoErr(t, err)
 	ids, err := c.GetClientIDs(t.Context(), uid)
 	requireNoErr(t, err)
 
-	if gotUID != uid || gotDBID != dbid || byDBID != nickname || byUID != nickname || nameDBID != dbid {
-		t.Errorf("lookups = uid %q dbid %d names %q/%q (dbid %d), want %q %d %q",
-			gotUID, gotDBID, byDBID, byUID, nameDBID, uid, dbid, nickname)
+	want := teamspeak.ClientDatabaseName{DatabaseID: dbid, Name: nickname}
+	if gotUID != uid || gotDBID != dbid || byDBID != want || byUID != want {
+		t.Errorf("lookups = uid %q dbid %d names %+v/%+v, want %q %d %+v",
+			gotUID, gotDBID, byDBID, byUID, uid, dbid, want)
 	}
-	if !slices.Contains(ids, clid) {
+	if !slices.ContainsFunc(ids, func(m teamspeak.ClientMatch) bool { return m.ID == clid && m.Nickname == nickname }) {
 		t.Errorf("GetClientIDs = %v, want it to contain %d", ids, clid)
 	}
 }
 
 func TestLive_ServerGroupsIncludeTheDefaultGroup(t *testing.T) {
 	c := requireSharedClient(t)
-	groups, err := c.ListServerGroups(t.Context())
+	groups, err := c.ListServerGroups(t.Context(), teamspeak.ServerGroupListOptions{})
 	requireNoErr(t, err)
 	info, err := c.GetServerInfo(t.Context())
 	requireNoErr(t, err)
