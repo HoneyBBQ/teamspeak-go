@@ -76,9 +76,10 @@ type ServerCapabilities struct {
 	// ServerID is the virtual server's id (virtualserver_id).
 	ServerID teamspeak.ServerID
 	// HostMessageMode is how HostMessage is to be shown
-	// (virtualserver_hostmessage_mode): 0 not at all, 1 in the chat log, 2 as
-	// a modal dialog, 3 as a modal dialog and then disconnect.
-	HostMessageMode int
+	// (virtualserver_hostmessage_mode). The server may send a value
+	// teamspeak.HostMessageMode does not name; compare it against the
+	// constants.
+	HostMessageMode teamspeak.HostMessageMode
 	// IconID is the server's icon (virtualserver_icon_id), or 0 for none. The
 	// server sends the icon's CRC32, sometimes as a negative 32-bit number;
 	// this is the unsigned value, which names the icon file.
@@ -114,7 +115,7 @@ func parseServerCapabilities(initserver map[string]string) ServerCapabilities {
 		ServerID:           teamspeak.ServerID(serverID),
 		ServerUID:          initserver["virtualserver_unique_identifier"],
 		HostMessage:        initserver["virtualserver_hostmessage"],
-		HostMessageMode:    hostMessageMode,
+		HostMessageMode:    teamspeak.HostMessageMode(hostMessageMode),
 		Version:            version,
 		Major:              major,
 		Family:             family,
