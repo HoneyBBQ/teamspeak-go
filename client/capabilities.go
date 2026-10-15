@@ -9,30 +9,6 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
-// ServerFamily is the server generation a version string belongs to. Its
-// zero value is ServerFamilyUnknown. Later versions may add families; a switch
-// over them should have a default case.
-type ServerFamily string
-
-const (
-	// ServerFamilyUnknown means the server has not identified itself yet, or
-	// named a version this package does not recognise. It is the zero value.
-	ServerFamilyUnknown ServerFamily = ""
-	// ServerFamilyTS3 is TeamSpeak 3, which hashes client uids with SHA-1.
-	ServerFamilyTS3 ServerFamily = "ts3"
-	// ServerFamilyTS6 is TeamSpeak 6, which hashes client uids with SHA-256.
-	ServerFamilyTS6 ServerFamily = "ts6"
-)
-
-// String names the family, "unknown" for ServerFamilyUnknown.
-func (f ServerFamily) String() string {
-	if f == ServerFamilyUnknown {
-		return "unknown"
-	}
-
-	return string(f)
-}
-
 // ServerCapabilities describes what the connected server is, and what that
 // means for the caller.
 //
@@ -97,14 +73,6 @@ func parseServerCapabilities(initserver map[string]string) ServerCapabilities {
 		major = 0
 	}
 
-	family := ServerFamilyUnknown
-	switch {
-	case major == 3:
-		family = ServerFamilyTS3
-	case major >= 6:
-		family = ServerFamilyTS6
-	}
-
 	serverID, _ := strconv.ParseUint(initserver["virtualserver_id"], 10, 64)
 	hostMessageMode, err := strconv.Atoi(initserver["virtualserver_hostmessage_mode"])
 	if err != nil {
@@ -118,7 +86,7 @@ func parseServerCapabilities(initserver map[string]string) ServerCapabilities {
 		HostMessageMode:    teamspeak.HostMessageMode(hostMessageMode),
 		Version:            version,
 		Major:              major,
-		Family:             family,
+		Family:             teamspeak.ServerFamilyForVersion(version),
 		UIDAlgorithm:       identity.UIDAlgorithmForVersion(version),
 		Name:               initserver["virtualserver_name"],
 		IconID:             wire.ParseIconID[teamspeak.IconID](initserver["virtualserver_icon_id"]),

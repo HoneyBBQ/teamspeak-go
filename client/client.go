@@ -24,8 +24,8 @@ import (
 )
 
 // ErrAlreadyConnected reports a Connect on a client that is already connected
-// or connecting.
-var ErrAlreadyConnected = errors.New("already connecting or connected")
+// or connecting. It is teamspeak.ErrAlreadyConnected.
+var ErrAlreadyConnected = teamspeak.ErrAlreadyConnected
 
 var (
 	errNoAddresses                 = errors.New("the host has no addresses")
@@ -47,36 +47,6 @@ const resolveTimeout = 10 * time.Second
 // that has already died would otherwise hold Disconnect for as long as the
 // caller allowed.
 const disconnectTimeout = time.Second
-
-// Status is the state of a client's connection. Later versions may add
-// states; a switch over them should have a default case.
-type Status int
-
-const (
-	// StatusDisconnected is a client with no connection: before Connect, after
-	// Disconnect, or after a drop until a reconnect starts.
-	StatusDisconnected Status = iota
-	// StatusConnecting is a client between Connect and the end of the
-	// handshake.
-	StatusConnecting
-	// StatusConnected is a client whose handshake has completed.
-	StatusConnected
-)
-
-var clientStatusNames = [...]string{
-	StatusDisconnected: "disconnected",
-	StatusConnecting:   "connecting",
-	StatusConnected:    "connected",
-}
-
-// String names the status, such as "connected".
-func (s Status) String() string {
-	if s >= 0 && int(s) < len(clientStatusNames) {
-		return clientStatusNames[s]
-	}
-
-	return "status " + strconv.Itoa(int(s))
-}
 
 // ResolvedAddr is one endpoint a server address resolved to. Only Addr is
 // required; Connect reads nothing else.
@@ -389,7 +359,6 @@ func WithPacketConn(pc net.PacketConn) Option {
 // the policy says: retrying would keep a process alive that asked to stop.
 func WithReconnect(options ReconnectOptions) Option {
 	return optionFunc(func(c *Client) {
-		options = options.withDefaults()
 		c.reconnectOptions = &options
 	})
 }
