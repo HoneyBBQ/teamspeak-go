@@ -1,0 +1,4 @@
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2027-04-15
+reason = "The unmaintained golang.org/x/crypto/openpgp packages are never imported by this module (confirmed with govulncheck); x/crypto is only an indirect dependency. No fixed version exists upstream."
