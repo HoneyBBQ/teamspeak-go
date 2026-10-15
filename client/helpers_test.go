@@ -255,7 +255,7 @@ func TestCommandThrottle_ReleasesInArrivalOrder(t *testing.T) {
 func waitDelivered(t *testing.T, c *Client) {
 	t.Helper()
 	delivered := make(chan struct{})
-	c.events.push(func() { close(delivered) })
+	c.events.Push(func() { close(delivered) })
 	select {
 	case <-delivered:
 	case <-time.After(5 * time.Second):

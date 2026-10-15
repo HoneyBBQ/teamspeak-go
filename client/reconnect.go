@@ -164,7 +164,7 @@ func (c *Client) takeVerdict(err error, attempt int) *retryVerdict {
 // is worked out when it is delivered, on the event goroutine, because asking
 // ShouldRetry takes no lock and the caller holds c.mu.
 func (c *Client) emitDisconnectedLocked(err error, v *retryVerdict) {
-	c.events.push(func() {
-		c.onDisconnected.deliver(c.logger, "Disconnected", DisconnectedEvent{Err: err, WillReconnect: v.willReconnect()}, nil)
+	c.events.Push(func() {
+		c.onDisconnected.Deliver(c.logger, "Disconnected", DisconnectedEvent{Err: err, WillReconnect: v.willReconnect()}, nil)
 	})
 }

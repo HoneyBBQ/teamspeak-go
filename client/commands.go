@@ -443,7 +443,7 @@ func (c *Client) receiveNotification(h *transport.PacketHandler, cmd *wire.Comma
 	// Built only for someone who will see it: a copy of every notification is
 	// not free. A copy because the command tracker hands the same map to the
 	// command that asked for it.
-	if c.onNotification.any() || len(c.eventMiddlewares) > 0 {
+	if c.onNotification.Any() || len(c.eventMiddlewares) > 0 {
 		c.emitEvent(NotificationEvent{Name: cmd.Name, Params: maps.Clone(cmd.Params)})
 	}
 }
@@ -646,7 +646,7 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 
 	// Audio arrives fifty times a second per speaker; build no event nobody
 	// will see.
-	if !c.onVoiceData.any() && len(c.eventMiddlewares) == 0 {
+	if !c.onVoiceData.Any() && len(c.eventMiddlewares) == 0 {
 		return
 	}
 
