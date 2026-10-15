@@ -346,12 +346,42 @@ done
 # a different one; CI maps the first to 9987 either way.
 VOICE_PORT="${TS3_VOICE_PORT:-9987}"
 
+# The ServerQuery client suite. The transport it uses is whichever one this
+# invocation provisioned over: raw TCP where TS3_QUERY_HOST was given, WebQuery
+# where TS3_QUERY_HTTP was. Both are written, so the suite reads what is there.
+QUERY_ENV=""
+if [ -n "$QUERY_HOST" ]; then
+  QUERY_ENV="export TEAMSPEAK_QUERY_KIND=tcp
+export TEAMSPEAK_QUERY_HOST=$QUERY_HOST
+export TEAMSPEAK_QUERY_PORT=$QUERY_PORT
+export TEAMSPEAK_QUERY_LOGIN_NAME=serveradmin
+export TEAMSPEAK_QUERY_LOGIN_PASSWORD=$ADMIN_PW"
+elif [ -n "$QUERY_HTTP" ]; then
+  QUERY_ENV="export TEAMSPEAK_QUERY_KIND=web
+export TEAMSPEAK_QUERY_URL=http://$QUERY_HTTP
+export TEAMSPEAK_QUERY_API_KEY=$HTTP_API_KEY"
+fi
+
+# SSH is off unless this server was started with it, and TS3 does not publish
+# it at all, so the suite runs that part only where TS3_QUERY_SSH_PORT says so.
+# The host falls back to whichever endpoint this invocation used, which is the
+# WebQuery one on a server with no raw TCP port.
+if [ -n "${TS3_QUERY_SSH_PORT:-}" ]; then
+  SSH_DEFAULT_HOST="${QUERY_HOST:-${QUERY_HTTP%%:*}}"
+  QUERY_ENV="$QUERY_ENV
+export TEAMSPEAK_QUERY_SSH_HOST=${TS3_QUERY_SSH_HOST:-$SSH_DEFAULT_HOST}
+export TEAMSPEAK_QUERY_SSH_PORT=$TS3_QUERY_SSH_PORT
+export TEAMSPEAK_QUERY_SSH_USER=${TS3_QUERY_SSH_USER:-serveradmin}
+export TEAMSPEAK_QUERY_SSH_PASSWORD=${TS3_QUERY_SSH_PASSWORD:-${ADMIN_PW:-$HTTP_API_KEY}}"
+fi
+
 cat > "$ENV_FILE" <<ENVFILE
 # Integration suite environment from scripts/ts3-fixture.sh. Source it before running the suite.
 export TEAMSPEAK_ADDR=127.0.0.1:$VOICE_PORT
 export TEAMSPEAK_DEFAULT_CHANNEL=$DEFAULT_CHANNEL
 export TEAMSPEAK_PASSWORD_CHANNEL=$PASSWORD_CHANNEL
 export TEAMSPEAK_PASSWORD_CHANNEL_PASSWORD=$PASSWORD_CHANNEL_PASSWORD
+$QUERY_ENV
 ENVFILE
 
 echo "fixture ready — $DEFAULT_CHANNEL + $PASSWORD_CHANNEL present, antiflood relaxed"

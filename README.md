@@ -33,6 +33,7 @@ Works with TeamSpeak 3 and TeamSpeak 6 servers. No proprietary SDK, no copied co
 - **Reconnection** — Opt-in retry with backoff, tuned for TeamSpeak's antiflood ban
 - **Server capabilities** — Reports the server version and the uid hash it uses (SHA-1 on TS3, SHA-256 on TS6), and the server's name, icon, banner and welcome message
 - **Custom transports** — Supply your own net.PacketConn and file transfer dialer
+- **ServerQuery** — The same typed commands over raw TCP, SSH or TeamSpeak 6's WebQuery, with the server's notifications as events
 - **Zero CGO** — Pure Go, cross-compile anywhere
 
 ## Installation
@@ -501,6 +502,92 @@ case errors.Is(err, teamspeak.ErrNotConnected):
 }
 ```
 
+## ServerQuery
+
+The `serverquery` package is a second client: the same typed commands as the
+voice client — `ListChannels`, `MoveClient` and the rest — over TeamSpeak's
+administrative interface rather than the voice protocol, plus the server's
+notifications as the same events.
+
+**It is experimental.** It may change in a minor release, unlike the rest of
+the module, which follows semantic versioning from v1.0.0. Pin a version and
+read the changelog before depending on it.
+
+```go
+import "github.com/honeybbq/teamspeak-go/serverquery"
+
+c, err := serverquery.New(serverquery.TCP("127.0.0.1:10011"),
+	serverquery.WithLogin("serveradmin", password),
+	serverquery.WithServer(1),
+	serverquery.WithNickname("bot"),
+)
+if err != nil {
+	return err
+}
+if err := c.Connect(ctx); err != nil {
+	return err
+}
+defer c.Disconnect(context.WithoutCancel(ctx))
+
+channels, err := c.ListChannels(ctx, teamspeak.ChannelListOptions{})
+```
+
+### Transports
+
+The three transports do not offer the same things, and the difference decides
+which one a program can use:
+
+| Transport | Where | Server | Login | Events |
+|---|---|---|---|---|
+| `TCP(addr)` | 10011 | TeamSpeak 3 only | `WithLogin` | yes |
+| `SSH(addr, user, password)` | 10022 | TeamSpeak 6 only, off by default | the SSH login; `WithLogin` is refused | yes |
+| `Web(baseURL, apiKey)` | 10080 | TeamSpeak 6 only | the api key; `WithLogin` is refused | **none** |
+
+TeamSpeak 6 dropped raw ServerQuery, so a TS6 server has no 10011 to connect
+to; a TS3 server serves no WebQuery. `ServerFamily()` reports which one the
+connected server is.
+
+WebQuery has no session for the server to push to, so it delivers no events at
+all, and it refuses every file transfer command. A program that needs either
+needs SSH.
+
+### Events
+
+Registration is automatic: on connecting, the client asks for the five
+notification categories both TCP and SSH accept — `server`, `channel`,
+`textserver`, `textchannel` and `textprivate`. `WithEvents` narrows the set,
+and `WithoutEvents` turns registration off. `bans` is opt-in, because TS3
+refuses it:
+
+```go
+c.OnTextMessage(func(m teamspeak.TextMessageEvent) {
+	fmt.Println(m.InvokerName, "said", m.Message)
+})
+```
+
+`OnConnected` and `OnDisconnected` report the connection itself and work over
+every transport. The `On…` methods for server events are inert over a
+transport that cannot deliver them: they return a function that removes
+nothing, and the client logs one warning per method rather than failing the
+connect.
+
+### Reconnection
+
+`WithReconnect(teamspeak.ReconnectOptions{})` reconnects after a dropped
+connection, sharing the voice client's backoff policy. The default retry
+decision, `serverquery.DefaultShouldRetry`, never retries a refused login or a
+refused `use`: those are the server saying the credentials or the server id are
+wrong, and repeating them only risks the flood ban that TeamSpeak applies to an
+IP that connects too often.
+
+### Errors
+
+A refusal from the server is a `*teamspeak.ServerError`, exactly as it is for
+the voice client. The connection's own failures have their own sentinels:
+`ErrInvalidConfig` for a configuration `New` cannot honour, `ErrDial` for a
+connection that could not be opened, and `ErrAuth` for an SSH login the server
+refused.
+
 ## Compatibility
 
 From v1.0.0 the module follows semantic versioning. Minor releases may add
@@ -558,9 +645,11 @@ teamspeak-go/
 ├── notify/            # the notification names, as constants
 ├── prop/              # the property keys of serverinfo, clientinfo and the like
 ├── commands/          # the command language: command names and escaping
+├── serverquery/       # package serverquery — the ServerQuery client: the
+│                      #   three transports, the query session, events
 └── internal/          # crypto, handshake, transport, discovery; wire and
                        #   servererr, the line format both protocols share;
-                       #   serverquery, an unpublished ServerQuery client
+                       #   eventbus and servernotify, what the clients share
 ```
 
 ## Acknowledgments

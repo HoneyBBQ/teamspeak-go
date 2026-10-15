@@ -3,6 +3,27 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- `serverquery`, a client for TeamSpeak's administrative interface, running the
+  same typed commands as the voice client. It is **experimental**: unlike the
+  rest of the module it may change in a minor release. Three transports, chosen
+  by the `Dialer` passed to `New`: `TCP(addr)` (raw ServerQuery, TeamSpeak 3
+  only), `SSH(addr, user, password)` (TeamSpeak 6 only, off by default) and
+  `Web(baseURL, apiKey)` (TeamSpeak 6's WebQuery). The server's notifications
+  arrive as events over TCP and SSH; WebQuery has no session for the server to
+  push to, so it delivers none and refuses file transfers. `TCPWith`, `SSHWith`
+  and `WebWith` supply a dialer, an SSH connection or an `*http.Client`, and
+  `Stats` reports the connection's identity and byte counters.
+- The shared pieces the two clients now use are in the root package:
+  `Status`, `ServerFamily` (with `ServerFamilyForVersion`), `ConnectedEvent`,
+  `DisconnectedEvent`, `BackoffPolicy`, `ReconnectOptions`, `ShouldRetryFunc`,
+  `DefaultBackoffPolicy`, `CommandMiddleware`, `ErrAlreadyConnected` and
+  `ErrMissingDependency`. `client` re-exports each of them under the name it
+  already had, so nothing that imported `client` has to change.
+
 ## v1.0.0-beta.6 (2026-10-15)
 
 Breaking changes, made before v1.0.0 so that none of them needs a `/v2` import

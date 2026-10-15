@@ -3,12 +3,13 @@
 const ConnectPhaseHandshake ConnectPhase = 1
 const ConnectPhaseJoin ConnectPhase = 2
 const ConnectPhaseOpen ConnectPhase = 0
-const ServerFamilyTS3 ServerFamily = "ts3"
-const ServerFamilyTS6 ServerFamily = "ts6"
-const ServerFamilyUnknown ServerFamily = ""
-const StatusConnected Status = 2
-const StatusConnecting Status = 1
-const StatusDisconnected Status = 0
+const ServerFamilyTS3 teamspeak.ServerFamily = "ts3"
+const ServerFamilyTS6 teamspeak.ServerFamily = "ts6"
+const ServerFamilyUnknown teamspeak.ServerFamily = ""
+const StatusConnected teamspeak.Status = 2
+const StatusConnecting teamspeak.Status = 1
+const StatusDisconnected teamspeak.Status = 0
+var DefaultBackoffPolicy func() teamspeak.BackoffPolicy
 var ErrAlreadyConnected error
 var ErrConnectionTimeout error
 var ErrHandshake error
@@ -16,7 +17,6 @@ var ErrInvalidAddress error
 var ErrInvalidConfig error
 var ErrNoWhisperTargets error
 var ErrTooManyWhisperTargets error
-func DefaultBackoffPolicy() BackoffPolicy
 func DefaultShouldRetry(err error, _ int) bool
 func New(id *identity.Identity, addr string, nickname string, options ...Option) (*Client, error)
 func WithCommandMiddleware(mw ...CommandMiddleware) Option
@@ -40,13 +40,7 @@ field AttemptFailedInfo.Phase ConnectPhase
 field AttemptFailedInfo.Duration time.Duration
 field AttemptFailedInfo.Attempt int
 field AttemptFailedInfo.Reconnect bool
-type BackoffPolicy struct
-field BackoffPolicy.InitialDelay time.Duration
-field BackoffPolicy.MaxDelay time.Duration
-field BackoffPolicy.Factor float64
-field BackoffPolicy.Jitter float64
-field BackoffPolicy.MaxAttempts int
-method (BackoffPolicy) Delay(attempt int) time.Duration
+type BackoffPolicy = teamspeak.BackoffPolicy
 type Client struct
 method (Client) AddBan(ctx context.Context, opts teamspeak.BanOptions) (teamspeak.BanID, error)
 method (Client) AddChannelClientPermission(ctx context.Context, cid teamspeak.ChannelID, clientDBID teamspeak.ClientDBID, perm teamspeak.Permission, value int32) error
@@ -187,7 +181,7 @@ method (Client) WhoAmI(ctx context.Context) (teamspeak.WhoAmI, error)
 type ClientEnterEvent = teamspeak.ClientEnterEvent
 type ClientLeaveEvent = teamspeak.ClientLeaveEvent
 type ClientMovedEvent = teamspeak.ClientMovedEvent
-type CommandMiddleware func(next teamspeak.Executor) teamspeak.Executor
+type CommandMiddleware = teamspeak.CommandMiddleware
 type ConnectDoneInfo struct
 field ConnectDoneInfo.Target string
 field ConnectDoneInfo.LocalAddr string
@@ -200,15 +194,12 @@ type ConnectStartInfo struct
 field ConnectStartInfo.Target string
 field ConnectStartInfo.Attempt int
 field ConnectStartInfo.Reconnect bool
-type ConnectedEvent struct
-field ConnectedEvent.Reconnected bool
+type ConnectedEvent = teamspeak.ConnectedEvent
 type DisconnectDoneInfo struct
 field DisconnectDoneInfo.Acknowledged bool
 field DisconnectDoneInfo.Duration time.Duration
 type DisconnectStartInfo struct
-type DisconnectedEvent struct
-field DisconnectedEvent.Err error
-field DisconnectedEvent.WillReconnect bool
+type DisconnectedEvent = teamspeak.DisconnectedEvent
 type Event = teamspeak.Event
 type EventMiddleware func(next func(Event)) func(Event)
 type HandshakeDoneInfo struct
@@ -224,9 +215,7 @@ type NotificationEvent = teamspeak.NotificationEvent
 type Option interface
 sealed Option
 type PokeEvent = teamspeak.PokeEvent
-type ReconnectOptions struct
-field ReconnectOptions.ShouldRetry ShouldRetryFunc
-field ReconnectOptions.Backoff BackoffPolicy
+type ReconnectOptions = teamspeak.ReconnectOptions
 type ReconnectScheduledInfo struct
 field ReconnectScheduledInfo.Cause error
 field ReconnectScheduledInfo.Delay time.Duration
@@ -269,8 +258,7 @@ field ServerCapabilities.Major int
 field ServerCapabilities.ServerID teamspeak.ServerID
 field ServerCapabilities.HostMessageMode teamspeak.HostMessageMode
 field ServerCapabilities.IconID teamspeak.IconID
-type ServerFamily string
-method (ServerFamily) String() string
+type ServerFamily = teamspeak.ServerFamily
 type SessionEndInfo struct
 field SessionEndInfo.Cause error
 field SessionEndInfo.Duration time.Duration
@@ -286,9 +274,8 @@ field SessionStartInfo.Attempt int
 field SessionStartInfo.TalkPower int32
 field SessionStartInfo.ClientID teamspeak.ClientID
 field SessionStartInfo.Reconnect bool
-type ShouldRetryFunc func(err error, attempt int) bool
-type Status int
-method (Status) String() string
+type ShouldRetryFunc = teamspeak.ShouldRetryFunc
+type Status = teamspeak.Status
 type TextMessageEvent = teamspeak.TextMessageEvent
 type Trace struct
 field Trace.ResolveStart func(ResolveStartInfo)
