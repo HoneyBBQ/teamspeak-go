@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,7 +32,7 @@ func receive[T any](t *testing.T, ch <-chan T) T {
 func settle(t *testing.T, c *Client) {
 	t.Helper()
 	done := make(chan struct{})
-	c.events.push(func() { close(done) })
+	c.events.Push(func() { close(done) })
 	receive(t, done)
 }
 
@@ -483,20 +482,10 @@ func TestOnNotification_NotBuiltWithoutAnyone(t *testing.T) {
 	c := newTestClient(t)
 	c.handleCommandLines(c.handler, "notifysomething a=1")
 
-	c.events.mu.Lock()
-	queued := len(c.events.pending) + boolToInt(c.events.running)
-	c.events.mu.Unlock()
+	queued := c.events.Queued()
 	if queued != 0 {
 		t.Errorf("%d deliveries queued with nobody to receive them", queued)
 	}
-}
-
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-
-	return 0
 }
 
 // A handler changing the groups it was given cannot edit the client list.
@@ -511,29 +500,6 @@ func TestOnClientEnter_GroupsAreTheEventsOwn(t *testing.T) {
 	defer c.mu.Unlock()
 	if got := c.clients[5].ServerGroups; !slices.Equal(got, []teamspeak.ServerGroupID{6, 7}) {
 		t.Errorf("client list groups = %v, want [6 7]", got)
-	}
-}
-
-// Voice is dropped once the queue is backed up; other events are not.
-func TestEventQueueDropsVoiceWhenBackedUp(t *testing.T) {
-	var q eventQueue
-	release := make(chan struct{})
-	q.push(func() { <-release })
-	var delivered atomic.Int32
-	for range maxQueuedForVoice + 50 {
-		q.pushVoice(func() { delivered.Add(1) }, slog.New(slog.DiscardHandler))
-	}
-	ordinary := make(chan struct{})
-	q.push(func() { close(ordinary) })
-	close(release)
-
-	select {
-	case <-ordinary:
-	case <-time.After(2 * time.Second):
-		t.Fatal("ordinary event not delivered")
-	}
-	if got := delivered.Load(); got > maxQueuedForVoice+1 || got < maxQueuedForVoice {
-		t.Errorf("delivered %d voice events, want about %d", got, maxQueuedForVoice)
 	}
 }
 

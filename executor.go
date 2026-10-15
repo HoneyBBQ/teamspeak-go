@@ -132,6 +132,18 @@ func (f ExecutorFunc) Send(ctx context.Context, req Request) ([]map[string]strin
 	return f(ctx, req)
 }
 
+// CommandMiddleware wraps the typed commands' executor. It sees each request —
+// its name with Request.Command, never its parameters' secrets in a log line —
+// and the caller's context, and returns the rows or an error: so it can
+// observe a command, time it, retry it, or answer it itself without calling
+// next.
+//
+// It is here rather than in a client because every client wraps the same
+// Executor, and a caller moving between them should not have to change the
+// middleware's type. What a client sends on its own during a handshake or a
+// disconnect does not pass through it.
+type CommandMiddleware func(next Executor) Executor
+
 // Commands are the typed commands, shared by every connection able to execute
 // a command. Clients embed them, which is how a client gains its methods.
 type Commands struct {

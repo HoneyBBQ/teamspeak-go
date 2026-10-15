@@ -67,6 +67,16 @@ type pending struct {
 // of an answer.
 type Client struct {
 	transport Transport
+	// OnNotification, when set, sees every notification the server sends, as
+	// it arrived: its name and unescaped parameters, one call per row of a
+	// batched one. The read loop calls it, so its receiver must not send a
+	// command from it: the loop is what would read that command's answer. A
+	// client hands it to a goroutine of its own instead.
+	OnNotification func(*wire.Command)
+	// OnClosed, when set, runs once when the connection ends, with the reason
+	// or nil after Close. It runs on the goroutine that noticed, which may be
+	// the read loop, so it must not send a command either.
+	OnClosed func(error)
 	// turn is held by the command on the wire. A channel rather than a mutex so
 	// a command can give up waiting for its turn when its context is done.
 	turn chan struct{}
@@ -212,6 +222,15 @@ func (c *Client) handleLine(line string) {
 		return
 	}
 
+	// Before the lock, because it takes none of the state below: a
+	// notification is never part of an answer, so it neither waits on a
+	// pending command nor is dropped when one was abandoned.
+	if strings.HasPrefix(cmd.Name, "notify") {
+		c.notify(line)
+
+		return
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -237,18 +256,31 @@ func (c *Client) handleLine(line string) {
 
 		return
 	}
-	if strings.HasPrefix(cmd.Name, "notify") {
-		// Events are to come; a notification is never part of an answer.
-		return
-	}
+
+	// A data line, possibly several rows separated by "|".
 	if c.abandoned > 0 || c.pending == nil {
 		return
 	}
-	// A data line, possibly several rows separated by "|".
 	for _, row := range wire.SplitRows(line) {
 		if parsed := wire.ParseCommand(row); parsed != nil {
 			c.pending.rows = append(c.pending.rows, parsed.Params)
 		}
+	}
+}
+
+// notify hands a notification line to the hook, one call per row. A batched
+// notification is one line of rows separated by "|", which reading the line
+// whole would turn into a single row carrying the rest in its last value.
+func (c *Client) notify(line string) {
+	if c.OnNotification == nil {
+		return
+	}
+	for _, row := range wire.SplitRows(line) {
+		cmd := wire.ParseCommand(row)
+		if cmd == nil {
+			continue
+		}
+		c.OnNotification(cmd)
 	}
 }
 
@@ -270,6 +302,10 @@ func (c *Client) end(cause error) bool {
 			p.result <- result{err: c.notConnected()}
 		}
 	})
+
+	if ended && c.OnClosed != nil {
+		c.OnClosed(cause)
+	}
 
 	return ended
 }

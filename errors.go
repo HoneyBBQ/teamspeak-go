@@ -36,6 +36,20 @@ var ErrFileTransfer = errors.New("file transfer")
 // ErrInvalidCommand reports a command the client refuses to send as given.
 var ErrInvalidCommand = errors.New("invalid command")
 
+// ErrAlreadyConnected reports an attempt to connect a client that is already
+// connected or connecting.
+var ErrAlreadyConnected = errors.New("already connecting or connected")
+
+// ErrMissingDependency reports a client built without a piece it cannot work
+// without: an optional dependency left out of the build, so that the transport
+// needing it is there but inert.
+//
+// It exists because the clients promise a transport by name, and a build
+// without it should say which one rather than fail at the first dial with a
+// message about a symbol. Match it with errors.Is and read the wrapping error
+// for which dependency is missing.
+var ErrMissingDependency = errors.New("missing dependency")
+
 // ServerError is an error the TeamSpeak server reported.
 //
 // It unwraps to both ErrServer and its Code, so a caller can match the class

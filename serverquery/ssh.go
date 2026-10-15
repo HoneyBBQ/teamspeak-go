@@ -1,0 +1,308 @@
+package serverquery
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"golang.org/x/crypto/ssh"
+
+	engine "github.com/honeybbq/teamspeak-go/internal/serverquery"
+)
+
+// SSHShell is the shell a ServerQuery session runs on, narrowed to what the
+// transport needs. A caller supplying its own connection implements it over
+// whatever it has: *ssh.Session satisfies it through the adapter below, and so
+// does a test double.
+//
+// Experimental: this package may change in a minor release.
+type SSHShell interface {
+	// Stdin carries command lines to the server.
+	Stdin() io.Writer
+	// Stdout carries the server's lines back.
+	Stdout() io.Reader
+	// Close ends the shell.
+	Close() error
+}
+
+// SSHConn is an open SSH connection, narrowed to what the transport needs.
+// *ssh.Client satisfies it through the adapter below.
+//
+// Experimental: this package may change in a minor release.
+type SSHConn interface {
+	// Shell starts a shell session on the connection.
+	Shell() (SSHShell, error)
+	// Close ends the connection.
+	Close() error
+}
+
+// SSHOptions are the seam [SSHWith] leaves open, and the host key policy it
+// requires.
+//
+// Experimental: this package may change in a minor release.
+type SSHOptions struct {
+	// Open connects to addr in place of the built-in dial. It is where an
+	// already-connected client, a jump host, or a test double goes; the
+	// transport asks the connection only for a shell, and does not check the
+	// host key of a connection it did not make.
+	//
+	// It replaces HostKeyCheck rather than adding to it: whoever opens the
+	// connection is who can check the key.
+	//
+	// A connection opened here is closed by the transport. A refused login
+	// should be reported wrapping ErrAuth, which is what the built-in dial
+	// does.
+	Open func(ctx context.Context, addr string) (SSHConn, error)
+	// HostKeyCheck decides whether the server is the one expected, before the
+	// login is sent. See [HostKey] for what it is given.
+	//
+	// It has to be set, unless Open supplies the connection instead: the
+	// dial refuses to start without it rather than trusting whatever answers
+	// the port. [KnownHosts] checks against a known_hosts file and
+	// [InsecureIgnoreHostKey] accepts anything, which the name says out loud.
+	// Without either, SSHWith's dialer is refused by New with ErrInvalidConfig.
+	HostKeyCheck func(HostKey) error
+}
+
+// sshDialer is ServerQuery inside an SSH shell. The SSH login is the query
+// login, so the session is already the query account when it opens, and only
+// `use` is left. Only TeamSpeak 6 serves it, and off by default.
+type sshDialer struct {
+	conn         func(ctx context.Context, addr string) (SSHConn, error)
+	hostKeyCheck func(HostKey) error
+	addr         string
+	user         string
+	password     string
+	// ownDial reports whether conn is the built-in dial, which is what has to
+	// check a host key. A connection the caller opened is the caller's to
+	// check, and the transport never sees its key.
+	ownDial bool
+}
+
+// SSH returns a Dialer for ServerQuery over SSH at addr, a host:port such as
+// "127.0.0.1:10022", logging in as user with password.
+//
+// The password is the SSH login's, not a query login sent as a command: over
+// this transport no query password goes over the wire at all. [WithLogin] is
+// refused here.
+//
+// The host key has to be checked, and this constructor takes no policy for it,
+// so it always produces a dialer that [New] refuses. Use [SSHWith] with
+// [KnownHosts], [InsecureIgnoreHostKey], or [SSHOptions.HostKeyCheck]:
+//
+//	check, err := serverquery.KnownHosts(filepath.Join(home, ".ssh", "known_hosts"))
+//	if err != nil { ... }
+//	d := serverquery.SSHWith("127.0.0.1:10022", "serveradmin", password,
+//		serverquery.SSHOptions{HostKeyCheck: check})
+//
+// The check runs before the login, so a server that is not the one expected
+// never sees the password. Accepting any key instead — InsecureIgnoreHostKey —
+// hands the query account, normally serveradmin, to whoever answers the port.
+//
+// Experimental: this package may change in a minor release.
+func SSH(addr, user, password string) Dialer {
+	return SSHWith(addr, user, password, SSHOptions{})
+}
+
+// SSHWith returns an SSH dialer with options applied. It needs a host key
+// policy — HostKeyCheck, or Open where the connection is made elsewhere — so
+// New returns ErrInvalidConfig for a dialer built without one.
+//
+// Experimental: this package may change in a minor release.
+func SSHWith(addr, user, password string, options SSHOptions) Dialer {
+	d := sshDialer{
+		addr:         addr,
+		user:         user,
+		password:     password,
+		conn:         options.Open,
+		hostKeyCheck: options.HostKeyCheck,
+		ownDial:      options.Open == nil,
+	}
+	if d.conn == nil {
+		d.conn = d.dial
+	}
+
+	return d
+}
+
+// SupportsNotifications reports that the server can push notifications over
+// this connection.
+func (d sshDialer) SupportsNotifications() bool { return true }
+
+func (d sshDialer) String() string { return "ssh " + d.user + "@" + d.addr }
+
+// needsLogin reports that the query login is not a command here: SSH logged in
+// already.
+func (d sshDialer) needsLogin() bool { return false }
+
+// needsQuit reports that the session ends with a `quit` command. The session
+// is a shell, so quitting closes it as ending the connection would.
+func (d sshDialer) needsQuit() bool { return true }
+
+// validate refuses a dialer with no host key policy, naming what to do about
+// it. A transport that dials for the caller must not accept whatever answers
+// the port, and must not go looking for a policy of its own: a library does
+// not read ~/.ssh/known_hosts unasked any more than it accepts anything.
+func (d sshDialer) validate() error {
+	if d.ownDial && d.hostKeyCheck == nil {
+		return fmt.Errorf("%w: the ssh dialer checks the host key before it logs in, and "+
+			"none of SSHOptions.HostKeyCheck, KnownHosts(...) or InsecureIgnoreHostKey() was given",
+			ErrInvalidConfig)
+	}
+
+	return nil
+}
+
+func (d sshDialer) open(ctx context.Context) (engine.Transport, error) {
+	conn, err := d.conn(ctx, d.addr)
+	if err != nil {
+		return nil, err
+	}
+	shell, err := conn.Shell()
+	if err != nil {
+		_ = conn.Close()
+
+		return nil, fmt.Errorf("%w: ssh %s: %w", ErrDial, d.addr, err)
+	}
+
+	closeAll := func() error {
+		_ = shell.Close()
+		err := conn.Close()
+		if errors.Is(err, io.EOF) {
+			err = nil
+		}
+
+		return err
+	}
+
+	return newStream(shell.Stdout(), streamOptions{
+		banner: 2,
+		identity: streamIdentity{
+			transport: "ssh",
+			address:   d.user + "@" + d.addr,
+			opened:    time.Now(),
+		},
+		write: func(line string) error {
+			_, err := io.WriteString(shell.Stdin(), line+"\n")
+
+			return err
+		},
+		closeConn: closeAll,
+	}), nil
+}
+
+// dial is the built-in opener: one SSH connection to addr, logging in as the
+// configured user.
+func (d sshDialer) dial(ctx context.Context, addr string) (SSHConn, error) {
+	config := &ssh.ClientConfig{
+		User: d.user,
+		Auth: []ssh.AuthMethod{ssh.Password(d.password)},
+		// The caller's policy, converted: this is the only place the library's
+		// callback type is named, and validate has already refused a dialer
+		// without one.
+		HostKeyCallback: hostKeyCallback(addr, d.hostKeyCheck),
+	}
+	client, err := dialSSH(ctx, addr, config)
+	if err != nil {
+		return nil, err
+	}
+
+	return sshConn{client: client}, nil
+}
+
+// sshConn adapts *ssh.Client to SSHConn, so no caller of this package has to
+// name the library's own type.
+type sshConn struct {
+	client *ssh.Client
+}
+
+// Shell starts a shell session and resolves its two pipes, so the SSHShell it
+// returns cannot fail part-way through being used.
+func (c sshConn) Shell() (SSHShell, error) {
+	session, err := c.client.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		_ = session.Close()
+
+		return nil, err
+	}
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		_ = session.Close()
+
+		return nil, err
+	}
+	// A shell rather than a command: ServerQuery is a line protocol, and the
+	// server answers each line as it arrives.
+	err = session.Shell()
+	if err != nil {
+		_ = session.Close()
+
+		return nil, err
+	}
+
+	return sshShell{session: session, stdin: stdin, stdout: stdout}, nil
+}
+
+func (c sshConn) Close() error { return c.client.Close() }
+
+// sshShell adapts an *ssh.Session that has already been started.
+type sshShell struct {
+	session *ssh.Session
+	stdin   io.WriteCloser
+	stdout  io.Reader
+}
+
+func (s sshShell) Stdin() io.Writer  { return s.stdin }
+func (s sshShell) Stdout() io.Reader { return s.stdout }
+func (s sshShell) Close() error      { return s.session.Close() }
+
+// dialSSH connects, closing the connection if ctx ends first. ssh.Dial has no
+// context, so an attempt that outlives the caller's deadline is abandoned
+// rather than waited out.
+func dialSSH(ctx context.Context, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+	type answer struct {
+		client *ssh.Client
+		err    error
+	}
+	answered := make(chan answer, 1)
+	go func() {
+		client, err := ssh.Dial("tcp", addr, config)
+		answered <- answer{client: client, err: err}
+	}()
+
+	select {
+	case a := <-answered:
+		if a.err != nil {
+			return nil, classifySSHError(addr, a.err)
+		}
+
+		return a.client, nil
+	case <-ctx.Done():
+		// The dial's own goroutine closes what it opens once it returns.
+		go func() {
+			if a := <-answered; a.client != nil {
+				_ = a.client.Close()
+			}
+		}()
+
+		return nil, fmt.Errorf("%w: ssh %s: %w", ErrDial, addr, ctx.Err())
+	}
+}
+
+// classifySSHError turns what the library reported into this package's errors.
+// A refused login arrives as a plain error whose text says so — the package
+// exports no type for it — so the text is what there is to read.
+func classifySSHError(addr string, err error) error {
+	if strings.Contains(err.Error(), "unable to authenticate") {
+		return fmt.Errorf("%w: ssh %s: %w", ErrAuth, addr, err)
+	}
+
+	return fmt.Errorf("%w: ssh %s: %w", ErrDial, addr, err)
+}

@@ -2,30 +2,19 @@ package client
 
 import teamspeak "github.com/honeybbq/teamspeak-go"
 
-// Event is teamspeak.Event: what event middleware receives. The root package defines it so
-// that other clients share it.
+// The event types, the status and the connection's own errors live in the root
+// package, so a future ServerQuery client shares them; this package re-exports
+// them under the names it has always used.
+
+// Event is teamspeak.Event: what event middleware receives.
 type Event = teamspeak.Event
 
-// ConnectedEvent is what OnConnected handlers receive: the handshake completed.
-type ConnectedEvent struct {
-	// Reconnected is true when the connection came from the reconnect loop
-	// that WithReconnect turns on, and false for the one a Connect call made.
-	Reconnected bool
-}
+// ConnectedEvent is teamspeak.ConnectedEvent: the handshake completed.
+type ConnectedEvent = teamspeak.ConnectedEvent
 
-// DisconnectedEvent is what OnDisconnected handlers receive: a connection, or
-// an attempt to make one, ended.
-type DisconnectedEvent struct {
-	// Err is the cause: a failed handshake, ErrConnectionTimeout for a server
-	// that stopped answering, or a *RemovedError for a kick, a ban or a server
-	// stopping. It is nil after Disconnect.
-	Err error
-	// WillReconnect is true when the reconnect loop will try again: reconnection
-	// is on, Disconnect has not been called, the attempts are not used up, and
-	// the policy's ShouldRetry accepts Err. It is false after Disconnect and
-	// for a failed Connect, which is never retried.
-	WillReconnect bool
-}
+// DisconnectedEvent is teamspeak.DisconnectedEvent: a connection, or an
+// attempt to make one, ended.
+type DisconnectedEvent = teamspeak.DisconnectedEvent
 
 // ClientEnterEvent is teamspeak.ClientEnterEvent.
 type ClientEnterEvent = teamspeak.ClientEnterEvent
@@ -50,3 +39,32 @@ type KickedEvent = teamspeak.KickedEvent
 
 // VoiceDataEvent is teamspeak.VoiceDataEvent.
 type VoiceDataEvent = teamspeak.VoiceDataEvent
+
+// Status is teamspeak.Status: the state of a client's connection.
+type Status = teamspeak.Status
+
+// The connection states.
+const (
+	// StatusDisconnected is a client with no connection.
+	StatusDisconnected = teamspeak.StatusDisconnected
+	// StatusConnecting is a client between Connect and the end of the
+	// handshake.
+	StatusConnecting = teamspeak.StatusConnecting
+	// StatusConnected is a client whose handshake has completed.
+	StatusConnected = teamspeak.StatusConnected
+)
+
+// ServerFamily is teamspeak.ServerFamily: the server generation a version
+// string belongs to.
+type ServerFamily = teamspeak.ServerFamily
+
+// The server generations.
+const (
+	// ServerFamilyUnknown means the server has not identified itself yet. It is
+	// the zero value.
+	ServerFamilyUnknown = teamspeak.ServerFamilyUnknown
+	// ServerFamilyTS3 is TeamSpeak 3, which hashes client uids with SHA-1.
+	ServerFamilyTS3 = teamspeak.ServerFamilyTS3
+	// ServerFamilyTS6 is TeamSpeak 6, which hashes client uids with SHA-256.
+	ServerFamilyTS6 = teamspeak.ServerFamilyTS6
+)

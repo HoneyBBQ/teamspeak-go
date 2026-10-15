@@ -43,19 +43,29 @@ const ReasonNone Reason = 0
 const ReasonServerShutdown Reason = 11
 const ReasonServerStop Reason = 7
 const ReasonSubscription Reason = 2
+const ServerFamilyTS3 ServerFamily = "ts3"
+const ServerFamilyTS6 ServerFamily = "ts6"
+const ServerFamilyUnknown ServerFamily = ""
+const StatusConnected Status = 2
+const StatusConnecting Status = 1
+const StatusDisconnected Status = 0
 const TextMessageTargetChannel TextMessageTarget = 2
 const TextMessageTargetClient TextMessageTarget = 1
 const TextMessageTargetServer TextMessageTarget = 3
+var ErrAlreadyConnected error
 var ErrFileTransfer error
 var ErrInvalidCommand error
+var ErrMissingDependency error
 var ErrNoData error
 var ErrNotConnected error
 var ErrServer error
+func DefaultBackoffPolicy() BackoffPolicy
 func DialFileTransfer(ctx context.Context, host string, port uint16, key string, opts FileTransferOptions) (net.Conn, error)
 func DownloadFileData(ctx context.Context, host string, info *FileDownloadInfo, dest io.Writer, opts FileTransferOptions) error
 func NewCommands(executor Executor) *Commands
 func PermissionByID(id PermissionID) Permission
 func PermissionByName(name string) Permission
+func ServerFamilyForVersion(version string) ServerFamily
 func UploadFileData(ctx context.Context, host string, info *FileUploadInfo, data io.Reader, opts FileTransferOptions) error
 type ActiveTransfer struct
 field ActiveTransfer.Path string
@@ -70,6 +80,13 @@ field ActiveTransfer.ClientID ClientID
 field ActiveTransfer.Status int
 field ActiveTransfer.CurrentSpeed float32
 field ActiveTransfer.AverageSpeed float32
+type BackoffPolicy struct
+field BackoffPolicy.InitialDelay time.Duration
+field BackoffPolicy.MaxDelay time.Duration
+field BackoffPolicy.Factor float64
+field BackoffPolicy.Jitter float64
+field BackoffPolicy.MaxAttempts int
+method (BackoffPolicy) Delay(attempt int) time.Duration
 type BanClientOptions struct
 field BanClientOptions.Reason string
 field BanClientOptions.Duration time.Duration
@@ -279,6 +296,7 @@ field ClientUpdateOptions.IsRecording *bool
 field ClientUpdateOptions.IsRequestingTalk *bool
 type Codec uint8
 method (Codec) String() string
+type CommandMiddleware func(next Executor) Executor
 type Commands struct
 method (*Commands) AddBan(ctx context.Context, opts BanOptions) (BanID, error)
 method (*Commands) AddChannelClientPermission(ctx context.Context, cid ChannelID, clientDBID ClientDBID, perm Permission, value int32) error
@@ -395,6 +413,11 @@ field Complaint.TargetDatabaseID ClientDBID
 field Complaint.FromDatabaseID ClientDBID
 type ComplaintListOptions struct
 field ComplaintListOptions.TargetDatabaseID ClientDBID
+type ConnectedEvent struct
+field ConnectedEvent.Reconnected bool
+type DisconnectedEvent struct
+field DisconnectedEvent.Err error
+field DisconnectedEvent.WillReconnect bool
 type Event interface
 sealed Event
 type Executor interface
@@ -566,6 +589,9 @@ method (PrivilegeKeyType) String() string
 type Properties map[string]string
 type Reason int
 method (Reason) String() string
+type ReconnectOptions struct
+field ReconnectOptions.ShouldRetry ShouldRetryFunc
+field ReconnectOptions.Backoff BackoffPolicy
 type Request struct
 method (Request) Command() string
 method (Request) GoString() string
@@ -594,6 +620,8 @@ field ServerError.Code errcode.Code
 field ServerError.FailedPermID PermissionID
 method (*ServerError) Error() string
 method (*ServerError) Unwrap() []error
+type ServerFamily string
+method (ServerFamily) String() string
 type ServerFileTransferID uint16
 type ServerGroup struct
 field ServerGroup.Name string
@@ -626,6 +654,9 @@ type ServerVersion struct
 field ServerVersion.Version string
 field ServerVersion.Platform string
 field ServerVersion.Build uint64
+type ShouldRetryFunc func(err error, attempt int) bool
+type Status int
+method (Status) String() string
 type TempPassword struct
 field TempPassword.Starts time.Time
 field TempPassword.Ends time.Time
