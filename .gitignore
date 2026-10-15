@@ -1,30 +1,23 @@
-# Binaries
+# Binaries for programs and plugins
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
 
-# Test binary
+# Test binary, built with `go test -c`
 *.test
 
-# Coverage
-coverage.txt
-coverage.out
+# Code coverage profiles and other test artifacts
+*.out
+coverage.*
+!coverage.go
 *.coverprofile
+profile.cov
 
-# Go workspace
+# Go workspace file
 go.work
 go.work.sum
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-ts3-fixture.env
+# env file
+.env
