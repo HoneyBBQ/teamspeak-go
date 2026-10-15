@@ -5,6 +5,12 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ## Unreleased
 
+- `client.WithVersion` chooses the platform, version and signature `clientinit`
+  sends, and the new `versions` package has the versions a server accepts, one
+  variable each: `client.WithVersion(versions.Windows_3_6_2_1695203293)`.
+  Without the option the client sends what it always did. `New` returns
+  `ErrInvalidConfig` for a version with an empty field or a signature that is
+  not the base64 of 64 bytes.
 - `GetChannelInfo` leaves `TotalClients`, `TotalFamilyClients` and
   `NeededSubscribePower` at 0, because `channelinfo` does not carry them; the
   documentation said only `channellist` reported them without saying what

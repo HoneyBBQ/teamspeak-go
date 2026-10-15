@@ -382,6 +382,29 @@ Connection auth options:
 - `WithDefaultChannel(channel)` requests a default channel during `clientinit`
 - `WithDefaultChannelPassword(password)` accepts the plain-text channel password and sends the TeamSpeak protocol hash for the configured default channel
 
+### Client version
+
+`clientinit` sends a recent Windows version unless `WithVersion` says
+otherwise. The `versions` package has one variable for each version that is
+known to work, named `<Platform>_<version>_<build>`; the first letter of a
+platform that starts in lower case is capitalised, so macOS is `MacOS` and iOS
+is `IOS`:
+
+```go
+import "github.com/honeybbq/teamspeak-go/versions"
+
+c, err := client.New(id, "ts.example.com", "Bot",
+	client.WithVersion(versions.Windows_3_6_2_1695203293),
+)
+```
+
+A `versions.ClientVersion` is a platform, a version string and a signature, and
+only the ones in the package carry a signature a server accepts. Do not modify
+the variables. A server refuses a build below its configured minimum, so an old
+version fails to connect on a server that has raised it. `New` returns
+`ErrInvalidConfig` when a field is empty or the signature is not the base64 of
+64 bytes.
+
 ### Tracing
 
 `WithTrace` reports the milestones of a client's connection attempts and its

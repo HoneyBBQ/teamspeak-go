@@ -20,6 +20,7 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/discovery"
 	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
+	"github.com/honeybbq/teamspeak-go/versions"
 )
 
 // ErrAlreadyConnected reports a Connect on a client that is already connected
@@ -140,6 +141,9 @@ type clientInitOptions struct {
 	serverPasswordHash         string
 	defaultChannel             string
 	defaultChannelPasswordHash string
+	// version is held by value, so changing the caller's copy afterwards has
+	// no effect.
+	version versions.ClientVersion
 }
 
 // String describes the options without the password hashes, which the
@@ -300,7 +304,7 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 
 	c := &Client{
 		identity:          id,
-		clientInitOptions: &clientInitOptions{},
+		clientInitOptions: &clientInitOptions{version: defaultClientVersion},
 		status:            StatusDisconnected,
 		// Silent unless the application asks: a library has no business
 		// writing to the application's default logger.
@@ -318,6 +322,11 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 
 	for _, opt := range options {
 		opt.apply(c)
+	}
+
+	err := validateClientVersion(c.clientInitOptions.version)
+	if err != nil {
+		return nil, err
 	}
 
 	c.handler = c.newHandler()
@@ -433,6 +442,19 @@ func WithDefaultChannel(channel string) Option {
 func WithDefaultChannelPassword(password string) Option {
 	return optionFunc(func(c *Client) {
 		c.clientInitOptions.defaultChannelPasswordHash = prepareClientPassword(password)
+	})
+}
+
+// WithVersion sets the platform, version and signature clientinit sends.
+// Without it the client sends a recent Windows build.
+//
+// Pick one from the versions package: only those carry a signature a server
+// accepts, and a server refuses a build below its configured minimum. New
+// returns ErrInvalidConfig if a field is empty or Sign is not the base64 of 64
+// bytes; it does not check the signature itself, which the server does.
+func WithVersion(v versions.ClientVersion) Option {
+	return optionFunc(func(c *Client) {
+		c.clientInitOptions.version = v
 	})
 }
 

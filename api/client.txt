@@ -30,6 +30,7 @@ func WithReconnect(options ReconnectOptions) Option
 func WithResolver(r AddrResolver) Option
 func WithServerPassword(password string) Option
 func WithTrace(trace *Trace) Option
+func WithVersion(v versions.ClientVersion) Option
 type AddrResolver interface
 method (AddrResolver) Resolve(ctx context.Context, addr string) ([]ResolvedAddr, error)
 type AttemptFailedInfo struct
