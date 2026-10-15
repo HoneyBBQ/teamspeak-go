@@ -14,7 +14,10 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   `SSH(addr, user, password)` on its own now produces a dialer `New` refuses,
   naming the three ways to supply a policy: the query account it logs in as is
   normally `serveradmin`, and an unchecked key hands that password to anyone
-  who can answer the port.
+  who can answer the port. `HostKeyCheck` together with `SSHOptions.Open` is
+  refused as well: the connection `Open` returns has already made its
+  handshake, so the check would never run. A host key that was refused is not
+  retried by `DefaultShouldRetry`, whether it is unknown or has changed.
 
 ### Added
 

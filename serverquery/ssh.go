@@ -46,11 +46,13 @@ type SSHConn interface {
 type SSHOptions struct {
 	// Open connects to addr in place of the built-in dial. It is where an
 	// already-connected client, a jump host, or a test double goes; the
-	// transport asks the connection only for a shell, and does not check the
-	// host key of a connection it did not make.
+	// transport asks the connection only for a shell.
 	//
-	// It replaces HostKeyCheck rather than adding to it: whoever opens the
-	// connection is who can check the key.
+	// The handshake happened inside the connection Open returned, so the
+	// transport never sees the host key, and whoever made the connection is the
+	// one who can check it. Setting HostKeyCheck as well would be a check that
+	// never runs, which reads as a verified server and is not one, so New
+	// refuses the combination with ErrInvalidConfig.
 	//
 	// A connection opened here is closed by the transport. A refused login
 	// should be reported wrapping ErrAuth, which is what the built-in dial
@@ -59,11 +61,12 @@ type SSHOptions struct {
 	// HostKeyCheck decides whether the server is the one expected, before the
 	// login is sent. See [HostKey] for what it is given.
 	//
-	// It has to be set, unless Open supplies the connection instead: the
-	// dial refuses to start without it rather than trusting whatever answers
-	// the port. [KnownHosts] checks against a known_hosts file and
-	// [InsecureIgnoreHostKey] accepts anything, which the name says out loud.
-	// Without either, SSHWith's dialer is refused by New with ErrInvalidConfig.
+	// It has to be set when the transport dials, and must not be set when Open
+	// supplies the connection: in the first case the dial would otherwise
+	// trust whatever answers the port, and in the second the check could never
+	// run. New refuses either with ErrInvalidConfig. [KnownHosts] checks
+	// against a known_hosts file and [InsecureIgnoreHostKey] accepts anything,
+	// which the name says out loud.
 	HostKeyCheck func(HostKey) error
 }
 
@@ -107,9 +110,10 @@ func SSH(addr, user, password string) Dialer {
 	return SSHWith(addr, user, password, SSHOptions{})
 }
 
-// SSHWith returns an SSH dialer with options applied. It needs a host key
-// policy — HostKeyCheck, or Open where the connection is made elsewhere — so
-// New returns ErrInvalidConfig for a dialer built without one.
+// SSHWith returns an SSH dialer with options applied. It needs exactly one way
+// to know the server: HostKeyCheck, for a connection this package dials, or
+// Open, for one made elsewhere, whose caller checks the key. New returns
+// ErrInvalidConfig for neither and for both.
 //
 // Experimental: this package may change in a minor release.
 func SSHWith(addr, user, password string, options SSHOptions) Dialer {
@@ -142,14 +146,25 @@ func (d sshDialer) needsLogin() bool { return false }
 // is a shell, so quitting closes it as ending the connection would.
 func (d sshDialer) needsQuit() bool { return true }
 
-// validate refuses a dialer with no host key policy, naming what to do about
-// it. A transport that dials for the caller must not accept whatever answers
-// the port, and must not go looking for a policy of its own: a library does
-// not read ~/.ssh/known_hosts unasked any more than it accepts anything.
+// validate refuses a host key policy that is missing or that could not run,
+// naming what to do about it.
+//
+// A transport that dials for the caller must not accept whatever answers the
+// port, and must not go looking for a policy of its own: a library does not
+// read ~/.ssh/known_hosts unasked any more than it accepts anything. And a
+// policy given alongside Open is a security option that is silently ignored,
+// since the connection Open returns has already done its handshake: whoever
+// set both believes the key is being checked when it is not.
 func (d sshDialer) validate() error {
-	if d.ownDial && d.hostKeyCheck == nil {
+	switch {
+	case d.ownDial && d.hostKeyCheck == nil:
 		return fmt.Errorf("%w: the ssh dialer checks the host key before it logs in, and "+
 			"none of SSHOptions.HostKeyCheck, KnownHosts(...) or InsecureIgnoreHostKey() was given",
+			ErrInvalidConfig)
+	case !d.ownDial && d.hostKeyCheck != nil:
+		return fmt.Errorf("%w: SSHOptions.HostKeyCheck and SSHOptions.Open are both set, but the "+
+			"connection Open returns has already made its handshake, so the transport never sees the "+
+			"host key and the check would never run; check the key where the connection is made",
 			ErrInvalidConfig)
 	}
 

@@ -49,6 +49,11 @@ var permanentQueryErrors = map[errcode.Code]bool{
 // what makes this different from the voice client's own policy: it never sends
 // a login, so it has nothing to refuse.
 //
+// An SSH host key that was not accepted is not retried either, whether the
+// host is unknown or its key has changed: neither fixes itself by dialling
+// again, and looping on a key that may belong to an impersonator is the wrong
+// default.
+//
 // Experimental: this package may change in a minor release.
 func DefaultShouldRetry(err error, _ int) bool {
 	if err == nil {
@@ -56,6 +61,10 @@ func DefaultShouldRetry(err error, _ int) bool {
 	}
 	if errors.Is(err, ErrAuth) {
 		// The SSH login was refused; the password will not be right next time.
+		return false
+	}
+	if errors.Is(err, ErrHostKey) {
+		// An unknown or changed key stays so; redialling only offers it again.
 		return false
 	}
 
