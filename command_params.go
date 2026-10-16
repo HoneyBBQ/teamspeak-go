@@ -359,6 +359,14 @@ func fieldOptUint16(row map[string]string, key string) *uint16 {
 // the first row returned the first group on the server rather than the new
 // one. The new group is the one with the requested name — the newest, should
 // the name repeat across group types.
+//
+// The two commands differ because of their answers, not by choice:
+// notifychannelcreated names the client that invoked it, so channelcreate can
+// keep only its own row, while notifyservergrouplist names no invoker and
+// leaves nothing but the name to match on. A group of the same name created
+// concurrently by another party is therefore indistinguishable from ours, and
+// the id returned may be theirs rather than the one just made. That is a limit
+// of what the notification reports, not of this function.
 func createdGroupID[T ~uint64](rows []map[string]string, idKey, name string) (T, error) {
 	var listed bool
 	var id uint64
