@@ -250,6 +250,14 @@ err = c.AddChannelPermission(ctx, cid, teamspeak.PermissionByName(perm.ChannelNe
 // reports none of their ids, so banIDs is empty and ListBans finds them.
 banIDs, err := c.BanClient(ctx, troll, teamspeak.BanClientOptions{Duration: 10 * time.Minute, Reason: "cool off"})
 
+// AddBan is the same for one ban: the bool is false when the server reported
+// no id, so 0 is never mistaken for one. ServerQuery answers banadd with a
+// banid; the voice protocol answers nothing, and ListBans finds the ban.
+banID, reported, err := c.AddBan(ctx, teamspeak.BanOptions{IP: "203.0.113.5", Reason: "spam"})
+if reported {
+	fmt.Println("ban", banID)
+}
+
 // The client database is paged; the iterator fetches page after page.
 for entry, err := range c.IterateClientDatabase(ctx, teamspeak.PagingOptions{}) {
 	if err != nil {

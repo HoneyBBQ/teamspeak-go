@@ -102,7 +102,7 @@ func TestBanDurations(t *testing.T) {
 	}
 
 	line = encoded(t, func(c *Commands) error {
-		_, err := c.AddBan(t.Context(), BanOptions{Name: "spammer.*", Reason: "spam"})
+		_, _, err := c.AddBan(t.Context(), BanOptions{Name: "spammer.*", Reason: "spam"})
 
 		return err
 	})
@@ -111,7 +111,7 @@ func TestBanDurations(t *testing.T) {
 	}
 
 	refused(t, func(c *Commands) error {
-		_, err := c.AddBan(t.Context(), BanOptions{Reason: "matches nobody"})
+		_, _, err := c.AddBan(t.Context(), BanOptions{Reason: "matches nobody"})
 
 		return err
 	})
@@ -535,14 +535,51 @@ func TestBansReturnTheIDsTheServerReports(t *testing.T) {
 	if err != nil || len(ids) != 0 {
 		t.Errorf("BanClient answered with nothing = %v, %v; want no ids, no error", ids, err)
 	}
-	id, err := NewCommands(&script{}).AddBan(t.Context(), BanOptions{IP: "203.0.113.5"})
-	if err != nil || id != 0 {
-		t.Errorf("AddBan answered with nothing = %v, %v; want 0, no error", id, err)
+	id, ok, err := NewCommands(&script{}).AddBan(t.Context(), BanOptions{IP: "203.0.113.5"})
+	if err != nil || ok || id != 0 {
+		t.Errorf("AddBan answered with nothing = %v, %v, %v; want 0, false, no error", id, ok, err)
 	}
-	id, err = NewCommands(&script{replies: []reply{{rows: []map[string]string{{"banid": "9"}}}}}).
+	id, ok, err = NewCommands(&script{replies: []reply{{rows: []map[string]string{{"banid": "9"}}}}}).
 		AddBan(t.Context(), BanOptions{IP: "203.0.113.5"})
-	if err != nil || id != 9 {
-		t.Errorf("AddBan = %v, %v; want 9", id, err)
+	if err != nil || !ok || id != 9 {
+		t.Errorf("AddBan = %v, %v, %v; want 9, true, no error", id, ok, err)
+	}
+}
+
+// AddBan says which of the two it got: the id the server reported, or nothing.
+// A ban id the server really sent as 0 is a ban id, and is reported as one;
+// banadd over the voice protocol answers no row at all, which is not that.
+func TestAddBanSaysWhetherTheServerReportedAnID(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reply reply
+		want  BanID
+		found bool
+	}{
+		{"an id", reply{rows: []map[string]string{{"banid": "9"}}}, 9, true},
+		{"a zero id", reply{rows: []map[string]string{{"banid": "0"}}}, 0, true},
+		{"no row", reply{}, 0, false},
+		{"a row without banid", reply{rows: []map[string]string{{"other": "1"}}}, 0, false},
+	} {
+		id, found, err := NewCommands(&script{replies: []reply{tc.reply}}).
+			AddBan(t.Context(), BanOptions{IP: "203.0.113.5"})
+		if err != nil || found != tc.found || id != tc.want {
+			t.Errorf("%s: AddBan = %v, %v, %v; want %v, %v, no error", tc.name, id, found, err, tc.want, tc.found)
+		}
+	}
+}
+
+// A refusal reaches the caller with found false, so a failed ban cannot read
+// as one the server made without reporting an id.
+func TestAddBanReportsARefusal(t *testing.T) {
+	refusal := &ServerError{Code: errcode.PermissionsClientInsufficient}
+	id, found, err := NewCommands(&script{replies: []reply{{err: refusal}}}).
+		AddBan(t.Context(), BanOptions{IP: "203.0.113.5"})
+	if !errors.Is(err, errcode.PermissionsClientInsufficient) {
+		t.Errorf("AddBan = %v, %v, %v; want the refusal", id, found, err)
+	}
+	if found || id != 0 {
+		t.Errorf("AddBan on a refusal = %v, %v; want 0, false", id, found)
 	}
 }
 

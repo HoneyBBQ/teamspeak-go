@@ -42,7 +42,7 @@ field AttemptFailedInfo.Attempt int
 field AttemptFailedInfo.Reconnect bool
 type BackoffPolicy = teamspeak.BackoffPolicy
 type Client struct
-method (Client) AddBan(ctx context.Context, opts teamspeak.BanOptions) (teamspeak.BanID, error)
+method (Client) AddBan(ctx context.Context, opts teamspeak.BanOptions) (teamspeak.BanID, bool, error)
 method (Client) AddChannelClientPermission(ctx context.Context, cid teamspeak.ChannelID, clientDBID teamspeak.ClientDBID, perm teamspeak.Permission, value int32) error
 method (Client) AddChannelGroupPermission(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, perm teamspeak.Permission, value int32) error
 method (Client) AddChannelPermission(ctx context.Context, cid teamspeak.ChannelID, perm teamspeak.Permission, value int32) error

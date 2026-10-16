@@ -141,7 +141,8 @@ func readCreated(ctx context.Context, c *Commands) {
 	_, _ = c.CopyServerGroup(ctx, 1, 0, "g", GroupRegular)
 	_, _ = c.CopyChannelGroup(ctx, 1, 0, "g", GroupRegular)
 	_, _ = c.CreateChannel(ctx, ChannelCreateOptions{Name: "a"})
-	_, _ = c.AddBan(ctx, BanOptions{IP: "1.2.3.4"})
+	_, reported, _ := c.AddBan(ctx, BanOptions{IP: "1.2.3.4"})
+	_ = reported
 	_, _ = c.BanClient(ctx, 1, BanClientOptions{})
 	_, _ = c.AddPrivilegeKey(ctx, PrivilegeKeyOptions{})
 }

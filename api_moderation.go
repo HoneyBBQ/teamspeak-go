@@ -103,11 +103,12 @@ func banDurationArg(d time.Duration) param {
 	return durationArg("time", d, time.Second)
 }
 
-// AddBan adds a ban and returns its id, or 0 when the server did not report
-// one. Over ServerQuery the server answers one banid. Over the voice protocol
-// TeamSpeak 3 and 6 answer nothing, measured: the ban is made all the same,
-// and ListBans finds its id.
-func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (BanID, error) {
+// AddBan adds a ban and returns its id. The second return value is false when
+// the server reported no id, and the BanID is then meaningless: over the voice
+// protocol TeamSpeak 3 and 6 answer banadd with nothing, measured — the ban is
+// made all the same, and ListBans finds its id. Over ServerQuery the server
+// answers one banid, so there the id is there.
+func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (BanID, bool, error) {
 	target := optStrArg("ip", opts.IP)
 	if opts.IP == "" && opts.Name == "" && opts.UID == "" {
 		target = invalidArg("a ban needs an IP, a name or a UID to match")
@@ -121,23 +122,31 @@ func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (BanID, error) {
 		optStrArg("banreason", opts.Reason),
 	})
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 
 	ids := banIDs(rows)
 	if len(ids) == 0 {
-		return 0, nil
+		return 0, false, nil
 	}
 
-	return ids[0], nil
+	return ids[0], true, nil
 }
 
-// banIDs reads the banid of every row that has one.
+// banIDs reads the banid of every row that carries one.
+//
+// A row counts when it names banid with a value, not when the number is
+// non-zero. Reading the value and dropping it at 0 threw away a banid the
+// server did report, and left a zero meaning both "ban 0" and "no ban
+// reported" — the ambiguity AddBan's found result exists to remove. An empty
+// value is not one: the package reads a field the row sent empty as absent,
+// which is what requireRow does. A row with no banid at all is the server
+// having answered nothing, which is what banadd does over the voice protocol.
 func banIDs(rows []map[string]string) []BanID {
 	ids := make([]BanID, 0, len(rows))
 	for _, row := range rows {
-		if id := fieldUint(row, "banid"); id != 0 {
-			ids = append(ids, BanID(id))
+		if row["banid"] != "" {
+			ids = append(ids, BanID(fieldUint(row, "banid")))
 		}
 	}
 

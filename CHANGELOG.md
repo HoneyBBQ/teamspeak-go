@@ -38,6 +38,16 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   `ErrMissingDependency`. `client` re-exports each of them under the name it
   already had, so nothing that imported `client` has to change.
 
+### Changed
+
+- `AddBan` returns `(teamspeak.BanID, bool, error)`. The bool is false when the
+  server reported no id — the voice protocol answers `banadd` with nothing,
+  measured — so a zero `BanID` no longer has to stand for both "ban 0" and "no
+  id". It matches `GetPermissionIDByName`, which already answers that way.
+  `BanClient` is unchanged: an empty slice says the server reported none.
+  `banIDs` now takes a row that carries `banid` rather than one whose value is
+  non-zero, so a ban the server really numbered 0 is no longer dropped.
+
 ## v1.0.0-beta.6 (2026-10-15)
 
 Breaking changes, made before v1.0.0 so that none of them needs a `/v2` import
