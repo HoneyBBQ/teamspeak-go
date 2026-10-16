@@ -118,13 +118,23 @@ func (r Request) isPassword(key string) bool {
 }
 
 // Executor is a connection the typed commands can run on.
+//
+// It is deliberately this narrow. A caller implements it to run the typed
+// commands over a transport of their own, and [CommandMiddleware] wraps it, so
+// a method added here would break every implementation and every middleware
+// along with it: this interface gains no methods in a minor release. A new
+// capability arrives as an interface, a function or an option of its own
+// instead, and an implementer or a middleware author may rely on that.
 type Executor interface {
 	// Send executes a request and returns the rows that answer it.
 	Send(ctx context.Context, req Request) ([]map[string]string, error)
 }
 
 // ExecutorFunc adapts a function to Executor, the way http.HandlerFunc adapts
-// one to http.Handler; command middleware is written with it.
+// one to http.Handler: it gives a plain function the one method the interface
+// needs. That makes it the way to fake or wrap execution — a middleware, or a
+// test's stand-in for a client, is one of these rather than a type with a Send
+// method of its own.
 type ExecutorFunc func(ctx context.Context, req Request) ([]map[string]string, error)
 
 // Send calls f.
