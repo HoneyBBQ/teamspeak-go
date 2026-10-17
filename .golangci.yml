@@ -117,3 +117,6 @@ run:
   timeout: 10m
   go: '1.26'
   tests: true
+  # Files behind the integration tag are linted with everything else.
+  build-tags:
+    - integration

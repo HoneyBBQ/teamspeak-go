@@ -182,7 +182,8 @@ func TestIntegration_SendWhisperReachesAnotherChannel(t *testing.T) {
 
 	frame := []byte{1, 2, 3, 4, 5, 6, 7, 8}
 	for range 12 {
-		sendErr := sender.SendWhisper(frame, client.WhisperTargets{Clients: []teamspeak.ClientID{listener.ClientID()}}, teamspeak.CodecOpusMusic)
+		targets := client.WhisperTargets{Clients: []teamspeak.ClientID{listener.ClientID()}}
+		sendErr := sender.SendWhisper(frame, targets, teamspeak.CodecOpusMusic)
 		if sendErr != nil {
 			t.Fatalf("SendWhisper: %v", sendErr)
 		}
