@@ -81,12 +81,12 @@ func waitForOtherSuites() {
 
 // tcpVars are what a raw-protocol test needs, skipping when the fixture ran
 // over WebQuery instead.
-func tcpVars(t *testing.T) (addr, login, password string) {
+func tcpVars(t *testing.T) (string, string, string) {
 	t.Helper()
 	host := os.Getenv(envHost)
 	port := os.Getenv(envPort)
-	login = os.Getenv(envLogin)
-	password = os.Getenv(envPassword)
+	login := os.Getenv(envLogin)
+	password := os.Getenv(envPassword)
 	if host == "" || port == "" || login == "" || password == "" {
 		t.Skipf("%s, %s, %s and %s not set — skipping the raw ServerQuery test",
 			envHost, envPort, envLogin, envPassword)
@@ -96,10 +96,10 @@ func tcpVars(t *testing.T) (addr, login, password string) {
 }
 
 // webVars are what a WebQuery test needs.
-func webVars(t *testing.T) (base, apiKey string) {
+func webVars(t *testing.T) (string, string) {
 	t.Helper()
-	base = os.Getenv(envWebURL)
-	apiKey = os.Getenv(envAPIKey)
+	base := os.Getenv(envWebURL)
+	apiKey := os.Getenv(envAPIKey)
 	if base == "" || apiKey == "" {
 		t.Skipf("%s and %s not set — skipping the WebQuery test", envWebURL, envAPIKey)
 	}
@@ -109,12 +109,12 @@ func webVars(t *testing.T) (base, apiKey string) {
 
 // sshVars are what an SSH test needs. The fixture writes them only when the
 // server was started with SSH enabled, which TS6 does not do by default.
-func sshVars(t *testing.T) (addr, user, password string) {
+func sshVars(t *testing.T) (string, string, string) {
 	t.Helper()
 	host := os.Getenv(envSSHHost)
 	port := os.Getenv(envSSHPort)
-	user = os.Getenv(envSSHUser)
-	password = os.Getenv(envSSHPass)
+	user := os.Getenv(envSSHUser)
+	password := os.Getenv(envSSHPass)
 	if host == "" || port == "" || user == "" || password == "" {
 		t.Skipf("%s, %s, %s and %s not set — skipping the SSH test",
 			envSSHHost, envSSHPort, envSSHUser, envSSHPass)
@@ -230,15 +230,17 @@ func open(t *testing.T, c *serverquery.Client) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	if err := c.Connect(ctx); err != nil {
+	err := c.Connect(ctx)
+	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	t.Cleanup(func() {
 		// Its own context: the test's may already be done.
 		disconnectCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
 		defer stop()
-		if err := c.Disconnect(disconnectCtx); err != nil {
-			t.Errorf("Disconnect: %v", err)
+		disconnectErr := c.Disconnect(disconnectCtx)
+		if disconnectErr != nil {
+			t.Errorf("Disconnect: %v", disconnectErr)
 		}
 	})
 }
@@ -617,12 +619,14 @@ func sendMessageFromVoiceClient(t *testing.T, channel string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	if err := voice.Connect(ctx); err != nil {
+	err = voice.Connect(ctx)
+	if err != nil {
 		t.Fatalf("voice client Connect: %v", err)
 	}
 	defer func() { _ = voice.Disconnect(context.Background()) }()
 
-	if err := voice.SendServerMessage(ctx, "query integration test"); err != nil {
+	err = voice.SendServerMessage(ctx, "query integration test")
+	if err != nil {
 		t.Fatalf("SendServerMessage: %v", err)
 	}
 }
@@ -700,8 +704,9 @@ func assertChannelRoundTrip(t *testing.T, c *serverquery.Client) {
 		// 772, "channel not empty".
 		delCtx, stop := context.WithTimeout(context.Background(), 15*time.Second)
 		defer stop()
-		if err := c.DeleteChannel(delCtx, cid, teamspeak.ChannelDeleteOptions{Force: true}); err != nil {
-			t.Errorf("DeleteChannel: %v", err)
+		deleteErr := c.DeleteChannel(delCtx, cid, teamspeak.ChannelDeleteOptions{Force: true})
+		if deleteErr != nil {
+			t.Errorf("DeleteChannel: %v", deleteErr)
 		}
 	}()
 
