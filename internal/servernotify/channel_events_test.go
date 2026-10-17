@@ -17,7 +17,8 @@ func row(line string) map[string]string { return wire.ParseCommand(line).Params 
 const admin = " invokerid=413 invokername=b2-adm invokeruid=serveradmin"
 
 func TestChannelCreated_Temporary(t *testing.T) {
-	evt, ok := servernotify.ChannelCreated(row("notifychannelcreated cid=247 cpid=0 channel_name=b2m-tmp channel_order=246" + admin))
+	evt, ok := servernotify.ChannelCreated(row(
+		"notifychannelcreated cid=247 cpid=0 channel_name=b2m-tmp channel_order=246" + admin))
 	if !ok {
 		t.Fatal("not read")
 	}
@@ -61,7 +62,9 @@ func TestChannelCreated_FullTS6(t *testing.T) {
 }
 
 func TestChannelCreated_WithoutAChannelIsDropped(t *testing.T) {
-	for _, line := range []string{"notifychannelcreated cpid=0 channel_name=n", "notifychannelcreated cid=0 channel_name=n"} {
+	for _, line := range []string{
+		"notifychannelcreated cpid=0 channel_name=n", "notifychannelcreated cid=0 channel_name=n",
+	} {
 		if _, ok := servernotify.ChannelCreated(row(line)); ok {
 			t.Errorf("%q was read", line)
 		}
@@ -87,7 +90,8 @@ func TestChannelEdited_DescriptionChangeNamesNoProperty(t *testing.T) {
 }
 
 func TestChannelEdited_PasswordFlagOnlyAsItFlips(t *testing.T) {
-	evt, _ := servernotify.ChannelEdited(row("notifychanneledited cid=244 reasonid=10" + admin + " channel_flag_password=0"))
+	evt, _ := servernotify.ChannelEdited(row(
+		"notifychanneledited cid=244 reasonid=10" + admin + " channel_flag_password=0"))
 	if evt.Changes.HasPassword == nil || *evt.Changes.HasPassword {
 		t.Errorf("changes = %+v, want HasPassword pointing at false", evt.Changes)
 	}
@@ -163,8 +167,11 @@ func TestServerEdited(t *testing.T) {
 }
 
 func TestPluginCommand(t *testing.T) {
-	evt := servernotify.PluginCommand(row("notifyplugincmd name=b2\\splug data=a\\sb\\pc\\/d invokerid=414 invokername=b2-B invokeruid=3uq="))
-	want := teamspeak.PluginCommandEvent{Name: "b2 plug", Data: "a b|c/d", InvokerID: 414, InvokerName: "b2-B", InvokerUID: "3uq="}
+	evt := servernotify.PluginCommand(row(
+		"notifyplugincmd name=b2\\splug data=a\\sb\\pc\\/d invokerid=414 invokername=b2-B invokeruid=3uq="))
+	want := teamspeak.PluginCommandEvent{
+		Name: "b2 plug", Data: "a b|c/d", InvokerID: 414, InvokerName: "b2-B", InvokerUID: "3uq=",
+	}
 	if evt != want {
 		t.Errorf("event = %+v", evt)
 	}
@@ -184,13 +191,16 @@ func TestClientChatComposing(t *testing.T) {
 }
 
 func TestChannelChanges_ReadsEveryRecordField(t *testing.T) {
-	got := servernotify.ChannelChanges(row("x cid=1 pid=4 channel_unique_identifier=u channel_name=n channel_topic= channel_description=d" +
+	got := servernotify.ChannelChanges(row("x cid=1 pid=4 channel_unique_identifier=u channel_name=n" +
+		" channel_topic= channel_description=d" +
 		" channel_order=3 channel_icon_id=-2004712318 channel_codec=4 channel_codec_quality=6 channel_maxclients=-1" +
 		" channel_maxfamilyclients=2 total_clients=1 total_clients_family=2 channel_needed_subscribe_power=3" +
 		" channel_needed_talk_power=4 channel_flag_default=1 channel_flag_permanent=0 channel_flag_semi_permanent=1" +
 		" channel_flag_password=1 channel_codec_latency_factor=2 channel_codec_is_unencrypted=1" +
-		" channel_flag_maxclients_unlimited=1 channel_flag_maxfamilyclients_unlimited=0 channel_flag_maxfamilyclients_inherited=1" +
-		" channel_delete_delay=30 channel_name_phonetic=p channel_forced_silence=1 channel_banner_gfx_url=u channel_banner_mode=2"))
+		" channel_flag_maxclients_unlimited=1 channel_flag_maxfamilyclients_unlimited=0" +
+		" channel_flag_maxfamilyclients_inherited=1" +
+		" channel_delete_delay=30 channel_name_phonetic=p channel_forced_silence=1" +
+		" channel_banner_gfx_url=u channel_banner_mode=2"))
 	if got.Topic == nil || *got.Topic != "" {
 		t.Error("an empty value is a change to empty")
 	}

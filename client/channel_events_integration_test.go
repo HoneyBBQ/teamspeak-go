@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -24,14 +25,14 @@ import (
 
 // channelAPI is what the voice and the ServerQuery client both offer.
 type channelAPI interface {
-	OnChannelCreated(func(teamspeak.ChannelCreatedEvent)) func()
-	OnChannelEdited(func(teamspeak.ChannelEditedEvent)) func()
-	OnChannelMoved(func(teamspeak.ChannelMovedEvent)) func()
-	OnChannelDeleted(func(teamspeak.ChannelDeletedEvent)) func()
-	OnChannelDescriptionChanged(func(teamspeak.ChannelDescriptionChangedEvent)) func()
-	OnChannelPasswordChanged(func(teamspeak.ChannelPasswordChangedEvent)) func()
-	OnServerEdited(func(teamspeak.ServerEditedEvent)) func()
-	OnNotification(func(teamspeak.NotificationEvent)) func()
+	OnChannelCreated(handler func(teamspeak.ChannelCreatedEvent)) func()
+	OnChannelEdited(handler func(teamspeak.ChannelEditedEvent)) func()
+	OnChannelMoved(handler func(teamspeak.ChannelMovedEvent)) func()
+	OnChannelDeleted(handler func(teamspeak.ChannelDeletedEvent)) func()
+	OnChannelDescriptionChanged(handler func(teamspeak.ChannelDescriptionChangedEvent)) func()
+	OnChannelPasswordChanged(handler func(teamspeak.ChannelPasswordChangedEvent)) func()
+	OnServerEdited(handler func(teamspeak.ServerEditedEvent)) func()
+	OnNotification(handler func(teamspeak.NotificationEvent)) func()
 }
 
 var (
@@ -41,7 +42,6 @@ var (
 
 // watched is everything one client heard of channels and the server.
 type watched struct {
-	name    string
 	created <-chan teamspeak.ChannelCreatedEvent
 	edited  <-chan teamspeak.ChannelEditedEvent
 	moved   <-chan teamspeak.ChannelMovedEvent
@@ -50,6 +50,7 @@ type watched struct {
 	pass    <-chan teamspeak.ChannelPasswordChangedEvent
 	server  <-chan teamspeak.ServerEditedEvent
 	notes   <-chan teamspeak.NotificationEvent
+	name    string
 }
 
 func watch(t *testing.T, name string, c channelAPI) *watched {
@@ -71,17 +72,16 @@ func watch(t *testing.T, name string, c channelAPI) *watched {
 // watchers returns the voice bystander, and the administrator's own query
 // connection when the fixture is raw TCP (TeamSpeak 3). The query side is nil,
 // and said so, otherwise.
-func watchers(t *testing.T, p livePair, admin *serverquery.Client) (voice, query *watched) {
+func watchers(t *testing.T, p livePair, admin *serverquery.Client) (*watched, *watched) {
 	t.Helper()
-	voice = watch(t, "voice bystander", p.observer)
+	voice := watch(t, "voice bystander", p.observer)
 	if os.Getenv("TEAMSPEAK_QUERY_KIND") == "tcp" || os.Getenv("TEAMSPEAK_QUERY_KIND") == "ssh" {
-		query = watch(t, "query connection", admin)
-	} else {
-		t.Logf("SKIP query side: TEAMSPEAK_QUERY_KIND=%q is neither raw TCP nor SSH, and WebQuery receives no notifications",
-			os.Getenv("TEAMSPEAK_QUERY_KIND"))
+		return voice, watch(t, "query connection", admin)
 	}
+	t.Logf("SKIP query side: TEAMSPEAK_QUERY_KIND=%q is neither raw TCP nor SSH, "+
+		"and WebQuery receives no notifications", os.Getenv("TEAMSPEAK_QUERY_KIND"))
 
-	return voice, query
+	return voice, nil
 }
 
 func each(ws ...*watched) []*watched {
@@ -120,6 +120,7 @@ func uniqueName(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano()%1_000_000_000)
 }
 
+//nolint:gocyclo // one scenario, read top to bottom
 func TestIntegration_ChannelLifecycleReachesABystanderAndAQueryClient(t *testing.T) {
 	p := requireLivePair(t)
 	admin := requireAdmin(t)
@@ -137,7 +138,8 @@ func TestIntegration_ChannelLifecycleReachesABystanderAndAQueryClient(t *testing
 
 	for _, w := range each(voice, query) {
 		t.Run(w.name, func(t *testing.T) {
-			created := await(t, w.created, "ChannelCreated", func(e teamspeak.ChannelCreatedEvent) bool { return e.ChannelID == cid })
+			created := await(t, w.created, "ChannelCreated",
+				func(e teamspeak.ChannelCreatedEvent) bool { return e.ChannelID == cid })
 			t.Logf("created: parent %d, fields %v, invoker %q (%d), after %s",
 				created.ParentID, fieldsSet(created.Changes), created.InvokerName, created.InvokerID, time.Since(start))
 			if created.Changes.Name == nil || *created.Changes.Name != name || created.Changes.Topic == nil ||
@@ -147,20 +149,24 @@ func TestIntegration_ChannelLifecycleReachesABystanderAndAQueryClient(t *testing
 				t.Errorf("created = %+v", created)
 			}
 
-			edited := await(t, w.edited, "ChannelEdited", func(e teamspeak.ChannelEditedEvent) bool { return e.ChannelID == cid })
+			edited := await(t, w.edited, "ChannelEdited",
+				func(e teamspeak.ChannelEditedEvent) bool { return e.ChannelID == cid })
 			t.Logf("edited: reason %v, fields %v, invoker %q", edited.Reason, fieldsSet(edited.Changes), edited.InvokerName)
 			if edited.Reason != teamspeak.ReasonChannelEdit || !slices.Equal(fieldsSet(edited.Changes), []string{"Topic"}) ||
 				*edited.Changes.Topic != "t2" || edited.InvokerID == 0 {
 				t.Errorf("edited = %+v", edited)
 			}
 
-			moved := await(t, w.moved, "ChannelMoved", func(e teamspeak.ChannelMovedEvent) bool { return e.ChannelID == cid })
-			t.Logf("moved: parent %d, order %d, reason %v, invoker %q", moved.ParentID, moved.Order, moved.Reason, moved.InvokerName)
+			moved := await(t, w.moved, "ChannelMoved",
+				func(e teamspeak.ChannelMovedEvent) bool { return e.ChannelID == cid })
+			t.Logf("moved: parent %d, order %d, reason %v, invoker %q",
+				moved.ParentID, moved.Order, moved.Reason, moved.InvokerName)
 			if moved.ParentID != parent || moved.InvokerID == 0 {
 				t.Errorf("moved = %+v", moved)
 			}
 
-			deleted := await(t, w.deleted, "ChannelDeleted", func(e teamspeak.ChannelDeletedEvent) bool { return e.ChannelID == cid })
+			deleted := await(t, w.deleted, "ChannelDeleted",
+				func(e teamspeak.ChannelDeletedEvent) bool { return e.ChannelID == cid })
 			t.Logf("deleted: invoker %q (%d)", deleted.InvokerName, deleted.InvokerID)
 			if deleted.InvokerID == 0 || deleted.InvokerName == "" {
 				t.Errorf("deleted = %+v", deleted)
@@ -220,18 +226,21 @@ func TestIntegration_DescriptionAndPasswordChangesAreReported(t *testing.T) {
 	for _, w := range each(voice, query) {
 		t.Run(w.name, func(t *testing.T) {
 			sameChannel := func(e teamspeak.ChannelEditedEvent) bool { return e.ChannelID == cid }
-			await(t, w.desc, "ChannelDescriptionChanged", func(e teamspeak.ChannelDescriptionChangedEvent) bool { return e.ChannelID == cid })
+			await(t, w.desc, "ChannelDescriptionChanged",
+				func(e teamspeak.ChannelDescriptionChangedEvent) bool { return e.ChannelID == cid })
 			e := await(t, w.edited, "the edit that goes with a description", sameChannel)
 			if len(fieldsSet(e.Changes)) != 0 {
 				t.Errorf("a description edit names %v, want none", fieldsSet(e.Changes))
 			}
 
-			await(t, w.pass, "ChannelPasswordChanged (set)", func(e teamspeak.ChannelPasswordChangedEvent) bool { return e.ChannelID == cid })
+			await(t, w.pass, "ChannelPasswordChanged (set)",
+				func(e teamspeak.ChannelPasswordChangedEvent) bool { return e.ChannelID == cid })
 			e = await(t, w.edited, "the edit that sets the password", sameChannel)
 			if e.Changes.HasPassword == nil || !*e.Changes.HasPassword {
 				t.Errorf("setting a password: %+v", e.Changes)
 			}
-			await(t, w.pass, "ChannelPasswordChanged (cleared)", func(e teamspeak.ChannelPasswordChangedEvent) bool { return e.ChannelID == cid })
+			await(t, w.pass, "ChannelPasswordChanged (cleared)",
+				func(e teamspeak.ChannelPasswordChangedEvent) bool { return e.ChannelID == cid })
 			e = await(t, w.edited, "the edit that clears the password", sameChannel)
 			if e.Changes.HasPassword == nil || *e.Changes.HasPassword {
 				t.Errorf("clearing the password: %+v", e.Changes)
@@ -258,7 +267,8 @@ func TestIntegration_ServerEditIsReported(t *testing.T) {
 
 	newName := uniqueName("srv")
 	requireNoErr(t, admin.EditServer(t.Context(), teamspeak.Properties{"virtualserver_name": newName}))
-	requireNoErr(t, admin.EditServer(t.Context(), teamspeak.Properties{"virtualserver_welcomemessage": "hello " + newName}))
+	welcome := teamspeak.Properties{"virtualserver_welcomemessage": "hello " + newName}
+	requireNoErr(t, admin.EditServer(t.Context(), welcome))
 
 	for _, w := range each(voice, query) {
 		t.Run(w.name, func(t *testing.T) {
@@ -269,11 +279,12 @@ func TestIntegration_ServerEditIsReported(t *testing.T) {
 			if named.InvokerID == 0 || named.InvokerName == "" {
 				t.Errorf("no invoker: %+v", named)
 			}
-			welcome := await(t, w.server, "ServerEdited for the welcome message", func(e teamspeak.ServerEditedEvent) bool {
-				_, named := e.Changes["virtualserver_name"]
+			welcome := await(t, w.server, "ServerEdited for the welcome message",
+				func(e teamspeak.ServerEditedEvent) bool {
+					_, named := e.Changes["virtualserver_name"]
 
-				return !named
-			})
+					return !named
+				})
 			t.Logf("welcome message change: %d properties", len(welcome.Changes))
 			if len(welcome.Changes) != 0 {
 				t.Errorf("welcome message change named %v", welcome.Changes)
@@ -284,6 +295,8 @@ func TestIntegration_ServerEditIsReported(t *testing.T) {
 
 // The answer to a description fetch is no edit even with a real edit in flight,
 // which neither is lost nor mistaken for the answer.
+//
+//nolint:funlen // one scenario, read top to bottom
 func TestIntegration_DescriptionFetchIsNoEditAndSurvivesAnEditInFlight(t *testing.T) {
 	p := requireLivePair(t)
 	admin := requireAdmin(t)
@@ -297,13 +310,11 @@ func TestIntegration_DescriptionFetchIsNoEditAndSurvivesAnEditInFlight(t *testin
 	var wg sync.WaitGroup
 	wrong := make(chan string, rounds)
 	for i := range rounds {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			// Edits that name properties, from the other connection, while the
 			// subject waits for its answer.
 			_ = admin.EditChannel(t.Context(), cid, teamspeak.ChannelEditOptions{Topic: new(fmt.Sprintf("t%d", i))})
-		}()
+		})
 		got, err := p.subject.GetChannelDescription(t.Context(), cid)
 		if err != nil || got != "the text" {
 			wrong <- fmt.Sprintf("round %d: %q, %v", i, got, err)
@@ -333,7 +344,8 @@ func TestIntegration_DescriptionFetchIsNoEditAndSurvivesAnEditInFlight(t *testin
 			answers++
 		}
 	}
-	t.Logf("%d fetches: %d answers seen as notifications, %d reason 9 events, %d real edit events", rounds, answers, reason9, realEdits)
+	t.Logf("%d fetches: %d answers seen as notifications, %d reason 9 events, %d real edit events",
+		rounds, answers, reason9, realEdits)
 	if reason9 != 0 || answers == 0 || realEdits < rounds {
 		t.Errorf("reason 9 events %d (want 0), answers as notifications %d (want some), real edits %d (want at least %d)",
 			reason9, answers, realEdits, rounds)
@@ -354,10 +366,12 @@ func TestIntegration_SubscribeAndUnsubscribeAreReported(t *testing.T) {
 
 	start := time.Now()
 	requireNoErr(t, p.subject.SubscribeChannel(t.Context(), cid))
-	await(t, subscribed, "ChannelSubscribed", func(e teamspeak.ChannelSubscribedEvent) bool { return e.ChannelID == cid })
+	await(t, subscribed, "ChannelSubscribed",
+		func(e teamspeak.ChannelSubscribedEvent) bool { return e.ChannelID == cid })
 	t.Logf("subscribed after %s", time.Since(start).Round(time.Millisecond))
 	requireNoErr(t, p.subject.UnsubscribeChannel(t.Context(), cid))
-	await(t, unsubscribed, "ChannelUnsubscribed", func(e teamspeak.ChannelUnsubscribedEvent) bool { return e.ChannelID == cid })
+	await(t, unsubscribed, "ChannelUnsubscribed",
+		func(e teamspeak.ChannelUnsubscribedEvent) bool { return e.ChannelID == cid })
 	t.Logf("unsubscribed after %s", time.Since(start).Round(time.Millisecond))
 }
 
@@ -381,15 +395,15 @@ func TestIntegration_PluginCommandReachesTheTargetedClients(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		target     teamspeak.PluginCommandTarget
 		name       string
+		target     teamspeak.PluginCommandTarget
 		senderGets bool
 		peerGets   bool
 	}{
-		{teamspeak.PluginToChannel(), "ch", true, true},
-		{teamspeak.PluginToServer(), "srv", true, true},
-		{teamspeak.PluginToClient(peerID), "peer", false, true},
-		{teamspeak.PluginToClient(subjectID), "self", true, false},
+		{"ch", teamspeak.PluginToChannel(), true, true},
+		{"srv", teamspeak.PluginToServer(), true, true},
+		{"peer", teamspeak.PluginToClient(peerID), false, true},
+		{"self", teamspeak.PluginToClient(subjectID), true, false},
 	} {
 		start := time.Now()
 		requireNoErr(t, p.subject.SendPluginCommand(t.Context(), "b2 "+tc.name, "a b|c/d", tc.target))
@@ -451,7 +465,8 @@ func TestIntegration_VoiceOnlyNotificationsDoNotReachARawQueryClient(t *testing.
 	requireNoErr(t, p.subject.SendChatComposing(t.Context(), p.observer.ClientID()))
 	requireNoErr(t, p.subject.SubscribeChannel(t.Context(), cid))
 	requireNoErr(t, p.subject.UnsubscribeChannel(t.Context(), cid))
-	requireNoErr(t, p.subject.UpdateClient(t.Context(), teamspeak.ClientUpdateOptions{IsAway: new(true), AwayMessage: new("neg")}))
+	away := teamspeak.ClientUpdateOptions{IsAway: new(true), AwayMessage: new("neg")}
+	requireNoErr(t, p.subject.UpdateClient(t.Context(), away))
 	// And a control the query connection does receive.
 	requireNoErr(t, admin.EditChannel(t.Context(), cid, teamspeak.ChannelEditOptions{Topic: new("control")}))
 
@@ -468,7 +483,8 @@ collect:
 		select {
 		case n := <-notes:
 			seen = append(seen, n.Name)
-			controlSeen = controlSeen || (n.Name == "notifychanneledited" && n.Params["cid"] == fmt.Sprint(uint64(cid)))
+			controlSeen = controlSeen ||
+				(n.Name == "notifychanneledited" && n.Params["cid"] == strconv.FormatUint(uint64(cid), 10))
 		case <-deadline:
 			break collect
 		}

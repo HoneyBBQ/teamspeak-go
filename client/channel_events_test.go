@@ -196,7 +196,8 @@ func TestGetChannelDescription_OnlyAnotherChannelsRowIsNoData(t *testing.T) {
 			return []map[string]string{{"cid": "7", "channel_topic": "x"}, {"cid": "9", "channel_description": "d"}}, nil
 		})
 	}))
-	if _, err := c.GetChannelDescription(t.Context(), 7); err == nil {
+	_, err := c.GetChannelDescription(t.Context(), 7)
+	if err == nil {
 		t.Error("another channel's description was returned")
 	}
 }
