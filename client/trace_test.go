@@ -783,6 +783,7 @@ func TestTrace_HandshakeDoneReportsThePuzzleTheResendsAndTheServerKey(t *testing
 	// key exchange only after the answer, which is recorded before it is sent.
 	waitUntil(t, "the puzzle answered", func() bool {
 		level, _ := c.currentHandler().TsCrypt.Puzzle()
+
 		return level != 0
 	})
 	serverKeyExchange(c)
