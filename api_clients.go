@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"strings"
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/errcode"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 // Client commands.
@@ -262,14 +264,51 @@ func (c *Commands) PokeClient(ctx context.Context, clid ClientID, message string
 type ClientMatch struct {
 	// Nickname is the client's nickname (client_nickname).
 	Nickname string
+	// ChannelUID is the unique identifier of the channel the client is in
+	// (chuid). Only FindClientsWith with ClientFindOptions.ChannelUID sets it,
+	// and only TeamSpeak 6 sends it.
+	ChannelUID ChannelUID
+	// ChannelID is the channel the client is in (cid). Only FindClientsWith
+	// with ClientFindOptions.ChannelID sets it, and only TeamSpeak 6 sends it.
+	ChannelID ChannelID
 	// ID is the client's id (clid).
 	ID ClientID
 }
 
 // FindClients returns clients whose nickname contains pattern, none when no
 // client matches.
+//
+// The match is a case-insensitive substring, not a regular expression:
+// "vHol.*" finds nobody. FindClientsWith adds what the answer reports of each
+// client's channel.
 func (c *Commands) FindClients(ctx context.Context, pattern string) ([]ClientMatch, error) {
-	rows, err := c.list(ctx, "clientfind", []param{strArg("pattern", pattern)})
+	return c.FindClientsWith(ctx, pattern, ClientFindOptions{})
+}
+
+// ClientFindOptions are FindClientsWith's optional parameters: which channel
+// details the answer reports for each client.
+type ClientFindOptions struct {
+	// ChannelID reports the channel each client is in (-cid), as
+	// ClientMatch.ChannelID.
+	ChannelID bool
+	// ChannelUID reports the unique identifier of that channel (-chuid), as
+	// ClientMatch.ChannelUID.
+	ChannelUID bool
+}
+
+// FindClientsWith is FindClients with the channel details opts asks for. It
+// sends clientfind with -cid and -chuid.
+//
+// Only TeamSpeak 6 answers them: TeamSpeak 3 accepts the flags and leaves the
+// channel out, so the fields stay zero there.
+func (c *Commands) FindClientsWith(
+	ctx context.Context, pattern string, opts ClientFindOptions,
+) ([]ClientMatch, error) {
+	rows, err := c.list(ctx, "clientfind", []param{
+		boolArg("-cid", opts.ChannelID),
+		boolArg("-chuid", opts.ChannelUID),
+		strArg("pattern", pattern),
+	})
 	// No match is 512, "invalid clientID", measured on TeamSpeak 3 and 6:
 	// clientfind takes no clid, so the code can only mean none was found.
 	if errors.Is(err, errcode.ClientInvalidID) {
@@ -282,8 +321,10 @@ func (c *Commands) FindClients(ctx context.Context, pattern string) ([]ClientMat
 	out := make([]ClientMatch, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, ClientMatch{
-			ID:       ClientID(fieldUint16(row, "clid")),
-			Nickname: fieldStr(row, "client_nickname"),
+			ID:         ClientID(fieldUint16(row, "clid")),
+			Nickname:   fieldStr(row, "client_nickname"),
+			ChannelID:  ChannelID(fieldUint(row, "cid")),
+			ChannelUID: ChannelUID(fieldStr(row, "chuid")),
 		})
 	}
 
@@ -662,4 +703,149 @@ func (c *Commands) ListClientPermissions(ctx context.Context, clientDBID ClientD
 	}
 
 	return out, nil
+}
+
+// ---- Custom properties ------------------------------------------------------
+
+// CustomProperty is one custom property of a client: a key and a value the
+// server keeps in the client's database record and otherwise ignores. Both can
+// be any text, empty included.
+type CustomProperty struct {
+	// Ident is the property's key (ident).
+	Ident string
+	// Value is the property's value (value).
+	Value string
+}
+
+// CustomPropertyMatch is a custom property CustomProperty search found, with
+// the client it belongs to.
+type CustomPropertyMatch struct {
+	// Ident is the property's key (ident).
+	Ident string
+	// Value is the property's value (value).
+	Value string
+	// DatabaseID is the client the property belongs to (cldbid).
+	DatabaseID ClientDBID
+}
+
+// SetCustomProperty creates or updates a custom property of a client. It sends
+// customset.
+//
+// Needs b_client_modify_dbproperties. The server does not check that the
+// client exists: a property set on an id nobody holds is kept, and
+// ListCustomProperties finds it. Both TeamSpeak 3 and 6 serve it, over
+// ServerQuery and the voice protocol.
+func (c *Commands) SetCustomProperty(ctx context.Context, clientDBID ClientDBID, ident, value string) error {
+	return c.exec(ctx, "customset", []param{
+		idArg("cldbid", clientDBID),
+		strArg("ident", ident),
+		strArg("value", value),
+	})
+}
+
+// DeleteCustomProperty removes a custom property of a client. It sends
+// customdelete.
+//
+// Needs b_client_delete_dbproperties. A property the client does not have is
+// not an error. Served as SetCustomProperty is.
+func (c *Commands) DeleteCustomProperty(ctx context.Context, clientDBID ClientDBID, ident string) error {
+	return c.exec(ctx, "customdelete", []param{
+		idArg("cldbid", clientDBID),
+		strArg("ident", ident),
+	})
+}
+
+// ListCustomProperties returns a client's custom properties, none when it has
+// none. It sends custominfo. A ServerQuery admin needs no permission for it; a
+// guest voice client is refused with 2568 on TeamSpeak 3 and 6, whichever right
+// that is.
+//
+// A client with no property is answered with an error, not an empty list:
+// 512, "invalid clientID", over ServerQuery and, on TeamSpeak 3, the voice
+// protocol, and 1281 on TeamSpeak 6's voice protocol. The server answers a
+// client it does not know the same way, so both read as no properties here.
+func (c *Commands) ListCustomProperties(ctx context.Context, clientDBID ClientDBID) ([]CustomProperty, error) {
+	rows, err := c.list(ctx, "custominfo", []param{idArg("cldbid", clientDBID)})
+	if errors.Is(err, errcode.ClientInvalidID) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]CustomProperty, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, CustomProperty{Ident: fieldStr(row, "ident"), Value: fieldStr(row, "value")})
+	}
+
+	return out, nil
+}
+
+// FindCustomProperty returns the custom properties with the key ident whose
+// value matches pattern, which may use the SQL wildcard %, none when none do.
+// It sends customsearch. Refused to a guest voice client with 2568 as
+// ListCustomProperties is; served as SetCustomProperty is.
+//
+// The match is against the whole value, ignoring case: "john doe" finds
+// "John Doe", "John" does not, and "John%" does.
+func (c *Commands) FindCustomProperty(ctx context.Context, ident, pattern string) ([]CustomPropertyMatch, error) {
+	rows, err := c.list(ctx, "customsearch", []param{
+		strArg("ident", ident),
+		strArg("pattern", pattern),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]CustomPropertyMatch, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, CustomPropertyMatch{
+			DatabaseID: ClientDBID(fieldUint(row, "cldbid")),
+			Ident:      fieldStr(row, "ident"),
+			Value:      fieldStr(row, "value"),
+		})
+	}
+
+	return out, nil
+}
+
+// ---- Custom sets ------------------------------------------------------------
+
+// customSetValue encodes custom properties as the one value a privilege key's
+// custom set is: "ident=a value=b|ident=c value=d", the pipe separating the
+// properties.
+//
+// Each ident and value is escaped inside the set, and the set is escaped again
+// as the parameter it travels in. A value is read by splitting on spaces, so
+// the escape inside is what keeps a space in it: sent with only the
+// parameter's own escape, "d e" reaches the client that redeems the key as "d"
+// — measured on both servers. The pipe that separates properties needs it the
+// same way.
+func customSetValue(props []CustomProperty) string {
+	parts := make([]string, 0, len(props))
+	for _, prop := range props {
+		parts = append(parts, "ident="+wire.Escape(prop.Ident)+" value="+wire.Escape(prop.Value))
+	}
+
+	return strings.Join(parts, "|")
+}
+
+// parseCustomSet reads a custom set as customSetValue writes it, undoing the
+// escape inside it. A set written without that escape reads back as it was
+// written, a value that holds a space included.
+func parseCustomSet(raw string) []CustomProperty {
+	if raw == "" {
+		return nil
+	}
+
+	var out []CustomProperty
+	for piece := range strings.SplitSeq(raw, "|") {
+		rest, isIdent := strings.CutPrefix(piece, "ident=")
+		ident, value, hasValue := strings.Cut(rest, " value=")
+		if isIdent && hasValue {
+			out = append(out, CustomProperty{Ident: wire.Unescape(ident), Value: wire.Unescape(value)})
+		}
+	}
+
+	return out
 }
