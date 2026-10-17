@@ -77,6 +77,41 @@ type Channel struct {
 	IsSemiPermanent bool
 	// HasPassword reports a password-protected channel (channel_flag_password).
 	HasPassword bool
+
+	// The fields below are nil, empty or 0 where the answer did not carry them:
+	// channellist brings none of them, so ListChannels leaves them unset;
+	// GetChannelInfo fills the ones channelinfo has, and a channel notification
+	// carries only those that changed.
+
+	// CodecLatencyFactor is the codec's latency factor
+	// (channel_codec_latency_factor).
+	CodecLatencyFactor *int32
+	// IsUnencrypted reports a channel whose voice is not encrypted
+	// (channel_codec_is_unencrypted).
+	IsUnencrypted *bool
+	// IsMaxClientsUnlimited reports a channel with no client limit
+	// (channel_flag_maxclients_unlimited).
+	IsMaxClientsUnlimited *bool
+	// IsMaxFamilyClientsUnlimited reports no family client limit
+	// (channel_flag_maxfamilyclients_unlimited).
+	IsMaxFamilyClientsUnlimited *bool
+	// IsMaxFamilyClientsInherited reports a family limit taken from the parent
+	// (channel_flag_maxfamilyclients_inherited).
+	IsMaxFamilyClientsInherited *bool
+	// DeleteDelay is how long a temporary channel survives its last client
+	// leaving (channel_delete_delay, whole seconds on the wire).
+	DeleteDelay *time.Duration
+	// NamePhonetic is how the name is pronounced (channel_name_phonetic); empty
+	// when not carried.
+	NamePhonetic string
+	// IsForcedSilence reports a channel where everyone needs talk power
+	// (channel_forced_silence).
+	IsForcedSilence *bool
+	// BannerURL is the channel banner's address (channel_banner_gfx_url); empty
+	// when not carried.
+	BannerURL string
+	// BannerMode is how the banner is shown (channel_banner_mode).
+	BannerMode *int32
 }
 
 func parseChannel(row map[string]string) Channel {
@@ -106,6 +141,17 @@ func parseChannel(row map[string]string) Channel {
 		NeededTalkPower:      fieldInt32(row, "channel_needed_talk_power"),
 		IconID:               fieldIconID(row, "channel_icon_id"),
 		UID:                  ChannelUID(fieldStr(row, "channel_unique_identifier")),
+
+		CodecLatencyFactor:          fieldOptInt32(row, "channel_codec_latency_factor"),
+		IsUnencrypted:               fieldOptBool(row, "channel_codec_is_unencrypted"),
+		IsMaxClientsUnlimited:       fieldOptBool(row, "channel_flag_maxclients_unlimited"),
+		IsMaxFamilyClientsUnlimited: fieldOptBool(row, "channel_flag_maxfamilyclients_unlimited"),
+		IsMaxFamilyClientsInherited: fieldOptBool(row, "channel_flag_maxfamilyclients_inherited"),
+		DeleteDelay:                 fieldOptDuration(row, "channel_delete_delay", time.Second),
+		NamePhonetic:                fieldStr(row, "channel_name_phonetic"),
+		IsForcedSilence:             fieldOptBool(row, "channel_forced_silence"),
+		BannerURL:                   fieldStr(row, "channel_banner_gfx_url"),
+		BannerMode:                  fieldOptInt32(row, "channel_banner_mode"),
 	}
 }
 

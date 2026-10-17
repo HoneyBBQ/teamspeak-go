@@ -17,6 +17,39 @@ Breaking changes, made before v1.0.0 for two options the server never honoured.
   `Names` instead: the server then returns each member's nickname and unique
   identifier together, so `ServerGroupMember.UID` is filled by `Names`.
 
+### Added
+
+- `ClientEntry` and `Channel` carry more of what the server reports. A client
+  gains `DatabaseID`, `AwayMessage`, `IsInputMuted`, `IsOutputMuted`,
+  `TalkPower`, `Description`, `Avatar`, `Country`, `Version`, `Platform` and
+  others; a channel gains `IsMaxClientsUnlimited`, `DeleteDelay`,
+  `NamePhonetic` and others. A flag, count or duration is a pointer, and nil
+  means the answer did not carry it, which is not the same as false or 0: no
+  `ListClients` flag brings some of them, and `ListChannels` brings none of the
+  new channel fields, so `GetChannelInfo` is where to read them. Each field's
+  comment says which flag brings it. The existing fields are unchanged. Because
+the optional ones are pointers, a plain assignment of a record shares them;
+`ClientEntry.Clone` and `Channel.Clone` return a copy that shares no memory.
+- `ClientChanges` and `ChannelChanges` hold the properties a notification
+  carried, under the names of `ClientEntry` and `Channel`. Every field is a
+  pointer and nil means unchanged, so a pointer to `""`, `false` or an empty
+  list is a change; `ServerGroups` is the complete new list. Their `Apply`
+  methods return a copy of a record with the changes made, sharing no memory
+  with either.
+- `OnClientUpdated` reports a client changing its nickname, away or mute state,
+  server groups, talk power or description, itself included, with the
+  `ClientChanges` the notification carried. `OnClientServerGroupAdded` and
+  `OnClientServerGroupRemoved` name the group and who changed it, and
+  `OnClientChannelGroupChanged` a client's channel group changing in a channel,
+  which every move of a client does too. These are on the voice client only: a
+  TeamSpeak 3 ServerQuery connection is not sent the notifications.
+- The voice client keeps what it knows of other clients current: a client's
+  server groups follow `ClientUpdatedEvent`, and its channel group follows
+  `ClientChannelGroupChangedEvent` when the channel is the one it is in. The
+  groups a `TextMessageEvent` carries as `InvokerGroups` were stale after any
+  group change, and are now the current ones; the client's own nickname follows
+  the server's rename.
+
 ## v1.0.0-beta.7 (2026-10-17)
 
 ### Security

@@ -60,6 +60,57 @@ func (c *Client) OnPoked(handler func(PokeEvent)) func() {
 	return c.onPoked.Add(handler)
 }
 
+// OnClientUpdated registers a handler for clients changing their properties:
+// nickname, away or mute state, server groups, talk power and the like, this
+// client's own included. The event's Changes hold only what changed, and
+// ClientChanges.Apply merges them into a ClientEntry. It returns a function
+// that removes the handler.
+//
+// The client has updated what it remembers of the client, so the groups of a
+// following TextMessageEvent are current. Only a voice connection hears
+// these; ServerQuery clients have no such method.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnClientUpdated(handler func(ClientUpdatedEvent)) func() {
+	return c.onClientUpdated.Add(handler)
+}
+
+// OnClientServerGroupAdded registers a handler for a client being added to a
+// server group, which names the group and who added it. It returns a function
+// that removes the handler.
+//
+// The client's complete new list of groups arrives as a ClientUpdatedEvent,
+// before or after this one.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnClientServerGroupAdded(handler func(ClientServerGroupAddedEvent)) func() {
+	return c.onSGAdded.Add(handler)
+}
+
+// OnClientServerGroupRemoved registers a handler for a client being removed
+// from a server group. It returns a function that removes the handler.
+//
+// The client's complete new list of groups arrives as a ClientUpdatedEvent,
+// before or after this one.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnClientServerGroupRemoved(handler func(ClientServerGroupRemovedEvent)) func() {
+	return c.onSGRemoved.Add(handler)
+}
+
+// OnClientChannelGroupChanged registers a handler for a client's channel group
+// changing in a channel, which includes every move of a client, since the
+// group is per channel. It returns a function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnClientChannelGroupChanged(handler func(ClientChannelGroupChangedEvent)) func() {
+	return c.onCGChanged.Add(handler)
+}
+
 // OnKicked registers a handler for this client being kicked from its channel
 // or the server. A kick from the server also ends the connection, which
 // OnDisconnected reports with a *RemovedError. It returns a function that
@@ -216,10 +267,20 @@ func (c *Client) dispatchEvent(evt Event) {
 		})
 	case ClientEnterEvent:
 		c.onClientEnter.Deliver(c.logger, eventbus.EventName(e), e, func(enter ClientEnterEvent) ClientEnterEvent {
-			enter.ServerGroups = slices.Clone(enter.ServerGroups)
-
-			return enter
+			return enter.Clone()
 		})
+	case ClientUpdatedEvent:
+		c.onClientUpdated.Deliver(c.logger, eventbus.EventName(e), e, func(u ClientUpdatedEvent) ClientUpdatedEvent {
+			u.Changes = cloneChanges(u.Changes)
+
+			return u
+		})
+	case ClientServerGroupAddedEvent:
+		c.onSGAdded.Deliver(c.logger, eventbus.EventName(e), e, nil)
+	case ClientServerGroupRemovedEvent:
+		c.onSGRemoved.Deliver(c.logger, eventbus.EventName(e), e, nil)
+	case ClientChannelGroupChangedEvent:
+		c.onCGChanged.Deliver(c.logger, eventbus.EventName(e), e, nil)
 	case ClientLeaveEvent:
 		c.onClientLeave.Deliver(c.logger, eventbus.EventName(e), e, nil)
 	case ClientMovedEvent:
@@ -239,4 +300,70 @@ func (c *Client) dispatchEvent(evt Event) {
 			return n
 		})
 	}
+}
+
+// cloneChanges returns a copy of c that shares no memory with it, so a handler
+// editing what it was given cannot change what the next one sees. Every field
+// is a pointer; a field added to ClientChanges must be added here, and the
+// tests fail until it is.
+//
+//nolint:funlen // one line per field
+func cloneChanges(c teamspeak.ClientChanges) teamspeak.ClientChanges {
+	c.Created = clonePtr(c.Created)
+	c.LastConnected = clonePtr(c.LastConnected)
+	c.IdleTime = clonePtr(c.IdleTime)
+	c.Nickname = clonePtr(c.Nickname)
+	c.UID = clonePtr(c.UID)
+	if c.ServerGroups != nil {
+		c.ServerGroups = new(slices.Clone(*c.ServerGroups))
+	}
+	c.ChannelID = clonePtr(c.ChannelID)
+	c.ChannelGroupID = clonePtr(c.ChannelGroupID)
+	c.Type = clonePtr(c.Type)
+	c.IsAway = clonePtr(c.IsAway)
+	c.IsRecording = clonePtr(c.IsRecording)
+	c.IsTalker = clonePtr(c.IsTalker)
+	c.DatabaseID = clonePtr(c.DatabaseID)
+	c.AwayMessage = clonePtr(c.AwayMessage)
+	c.IsInputMuted = clonePtr(c.IsInputMuted)
+	c.IsOutputMuted = clonePtr(c.IsOutputMuted)
+	c.IsOutputOnlyMuted = clonePtr(c.IsOutputOnlyMuted)
+	c.HasInputHardware = clonePtr(c.HasInputHardware)
+	c.HasOutputHardware = clonePtr(c.HasOutputHardware)
+	c.IsChannelCommander = clonePtr(c.IsChannelCommander)
+	c.IsPrioritySpeaker = clonePtr(c.IsPrioritySpeaker)
+	c.TalkPower = clonePtr(c.TalkPower)
+	c.IsRequestingTalk = clonePtr(c.IsRequestingTalk)
+	c.TalkRequestMessage = clonePtr(c.TalkRequestMessage)
+	c.Description = clonePtr(c.Description)
+	c.MetaData = clonePtr(c.MetaData)
+	c.Avatar = clonePtr(c.Avatar)
+	c.IconID = clonePtr(c.IconID)
+	c.NicknamePhonetic = clonePtr(c.NicknamePhonetic)
+	c.UnreadMessages = clonePtr(c.UnreadMessages)
+	c.NeededServerQueryViewPower = clonePtr(c.NeededServerQueryViewPower)
+	c.ChannelGroupInheritedChannelID = clonePtr(c.ChannelGroupInheritedChannelID)
+	c.Country = clonePtr(c.Country)
+	c.Version = clonePtr(c.Version)
+	c.Platform = clonePtr(c.Platform)
+	c.IP = clonePtr(c.IP)
+	c.Badges = clonePtr(c.Badges)
+	c.SignedBadges = clonePtr(c.SignedBadges)
+	c.MyTeamSpeakID = clonePtr(c.MyTeamSpeakID)
+	c.MyTeamSpeakAvatar = clonePtr(c.MyTeamSpeakAvatar)
+	c.Integrations = clonePtr(c.Integrations)
+	c.UserTag = clonePtr(c.UserTag)
+	c.IsStreaming = clonePtr(c.IsStreaming)
+
+	return c
+}
+
+// clonePtr returns a pointer to a copy of what p points at, or nil.
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+
+	return &v
 }

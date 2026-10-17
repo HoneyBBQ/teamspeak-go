@@ -4,6 +4,7 @@ import (
 	"net"
 	"time"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
@@ -43,3 +44,13 @@ func (c *Client) ReconnectingForTest() bool {
 
 var _ = transport.PacketTypeCommand
 var _ = time.Second
+
+// KnownClientForTest returns what the client currently remembers of a client in
+// view, for tests that check the list is kept fresh.
+func (c *Client) KnownClientForTest(id teamspeak.ClientID) (teamspeak.ClientEntry, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.clients[id]
+
+	return e, ok
+}

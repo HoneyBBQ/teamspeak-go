@@ -56,6 +56,110 @@ type ClientEntry struct {
 	IsRecording bool
 	// IsTalker reports a client granted talk power (client_is_talker).
 	IsTalker bool
+
+	// The fields below are nil, empty or 0 where the answer did not carry
+	// them, which is not the same as false or 0: a list brings only what its
+	// flags ask for (the comment of each says which), and a few properties are
+	// in no list at all. A client entered by notifycliententerview carries
+	// most of them; Version, Platform and IP only a list brings.
+
+	// DatabaseID is the client's database id (client_database_id); 0 when the
+	// answer did not carry it.
+	DatabaseID ClientDBID
+	// AwayMessage is the away message (client_away_message); empty when none or
+	// not carried. ListClients brings it with ClientListOptions.Away.
+	AwayMessage string
+	// IsInputMuted reports a muted microphone (client_input_muted). ListClients
+	// brings it with ClientListOptions.Voice.
+	IsInputMuted *bool
+	// IsOutputMuted reports muted speakers (client_output_muted). ListClients
+	// brings it with ClientListOptions.Voice.
+	IsOutputMuted *bool
+	// IsOutputOnlyMuted reports speakers muted while the microphone is not
+	// (client_outputonly_muted). No list brings it.
+	IsOutputOnlyMuted *bool
+	// HasInputHardware reports a working microphone (client_input_hardware).
+	// ListClients brings it with ClientListOptions.Voice.
+	HasInputHardware *bool
+	// HasOutputHardware reports working speakers (client_output_hardware).
+	// ListClients brings it with ClientListOptions.Voice.
+	HasOutputHardware *bool
+	// IsChannelCommander reports a client speaking as channel commander
+	// (client_is_channel_commander). ListClients brings it with
+	// ClientListOptions.Voice.
+	IsChannelCommander *bool
+	// IsPrioritySpeaker reports a priority speaker (client_is_priority_speaker).
+	// ListClients brings it with ClientListOptions.Voice.
+	IsPrioritySpeaker *bool
+	// TalkPower is the client's talk power (client_talk_power). ListClients
+	// brings it with ClientListOptions.Voice.
+	TalkPower *int32
+	// IsRequestingTalk reports a client asking for talk power
+	// (client_talk_request; the server sends the time of the request, any
+	// nonzero value is true). No list brings it.
+	IsRequestingTalk *bool
+	// TalkRequestMessage is the message sent with a talk request
+	// (client_talk_request_msg). No list brings it.
+	TalkRequestMessage string
+	// Description is the client's description (client_description). No list
+	// brings it.
+	Description string
+	// MetaData is the client's free-form meta data (client_meta_data). No list
+	// brings it.
+	MetaData string
+	// Avatar is the MD5 of the client's avatar, empty for none
+	// (client_flag_avatar). No list brings it.
+	Avatar string
+	// IconID is the client's icon, or 0 for none (client_icon_id). No list
+	// brings it.
+	IconID IconID
+	// NicknamePhonetic is how the nickname is pronounced
+	// (client_nickname_phonetic). No list brings it.
+	NicknamePhonetic string
+	// UnreadMessages is how many offline messages the client has unread
+	// (client_unread_messages). No list brings it.
+	UnreadMessages *int32
+	// NeededServerQueryViewPower is the power needed to see this client from a
+	// ServerQuery connection (client_needed_serverquery_view_power). No list
+	// brings it; the server sends it after every group change.
+	NeededServerQueryViewPower *int32
+	// ChannelGroupInheritedChannelID is the channel the client's channel group
+	// is inherited from (client_channel_group_inherited_channel_id); 0 when
+	// not carried. ListClients brings it with ClientListOptions.Groups.
+	ChannelGroupInheritedChannelID ChannelID
+	// Country is the client's country code (client_country). ListClients
+	// brings it with ClientListOptions.Country.
+	Country string
+	// Version is the client's version string (client_version). ListClients
+	// brings it with ClientListOptions.Info; a client entering view does not
+	// carry it.
+	Version string
+	// Platform is the client's platform (client_platform). ListClients brings
+	// it with ClientListOptions.Info; a client entering view does not carry it.
+	Platform string
+	// IP is the client's address (connection_client_ip). ListClients brings it
+	// with ClientListOptions.IP.
+	IP string
+	// Badges are the client's badges (client_badges). ListClients brings them
+	// with ClientListOptions.Badges.
+	Badges string
+	// SignedBadges are the client's signed badges (client_signed_badges). No
+	// list brings them.
+	SignedBadges string
+	// MyTeamSpeakID is the client's MyTeamSpeak id (client_myteamspeak_id). No
+	// list brings it.
+	MyTeamSpeakID string
+	// MyTeamSpeakAvatar is the client's MyTeamSpeak avatar
+	// (client_myteamspeak_avatar). No list brings it.
+	MyTeamSpeakAvatar string
+	// Integrations are the client's linked integrations (client_integrations).
+	// No list brings them.
+	Integrations string
+	// UserTag is the client's user tag (client_user_tag); TeamSpeak 6 only.
+	UserTag string
+	// IsStreaming reports a client that is streaming (client_is_streaming);
+	// TeamSpeak 6 only.
+	IsStreaming *bool
 }
 
 // FileUploadInfo represents the information received when an upload is initialized.

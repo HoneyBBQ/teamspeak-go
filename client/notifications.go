@@ -28,6 +28,14 @@ func (c *Client) handleNotification(h *transport.PacketHandler, cmd *wire.Comman
 		c.handleTextMessage(cmd)
 	case "notifyclientpoke":
 		c.handleClientPoke(cmd)
+	case "notifyclientupdated":
+		c.handleClientUpdated(h, cmd)
+	case "notifyservergroupclientadded":
+		c.emitEvent(ClientServerGroupAddedEvent{ClientServerGroupChange: servernotify.ClientServerGroup(cmd.Params)})
+	case "notifyservergroupclientdeleted":
+		c.emitEvent(ClientServerGroupRemovedEvent{ClientServerGroupChange: servernotify.ClientServerGroup(cmd.Params)})
+	case "notifyclientchannelgroupchanged":
+		c.handleClientChannelGroupChanged(h, cmd)
 	case "notifyclientneededpermissions":
 		c.logger.Debug("insufficient permissions",
 			slog.String("permid", cmd.Params["permid"]),
@@ -68,10 +76,9 @@ func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *wire.Com
 	}
 	c.mu.Unlock()
 
-	// The event's groups are its own: the last handler gets the event
-	// itself, and must not be able to edit the client list through it.
-	info.ServerGroups = slices.Clone(info.ServerGroups)
-	c.emitEvent(ClientEnterEvent{ClientEntry: info})
+	// The event's record is its own: the last handler gets the event itself,
+	// and must not be able to edit the client list through it.
+	c.emitEvent(ClientEnterEvent{ClientEntry: info.Clone()})
 }
 
 func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Command) {
@@ -177,6 +184,63 @@ func (c *Client) handleClientPoke(cmd *wire.Command) {
 	}
 
 	c.logger.Debug("client poked", slog.Uint64("invoker_id", uint64(evt.InvokerID)))
+
+	c.emitEvent(evt)
+}
+
+// handleClientUpdated applies an update to what the client knows of the client
+// it names, and then reports it. It is the only writer of a client's server
+// groups: the update carries the complete list, whereas the notifications that
+// name the group (and arrive before or after it, as the server pleases) carry
+// one group and would need a rule for merging.
+func (c *Client) handleClientUpdated(h *transport.PacketHandler, cmd *wire.Command) {
+	evt := servernotify.ClientUpdated(cmd.Params)
+	if evt.ClientID == 0 {
+		return
+	}
+
+	c.mu.Lock()
+	if c.handler != h {
+		c.mu.Unlock()
+
+		return
+	}
+	// A client not in view is not added: an entry needs the uid and channel an
+	// update does not carry. Apply returns a record of its own, so the event's
+	// Changes and the client list share nothing.
+	if info, ok := c.clients[evt.ClientID]; ok {
+		c.clients[evt.ClientID] = evt.Changes.Apply(info)
+	}
+	if evt.ClientID == c.clid && evt.Changes.Nickname != nil {
+		c.nickname = *evt.Changes.Nickname
+	}
+	c.mu.Unlock()
+
+	c.emitEvent(evt)
+}
+
+// handleClientChannelGroupChanged refreshes the channel group the client knows
+// of the client, which no update carries and a move leaves behind. The group
+// is per channel, so an event about a channel the client is not in is not its
+// group here.
+func (c *Client) handleClientChannelGroupChanged(h *transport.PacketHandler, cmd *wire.Command) {
+	evt := servernotify.ClientChannelGroupChanged(cmd.Params)
+	if evt.ClientID == 0 {
+		return
+	}
+
+	c.mu.Lock()
+	if c.handler != h {
+		c.mu.Unlock()
+
+		return
+	}
+	if info, ok := c.clients[evt.ClientID]; ok && info.ChannelID == evt.ChannelID {
+		info.ChannelGroupID = evt.ChannelGroupID
+		info.ChannelGroupInheritedChannelID = evt.ChannelGroupInheritedChannelID
+		c.clients[evt.ClientID] = info
+	}
+	c.mu.Unlock()
 
 	c.emitEvent(evt)
 }
