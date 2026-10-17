@@ -3,7 +3,9 @@ package client
 import (
 	"context"
 	"errors"
+	"maps"
 	"strconv"
+	"strings"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
@@ -38,6 +40,35 @@ func (c *Client) GetChannelDescription(ctx context.Context, cid teamspeak.Channe
 	}
 
 	return "", teamspeak.ErrNoData
+}
+
+// GetServerVariables returns the server's settings that change while it runs
+// and that the voice protocol lets a client ask for (servergetvariables), by
+// their wire names, such as "virtualserver_welcomemessage". It carries the
+// counters and statistics too, such as "virtualserver_clientsonline", and
+// fewer keys than GetServerInfo. It fails with teamspeak.ErrNoData if the
+// server answers with no row.
+//
+// The server answers the caller alone, with a notifyserverupdated that is no
+// event. The client's view takes what it holds of the answer, so this is also
+// the way to bring ServerView.Server up to date: an edit of a setting that
+// this carries is announced without the setting, so the view cannot follow it.
+//
+// Experimental: this may change in a minor release.
+func (c *Client) GetServerVariables(ctx context.Context) (teamspeak.Properties, error) {
+	rows, err := c.Send(ctx, newRequest("servergetvariables", nil))
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		for name := range row {
+			if strings.HasPrefix(name, serverPropertyPrefix) {
+				return maps.Clone(row), nil
+			}
+		}
+	}
+
+	return nil, teamspeak.ErrNoData
 }
 
 // SubscribeChannel subscribes to a channel: its clients' events and voice

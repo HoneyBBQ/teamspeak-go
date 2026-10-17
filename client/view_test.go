@@ -312,14 +312,18 @@ func TestViewSeesTheChangeBeforeTheEvent(t *testing.T) {
 	beginView(c, 1)
 	feed(c, "channellist cid=1 cpid=0 channel_name=A channel_order=0", "channellistfinished")
 
-	// Two notifications in one tick: the first handler already sees both.
+	// The view changes before the event is queued, and handlers run on their
+	// own goroutine while later packets are handled: the handler of the first
+	// event sees a view at least as new as that event, which may already hold
+	// the second channel too.
 	seen := make(chan []teamspeak.ChannelID, 2)
 	c.OnChannelCreated(func(ChannelCreatedEvent) { seen <- viewIDs(c.View().Channels()) })
 	feed(c, "notifychannelcreated cid=2 cpid=0 channel_name=B channel_order=1",
 		"notifychannelcreated cid=3 cpid=0 channel_name=C channel_order=2")
 
-	if first := receive(t, seen); !slices.Equal(first, []teamspeak.ChannelID{1, 2, 3}) {
-		t.Errorf("the handler of the first event saw %v", first)
+	first := receive(t, seen)
+	if !slices.Equal(first, []teamspeak.ChannelID{1, 2}) && !slices.Equal(first, []teamspeak.ChannelID{1, 2, 3}) {
+		t.Errorf("the handler of the first event saw %v, want the view to hold channel 2 already", first)
 	}
 }
 
@@ -820,6 +824,10 @@ func FuzzViewNotifications(f *testing.F) {
 		"notifychanneledited cid=1 channel_order=1\nnotifychanneldeleted cid=1")
 	f.Add("channellist cid=1 cpid=2|cid=2 cpid=1\nchannellistfinished\nnotifychannelunsubscribed cid=1")
 	f.Add("notifycliententerview clid=3 ctid=2\nnotifychannelunsubscribed cid=2\nnotifyclientleftview clid=3")
+	f.Add("channellistfinished\nnotifyservergrouplist sgid=3 name=C|sgid=1 name=A|sgid=3 name=D\n" +
+		"notifychannelgrouplist cgid=2 name=X\nnotifyservergrouplist name=Nameless")
+	f.Add("channellistfinished\nnotifyserveredited reasonid=10 virtualserver_name=N\n" +
+		"notifyserverupdated virtualserver_uptime=1 virtualserver_maxclients=2\nnotifyserveredited")
 
 	f.Fuzz(func(t *testing.T, data string) {
 		c := newTestClient(t)
@@ -840,6 +848,21 @@ func FuzzViewNotifications(f *testing.F) {
 			if len(v.Channels()) != v.tree.Len() {
 				t.Fatalf("%d channels listed of %d", len(v.Channels()), v.tree.Len())
 			}
+			requireGroupsAndServerInOrder(t, v)
 		}
 	})
+}
+
+// requireGroupsAndServerInOrder fails unless the view's groups are in strictly
+// ascending id and its server settings are all the server's own.
+func requireGroupsAndServerInOrder(t *testing.T, v ServerView) {
+	t.Helper()
+	if !ascending(serverGroupIDs(v.ServerGroups)) || !ascending(channelGroupIDs(v.ChannelGroups)) {
+		t.Fatalf("the groups are not in ascending id: %v, %v", v.ServerGroups, v.ChannelGroups)
+	}
+	for name := range v.Server {
+		if !strings.HasPrefix(name, serverPropertyPrefix) {
+			t.Fatalf("the view holds the setting %q", name)
+		}
+	}
 }

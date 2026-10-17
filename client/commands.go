@@ -353,6 +353,7 @@ func (c *Client) handleCommandLines(h *transport.PacketHandler, s string) {
 	if s == "" {
 		return
 	}
+	revision := c.viewRevision()
 	start := 0
 	for i := 0; i <= len(s); i++ {
 		if i == len(s) || s[i] == '\n' || s[i] == 0x00 {
@@ -362,10 +363,15 @@ func (c *Client) handleCommandLines(h *transport.PacketHandler, s string) {
 				for _, row := range rows {
 					c.handleCommand(h, row)
 				}
+				// A group list is one command line, and replaces the groups
+				// the view holds, so it is applied when the line is done.
+				c.applyGroupLists(h)
 			}
 			start = i + 1
 		}
 	}
+	// After the typed events of this packet, which are already queued.
+	c.announceViewChange(revision)
 }
 
 func (c *Client) handleCommand(h *transport.PacketHandler, s string) {

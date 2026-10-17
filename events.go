@@ -155,6 +155,13 @@ type PokeEvent struct {
 
 // ClientLeaveEvent is emitted when a client leaves view (notifyclientleftview).
 type ClientLeaveEvent struct {
+	// Previous is the client as the voice client knew it just before it left, a
+	// copy of the handler's own. It is nil when the client had not been
+	// announced to this one, and always on the ServerQuery client, which keeps
+	// no record of clients.
+	//
+	// Experimental: this may change in a minor release.
+	Previous *ClientEntry
 	// ReasonMessage is the reason given for a kick or a ban, or the client's
 	// own parting message.
 	ReasonMessage string
@@ -366,6 +373,16 @@ type ChannelMovedEvent struct {
 // ChannelDeletedEvent is emitted when a channel is deleted
 // (notifychanneldeleted).
 type ChannelDeletedEvent struct {
+	// Previous is the channel as the voice client's view held it just before
+	// the deletion, a copy of the handler's own: its Order is its place in the
+	// tree, and its TotalClients and TotalFamilyClients are nil. It is nil when
+	// the view did not hold the channel, as while it is loading, and always on
+	// the ServerQuery client, which has no view. A channel deleted with its
+	// subchannels gives one event for each, the subchannels first, each with
+	// its own record.
+	//
+	// Experimental: this may change in a minor release.
+	Previous *Channel
 	// InvokerName is who deleted the channel (invokername); "Server" when the
 	// server did, as it does for a temporary channel that has emptied.
 	InvokerName string

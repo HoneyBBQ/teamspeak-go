@@ -3,6 +3,43 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- `ServerView` also holds the groups and the server's settings. `ServerGroups`
+  and `ChannelGroups` are the group lists the server last sent, in ascending id,
+  with `ServerGroup(id)` and `ChannelGroup(id)` to look one up; the server sends
+  the whole list after every change to a group, so the view replaces its set
+  with each and a group missing from a list is gone. `GroupsLoaded` is false
+  until both lists of the connection have arrived, which is just after
+  `ViewReadyEvent`, so empty lists mean none only once it is true. A group's
+  permissions and members are not in it. `Server` holds the `virtualserver_`
+  settings by their wire names, as `GetServerInfo` returns them: it starts from
+  what the server says on connecting and follows `ServerEditedEvent`, but the
+  server announces an edit of the welcome message, the client limit and some
+  other settings without naming them, so those are as of the last
+  `GetServerVariables`. The view merges every answer to that, whoever asked,
+  and holds none of the counters and statistics in it, such as the clients
+  online and the uptime. Experimental.
+- `(*client.Client).GetServerVariables` returns what `servergetvariables`
+  answers, the settings that change while the server runs, counters included.
+  Experimental.
+- `OnViewChanged` reports that the view is newer than the last time a handler
+  was told, with its `Revision`. It follows the typed events of the
+  notifications that changed the view and says nothing of what changed. A burst
+  of notifications that arrives while a handler is busy gives one event after
+  the last of them, but a flood cannot hold it back for more than 64 packets.
+  It is not sent while the view is loading or when nothing changed since the
+  last `ViewReadyEvent` or `ViewChangedEvent`, and is sent once more when the
+  view goes stale. Experimental.
+- `ChannelDeletedEvent.Previous` and `ClientLeaveEvent.Previous` hold the
+  channel as the voice client's view held it, and the client as it knew it,
+  just before they were removed, a copy for each handler. A channel deleted with
+  subchannels gives one event for each, the subchannels first. They are nil
+  when the client did not hold the record, and always nil on the ServerQuery
+  client. Experimental.
+
 ## v1.0.0-beta.8 (2026-10-17)
 
 ### Removed

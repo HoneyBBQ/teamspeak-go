@@ -162,6 +162,7 @@ method (Client) GetPermissionOverview(ctx context.Context, channelID teamspeak.C
 method (Client) GetServerGroupsByClient(ctx context.Context, clientDBID teamspeak.ClientDBID) ([]teamspeak.ServerGroupRef, error)
 method (Client) GetServerIDByPort(ctx context.Context, port uint16) (teamspeak.ServerID, error)
 method (Client) GetServerInfo(ctx context.Context) (teamspeak.Properties, error)
+method (*Client) GetServerVariables(ctx context.Context) (teamspeak.Properties, error)
 method (Client) GetVersion(ctx context.Context) (teamspeak.ServerVersion, error)
 method (*Client) GoString() string
 method (*Client) Host() string
@@ -222,6 +223,7 @@ method (*Client) OnPluginCommand(handler func(PluginCommandEvent)) func()
 method (*Client) OnPoked(handler func(PokeEvent)) func()
 method (*Client) OnServerEdited(handler func(ServerEditedEvent)) func()
 method (*Client) OnTextMessage(handler func(TextMessageEvent)) func()
+method (*Client) OnViewChanged(handler func(ViewChangedEvent)) func()
 method (*Client) OnViewReady(handler func(ViewReadyEvent)) func()
 method (*Client) OnVoiceData(handler func(VoiceDataEvent)) func()
 method (Client) PokeClient(ctx context.Context, clid teamspeak.ClientID, message string) error
@@ -371,15 +373,21 @@ type ServerEditedEvent = teamspeak.ServerEditedEvent
 type ServerFamily = teamspeak.ServerFamily
 type ServerView struct
 field ServerView.Self *teamspeak.ClientEntry
+field ServerView.Server teamspeak.Properties
+field ServerView.ServerGroups []teamspeak.ServerGroup
+field ServerView.ChannelGroups []teamspeak.ChannelGroup
 field ServerView.Revision uint64
 field ServerView.Status ViewStatus
+field ServerView.GroupsLoaded bool
 method (ServerView) Channel(id teamspeak.ChannelID) (teamspeak.Channel, bool)
+method (ServerView) ChannelGroup(id teamspeak.ChannelGroupID) (teamspeak.ChannelGroup, bool)
 method (ServerView) Channels() []teamspeak.Channel
 method (ServerView) Children(parent teamspeak.ChannelID) []teamspeak.Channel
 method (ServerView) Client(id teamspeak.ClientID) (teamspeak.ClientEntry, bool)
 method (ServerView) Clients() []teamspeak.ClientEntry
 method (ServerView) ClientsIn(id teamspeak.ChannelID) []teamspeak.ClientEntry
 method (ServerView) Path(id teamspeak.ChannelID) []teamspeak.Channel
+method (ServerView) ServerGroup(id teamspeak.ServerGroupID) (teamspeak.ServerGroup, bool)
 type SessionEndInfo struct
 field SessionEndInfo.Cause error
 field SessionEndInfo.Duration time.Duration
@@ -412,6 +420,8 @@ field Trace.DisconnectDone func(DisconnectDoneInfo)
 field Trace.SessionEnd func(SessionEndInfo)
 field Trace.ReconnectScheduled func(ReconnectScheduledInfo)
 field Trace.ReconnectStopped func(ReconnectStoppedInfo)
+type ViewChangedEvent struct
+field ViewChangedEvent.Revision uint64
 type ViewReadyEvent struct
 field ViewReadyEvent.Revision uint64
 type ViewStatus int

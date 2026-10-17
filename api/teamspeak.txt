@@ -264,6 +264,7 @@ field ChannelCreatedEvent.InvokerID ClientID
 type ChannelDeleteOptions struct
 field ChannelDeleteOptions.Force bool
 type ChannelDeletedEvent struct
+field ChannelDeletedEvent.Previous *Channel
 field ChannelDeletedEvent.InvokerName string
 field ChannelDeletedEvent.InvokerUID UID
 field ChannelDeletedEvent.ChannelID ChannelID
@@ -498,6 +499,7 @@ type ClientID uint16
 type ClientKickOptions struct
 field ClientKickOptions.ReasonMessage string
 type ClientLeaveEvent struct
+field ClientLeaveEvent.Previous *ClientEntry
 field ClientLeaveEvent.ReasonMessage string
 field ClientLeaveEvent.InvokerName string
 field ClientLeaveEvent.InvokerUID UID

@@ -152,6 +152,7 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 	// SHA-1 on TS3, SHA-256 on TS6. Record the whole capability set so callers
 	// do not have to re-derive it, or assume one server generation.
 	c.capabilities = parseServerCapabilities(cmd.Params)
+	c.seedViewServerLocked(cmd.Params)
 	if c.capabilities.Version != "" {
 		c.uidAlgorithm = c.capabilities.UIDAlgorithm
 	}
