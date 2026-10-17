@@ -5,6 +5,7 @@ package client_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"slices"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/client"
+	"github.com/honeybbq/teamspeak-go/errcode"
+	"github.com/honeybbq/teamspeak-go/perm"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 )
@@ -226,5 +229,191 @@ func TestIntegration_DeleteFileRemovesEveryPath(t *testing.T) {
 		if slices.Contains(paths, "/"+f.Name) {
 			t.Errorf("%s is still there after DeleteFile", f.Name)
 		}
+	}
+}
+
+// skipIfDenied skips a test when the server refused the command for the
+// connection's rights, saying which, so a run against a server the fixture has
+// not granted them to shows the gap instead of passing over it.
+func skipIfDenied(t *testing.T, err error, what string) {
+	t.Helper()
+	if errors.Is(err, errcode.PermissionsClientInsufficient) {
+		t.Skipf("%s: %v — the default group lacks the right this needs, so the command cannot be run here", what, err)
+	}
+}
+
+// The voice protocol answers these with notifications the response table pairs
+// with the command, so a raw Exec returns their rows. Each needs no right the
+// default group lacks.
+func TestLive_VoiceAnswersCarryRows(t *testing.T) {
+	c := requireSharedClient(t)
+	clid := strconv.Itoa(int(c.ClientID()))
+
+	for _, tc := range []struct {
+		command string
+		key     string
+	}{
+		{"clientgetvariables clid=" + clid, "client_version"},
+		{"getconnectioninfo clid=" + clid, "connection_client_ip"},
+		{"servergetvariables", "virtualserver_maxclients"},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			rows, err := c.Exec(t.Context(), tc.command)
+			skipIfDenied(t, err, tc.command)
+			requireNoErr(t, err)
+			if len(rows) == 0 {
+				t.Fatalf("%s returned no rows: the answer arrives as a notification", tc.command)
+			}
+			// A broadcast about the same client can fall in the same window as the
+			// answer, so the answer is looked for among the rows.
+			answered := slices.ContainsFunc(rows, func(row map[string]string) bool {
+				_, ok := row[tc.key]
+
+				return ok
+			})
+			if !answered {
+				t.Errorf("%s: no row has %s: %v", tc.command, tc.key, rows)
+			}
+		})
+	}
+}
+
+// permget answers a nameless row on TeamSpeak 3 and a notifypermget on
+// TeamSpeak 6; GetOwnPermission reads either.
+func TestLive_GetOwnPermission(t *testing.T) {
+	c := requireSharedClient(t)
+
+	got, err := c.GetOwnPermission(t.Context(), teamspeak.PermissionByName(perm.ClientPermissionOverviewOwn))
+	skipIfDenied(t, err, "permget")
+	requireNoErr(t, err)
+	if got.Name != perm.ClientPermissionOverviewOwn || got.ID == 0 || got.Value < 1 {
+		t.Errorf("%s = %+v, want its name, its id and at least the 1 the fixture grants",
+			perm.ClientPermissionOverviewOwn, got)
+	}
+
+	_, err = c.GetOwnPermission(t.Context(), teamspeak.PermissionByName("b_no_such_permission"))
+	if !errors.Is(err, errcode.PermissionInvalidPermID) {
+		t.Errorf("an unknown permission: %v, want 2562", err)
+	}
+}
+
+// An API key made over the voice protocol comes back from a notification, and
+// lists and deletes like one made over ServerQuery.
+func TestLive_APIKeys(t *testing.T) {
+	c := requireSharedClient(t)
+	day := 24 * time.Hour
+
+	key, err := c.AddAPIKey(t.Context(), teamspeak.APIKeyOptions{Scope: teamspeak.APIKeyScopeRead, Lifetime: &day})
+	skipIfDenied(t, err, "apikeyadd")
+	requireNoErr(t, err)
+	t.Cleanup(func() { _ = c.DeleteAPIKey(context.WithoutCancel(t.Context()), key.ID) })
+	if key.Key == "" || key.ID == 0 || key.Scope != teamspeak.APIKeyScopeRead {
+		t.Fatalf("the new key = %+v, want its value, id and scope", key)
+	}
+
+	listed, err := c.ListAPIKeys(t.Context(), teamspeak.APIKeyListOptions{})
+	requireNoErr(t, err)
+	if !slices.ContainsFunc(listed, func(k teamspeak.APIKey) bool { return k.ID == key.ID }) {
+		t.Errorf("ListAPIKeys = %v, want key %d", listed, key.ID)
+	}
+	requireNoErr(t, c.DeleteAPIKey(t.Context(), key.ID))
+}
+
+// Custom properties are set on the client's own record and read back.
+func TestLive_CustomProperties(t *testing.T) {
+	c := requireSharedClient(t)
+	me, err := c.GetClientProperties(t.Context(), c.ClientID())
+	requireNoErr(t, err)
+	rawDBID, err := strconv.ParseUint(me["client_database_id"], 10, 64)
+	requireNoErr(t, err)
+	dbid := teamspeak.ClientDBID(rawDBID)
+	ident := fmt.Sprintf("ts_go_live_%d", time.Now().UnixNano())
+
+	err = c.SetCustomProperty(t.Context(), dbid, ident, "a value")
+	skipIfDenied(t, err, "customset")
+	requireNoErr(t, err)
+	t.Cleanup(func() { _ = c.DeleteCustomProperty(context.WithoutCancel(t.Context()), dbid, ident) })
+
+	// A guest voice client is refused reading them on both servers.
+	props, err := c.ListCustomProperties(t.Context(), dbid)
+	skipIfDenied(t, err, "custominfo")
+	requireNoErr(t, err)
+	if !slices.Contains(props, teamspeak.CustomProperty{Ident: ident, Value: "a value"}) {
+		t.Errorf("ListCustomProperties = %v, want %s", props, ident)
+	}
+	found, err := c.FindCustomProperty(t.Context(), ident, "a%")
+	requireNoErr(t, err)
+	if !slices.Contains(found, teamspeak.CustomPropertyMatch{DatabaseID: dbid, Ident: ident, Value: "a value"}) {
+		t.Errorf("FindCustomProperty = %v, want client %d", found, dbid)
+	}
+	requireNoErr(t, c.DeleteCustomProperty(t.Context(), dbid, ident))
+	props, err = c.ListCustomProperties(t.Context(), dbid)
+	requireNoErr(t, err)
+	if slices.ContainsFunc(props, func(p teamspeak.CustomProperty) bool { return p.Ident == ident }) {
+		t.Errorf("the property is still there after the delete: %v", props)
+	}
+}
+
+// banfind is TeamSpeak 6's: its answer is a notifybanfind over the voice
+// protocol, and TeamSpeak 3 never answers at all.
+func TestLive_FindBans(t *testing.T) {
+	c := requireSharedClient(t)
+	if family := c.ServerCapabilities().Family; family != teamspeak.ServerFamilyTS6 {
+		t.Skipf("banfind is TeamSpeak 6 only, and %v never answers it over the voice protocol", family)
+	}
+	ip := "203.0.113." + strconv.Itoa(int(time.Now().UnixNano()%200)+1)
+
+	_, _, err := c.AddBan(t.Context(), teamspeak.BanOptions{IP: ip, Reason: "ts-go live test", LastNickname: "Mallory"})
+	skipIfDenied(t, err, "banadd")
+	requireNoErr(t, err)
+	t.Cleanup(func() {
+		ctx := context.WithoutCancel(t.Context())
+		bans, listErr := c.ListBans(ctx, teamspeak.BanListOptions{})
+		if listErr != nil {
+			return
+		}
+		for _, b := range bans {
+			if b.IP == ip {
+				_ = c.DeleteBan(ctx, b.ID)
+			}
+		}
+	})
+
+	bans, err := c.FindBans(t.Context(), teamspeak.BanCriteria{IP: ip})
+	requireNoErr(t, err)
+	if len(bans) != 1 || bans[0].IP != ip || bans[0].LastNickname != "Mallory" {
+		t.Errorf("FindBans(%s) = %+v, want the ban just made", ip, bans)
+	}
+	none, err := c.FindBans(t.Context(), teamspeak.BanCriteria{IP: "198.51.100.1"})
+	requireNoErr(t, err)
+	if len(none) != 0 {
+		t.Errorf("FindBans for an address nobody banned = %+v", none)
+	}
+}
+
+// An offline message sent over the voice protocol lands in the recipient's
+// inbox, which the recipient reads with the same protocol.
+func TestLive_SendOfflineMessage(t *testing.T) {
+	addr := requireTeamSpeakAddr(t)
+	c := requireSharedClient(t)
+	peer := requireIntegrationPeer(t, addr)
+	subject := fmt.Sprintf("ts-go live %d", time.Now().UnixNano())
+
+	err := c.SendOfflineMessage(t.Context(), peer.UID(), subject, "Where are you?!?")
+	skipIfDenied(t, err, "messageadd")
+	requireNoErr(t, err)
+
+	messages, err := peer.ListMessages(t.Context(), teamspeak.MessageListOptions{})
+	requireNoErr(t, err)
+	i := slices.IndexFunc(messages, func(m teamspeak.OfflineMessage) bool { return m.Subject == subject })
+	if i < 0 {
+		t.Fatalf("the recipient's inbox = %+v, want the message %q", messages, subject)
+	}
+	t.Cleanup(func() { _ = peer.DeleteMessage(context.WithoutCancel(t.Context()), messages[i].ID) })
+
+	got, err := peer.GetMessage(t.Context(), messages[i].ID)
+	requireNoErr(t, err)
+	if got.Message != "Where are you?!?" || got.UID != c.UID() {
+		t.Errorf("GetMessage = %+v, want the body as sent, from %q", got, c.UID())
 	}
 }

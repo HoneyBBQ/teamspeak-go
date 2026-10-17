@@ -48,6 +48,16 @@ linters:
       - path: ".*_test\\.go"
         linters: [gosec]
         text: "G115"
+      # The bodies passed to forEachTransport are tests, run once per transport,
+      # not helpers: marking them helpers would report a failure at the runner's
+      # line instead of the assertion's.
+      - path: 'serverquery/integration_.*_test\.go'
+        linters: [thelper]
+      # Test rows hold made-up keys and passwords, in the fields that carry the
+      # real ones.
+      - path: ".*_test\\.go"
+        linters: [gosec]
+        text: "G101"
       # Protocol uses SHA-1; field order is ASN.1-defined.
       - path: crypto/crypt.go
         linters: [gosec]

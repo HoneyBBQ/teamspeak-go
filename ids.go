@@ -53,6 +53,9 @@ type BanID uint64
 // MessageID identifies an offline message (msgid).
 type MessageID uint64
 
+// APIKeyID identifies an API key (id).
+type APIKeyID uint64
+
 // ClientFileTransferID is the id the client gives a file transfer it
 // negotiates (clientftfid). The server echoes it back, which is how the
 // answer is matched to the request.

@@ -294,6 +294,40 @@ func (c *Commands) GetPermissionIDByName(ctx context.Context, name string) (Perm
 	return PermissionID(fieldUint32(row, "permid")), true, nil
 }
 
+// OwnPermission is a permission's value for this connection's own client, as
+// permget reports it.
+type OwnPermission struct {
+	// Name is the permission's name (permsid).
+	Name string
+	// ID is the permission's id on this server build (permid).
+	ID PermissionID
+	// Value is the permission's value for the client (permvalue): what the
+	// server works out from the client's groups and overrides.
+	Value int32
+}
+
+// GetOwnPermission returns a permission's value for this connection's own
+// client, as the server works it out from the client's groups and overrides.
+// It sends permget.
+//
+// Needs b_client_permissionoverview_own. A permission the server does not know
+// is refused with 2562, "invalid permission ID". Both TeamSpeak 3 and 6 serve
+// it, over ServerQuery and the voice protocol. TeamSpeak 6 also takes the
+// permission of another identity, through an authentication token, which this
+// does not send.
+func (c *Commands) GetOwnPermission(ctx context.Context, perm Permission) (OwnPermission, error) {
+	row, err := c.queryRow(ctx, "permget", "permvalue", []param{permArg(perm)})
+	if err != nil {
+		return OwnPermission{}, err
+	}
+
+	return OwnPermission{
+		Name:  fieldStr(row, "permsid"),
+		ID:    PermissionID(fieldUint32(row, "permid")),
+		Value: fieldInt32(row, "permvalue"),
+	}, nil
+}
+
 // PermissionLocation is one place a permission is set, as permfind and
 // permoverview report it. Target says which of the ids are set:
 //
@@ -451,6 +485,9 @@ type PrivilegeKey struct {
 	// ChannelID is the channel a PrivilegeKeyChannelGroup key grants its group
 	// in.
 	ChannelID ChannelID
+	// CustomSet is the custom properties the key sets on the client that
+	// redeems it (token_customset); empty for a key that sets none.
+	CustomSet []CustomProperty
 	// Type is which kind of group the key grants (token_type).
 	Type PrivilegeKeyType
 }
@@ -464,6 +501,7 @@ func parseKey(row map[string]string) PrivilegeKey {
 		Type:        PrivilegeKeyType(fieldEnum(row, "token_type")),
 		Description: fieldStr(row, "token_description"),
 		Created:     fieldTime(row, "token_created"),
+		CustomSet:   parseCustomSet(fieldStr(row, "token_customset")),
 	}
 	if key.Type == PrivilegeKeyChannelGroup {
 		key.ChannelGroupID = ChannelGroupID(fieldUint(row, "token_id1"))
@@ -508,6 +546,12 @@ type PrivilegeKeyOptions struct {
 	ChannelGroupID ChannelGroupID
 	// ChannelID is the channel a channel group key grants its group in.
 	ChannelID ChannelID
+	// CustomSet is the custom properties the key sets on the client that
+	// redeems it (tokencustomset); empty sends none. Any text is allowed in an
+	// Ident or a Value: each is escaped inside the set, and the set again as a
+	// parameter, which is the only way a value with a space or a pipe reaches
+	// the redeeming client whole.
+	CustomSet []CustomProperty
 }
 
 // keyParams encodes the group a key grants. The wire form is a type and two
@@ -536,8 +580,13 @@ func (opts PrivilegeKeyOptions) keyParams() []param {
 }
 
 func (c *Commands) addKey(ctx context.Context, command string, opts PrivilegeKeyOptions) (string, error) {
+	customSet := param{Key: "tokencustomset"}
+	if len(opts.CustomSet) > 0 {
+		customSet = strArg("tokencustomset", customSetValue(opts.CustomSet))
+	}
+
 	row, err := c.queryRow(ctx, command, "token", append(opts.keyParams(),
-		optStrArg("tokendescription", opts.Description)))
+		optStrArg("tokendescription", opts.Description), customSet))
 	if err != nil {
 		return "", err
 	}
@@ -546,7 +595,7 @@ func (c *Commands) addKey(ctx context.Context, command string, opts PrivilegeKey
 }
 
 // AddPrivilegeKey creates a privilege key and returns it as the server
-// generated it.
+// generated it. A CustomSet is sent as tokencustomset.
 func (c *Commands) AddPrivilegeKey(ctx context.Context, opts PrivilegeKeyOptions) (string, error) {
 	return c.addKey(ctx, "privilegekeyadd", opts)
 }

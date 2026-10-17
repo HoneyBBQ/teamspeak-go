@@ -16,6 +16,10 @@ func TestSecretsStayOutOfFormatting(t *testing.T) {
 		FileDownloadInfo{FileTransferKey: "s3cret", Port: 30033},
 		PrivilegeKey{Token: "s3cret"},
 		TempPassword{Password: "s3cret"},
+		APIKeyCreated{Key: "s3cret"},
+		QueryLoginCreated{Password: "s3cret"},
+		ServerCreated{Token: "s3cret"},
+		ServerSnapshot{Data: "s3cret", Salt: "pepper"},
 	}
 	for _, v := range values {
 		for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
@@ -38,6 +42,10 @@ func TestSecretsStayOutOfSlog(t *testing.T) {
 		FileDownloadInfo{FileTransferKey: "s3cret", Port: 30033},
 		PrivilegeKey{Token: "s3cret", Description: "admin"},
 		TempPassword{Password: "s3cret", Description: "guest"},
+		APIKeyCreated{Key: "s3cret", APIKey: APIKey{Scope: APIKeyScopeRead}},
+		QueryLoginCreated{Password: "s3cret", QueryLogin: QueryLogin{Name: "bot"}},
+		ServerCreated{ID: 2, Token: "s3cret"},
+		ServerSnapshot{Version: 3, Data: "s3cret"},
 	}
 	for _, v := range values {
 		for name, newHandler := range map[string]func(*bytes.Buffer) slog.Handler{
@@ -61,6 +69,10 @@ func TestSecretsSurviveJSON(t *testing.T) {
 		FileDownloadInfo{FileTransferKey: "s3cret"},
 		PrivilegeKey{Token: "s3cret"},
 		TempPassword{Password: "s3cret"},
+		APIKeyCreated{Key: "s3cret"},
+		QueryLoginCreated{Password: "s3cret"},
+		ServerCreated{Token: "s3cret"},
+		ServerSnapshot{Data: "s3cret"},
 	}
 	for _, v := range values {
 		out, err := json.Marshal(v)

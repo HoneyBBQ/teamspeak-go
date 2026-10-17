@@ -10,7 +10,7 @@ func TestListChannels_AsksForEveryFlag(t *testing.T) {
 
 		return err
 	})
-	if line != "channellist -topic -flags -voice -limits -icon" {
+	if line != "channellist -topic -flags -voice -limits -icon -secondsempty -banners" {
 		t.Errorf("line = %q", line)
 	}
 }

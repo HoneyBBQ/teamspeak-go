@@ -548,6 +548,90 @@ func (c *Commands) DeleteServerGroupPermission(
 	})
 }
 
+// GroupAutoUpdateType names the regular server groups a permission is added to
+// or removed from across every virtual server, by their
+// i_group_auto_update_type permission (sgtype). Each is the kind of group the
+// server's default templates make; the server accepts any other number without
+// effect.
+type GroupAutoUpdateType int
+
+const (
+	// GroupAutoUpdateChannelGuest is the Channel Guest groups.
+	GroupAutoUpdateChannelGuest GroupAutoUpdateType = 10
+	// GroupAutoUpdateServerGuest is the Server Guest groups.
+	GroupAutoUpdateServerGuest GroupAutoUpdateType = 15
+	// GroupAutoUpdateQueryGuest is the Query Guest groups.
+	GroupAutoUpdateQueryGuest GroupAutoUpdateType = 20
+	// GroupAutoUpdateChannelVoice is the Channel Voice groups.
+	GroupAutoUpdateChannelVoice GroupAutoUpdateType = 25
+	// GroupAutoUpdateServerNormal is the Server Normal groups.
+	GroupAutoUpdateServerNormal GroupAutoUpdateType = 30
+	// GroupAutoUpdateChannelOperator is the Channel Operator groups.
+	GroupAutoUpdateChannelOperator GroupAutoUpdateType = 35
+	// GroupAutoUpdateChannelAdmin is the Channel Admin groups.
+	GroupAutoUpdateChannelAdmin GroupAutoUpdateType = 40
+	// GroupAutoUpdateServerAdmin is the Server Admin groups.
+	GroupAutoUpdateServerAdmin GroupAutoUpdateType = 45
+	// GroupAutoUpdateQueryAdmin is the Query Admin groups.
+	GroupAutoUpdateQueryAdmin GroupAutoUpdateType = 50
+)
+
+var groupAutoUpdateTypeNames = [...]string{
+	GroupAutoUpdateChannelGuest:    "channel guest",
+	GroupAutoUpdateServerGuest:     "server guest",
+	GroupAutoUpdateQueryGuest:      "query guest",
+	GroupAutoUpdateChannelVoice:    "channel voice",
+	GroupAutoUpdateServerNormal:    "server normal",
+	GroupAutoUpdateChannelOperator: "channel operator",
+	GroupAutoUpdateChannelAdmin:    "channel admin",
+	GroupAutoUpdateServerAdmin:     "server admin",
+	GroupAutoUpdateQueryAdmin:      "query admin",
+}
+
+// String returns the group kind's name, or "group auto update type N" for a
+// value this version does not know.
+func (t GroupAutoUpdateType) String() string {
+	return enumName(t, groupAutoUpdateTypeNames[:], "group auto update type")
+}
+
+// AddServerGroupPermissionByType sets a permission on every regular server
+// group of one kind, on every virtual server of the instance. It sends
+// servergroupautoaddperm with the group kind as sgtype.
+//
+// It changes groups on virtual servers the connection is not on, and
+// overwrites the permission where a group already has it. Needs
+// b_permission_modify_power_ignore, an instance permission that not even a
+// voice Server Admin holds: error 2568. A permission the server does not
+// know is refused with 2562. Both TeamSpeak 3 and 6 serve it over
+// ServerQuery. Negated and Skip are always sent: the server answers 1539,
+// "parameter not found", without them.
+func (c *Commands) AddServerGroupPermissionByType(
+	ctx context.Context, groups GroupAutoUpdateType, perm Permission, value int32, opts ServerGroupPermissionOptions,
+) error {
+	return c.exec(ctx, "servergroupautoaddperm", []param{
+		intArg("sgtype", int64(groups)),
+		permArg(perm),
+		intArg("permvalue", int64(value)),
+		boolArg("permnegated", opts.Negated),
+		boolArg("permskip", opts.Skip),
+	})
+}
+
+// DeleteServerGroupPermissionByType removes a permission from every regular
+// server group of one kind, on every virtual server of the instance. It sends
+// servergroupautodelperm.
+//
+// Needs b_permission_modify_power_ignore; see AddServerGroupPermissionByType.
+// A group that does not hold the permission is not an error.
+func (c *Commands) DeleteServerGroupPermissionByType(
+	ctx context.Context, groups GroupAutoUpdateType, perm Permission,
+) error {
+	return c.exec(ctx, "servergroupautodelperm", []param{
+		intArg("sgtype", int64(groups)),
+		permArg(perm),
+	})
+}
+
 // TempPassword is a temporary server password.
 //
 // String, GoString and LogValue redact the password, so the value can reach fmt
