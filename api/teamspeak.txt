@@ -78,6 +78,7 @@ func DialFileTransfer(ctx context.Context, host string, port uint16, key string,
 func DownloadFileData(ctx context.Context, host string, info *FileDownloadInfo, dest io.Writer, opts FileTransferOptions) error
 func IconFileName(id IconID) string
 func IconIDOf(data []byte) IconID
+func NewChannelTree(channels []Channel) ChannelTree
 func NewCommands(executor Executor) *Commands
 func PermissionByID(id PermissionID) Permission
 func PermissionByName(name string) Permission
@@ -336,6 +337,16 @@ type ChannelPasswordChangedEvent struct
 field ChannelPasswordChangedEvent.ChannelID ChannelID
 type ChannelSubscribedEvent struct
 field ChannelSubscribedEvent.ChannelID ChannelID
+type ChannelTree struct
+method (ChannelTree) ApplyCreated(evt ChannelCreatedEvent) ChannelTree
+method (ChannelTree) ApplyDeleted(evt ChannelDeletedEvent) ChannelTree
+method (ChannelTree) ApplyEdited(evt ChannelEditedEvent) ChannelTree
+method (ChannelTree) ApplyMoved(evt ChannelMovedEvent) ChannelTree
+method (ChannelTree) Children(parent ChannelID) []Channel
+method (ChannelTree) Consistent() bool
+method (ChannelTree) Get(id ChannelID) (Channel, bool)
+method (ChannelTree) Len() int
+method (ChannelTree) Path(id ChannelID) []Channel
 type ChannelUID string
 type ChannelUnsubscribedEvent struct
 field ChannelUnsubscribedEvent.ChannelID ChannelID
