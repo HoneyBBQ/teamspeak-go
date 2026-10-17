@@ -49,6 +49,17 @@ func (ClientChatComposingEvent) serverEvent()       {}
 // (notifycliententerview): on connecting, for everyone already there, and
 // whenever someone joins or becomes visible.
 //
+// What the client is told is limited to the channels it is subscribed to. On
+// connecting that is its own channel alone, so the clients in every other
+// channel are not announced, and the absence of an event does not mean a client
+// is absent: ListClients lists everyone. SubscribeChannel and
+// SubscribeAllChannels announce the clients of the channels they subscribe to,
+// each with an event of this kind before the ChannelSubscribedEvent. After
+// that, a client moving into a subscribed channel from one the client does not
+// see arrives as this event, and one moving out to such a channel as a
+// ClientLeaveEvent. The server does not tell the client when a subscription
+// ends; see ChannelUnsubscribedEvent.
+//
 // It embeds the ClientEntry the server described, so its fields read as the
 // event's own (evt.Nickname). It is a struct of its own rather than ClientEntry
 // itself so that ClientEntry stays a plain description of a client, which also
@@ -412,6 +423,17 @@ type ChannelSubscribedEvent struct {
 // ChannelUnsubscribedEvent is emitted when this client is no longer subscribed
 // to a channel (notifychannelunsubscribed), by request or because the server
 // withdrew the subscription. Only the voice client delivers it.
+//
+// The server does not say that the clients in the channel are gone from view:
+// it sends no ClientLeaveEvent for them, and nothing about them afterwards, not
+// their moves and not their leaving. What was known of them is therefore stale
+// from this event on, and the voice client forgets them, in the view and in the
+// groups of a TextMessageEvent, when the event arrives; a program that follows
+// the clients from the events alone has to do the same. Subscribing again
+// announces the clients then in the channel with a ClientEnterEvent each, in
+// the channel they are in now. The client itself is kept, in whatever channel
+// it is. Which channels the client is subscribed to is not told either; it can
+// only be worked out from these events.
 type ChannelUnsubscribedEvent struct {
 	// ChannelID is the channel (cid).
 	ChannelID ChannelID

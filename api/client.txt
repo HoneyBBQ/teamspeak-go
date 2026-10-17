@@ -20,6 +20,10 @@ const ServerFamilyUnknown teamspeak.ServerFamily = ""
 const StatusConnected teamspeak.Status = 2
 const StatusConnecting teamspeak.Status = 1
 const StatusDisconnected teamspeak.Status = 0
+const ViewEmpty ViewStatus = 0
+const ViewLive ViewStatus = 2
+const ViewLoading ViewStatus = 1
+const ViewStale ViewStatus = 3
 var DefaultBackoffPolicy func() teamspeak.BackoffPolicy
 var ErrAlreadyConnected error
 var ErrConnectionTimeout error
@@ -218,6 +222,7 @@ method (*Client) OnPluginCommand(handler func(PluginCommandEvent)) func()
 method (*Client) OnPoked(handler func(PokeEvent)) func()
 method (*Client) OnServerEdited(handler func(ServerEditedEvent)) func()
 method (*Client) OnTextMessage(handler func(TextMessageEvent)) func()
+method (*Client) OnViewReady(handler func(ViewReadyEvent)) func()
 method (*Client) OnVoiceData(handler func(VoiceDataEvent)) func()
 method (Client) PokeClient(ctx context.Context, clid teamspeak.ClientID, message string) error
 method (Client) RemoveAvatar(ctx context.Context) (bool, error)
@@ -266,7 +271,9 @@ method (*Client) UploadIcon(ctx context.Context, data []byte, opts teamspeak.Fil
 method (Client) UsePrivilegeKey(ctx context.Context, token string) error
 method (*Client) VerifyChannelPassword(ctx context.Context, cid teamspeak.ChannelID, password string) (bool, error)
 method (*Client) VerifyServerPassword(ctx context.Context, password string) (bool, error)
+method (*Client) View() ServerView
 method (Client) ViewLog(ctx context.Context, opts teamspeak.LogViewOptions) (teamspeak.LogPage, error)
+method (*Client) WaitView(ctx context.Context) error
 method (Client) WhoAmI(ctx context.Context) (teamspeak.WhoAmI, error)
 type ClientChannelGroupChangedEvent = teamspeak.ClientChannelGroupChangedEvent
 type ClientChatComposingEvent = teamspeak.ClientChatComposingEvent
@@ -362,6 +369,17 @@ field ServerCapabilities.HostMessageMode teamspeak.HostMessageMode
 field ServerCapabilities.IconID teamspeak.IconID
 type ServerEditedEvent = teamspeak.ServerEditedEvent
 type ServerFamily = teamspeak.ServerFamily
+type ServerView struct
+field ServerView.Self *teamspeak.ClientEntry
+field ServerView.Revision uint64
+field ServerView.Status ViewStatus
+method (ServerView) Channel(id teamspeak.ChannelID) (teamspeak.Channel, bool)
+method (ServerView) Channels() []teamspeak.Channel
+method (ServerView) Children(parent teamspeak.ChannelID) []teamspeak.Channel
+method (ServerView) Client(id teamspeak.ClientID) (teamspeak.ClientEntry, bool)
+method (ServerView) Clients() []teamspeak.ClientEntry
+method (ServerView) ClientsIn(id teamspeak.ChannelID) []teamspeak.ClientEntry
+method (ServerView) Path(id teamspeak.ChannelID) []teamspeak.Channel
 type SessionEndInfo struct
 field SessionEndInfo.Cause error
 field SessionEndInfo.Duration time.Duration
@@ -394,6 +412,10 @@ field Trace.DisconnectDone func(DisconnectDoneInfo)
 field Trace.SessionEnd func(SessionEndInfo)
 field Trace.ReconnectScheduled func(ReconnectScheduledInfo)
 field Trace.ReconnectStopped func(ReconnectStoppedInfo)
+type ViewReadyEvent struct
+field ViewReadyEvent.Revision uint64
+type ViewStatus int
+method (ViewStatus) String() string
 type VoiceDataEvent = teamspeak.VoiceDataEvent
 type VoiceOptions struct
 type WelcomeDoneInfo struct
