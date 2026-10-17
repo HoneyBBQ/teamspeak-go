@@ -312,14 +312,18 @@ func TestViewSeesTheChangeBeforeTheEvent(t *testing.T) {
 	beginView(c, 1)
 	feed(c, "channellist cid=1 cpid=0 channel_name=A channel_order=0", "channellistfinished")
 
-	// Two notifications in one tick: the first handler already sees both.
+	// The view changes before the event is queued, and handlers run on their
+	// own goroutine while later packets are handled: the handler of the first
+	// event sees a view at least as new as that event, which may already hold
+	// the second channel too.
 	seen := make(chan []teamspeak.ChannelID, 2)
 	c.OnChannelCreated(func(ChannelCreatedEvent) { seen <- viewIDs(c.View().Channels()) })
 	feed(c, "notifychannelcreated cid=2 cpid=0 channel_name=B channel_order=1",
 		"notifychannelcreated cid=3 cpid=0 channel_name=C channel_order=2")
 
-	if first := receive(t, seen); !slices.Equal(first, []teamspeak.ChannelID{1, 2, 3}) {
-		t.Errorf("the handler of the first event saw %v", first)
+	first := receive(t, seen)
+	if !slices.Equal(first, []teamspeak.ChannelID{1, 2}) && !slices.Equal(first, []teamspeak.ChannelID{1, 2, 3}) {
+		t.Errorf("the handler of the first event saw %v, want the view to hold channel 2 already", first)
 	}
 }
 
