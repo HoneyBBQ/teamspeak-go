@@ -84,6 +84,7 @@ func TestIntegration_Trace(t *testing.T) {
 	c := newClient(t, id, addr, "connect-trace", opts...)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
+	requireNoErr(t, paceConnect(ctx))
 	err = c.Connect(ctx)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)

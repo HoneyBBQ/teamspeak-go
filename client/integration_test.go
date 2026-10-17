@@ -105,6 +105,60 @@ const (
 	connectRetryDelay     = 2 * time.Second
 )
 
+// TeamSpeak 6 limits the new connections from one address, failed attempts
+// included. Measured against 6.0.0-beta13.1 from one host: 60 connects at one
+// per second never tripped it, two per second did after about 22 connects, and
+// a burst went through for about 24 before every third connect stalled after
+// its key exchange (clientek is never answered, the client resends until its
+// context ends). While it is over the limit, clients that are already
+// connected lose packets too: during a storm a command waited up to 4.8 s for
+// its answer and 14 to 25 percent of whispers never arrived. TeamSpeak 3 with
+// the fixture's anti-flood settings took 60 connects in a row without a stall.
+//
+// The suite on its own makes 35 connects, 19 of them inside one 10 s window,
+// which leaves little room: a retried attempt, or any other connection from the
+// same address, can take it over the limit, and then a test with a short
+// deadline (a rejected handshake within 8 s, a leave notification, a whisper)
+// fails for no fault of the code under test.
+//
+// paceConnect keeps every live connection of the suite to connectBudget starts
+// per connectWindow, under one per second, the rate that was measured to be
+// safe. Waiting is keyed on the budget, so no deadline had to be lengthened.
+const (
+	connectWindow = 10 * time.Second
+	connectBudget = 8
+)
+
+var (
+	connectStartsMu sync.Mutex
+	connectStarts   []time.Time
+)
+
+// paceConnect returns once another connection may start without going over
+// the budget, and counts it. Every live connect of the suite goes through it.
+func paceConnect(ctx context.Context) error {
+	for {
+		connectStartsMu.Lock()
+		now := time.Now()
+		for len(connectStarts) > 0 && now.Sub(connectStarts[0]) >= connectWindow {
+			connectStarts = connectStarts[1:]
+		}
+		if len(connectStarts) < connectBudget {
+			connectStarts = append(connectStarts, now)
+			connectStartsMu.Unlock()
+
+			return nil
+		}
+		wait := connectWindow - now.Sub(connectStarts[0])
+		connectStartsMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+	}
+}
+
 // connectWithRetries connects c, trying again on the same client when an
 // attempt fails. A datagram can be dropped, or the server too busy to answer
 // one, and the suite should not fail on that. The SDK resends its own
@@ -120,6 +174,10 @@ func connectWithRetries(ctx context.Context, t *testing.T, c *client.Client) err
 				return err
 			case <-time.After(connectRetryDelay):
 			}
+		}
+		err = paceConnect(ctx)
+		if err != nil {
+			return err
 		}
 		attemptCtx, cancel := context.WithTimeout(ctx, connectAttemptTimeout)
 		err = c.Connect(attemptCtx)
