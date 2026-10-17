@@ -29,12 +29,12 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/honeybbq/teamspeak-go/internal/livetest"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
@@ -58,16 +58,7 @@ const (
 	envSSHPort  = "TEAMSPEAK_QUERY_SSH_PORT"
 	envSSHUser  = "TEAMSPEAK_QUERY_SSH_USER"
 	envSSHPass  = "TEAMSPEAK_QUERY_SSH_PASSWORD"
-	// envSSHKnownHosts is a known_hosts file to verify the SSH host key
-	// against, when the caller has one. Without it the test records the key
-	// the server presents and verifies against that, so the check itself is
-	// always exercised; there is deliberately no way to accept any key.
-	envSSHKnownHosts = "TEAMSPEAK_QUERY_SSH_KNOWN_HOSTS"
 )
-
-// errKeyRecorded ends the probe dial once the host key has been captured,
-// before any authentication: the check runs first, which is the point.
-var errKeyRecorded = errors.New("the host key has been recorded")
 
 // waitForOtherSuites stands aside before connecting: the voice suite's live
 // client and this one against the same server, or a rerun straight after a
@@ -121,62 +112,6 @@ func sshVars(t *testing.T) (string, string, string) {
 	}
 
 	return host + ":" + port, user, password
-}
-
-// presentedHostKey is the host key the server at addr presents.
-func presentedHostKey(t *testing.T, addr string) ssh.PublicKey {
-	t.Helper()
-	// The host key is checked before authentication, so a probe that is
-	// refused for its credentials has still seen the key.
-	var key ssh.PublicKey
-	probe := &ssh.ClientConfig{
-		User: "probe",
-		Auth: []ssh.AuthMethod{ssh.Password("")},
-		HostKeyCallback: func(_ string, _ net.Addr, presented ssh.PublicKey) error {
-			key = presented
-
-			return errKeyRecorded
-		},
-	}
-	// The dial is expected to fail — the callback refuses the key — which is
-	// what ends the probe after the key has been captured.
-	client, _ := ssh.Dial("tcp", addr, probe)
-	if client != nil {
-		_ = client.Close()
-	}
-	if key == nil {
-		t.Fatalf("the server at %s presented no host key", addr)
-	}
-
-	return key
-}
-
-// writeKnownHosts writes a known_hosts file holding key for the host at addr,
-// in a directory the test owns.
-func writeKnownHosts(t *testing.T, addr string, key ssh.PublicKey) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "known_hosts")
-	err := os.WriteFile(path, []byte(knownhosts.Line([]string{addr}, key)+"\n"), 0o600)
-	if err != nil {
-		t.Fatalf("writing known_hosts: %v", err)
-	}
-
-	return path
-}
-
-// knownHostsFor returns the known_hosts file the SSH test verifies against:
-// the one the caller named, or one recorded from the server itself. There is
-// no path that accepts any key, so the check is exercised either way.
-func knownHostsFor(t *testing.T, addr string) string {
-	t.Helper()
-	if path := os.Getenv(envSSHKnownHosts); path != "" {
-		return path
-	}
-
-	key := presentedHostKey(t, addr)
-	t.Logf("verifying %s against the key it presented: %s", addr, ssh.FingerprintSHA256(key))
-
-	return writeKnownHosts(t, addr, key)
 }
 
 // assertCoreCommands runs the commands every transport serves, against the
@@ -321,7 +256,7 @@ func TestQuery_TS6OverSSH(t *testing.T) {
 	// The host key is verified, never accepted blindly: against the caller's
 	// known_hosts file when there is one, and otherwise against the key this
 	// server presents.
-	check, err := serverquery.KnownHosts(knownHostsFor(t, addr))
+	check, err := serverquery.KnownHosts(livetest.KnownHostsFor(t, addr))
 	if err != nil {
 		t.Fatalf("KnownHosts: %v", err)
 	}
@@ -359,7 +294,7 @@ func TestQuery_SSHRefusesUnrecordedHostKey(t *testing.T) {
 			t.Fatalf("ssh.NewPublicKey: %v", err)
 		}
 
-		keyErr := refusedHostKey(t, writeKnownHosts(t, addr, public))
+		keyErr := refusedHostKey(t, livetest.WriteKnownHosts(t, addr, public))
 		if len(keyErr.Want) == 0 {
 			t.Error("a changed key was reported as an unknown host: Want is empty")
 		}
@@ -377,7 +312,7 @@ func TestQuery_SSHRefusesUnrecordedHostKey(t *testing.T) {
 			t.Fatalf("SSH port %q: %v", port, err)
 		}
 		elsewhere := net.JoinHostPort(host, strconv.Itoa(number+1))
-		path := writeKnownHosts(t, elsewhere, presentedHostKey(t, addr))
+		path := livetest.WriteKnownHosts(t, elsewhere, livetest.PresentedHostKey(t, addr))
 
 		keyErr := refusedHostKey(t, path)
 		if len(keyErr.Want) != 0 {
@@ -657,7 +592,7 @@ func TestQuery_TypedCommandRoundTrip(t *testing.T) {
 	t.Run("ssh", func(t *testing.T) {
 		addr, user, password := sshVars(t)
 		waitForOtherSuites()
-		check, err := serverquery.KnownHosts(knownHostsFor(t, addr))
+		check, err := serverquery.KnownHosts(livetest.KnownHostsFor(t, addr))
 		if err != nil {
 			t.Fatalf("KnownHosts: %v", err)
 		}

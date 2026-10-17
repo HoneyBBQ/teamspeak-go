@@ -13,6 +13,7 @@ import (
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/client"
+	"github.com/honeybbq/teamspeak-go/internal/livetest"
 	"github.com/honeybbq/teamspeak-go/serverquery"
 )
 
@@ -139,11 +140,14 @@ func requireAdmin(t *testing.T) *serverquery.Client {
 		opts = append(opts, serverquery.WithLogin(
 			os.Getenv("TEAMSPEAK_QUERY_LOGIN_NAME"), os.Getenv("TEAMSPEAK_QUERY_LOGIN_PASSWORD")))
 	case os.Getenv("TEAMSPEAK_QUERY_KIND") == "ssh" && os.Getenv("TEAMSPEAK_QUERY_SSH_HOST") != "":
-		// A throwaway fixture whose host key is generated on first start.
-		dialer = serverquery.SSHWith(
-			os.Getenv("TEAMSPEAK_QUERY_SSH_HOST")+":"+os.Getenv("TEAMSPEAK_QUERY_SSH_PORT"),
+		// The host key is verified: against the caller's known_hosts file, or
+		// else against the key the server presents.
+		addr := os.Getenv("TEAMSPEAK_QUERY_SSH_HOST") + ":" + os.Getenv("TEAMSPEAK_QUERY_SSH_PORT")
+		check, err := serverquery.KnownHosts(livetest.KnownHostsFor(t, addr))
+		requireNoErr(t, err)
+		dialer = serverquery.SSHWith(addr,
 			os.Getenv("TEAMSPEAK_QUERY_SSH_USER"), os.Getenv("TEAMSPEAK_QUERY_SSH_PASSWORD"),
-			serverquery.SSHOptions{HostKeyCheck: serverquery.InsecureIgnoreHostKey()})
+			serverquery.SSHOptions{HostKeyCheck: check})
 	case os.Getenv("TEAMSPEAK_QUERY_KIND") == "web" && os.Getenv("TEAMSPEAK_QUERY_URL") != "":
 		dialer = serverquery.Web(os.Getenv("TEAMSPEAK_QUERY_URL"), os.Getenv("TEAMSPEAK_QUERY_API_KEY"))
 	default:
