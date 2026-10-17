@@ -265,6 +265,17 @@ func fieldFloat32(row map[string]string, key string) float32 {
 	return float32(value)
 }
 
+// fieldMillis reads a decimal count of milliseconds, such as a ping, as a
+// duration; an absent or malformed field is 0.
+func fieldMillis(row map[string]string, key string) time.Duration {
+	value, err := strconv.ParseFloat(row[key], 64)
+	if err != nil || value < 0 || value > float64(math.MaxInt64/int64(time.Millisecond)) {
+		return 0
+	}
+
+	return time.Duration(value * float64(time.Millisecond))
+}
+
 // fieldIconID reads an icon id, signed or not; see wire.ParseIconID.
 func fieldIconID(row map[string]string, key string) IconID {
 	return wire.ParseIconID[IconID](row[key])

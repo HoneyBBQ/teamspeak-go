@@ -97,6 +97,7 @@ method (Client) FindClientsWith(ctx context.Context, pattern string, opts teamsp
 method (Client) FindCustomProperty(ctx context.Context, ident string, pattern string) ([]teamspeak.CustomPropertyMatch, error)
 method (Client) FindPermission(ctx context.Context, perm teamspeak.Permission) ([]teamspeak.PermissionLocation, error)
 method (Client) GetChannelInfo(ctx context.Context, cid teamspeak.ChannelID) (teamspeak.Channel, error)
+method (Client) GetClientConnectionInfo(ctx context.Context, clid teamspeak.ClientID) (teamspeak.ClientConnectionInfo, error)
 method (Client) GetClientDBIDByUID(ctx context.Context, uid teamspeak.UID) (teamspeak.ClientDBID, error)
 method (Client) GetClientDatabaseInfo(ctx context.Context, clientDBID teamspeak.ClientDBID) (teamspeak.ClientDatabaseEntry, error)
 method (Client) GetClientIDs(ctx context.Context, uid teamspeak.UID) ([]teamspeak.ClientMatch, error)

@@ -460,6 +460,10 @@ const (
 	// SetClientChannelGroup is setclientchannelgroup: sets the channel group of a
 	// client to the ID specified with cgid.
 	SetClientChannelGroup = "setclientchannelgroup"
+	// SetConnectionInfo is setconnectioninfo: a client reporting its own
+	// connection statistics, in answer to notifyconnectioninforequest. Voice
+	// protocol only.
+	SetConnectionInfo = "setconnectioninfo"
 	// TokenAdd is tokenadd: alias for privilegekeyadd.
 	TokenAdd = "tokenadd"
 	// TokenDelete is tokendelete: alias for privilegekeydelete.
@@ -474,6 +478,12 @@ const (
 	// Version is version: displays the server's version information including
 	// platform and build number.
 	Version = "version"
+	// VerifyChannelPassword is verifychannelpassword: checks a channel's
+	// password, given as the voice protocol sends it. Voice protocol only.
+	VerifyChannelPassword = "verifychannelpassword"
+	// VerifyServerPassword is verifyserverpassword: checks the server's
+	// password, given as the voice protocol sends it. Voice protocol only.
+	VerifyServerPassword = "verifyserverpassword"
 	// WhoAmI is whoami: displays information about your current ServerQuery
 	// connection including your loginname, etc.
 	WhoAmI = "whoami"

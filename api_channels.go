@@ -3,6 +3,7 @@ package teamspeak
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/errcode"
@@ -215,6 +216,13 @@ type ChannelCreateOptions struct {
 }
 
 // CreateChannel creates a channel and returns the id the server assigned.
+//
+// TeamSpeak 6's WebQuery has been seen answering a channelcreate that had
+// succeeded with status ok and no body at all: no cid. The channel existed,
+// and a retry would fail with a duplicate name. So when the answer carries no
+// cid, the new channel is looked up by its exact name under the same parent
+// (channellist), which is safe because a server refuses duplicate names under
+// one parent. The error wraps ErrNoData only when no channel matches.
 func (c *Commands) CreateChannel(ctx context.Context, opts ChannelCreateOptions) (ChannelID, error) {
 	params := []param{
 		strArg("channel_name", opts.Name),
@@ -236,12 +244,25 @@ func (c *Commands) CreateChannel(ctx context.Context, opts ChannelCreateOptions)
 		strPtrArg("channel_name_phonetic", opts.NamePhonetic),
 	}
 
-	row, err := c.queryRow(ctx, "channelcreate", "cid", params, "channel_password")
+	rows, err := c.query(ctx, "channelcreate", params, "channel_password")
 	if err != nil {
 		return 0, err
 	}
+	if len(rows) > 0 && rows[0]["cid"] != "" {
+		return ChannelID(fieldUint(rows[0], "cid")), nil
+	}
 
-	return ChannelID(fieldUint(row, "cid")), nil
+	channels, err := c.ListChannels(ctx, ChannelListOptions{})
+	if err != nil {
+		return 0, err
+	}
+	for _, ch := range channels {
+		if ch.Name == opts.Name && ch.ParentID == opts.ParentID {
+			return ch.ID, nil
+		}
+	}
+
+	return 0, fmt.Errorf("%w: channelcreate: the server did not report the new channel %q", ErrNoData, opts.Name)
 }
 
 // ChannelEditOptions are the parameters for channeledit, named as on

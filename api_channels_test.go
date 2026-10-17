@@ -1,8 +1,11 @@
 package teamspeak
 
-import "reflect"
-
-import "testing"
+import (
+	"errors"
+	"reflect"
+	"strings"
+	"testing"
+)
 
 func TestListChannels_AsksForEveryFlag(t *testing.T) {
 	line := encoded(t, func(c *Commands) error {
@@ -79,5 +82,48 @@ func TestListBindings_PortIsNilWhenNotReported(t *testing.T) {
 	}
 	if got[0].Port == nil || *got[0].Port != 9987 || got[1].Port != nil {
 		t.Errorf("ports = %v, %v, want 9987 and nil", got[0].Port, got[1].Port)
+	}
+}
+
+// channelcreate answered with status ok and no row: the channel exists, so it
+// is found by its exact name under the same parent.
+func TestCreateChannel_WithoutACidFindsTheChannelByNameAndParent(t *testing.T) {
+	list := []map[string]string{
+		{"cid": "1", "cpid": "0", "channel_name": "Room"},
+		{"cid": "2", "cpid": "1", "channel_name": "Room"},
+		{"cid": "3", "cpid": "1", "channel_name": "Room 2"},
+	}
+	s := &script{replies: []reply{{}, {rows: list}, {}, {rows: list}}}
+	c := NewCommands(s)
+
+	id, err := c.CreateChannel(t.Context(), ChannelCreateOptions{Name: "Room", ParentID: 1})
+	if err != nil || id != 2 {
+		t.Errorf("under 1: id = %d, err = %v, want 2", id, err)
+	}
+	id, err = c.CreateChannel(t.Context(), ChannelCreateOptions{Name: "Room"})
+	if err != nil || id != 1 {
+		t.Errorf("top level: id = %d, err = %v, want 1", id, err)
+	}
+	if len(s.sent) != 4 || !strings.HasPrefix(s.sent[1], "channellist") {
+		t.Errorf("sent %q", s.sent)
+	}
+}
+
+func TestCreateChannel_WithoutACidAndNoMatchIsNoData(t *testing.T) {
+	list := []map[string]string{{"cid": "1", "cpid": "0", "channel_name": "Other"}}
+	for _, opts := range []ChannelCreateOptions{{Name: "Room"}, {Name: "Other", ParentID: 5}} {
+		s := &script{replies: []reply{{}, {rows: list}}}
+		_, err := NewCommands(s).CreateChannel(t.Context(), opts)
+		if !errors.Is(err, ErrNoData) {
+			t.Errorf("%+v: err = %v, want ErrNoData", opts, err)
+		}
+	}
+}
+
+func TestCreateChannel_WithACidLooksNothingUp(t *testing.T) {
+	s := &script{replies: []reply{{rows: []map[string]string{{"cid": "9"}}}}}
+	id, err := NewCommands(s).CreateChannel(t.Context(), ChannelCreateOptions{Name: "Room"})
+	if err != nil || id != 9 || len(s.sent) != 1 {
+		t.Errorf("id = %d, err = %v, sent %q", id, err, s.sent)
 	}
 }
