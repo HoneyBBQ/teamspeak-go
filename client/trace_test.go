@@ -779,6 +779,12 @@ func TestTrace_HandshakeDoneReportsThePuzzleTheResendsAndTheServerKey(t *testing
 	// The silent server never answers the first Init1 packet, so it is sent again.
 	waitUntil(t, "a resend", func() bool { return c.currentHandler().Resends() >= 1 })
 	serverPuzzle(c, 100)
+	// The puzzle is solved off the receive loop, and a real server sends its
+	// key exchange only after the answer, which is recorded before it is sent.
+	waitUntil(t, "the puzzle answered", func() bool {
+		level, _ := c.currentHandler().TsCrypt.Puzzle()
+		return level != 0
+	})
 	serverKeyExchange(c)
 	serverInitServer(c)
 	_ = waitResult(t, result)
