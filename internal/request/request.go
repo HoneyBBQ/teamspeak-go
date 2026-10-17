@@ -11,6 +11,10 @@ package request
 var (
 	// New returns a teamspeak.Request for command, with params sent in order.
 	New func(command string, params [][2]string) any
+	// NewList returns a teamspeak.Request for command whose one parameter is a
+	// list: key=value once per value, separated by pipes. An empty list is
+	// refused when the request is sent.
+	NewList func(command, key string, values []string) any
 	// Encode renders a teamspeak.Request as a command line, with
 	// encodePassword as the transport's rule for password parameters.
 	Encode func(req any, encodePassword func(password string) string) string

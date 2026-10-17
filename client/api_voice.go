@@ -96,6 +96,40 @@ func (c *Client) VerifyChannelPassword(ctx context.Context, cid teamspeak.Channe
 	return passwordMatches(c.Send(ctx, req))(errcode.ChannelInvalidPassword)
 }
 
+// MuteClients stops hearing the given clients (clientmute): the server no
+// longer forwards their voice to this client. It is per listener, so everyone
+// else still hears them, and it sends no notification and changes no client
+// property. Several clients go in one command; muting none does nothing. The
+// server accepts this client's own id, and ids of clients that are not
+// connected, without an error. Undo it with UnmuteClients. Measured on
+// TeamSpeak 3 and 6.
+func (c *Client) MuteClients(ctx context.Context, clientIDs []teamspeak.ClientID) error {
+	return c.sendClientList(ctx, "clientmute", clientIDs)
+}
+
+// UnmuteClients hears the given clients again (clientunmute): the server
+// resumes forwarding their voice to this client after MuteClients. Measured on
+// TeamSpeak 3 and 6.
+func (c *Client) UnmuteClients(ctx context.Context, clientIDs []teamspeak.ClientID) error {
+	return c.sendClientList(ctx, "clientunmute", clientIDs)
+}
+
+// sendClientList sends a command whose one parameter is a list of client ids,
+// one clid row each. An empty list sends nothing.
+func (c *Client) sendClientList(ctx context.Context, command string, clientIDs []teamspeak.ClientID) error {
+	if len(clientIDs) == 0 {
+		return nil
+	}
+	values := make([]string, len(clientIDs))
+	for i, id := range clientIDs {
+		values[i] = strconv.FormatUint(uint64(id), 10)
+	}
+	req := request.NewList(command, "clid", values).(teamspeak.Request) //nolint:forcetypeassert // returns a Request
+	_, err := c.Send(ctx, req)
+
+	return err
+}
+
 // passwordMatches turns the answer to a password check into a verdict: success
 // is a match, the given mismatch error is not, anything else is an error.
 func passwordMatches(_ []map[string]string, err error) func(mismatch errcode.Code) (bool, error) {

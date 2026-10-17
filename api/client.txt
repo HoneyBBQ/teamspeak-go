@@ -193,6 +193,7 @@ method (Client) ListTempPasswords(ctx context.Context) ([]teamspeak.TempPassword
 method (*Client) LogValue() slog.Value
 method (Client) MoveChannel(ctx context.Context, cid teamspeak.ChannelID, parentID teamspeak.ChannelID, opts teamspeak.ChannelMoveOptions) error
 method (Client) MoveClient(ctx context.Context, clid teamspeak.ClientID, channelID teamspeak.ChannelID, opts teamspeak.ClientMoveOptions) error
+method (*Client) MuteClients(ctx context.Context, clientIDs []teamspeak.ClientID) error
 method (*Client) OnChannelCreated(handler func(ChannelCreatedEvent)) func()
 method (*Client) OnChannelDeleted(handler func(ChannelDeletedEvent)) func()
 method (*Client) OnChannelDescriptionChanged(handler func(ChannelDescriptionChangedEvent)) func()
@@ -255,6 +256,7 @@ method (*Client) String() string
 method (*Client) SubscribeAllChannels(ctx context.Context) error
 method (*Client) SubscribeChannel(ctx context.Context, cid teamspeak.ChannelID) error
 method (*Client) UID() teamspeak.UID
+method (*Client) UnmuteClients(ctx context.Context, clientIDs []teamspeak.ClientID) error
 method (*Client) UnsubscribeAllChannels(ctx context.Context) error
 method (*Client) UnsubscribeChannel(ctx context.Context, cid teamspeak.ChannelID) error
 method (Client) UpdateClient(ctx context.Context, opts teamspeak.ClientUpdateOptions) error

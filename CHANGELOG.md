@@ -29,6 +29,10 @@ Breaking changes, made before v1.0.0 for two options the server never honoured.
   `SetServerGroupIcon`, `SetChannelGroupIcon`, `SetClientIcon` and
   `SetServerIcon` point a record at it. `Client.Host` is the host the file
   transfer port is on.
+- `(*client.Client).MuteClients` and `UnmuteClients` stop and resume hearing
+  other clients on a voice connection: the server no longer forwards the muted
+  clients' voice to the caller, while everyone else still hears them. Both
+  take a list of client ids.
 - `ClientEntry` and `Channel` carry more of what the server reports. A client
   gains `DatabaseID`, `AwayMessage`, `IsInputMuted`, `IsOutputMuted`,
   `TalkPower`, `Description`, `Avatar`, `Country`, `Version`, `Platform` and

@@ -620,3 +620,66 @@ func TestIntegration_CreateRecoversFromAnAnswerWithoutRows(t *testing.T) {
 	}
 	t.Logf("took %s", time.Since(start).Round(time.Millisecond))
 }
+
+// speakFor sends voice frames from c for a while, like whisperFor.
+func speakFor(t *testing.T, c *client.Client) {
+	t.Helper()
+	whisperFor(t, func() error { return c.SendVoice(whisperFrame, teamspeak.CodecOpusVoice, client.VoiceOptions{}) })
+}
+
+// requireSilentAfterListMute mutes both ids in one command, has each speak, and
+// fails if the listener hears either.
+func requireSilentAfterListMute(t *testing.T, listener *client.Client, first, second *client.Client) {
+	t.Helper()
+	ids := []teamspeak.ClientID{first.ClientID(), second.ClientID()}
+	hears := hearing(listener)
+	requireNoErr(t, listener.MuteClients(t.Context(), ids))
+	speakFor(t, first)
+	speakFor(t, second)
+	for _, id := range ids {
+		if got := hears.heard(id); got != 0 {
+			t.Errorf("after a list mute client %d was still heard, %d frames", id, got)
+		}
+	}
+}
+
+func TestIntegration_MuteClientsStopsOnlyTheMutersHearing(t *testing.T) {
+	start := time.Now()
+	listener := liveClient(t, "mute-listener")
+	speaker := liveClient(t, "mute-speaker")
+	bystander := liveClient(t, "mute-bystander")
+	listenerHears, bystanderHears := hearing(listener), hearing(bystander)
+	speak := func(from *client.Client) { speakFor(t, from) }
+	id := speaker.ClientID()
+
+	// The positive control: without it a silent listener proves nothing.
+	speak(speaker)
+	before, bystanderBefore := listenerHears.heard(id), bystanderHears.heard(id)
+	if before == 0 || bystanderBefore == 0 {
+		t.Fatalf("before the mute the listener heard %d frames and the bystander %d", before, bystanderBefore)
+	}
+
+	t.Cleanup(func() {
+		ctx, cancel := cleanupContext()
+		defer cancel()
+		_ = listener.UnmuteClients(ctx, []teamspeak.ClientID{id, bystander.ClientID()})
+	})
+	requireNoErr(t, listener.MuteClients(t.Context(), []teamspeak.ClientID{id}))
+	speak(speaker)
+	if got := listenerHears.heard(id) - before; got != 0 {
+		t.Errorf("the muter still heard %d frames", got)
+	}
+	if got := bystanderHears.heard(id) - bystanderBefore; got == 0 {
+		t.Error("the bystander heard nothing while the listener had muted the speaker")
+	}
+
+	requireNoErr(t, listener.UnmuteClients(t.Context(), []teamspeak.ClientID{id}))
+	speak(speaker)
+	if got := listenerHears.heard(id) - before; got == 0 {
+		t.Error("the listener heard nothing after unmuting")
+	}
+
+	// Two clients in one command.
+	requireSilentAfterListMute(t, listener, speaker, bystander)
+	t.Logf("took %s", time.Since(start).Round(time.Millisecond))
+}
