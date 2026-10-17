@@ -23,9 +23,8 @@ import (
 // envGuest says the server under test serves guest ServerQuery access.
 const envGuest = "TEAMSPEAK_QUERY_GUEST"
 
-// The codes a guest is refused with that the typed errcode table has no name
-// for: WebQuery's "out of scope".
-const codeOutOfScope = 5120
+// The code a guest is refused a command outside its scope with.
+const codeOutOfScope = uint32(errcode.APIKeyOutOfScope)
 
 func guestEnabled(t *testing.T) {
 	t.Helper()
@@ -129,5 +128,52 @@ func TestQueryGuest_WrongAPIKeyIsNotAGuest(t *testing.T) {
 	if err == nil {
 		_ = c.Disconnect(guestCtx(t))
 		t.Fatal("a wrong api key connected")
+	}
+}
+
+func noGuestAccess(t *testing.T) {
+	t.Helper()
+	if os.Getenv(envGuest) == "1" {
+		t.Skipf("%s is 1 - the server has guest access, so there is no refusal to test", envGuest)
+	}
+}
+
+// Without guest access (TeamSpeak 3 has none) the refusal says so and keeps the
+// server's own: 5124 over WebQuery.
+func TestQueryNoGuest_OverWebQuery(t *testing.T) {
+	noGuestAccess(t)
+	base, _ := webVars(t)
+	waitForOtherSuites()
+
+	c, err := serverquery.New(serverquery.WebGuest(base), serverquery.WithServer(1))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	err = c.Connect(guestCtx(t))
+	if !errors.Is(err, serverquery.ErrNoGuestAccess) || !errors.Is(err, errcode.APIKeyMissing) {
+		_ = c.Disconnect(guestCtx(t))
+		t.Fatalf("Connect as a guest = %v, want ErrNoGuestAccess and errcode.APIKeyMissing", err)
+	}
+}
+
+// Over SSH the server fails the guest user's authentication.
+func TestQueryNoGuest_OverSSH(t *testing.T) {
+	noGuestAccess(t)
+	addr, _, _ := sshVars(t)
+	waitForOtherSuites()
+
+	check, err := serverquery.KnownHosts(livetest.KnownHostsFor(t, addr))
+	if err != nil {
+		t.Fatalf("KnownHosts: %v", err)
+	}
+	c, err := serverquery.New(serverquery.SSHGuestWith(addr, serverquery.SSHOptions{HostKeyCheck: check}),
+		serverquery.WithServer(1), serverquery.WithoutEvents())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	err = c.Connect(guestCtx(t))
+	if !errors.Is(err, serverquery.ErrNoGuestAccess) || !errors.Is(err, serverquery.ErrAuth) {
+		_ = c.Disconnect(guestCtx(t))
+		t.Fatalf("Connect as a guest = %v, want ErrNoGuestAccess and ErrAuth", err)
 	}
 }

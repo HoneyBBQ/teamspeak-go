@@ -86,18 +86,22 @@ func newWebDialer(baseURL, apiKey string, options WebOptions) webDialer {
 	return webDialer{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, client: client}
 }
 
-// WebGuest returns a Dialer for TeamSpeak 6's WebQuery at baseURL (TeamSpeak 3
-// has no guest access) that sends no
+// WebGuest returns a Dialer for TeamSpeak 6's WebQuery at baseURL that sends no
 // api key, so the server runs every request in its guest scope: the access of
 // the Guest ServerQuery group, limited to the commands the guest scope allows.
-// Anything outside it answers HTTP 401, code 5120 ("out of scope"), and a
-// permission the group lacks answers 2568, both as an [*Error].
+// Anything outside it answers HTTP 401, code 5120 ([errcode.APIKeyOutOfScope]),
+// and a permission the group lacks answers 2568, both as a
+// [*teamspeak.ServerError].
+//
+// TeamSpeak 3 has no guest access, and neither does a TeamSpeak 6 started with
+// it off: the server answers 5124 ([errcode.APIKeyMissing]) and Connect returns
+// an error wrapping [ErrNoGuestAccess] and that refusal.
 //
 // TeamSpeak 6 beta13 and later serve it, and it is on unless the server was
 // started with --query-http-allow-guest=0 (or TSSERVER_QUERY_HTTP_ALLOW_GUEST=0).
 // Guest access is an explicit choice made by calling this: [Web] refuses an
 // empty api key with [ErrInvalidConfig]. A wrong key is not a guest either; the
-// server answers 5122, "invalid apikey".
+// server answers 5122 ([errcode.APIKeyInvalid]).
 //
 // Experimental: this package may change in a minor release.
 func WebGuest(baseURL string) Dialer {

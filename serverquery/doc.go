@@ -38,7 +38,10 @@
 // TeamSpeak 6 beta13 and later let a connection in without an account, with the
 // access of the Guest ServerQuery group: [SSHGuest] over SSH (the user "guest",
 // no password) and [WebGuest] over WebQuery (no api key). The server switches
-// them off with --query-ssh-allow-guest=0 and --query-http-allow-guest=0.
+// them off with --query-ssh-allow-guest=0 and --query-http-allow-guest=0. A
+// server without guest access, which TeamSpeak 3 is, refuses a guest connection
+// and Connect says so: the error wraps [ErrNoGuestAccess] and the server's own
+// refusal ([ErrAuth] over SSH, code 5124 over WebQuery).
 //
 // A guest is only ever a deliberate choice. [SSH] and [Web] refuse an empty
 // password, an empty api key and the user name "guest" with [ErrInvalidConfig],
@@ -50,7 +53,7 @@
 // What a guest may run is the server's to say. Over SSH, after `use`, whoami and
 // version answer and an administrative command is refused with 2568 (insufficient
 // client permissions). Over WebQuery the guest scope allows fewer commands: those
-// outside it answer HTTP 401, code 5120 ("command not allowed for guest access"),
+// outside it answer HTTP 401, code 5120 (errcode.APIKeyOutOfScope, "command not allowed for guest access"),
 // and the rest are checked against the group's permissions as usual.
 //
 // # Commands the server lists and does not serve

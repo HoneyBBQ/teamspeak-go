@@ -130,7 +130,8 @@ const guestUser = "guest"
 //
 // TeamSpeak 6 beta13 and later serve it, and it is on unless the server was
 // started with --query-ssh-allow-guest=0 (or TSSERVER_QUERY_SSH_ALLOW_GUEST=0),
-// so a refused login is reported wrapping [ErrAuth]. Guest access is an
+// so a refused login is reported wrapping [ErrAuth] and [ErrNoGuestAccess], as
+// it is on TeamSpeak 3, which has no guest access. Guest access is an
 // explicit choice made by calling this: [SSH] and [SSHWith] refuse an empty
 // user, an empty password and the user name "guest" with [ErrInvalidConfig],
 // so a missing credential never turns into a guest connection unnoticed.
