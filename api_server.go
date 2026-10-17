@@ -431,20 +431,18 @@ type ServerGroupMember struct {
 	// asked for Names.
 	Nickname string
 	// UID is the member's identity (client_unique_identifier); "" unless the
-	// list asked for UIDs.
+	// list asked for Names.
 	UID UID
 	// DatabaseID is the member's database id (cldbid).
 	DatabaseID ClientDBID
 }
 
 // ServerGroupClientListOptions select ListServerGroupClients' optional
-// fields. Each costs the server a lookup per member, so both are off unless
+// fields. They cost the server a lookup per member, so they are off unless
 // asked for.
 type ServerGroupClientListOptions struct {
-	// Names includes each member's nickname.
+	// Names includes each member's nickname and unique identifier.
 	Names bool
-	// UIDs includes each member's unique identifier.
-	UIDs bool
 }
 
 // ListServerGroupClients returns the members of a server group.
@@ -454,9 +452,6 @@ func (c *Commands) ListServerGroupClients(
 	params := []param{idArg("sgid", serverGroupID)}
 	if opts.Names {
 		params = append(params, boolArg("-names", true))
-	}
-	if opts.UIDs {
-		params = append(params, boolArg("-uid", true))
 	}
 
 	rows, err := c.list(ctx, "servergroupclientlist", params)

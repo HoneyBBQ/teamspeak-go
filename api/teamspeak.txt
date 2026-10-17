@@ -206,7 +206,6 @@ type ChannelUID string
 type ClientDBID uint64
 type ClientDatabaseEditOptions struct
 field ClientDatabaseEditOptions.Description *string
-field ClientDatabaseEditOptions.Nickname *string
 type ClientDatabaseEntry struct
 field ClientDatabaseEntry.Created time.Time
 field ClientDatabaseEntry.LastConnected time.Time
@@ -636,7 +635,6 @@ field ServerGroup.MemberRemovePower int32
 field ServerGroup.SavedInDatabase bool
 type ServerGroupClientListOptions struct
 field ServerGroupClientListOptions.Names bool
-field ServerGroupClientListOptions.UIDs bool
 type ServerGroupID uint64
 type ServerGroupListOptions struct
 type ServerGroupMember struct

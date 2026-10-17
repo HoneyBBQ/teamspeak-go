@@ -181,7 +181,6 @@ type ClientUpdateOptions struct {
 // UpdateClient changes our own client state (nickname, mute, away, …).
 func (c *Commands) UpdateClient(ctx context.Context, opts ClientUpdateOptions) error {
 	return c.exec(ctx, "clientupdate", []param{
-		strPtrArg("client_nickname", opts.Nickname),
 		boolPtrArg("client_input_muted", opts.IsInputMuted),
 		boolPtrArg("client_output_muted", opts.IsOutputMuted),
 		boolPtrArg("client_away", opts.IsAway),
@@ -473,8 +472,6 @@ func (c *Commands) GetClientDatabaseInfo(ctx context.Context, clientDBID ClientD
 type ClientDatabaseEditOptions struct {
 	// Description is the client's description (client_description).
 	Description *string
-	// Nickname is the nickname the record holds (client_nickname).
-	Nickname *string
 }
 
 // EditClientDatabase changes a persistent client record.
@@ -484,7 +481,6 @@ func (c *Commands) EditClientDatabase(
 	return c.exec(ctx, "clientdbedit", []param{
 		idArg("cldbid", clientDBID),
 		strPtrArg("client_description", opts.Description),
-		strPtrArg("client_nickname", opts.Nickname),
 	})
 }
 
