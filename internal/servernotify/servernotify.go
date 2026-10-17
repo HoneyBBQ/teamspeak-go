@@ -516,7 +516,12 @@ func ChannelChanges(params map[string]string) teamspeak.ChannelChanges {
 
 // asCodec reads a codec, clamped to one byte rather than wrapped.
 func asCodec(s string) teamspeak.Codec {
-	return teamspeak.Codec(min(uintOrZero(s), math.MaxUint8))
+	v := uintOrZero(s)
+	if v > math.MaxUint8 {
+		return teamspeak.Codec(math.MaxUint8)
+	}
+
+	return teamspeak.Codec(v)
 }
 
 // asSeconds reads a count of seconds as a duration, clamped rather than

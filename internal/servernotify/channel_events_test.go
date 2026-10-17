@@ -224,3 +224,12 @@ func TestChannelChanges_ReadsEveryRecordField(t *testing.T) {
 		}
 	}
 }
+
+func TestChannelChanges_CodecIsClampedToAByte(t *testing.T) {
+	for raw, want := range map[string]teamspeak.Codec{"4": 4, "255": 255, "256": 255, "99999999999": 255, "x": 0, "": 0} {
+		got := servernotify.ChannelChanges(row("x channel_codec=" + raw))
+		if got.Codec == nil || *got.Codec != want {
+			t.Errorf("channel_codec=%q read %v, want %d", raw, got.Codec, want)
+		}
+	}
+}
