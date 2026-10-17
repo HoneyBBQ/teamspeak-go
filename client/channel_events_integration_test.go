@@ -120,7 +120,7 @@ func uniqueName(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano()%1_000_000_000)
 }
 
-//nolint:gocyclo // one scenario, read top to bottom
+//nolint:gocyclo,cyclop // one scenario, read top to bottom
 func TestIntegration_ChannelLifecycleReachesABystanderAndAQueryClient(t *testing.T) {
 	p := requireLivePair(t)
 	admin := requireAdmin(t)
