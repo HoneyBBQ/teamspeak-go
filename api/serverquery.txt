@@ -18,10 +18,14 @@ func InsecureIgnoreHostKey() func(HostKey) error
 func KnownHosts(path string) (func(HostKey) error, error)
 func New(d Dialer, opts ...Option) (*Client, error)
 func SSH(addr string, user string, password string) Dialer
+func SSHGuest(addr string) Dialer
+func SSHGuestWith(addr string, options SSHOptions) Dialer
 func SSHWith(addr string, user string, password string, options SSHOptions) Dialer
 func TCP(addr string) Dialer
 func TCPWith(addr string, options TCPOptions) Dialer
 func Web(baseURL string, apiKey string) Dialer
+func WebGuest(baseURL string) Dialer
+func WebGuestWith(baseURL string, options WebOptions) Dialer
 func WebWith(baseURL string, apiKey string, options WebOptions) Dialer
 func WithCommandMiddleware(mw ...teamspeak.CommandMiddleware) Option
 func WithEvents(categories ...Category) Option

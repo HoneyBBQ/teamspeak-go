@@ -390,6 +390,13 @@ export TEAMSPEAK_QUERY_SSH_USER=${TS3_QUERY_SSH_USER:-serveradmin}
 export TEAMSPEAK_QUERY_SSH_PASSWORD=${TS3_QUERY_SSH_PASSWORD:-${ADMIN_PW:-$HTTP_API_KEY}}"
 fi
 
+# Guest ServerQuery access is TeamSpeak 6 beta13 and later, on by default, and
+# TS3 has none, so the guest tests run only where TS3_QUERY_GUEST=1 says so.
+if [ "${TS3_QUERY_GUEST:-}" = "1" ]; then
+  QUERY_ENV="$QUERY_ENV
+export TEAMSPEAK_QUERY_GUEST=1"
+fi
+
 cat > "$ENV_FILE" <<ENVFILE
 # Integration suite environment from scripts/ts3-fixture.sh. Source it before running the suite.
 export TEAMSPEAK_ADDR=127.0.0.1:$VOICE_PORT

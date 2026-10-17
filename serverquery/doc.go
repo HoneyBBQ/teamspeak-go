@@ -31,6 +31,36 @@
 //     an api key replaces the login. It has no session for the server to push
 //     to, so it delivers no events and refuses file transfers.
 //
+// # Guest access
+//
+// TeamSpeak 6 beta13 and later let a connection in without an account, with the
+// access of the Guest ServerQuery group: [SSHGuest] over SSH (the user "guest",
+// no password) and [WebGuest] over WebQuery (no api key). The server switches
+// them off with --query-ssh-allow-guest=0 and --query-http-allow-guest=0.
+//
+// A guest is only ever a deliberate choice. [SSH] and [Web] refuse an empty
+// password, an empty api key and the user name "guest" with [ErrInvalidConfig],
+// because the server answers each of those as a guest and would otherwise turn a
+// missing credential into a quiet downgrade; a wrong api key is refused by the
+// server itself (5122). The host key policy of [SSHGuestWith] is as strict as
+// for any SSH connection.
+//
+// What a guest may run is the server's to say. Over SSH, after `use`, whoami and
+// version answer and an administrative command is refused with 2568 (insufficient
+// client permissions). Over WebQuery the guest scope allows fewer commands: those
+// outside it answer HTTP 401, code 5120 ("command not allowed for guest access"),
+// and the rest are checked against the group's permissions as usual.
+//
+// # Commands the server lists and does not serve
+//
+// Measured against TeamSpeak 6 beta13.1 over SSH as serveradmin, these answer
+// `error id=256 msg=command not found`, with and without their documented
+// parameters: authenticationtoken (also with duration=60) and chatlogintoken,
+// both of which `help` lists, and homebaseset (cldbid=1), homebaseisset,
+// homebasedel and homebaselist. They have no typed command here for that
+// reason. `clientdblist -homebaseonly` is accepted without error, but the
+// filter is not applied: the full list comes back, with no homebase field.
+//
 // # Events
 //
 // [Client.OnTextMessage] and the rest deliver the five notification categories

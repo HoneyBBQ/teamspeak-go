@@ -171,8 +171,28 @@ the optional ones are pointers, a plain assignment of a record shares them;
   and remove it with `DeleteAPIKey`.
 
 
+- `serverquery.SSHGuest`, `SSHGuestWith`, `WebGuest` and `WebGuestWith` connect
+  as the guest TeamSpeak 6 beta13 serves without an account: the SSH user
+  `guest` with no password, and WebQuery with no api key. The access is the
+  Guest ServerQuery group's, so a refused command comes back as the server's
+  own error (2568 over SSH; 5120, out of scope, over WebQuery for a command the
+  guest scope leaves out). The SSH host key policy applies as it does for an
+  account. The server switches guest access off with `--query-ssh-allow-guest=0`
+  and `--query-http-allow-guest=0`.
+- `perm` names the 255 `i_needed_modify_power_*` permissions, one per
+  permission, as `NeededModifyPower` followed by the permission's name, seven of
+  them TeamSpeak 6 only.
+- `serverquery`'s package documentation records the commands TeamSpeak 6
+  beta13.1 lists or documents and answers with `command not found`:
+  `authenticationtoken`, `chatlogintoken` and the `homebase*` commands, and that
+  `clientdblist -homebaseonly` is accepted without being applied.
+
 ### Changed
 
+- `serverquery.Web` and `serverquery.SSH` refuse an empty api key, an empty
+  password, an empty user and the user `guest` with `ErrInvalidConfig`: the
+  server answers each of them as a guest, which would turn a missing credential
+  into a quiet downgrade. Use the guest constructors to connect as one.
 - `ListChannels` also sends `-secondsempty -banners`. The banner fills
   `Channel.BannerURL` and `BannerMode`; `Channel` has no field for the
   `seconds_empty` the first adds.
