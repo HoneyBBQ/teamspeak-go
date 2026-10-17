@@ -179,6 +179,11 @@ type FileUploadInfo struct {
 	ClientFileTransferID ClientFileTransferID
 	// ServerFileTransferID is the id the server assigned (serverftfid).
 	ServerFileTransferID ServerFileTransferID
+	// IP is the address to dial the file transfer port on (ip), when the
+	// server reports one: it does so when the file transfer is not reachable
+	// at the address the connection to the server uses. "" means the address
+	// of the connection itself.
+	IP string
 	// Port is the file transfer port to connect to (port).
 	Port uint16
 }
@@ -199,6 +204,11 @@ type FileDownloadInfo struct {
 	ClientFileTransferID ClientFileTransferID
 	// ServerFileTransferID is the id the server assigned (serverftfid).
 	ServerFileTransferID ServerFileTransferID
+	// IP is the address to dial the file transfer port on (ip), when the
+	// server reports one: it does so when the file transfer is not reachable
+	// at the address the connection to the server uses. "" means the address
+	// of the connection itself.
+	IP string
 	// Port is the file transfer port to connect to (port).
 	Port uint16
 }
@@ -207,8 +217,8 @@ type FileDownloadInfo struct {
 // holding it transfer the file.
 func (i FileUploadInfo) String() string {
 	return fmt.Sprintf(
-		"{Port:%d SeekPosition:%d ClientFileTransferID:%d ServerFileTransferID:%d FileTransferKey:redacted}",
-		i.Port, i.SeekPosition, i.ClientFileTransferID, i.ServerFileTransferID)
+		"{IP:%q Port:%d SeekPosition:%d ClientFileTransferID:%d ServerFileTransferID:%d FileTransferKey:redacted}",
+		i.IP, i.Port, i.SeekPosition, i.ClientFileTransferID, i.ServerFileTransferID)
 }
 
 // GoString is String, so %#v redacts too.
@@ -217,6 +227,7 @@ func (i FileUploadInfo) GoString() string { return i.String() }
 // LogValue describes the negotiation to log/slog without its key.
 func (i FileUploadInfo) LogValue() slog.Value {
 	return slog.GroupValue(
+		slog.String("ip", i.IP),
 		slog.Uint64("port", uint64(i.Port)),
 		slog.Uint64("seek_position", i.SeekPosition),
 		slog.Uint64("client_file_transfer_id", uint64(i.ClientFileTransferID)),
@@ -228,8 +239,9 @@ func (i FileUploadInfo) LogValue() slog.Value {
 // String describes the negotiation without its key, which is what lets anyone
 // holding it transfer the file.
 func (i FileDownloadInfo) String() string {
-	return fmt.Sprintf("{Port:%d Size:%d ClientFileTransferID:%d ServerFileTransferID:%d FileTransferKey:redacted}",
-		i.Port, i.Size, i.ClientFileTransferID, i.ServerFileTransferID)
+	return fmt.Sprintf(
+		"{IP:%q Port:%d Size:%d ClientFileTransferID:%d ServerFileTransferID:%d FileTransferKey:redacted}",
+		i.IP, i.Port, i.Size, i.ClientFileTransferID, i.ServerFileTransferID)
 }
 
 // GoString is String, so %#v redacts too.
@@ -238,6 +250,7 @@ func (i FileDownloadInfo) GoString() string { return i.String() }
 // LogValue describes the negotiation to log/slog without its key.
 func (i FileDownloadInfo) LogValue() slog.Value {
 	return slog.GroupValue(
+		slog.String("ip", i.IP),
 		slog.Uint64("port", uint64(i.Port)),
 		slog.Uint64("size", i.Size),
 		slog.Uint64("client_file_transfer_id", uint64(i.ClientFileTransferID)),

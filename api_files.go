@@ -284,6 +284,7 @@ func (c *Commands) InitFileUpload(
 
 	return &FileUploadInfo{
 		FileTransferKey:      fieldStr(row, "ftkey"),
+		IP:                   fieldStr(row, "ip"),
 		Port:                 fieldUint16(row, "port"),
 		SeekPosition:         fieldUint(row, "seekpos"),
 		ClientFileTransferID: ClientFileTransferID(fieldUint16(row, "clientftfid")),
@@ -320,6 +321,7 @@ func (c *Commands) InitFileDownload(
 
 	return &FileDownloadInfo{
 		FileTransferKey:      fieldStr(row, "ftkey"),
+		IP:                   fieldStr(row, "ip"),
 		Port:                 fieldUint16(row, "port"),
 		Size:                 fieldUint(row, "size"),
 		ClientFileTransferID: ClientFileTransferID(fieldUint16(row, "clientftfid")),

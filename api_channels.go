@@ -341,12 +341,15 @@ type ChannelListOptions struct{}
 // ListChannels returns every channel on the server, in the server's sort order,
 // with the topic, flags, voice settings, limits and icon: it asks channellist
 // for -topic -flags -voice -limits -icon, without which the server answers
-// only the id, parent, order, name, client count and subscribe power.
+// only the id, parent, order, name, client count and subscribe power. It asks
+// for -secondsempty and -banners too: -banners brings the channel's banner into
+// BannerURL and BannerMode, and -secondsempty adds seconds_empty to each row,
+// which Channel has no field for yet.
 //
 // Description and UID are not part of channellist and stay empty; use
 // GetChannelInfo, or the voice client's GetChannelDescription, for them.
 func (c *Commands) ListChannels(ctx context.Context, _ ChannelListOptions) ([]Channel, error) {
-	flags := []string{"-topic", "-flags", "-voice", "-limits", "-icon"}
+	flags := []string{"-topic", "-flags", "-voice", "-limits", "-icon", "-secondsempty", "-banners"}
 	params := make([]param, 0, len(flags))
 	for _, flag := range flags {
 		params = append(params, boolArg(flag, true))
