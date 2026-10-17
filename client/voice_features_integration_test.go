@@ -67,9 +67,8 @@ func requireAdminWith(t *testing.T, extra ...serverquery.Option) *serverquery.Cl
 	var opts []serverquery.Option
 	switch {
 	case os.Getenv("TEAMSPEAK_QUERY_KIND") == "tcp" && os.Getenv("TEAMSPEAK_QUERY_HOST") != "":
-		dialer = serverquery.TCP(os.Getenv("TEAMSPEAK_QUERY_HOST") + ":" + os.Getenv("TEAMSPEAK_QUERY_PORT"))
-		opts = append(opts, serverquery.WithLogin(
-			os.Getenv("TEAMSPEAK_QUERY_LOGIN_NAME"), os.Getenv("TEAMSPEAK_QUERY_LOGIN_PASSWORD")))
+		dialer = serverquery.TCPLogin(os.Getenv("TEAMSPEAK_QUERY_HOST")+":"+os.Getenv("TEAMSPEAK_QUERY_PORT"),
+			os.Getenv("TEAMSPEAK_QUERY_LOGIN_NAME"), os.Getenv("TEAMSPEAK_QUERY_LOGIN_PASSWORD"))
 	case os.Getenv("TEAMSPEAK_QUERY_KIND") == "web" && os.Getenv("TEAMSPEAK_QUERY_URL") != "":
 		dialer = serverquery.Web(os.Getenv("TEAMSPEAK_QUERY_URL"), os.Getenv("TEAMSPEAK_QUERY_API_KEY"))
 	default:

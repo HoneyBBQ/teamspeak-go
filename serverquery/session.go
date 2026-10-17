@@ -183,7 +183,7 @@ func (c *Client) connect(ctx context.Context, kind connectKind) error {
 	}
 	c.status = teamspeak.StatusConnecting
 	dialer, logger := c.dialer, c.logger
-	login, server, nickname := c.login, c.server, c.nickname
+	server, nickname := c.server, c.nickname
 	categories, registerEvents := c.categories, c.registerEvents
 	c.mu.Unlock()
 
@@ -203,7 +203,7 @@ func (c *Client) connect(ctx context.Context, kind connectKind) error {
 	}
 
 	err = c.handshake(ctx, eng, handshakeOptions{
-		login:          login,
+		login:          dialer.credentials(),
 		server:         server,
 		nickname:       nickname,
 		categories:     categories,

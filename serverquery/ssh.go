@@ -93,8 +93,8 @@ type sshDialer struct {
 // "127.0.0.1:10022", logging in as user with password.
 //
 // The password is the SSH login's, not a query login sent as a command: over
-// this transport no query password goes over the wire at all. [WithLogin] is
-// refused here.
+// this transport no query password goes over the wire at all, and there is no
+// [TCPLogin] to combine it with.
 //
 // A TeamSpeak 6 server may hold back the end of a reply until the client writes
 // again; this transport handles that itself, by writing an empty line while a
@@ -208,9 +208,9 @@ func (d sshDialer) credentialError() error {
 	return nil
 }
 
-// needsLogin reports that the query login is not a command here: SSH logged in
+// credentials reports that there is no login command here: SSH logged in
 // already.
-func (d sshDialer) needsLogin() bool { return false }
+func (d sshDialer) credentials() *login { return nil }
 
 // needsQuit reports that the session ends with a `quit` command. The session
 // is a shell, so quitting closes it as ending the connection would.

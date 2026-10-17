@@ -29,7 +29,6 @@ type Client struct {
 	dialer           Dialer
 	transport        engine.Transport
 	logger           *slog.Logger
-	login            *login
 	server           *serverTarget
 	stop             chan struct{}
 	warned           map[string]bool
@@ -75,7 +74,8 @@ type subscribers struct {
 	notification eventbus.Subscribers[teamspeak.NotificationEvent]
 }
 
-// login is a query account to log in with.
+// login is a query account to log in with, carried by the dialer that sends
+// it as a command.
 type login struct {
 	name     string
 	password string
@@ -136,15 +136,6 @@ func validateConfig(c *Client) error {
 		return err
 	}
 
-	if c.login != nil {
-		if !c.dialer.needsLogin() {
-			return fmt.Errorf("%w: %s logs in as itself, so WithLogin does not apply",
-				ErrInvalidConfig, c.dialer)
-		}
-		if c.login.name == "" {
-			return fmt.Errorf("%w: WithLogin needs a login name", ErrInvalidConfig)
-		}
-	}
 	if c.namedID && c.namedPort {
 		return fmt.Errorf("%w: WithServer and WithServerPort name one server two ways", ErrInvalidConfig)
 	}

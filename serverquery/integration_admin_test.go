@@ -70,8 +70,7 @@ func tcpDialer(t *testing.T) (serverquery.Dialer, []serverquery.Option, account)
 	t.Helper()
 	addr, login, password := tcpVars(t)
 
-	return serverquery.TCP(addr), []serverquery.Option{serverquery.WithLogin(login, password)},
-		account{login, password}
+	return serverquery.TCPLogin(addr, login, password), nil, account{login, password}
 }
 
 func sshDialer(t *testing.T) (serverquery.Dialer, []serverquery.Option, account) {

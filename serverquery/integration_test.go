@@ -201,8 +201,7 @@ func TestQuery_TS3OverTCP(t *testing.T) {
 	addr, login, password := tcpVars(t)
 	waitForOtherSuites()
 
-	c, err := serverquery.New(serverquery.TCP(addr),
-		serverquery.WithLogin(login, password),
+	c, err := serverquery.New(serverquery.TCPLogin(addr, login, password),
 		serverquery.WithServer(1),
 		// A logger, so a failure says what the client was doing.
 		serverquery.WithLogger(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))),
@@ -710,8 +709,7 @@ func TestQuery_TypedCommandRoundTrip(t *testing.T) {
 	t.Run("tcp", func(t *testing.T) {
 		addr, login, password := tcpVars(t)
 		waitForOtherSuites()
-		c, err := serverquery.New(serverquery.TCP(addr),
-			serverquery.WithLogin(login, password),
+		c, err := serverquery.New(serverquery.TCPLogin(addr, login, password),
 			serverquery.WithServer(1),
 		)
 		if err != nil {

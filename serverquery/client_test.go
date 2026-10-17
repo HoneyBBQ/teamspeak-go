@@ -114,10 +114,10 @@ type fakeDialer struct {
 	validateErr error
 	opened      chan *fakeTransport
 	tr          *fakeTransport
+	account     *login
 	pending     []string
 	mu          sync.Mutex
 	notify      bool
-	login       bool
 	quit        bool
 }
 
@@ -127,7 +127,7 @@ func newFakeDialer(notify bool) *fakeDialer {
 
 func (d *fakeDialer) SupportsNotifications() bool { return d.notify }
 func (d *fakeDialer) String() string              { return "fake" }
-func (d *fakeDialer) needsLogin() bool            { return d.login }
+func (d *fakeDialer) credentials() *login         { return d.account }
 func (d *fakeDialer) needsQuit() bool             { return d.quit }
 
 // validate accepts the dialer unless the test wants it refused.
@@ -247,8 +247,9 @@ func newClient(t *testing.T, d Dialer, opts ...Option) *Client {
 // The handshake runs in the order the server requires, and a client that is
 // told to log in sends it first.
 func TestConnect_RunsTheHandshakeInOrder(t *testing.T) {
-	d := &fakeDialer{notify: true, login: true, quit: true, opened: make(chan *fakeTransport, 8)}
-	c := newClient(t, d, WithLogin("serveradmin", "pw"), WithServer(1), WithNickname("bot"))
+	d := &fakeDialer{notify: true, quit: true, opened: make(chan *fakeTransport, 8),
+		account: &login{name: "serveradmin", password: "pw"}}
+	c := newClient(t, d, WithServer(1), WithNickname("bot"))
 
 	done := make(chan error, 1)
 	go func() { done <- c.Connect(context.Background()) }()
@@ -373,25 +374,24 @@ func TestNew_RefusesEventsOverATransportThatCannotDeliverThem(t *testing.T) {
 	}
 }
 
-// A login or a server over a transport that has neither is refused, because
-// the server would refuse the command.
+// A configuration the server would refuse is refused up front.
 func TestNew_RefusesAConfigurationTheTransportCannotServe(t *testing.T) {
-	for name, opts := range map[string][]Option{
-		"login over ssh": {WithLogin("serveradmin", "pw")},
-		"login unnamed":  {WithLogin("", "pw")},
-	} {
-		d := &fakeDialer{login: false}
-		if name == "login unnamed" {
-			d.login = true
-		}
-		_, err := New(d, opts...)
-		if !errors.Is(err, ErrInvalidConfig) {
-			t.Errorf("%s: New = %v, want ErrInvalidConfig", name, err)
-		}
+	// A login with no name.
+	_, err := New(TCPLogin("127.0.0.1:1", "", "pw"))
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Errorf("TCPLogin without a name: New = %v, want ErrInvalidConfig", err)
+	}
+	_, err = New(TCPLogin("127.0.0.1:1", "serveradmin", ""))
+	if err != nil {
+		t.Errorf("TCPLogin with an empty password: New = %v, want it accepted", err)
+	}
+	// The password stays out of the name a log line shows.
+	if got := TCPLogin("127.0.0.1:1", "serveradmin", "s3cret").String(); strings.Contains(got, "s3cret") {
+		t.Errorf("String = %q, it holds the password", got)
 	}
 
 	// Both a server and a port names one server two ways.
-	_, err := New(newFakeDialer(true), WithServer(1), WithServerPort(9987))
+	_, err = New(newFakeDialer(true), WithServer(1), WithServerPort(9987))
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Errorf("New with both a server and a port = %v, want ErrInvalidConfig", err)
 	}
@@ -409,8 +409,9 @@ func TestNew_RefusesAConfigurationTheTransportCannotServe(t *testing.T) {
 
 // A refused login is the server's own error and Connect returns it.
 func TestConnect_ReturnsARefusedLogin(t *testing.T) {
-	d := &fakeDialer{notify: true, login: true, opened: make(chan *fakeTransport, 8)}
-	c := newClient(t, d, WithLogin("serveradmin", "wrong"))
+	d := &fakeDialer{notify: true, opened: make(chan *fakeTransport, 8),
+		account: &login{name: "serveradmin", password: "wrong"}}
+	c := newClient(t, d)
 
 	done := make(chan error, 1)
 	go func() { done <- c.Connect(context.Background()) }()

@@ -5,6 +5,32 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ## Unreleased
 
+### Removed
+
+Breaking, and made before v1.0.0: how to connect and authenticate belongs to the
+dialer, and what to do on the session stays an option of the client. SSH and
+Web already took their credentials in their dialer; the raw TCP login was the
+exception, and was refused at run time for the other two.
+
+- `serverquery.WithLogin` is gone. Give the login to the TCP dialer with the new
+  `TCPLogin(addr, name, password)`, or `TCPLoginWith(addr, name, password,
+  options)` for a `TCPOptions`. `TCP` and `TCPWith` stay for a connection with
+  no login, and an empty name is still refused by `New` with `ErrInvalidConfig`.
+  A login over SSH or Web, which `New` used to refuse at run time, can no
+  longer be written. `Client.Login` is unchanged, and the login is still sent
+  again on every reconnect.
+
+  ```go
+  // before
+  c, err := serverquery.New(serverquery.TCP(addr),
+  	serverquery.WithLogin("serveradmin", password),
+  	serverquery.WithServer(1))
+
+  // after
+  c, err := serverquery.New(serverquery.TCPLogin(addr, "serveradmin", password),
+  	serverquery.WithServer(1))
+  ```
+
 ### Added
 
 - `ServerView` also holds the groups and the server's settings. `ServerGroups`

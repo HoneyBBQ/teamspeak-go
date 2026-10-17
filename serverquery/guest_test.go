@@ -56,16 +56,11 @@ func TestNew_AcceptsGuestDialers(t *testing.T) {
 }
 
 // The guest dialer never dials unchecked: without a policy it is refused just
-// as an account login is, and WithLogin does not apply to it.
-func TestSSHGuest_KeepsTheHostKeyPolicyAndRefusesWithLogin(t *testing.T) {
+// as an account login is.
+func TestSSHGuest_KeepsTheHostKeyPolicy(t *testing.T) {
 	_, err := New(SSHGuest("127.0.0.1:1"))
 	if !errors.Is(err, ErrInvalidConfig) || !strings.Contains(err.Error(), "HostKeyCheck") {
 		t.Errorf("SSHGuest with no policy: New = %v, want ErrInvalidConfig naming HostKeyCheck", err)
-	}
-	_, err = New(SSHGuestWith("127.0.0.1:1", SSHOptions{HostKeyCheck: InsecureIgnoreHostKey()}),
-		WithLogin("a", "b"))
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Errorf("SSHGuest with WithLogin: New = %v, want ErrInvalidConfig", err)
 	}
 }
 
