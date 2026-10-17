@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/internal/livetest"
+	"github.com/honeybbq/teamspeak-go/internal/sshalgo"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
@@ -60,7 +61,19 @@ const (
 	envSSHPort  = "TEAMSPEAK_QUERY_SSH_PORT"
 	envSSHUser  = "TEAMSPEAK_QUERY_SSH_USER"
 	envSSHPass  = "TEAMSPEAK_QUERY_SSH_PASSWORD"
+	envFamily   = "TEAMSPEAK_QUERY_FAMILY"
 )
+
+// serverFamily is the generation the fixture read from the server's version:
+// what the client's own detection is checked against. TS6 where the fixture
+// wrote none, as the suite once only met TS6 over WebQuery and SSH.
+func serverFamily() teamspeak.ServerFamily {
+	if os.Getenv(envFamily) == "ts3" {
+		return teamspeak.ServerFamilyTS3
+	}
+
+	return teamspeak.ServerFamilyTS6
+}
 
 // waitForOtherSuites stands aside before connecting: the voice suite's live
 // client and this one against the same server, or a rerun straight after a
@@ -208,10 +221,11 @@ func TestQuery_TS3OverTCP(t *testing.T) {
 	t.Run("own channel kick", func(t *testing.T) { assertOwnChannelKick(t, c) })
 }
 
-// TeamSpeak 6 over WebQuery: the commands, over the one transport TS6 serves
-// by default. No events: the transport reports that it delivers none, so the
-// On… methods for server events are inert rather than failing the connect.
-func TestQuery_TS6OverWebQuery(t *testing.T) {
+// WebQuery, which TeamSpeak 3 (3.12 and later) and TeamSpeak 6 both serve, and
+// the one transport TS6 has on by default: the commands. No events: the
+// transport reports that it delivers none, so the On… methods for server events
+// are inert rather than failing the connect.
+func TestQuery_OverWebQuery(t *testing.T) {
 	base, apiKey := webVars(t)
 	waitForOtherSuites()
 
@@ -226,7 +240,7 @@ func TestQuery_TS6OverWebQuery(t *testing.T) {
 	}
 	open(t, c)
 
-	assertCoreCommands(t, c, teamspeak.ServerFamilyTS6)
+	assertCoreCommands(t, c, serverFamily())
 
 	fired := make(chan struct{}, 1)
 	remove := c.OnTextMessage(func(teamspeak.TextMessageEvent) {
@@ -244,14 +258,15 @@ func TestQuery_TS6OverWebQuery(t *testing.T) {
 	}
 }
 
-// TeamSpeak 6 over SSH, where the server was started with it: the SSH login
-// replaced the query login, so no `login` command is sent and the session is
-// the query account as soon as it opens. SSH is also the one transport on TS6
-// that delivers events, so they are checked here, on the same connection.
+// SSH, on a TeamSpeak 3 (3.3 and later) or TeamSpeak 6 server started with it:
+// the SSH login replaced the query login, so no `login` command is sent and the
+// session is the query account as soon as it opens. SSH is also the one
+// transport on TS6 that delivers events, so they are checked here, on the same
+// connection.
 //
 // No nickname is set on purpose: a client that found its own id by matching
 // its nickname would lose its own kick when it had none.
-func TestQuery_TS6OverSSH(t *testing.T) {
+func TestQuery_OverSSH(t *testing.T) {
 	addr, user, password := sshVars(t)
 	waitForOtherSuites()
 
@@ -271,7 +286,7 @@ func TestQuery_TS6OverSSH(t *testing.T) {
 	}
 	open(t, c)
 
-	assertCoreCommands(t, c, teamspeak.ServerFamilyTS6)
+	assertCoreCommands(t, c, serverFamily())
 
 	t.Run("text message", func(t *testing.T) { assertTextMessageEvent(t, c) })
 	t.Run("own channel kick", func(t *testing.T) { assertOwnChannelKick(t, c) })
@@ -290,10 +305,11 @@ func rawShell(t *testing.T) (func(string), <-chan string) {
 		t.Fatalf("knownhosts.New: %v", err)
 	}
 	conn, err := ssh.Dial("tcp", addr, &ssh.ClientConfig{
-		User:            user,
-		Auth:            []ssh.AuthMethod{ssh.Password(password)},
-		HostKeyCallback: callback,
-		Timeout:         10 * time.Second,
+		User:              user,
+		Auth:              []ssh.AuthMethod{ssh.Password(password)},
+		HostKeyCallback:   callback,
+		HostKeyAlgorithms: sshalgo.HostKeyAlgorithms(),
+		Timeout:           10 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("ssh.Dial: %v", err)

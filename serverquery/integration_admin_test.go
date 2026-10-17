@@ -412,15 +412,21 @@ func assertBanPaging(ctx context.Context, t *testing.T, c *serverquery.Client, a
 }
 
 // banfind is TeamSpeak 6's; TeamSpeak 3 does not know it, and the typed method
-// reports that as the server's refusal.
+// reports that as the server's refusal: 256 over raw TCP and SSH, where its
+// WebQuery answers an unknown command with 1538, invalid parameter, as
+// TeamSpeak 6's does.
 func TestQueryAdmin_FindBansRefusedWhereItDoesNotExist(t *testing.T) {
 	forEachTransport(t, 1, func(t *testing.T, c *serverquery.Client, family teamspeak.ServerFamily, transport string) {
 		if family != teamspeak.ServerFamilyTS3 {
 			t.Skip("TeamSpeak 3 is the server without banfind")
 		}
 		_, err := c.FindBans(adminCtx(t), teamspeak.BanCriteria{IP: "1.2.3.4"})
-		if !errors.Is(err, errcode.CommandNotFound) {
-			t.Errorf("%s: err = %v, want 256, command not found", transport, err)
+		want, wantName := errcode.CommandNotFound, "256, command not found"
+		if transport == "web" {
+			want, wantName = errcode.ParameterInvalid, "1538, invalid parameter"
+		}
+		if !errors.Is(err, want) {
+			t.Errorf("%s: err = %v, want %s", transport, err, wantName)
 		}
 	})
 }
@@ -428,7 +434,13 @@ func TestQueryAdmin_FindBansRefusedWhereItDoesNotExist(t *testing.T) {
 // A query login is made without a server selected, so it is a global one,
 // listed, found by pattern and deleted.
 func TestQueryAdmin_QueryLogins(t *testing.T) {
-	forEachTransport(t, 0, func(t *testing.T, c *serverquery.Client, _ teamspeak.ServerFamily, _ string) {
+	forEachTransport(t, 0, func(t *testing.T, c *serverquery.Client, family teamspeak.ServerFamily, transport string) {
+		if transport == "web" && family == teamspeak.ServerFamilyTS3 {
+			// TS3's WebQuery runs every command on a virtual server, even with
+			// none in the path, and there queryloginadd wants a client's
+			// database id: 1539, parameter not found, for a global login.
+			t.Skip("TeamSpeak 3's WebQuery has no instance level to make a global query login on")
+		}
 		ctx := adminCtx(t)
 		name := "tsgoit" + strconv.FormatInt(time.Now().UnixNano(), 36)
 		login, err := c.AddQueryLogin(ctx, name, teamspeak.QueryLoginOptions{})
