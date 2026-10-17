@@ -938,3 +938,83 @@ func containsSubstring(lines []string, want string) bool {
 
 	return false
 }
+
+// The channel and server notifications reach their handlers, the answer to a
+// description fetch is no edit, and each notification still reaches
+// OnNotification after its typed event.
+func TestNotification_ChannelAndServerEventsAreDelivered(t *testing.T) {
+	d := newFakeDialer(true)
+	c := newClient(t, d)
+
+	done := make(chan error, 1)
+	go func() { done <- c.Connect(context.Background()) }()
+	transport := d.answer(t)
+	err := <-done
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	order := make(chan string, 16)
+	c.OnChannelCreated(func(e teamspeak.ChannelCreatedEvent) {
+		order <- "created"
+		*e.Changes.Name = "mine"
+	})
+	c.OnChannelCreated(func(e teamspeak.ChannelCreatedEvent) { order <- "created:" + *e.Changes.Name })
+	c.OnChannelEdited(func(e teamspeak.ChannelEditedEvent) { order <- "edited:" + *e.Changes.Topic })
+	c.OnChannelMoved(func(teamspeak.ChannelMovedEvent) { order <- "moved" })
+	c.OnChannelDeleted(func(e teamspeak.ChannelDeletedEvent) { order <- "deleted:" + e.InvokerName })
+	c.OnChannelDescriptionChanged(func(teamspeak.ChannelDescriptionChangedEvent) { order <- "description" })
+	c.OnChannelPasswordChanged(func(teamspeak.ChannelPasswordChangedEvent) { order <- "password" })
+	c.OnServerEdited(func(e teamspeak.ServerEditedEvent) { order <- "server:" + e.Changes["virtualserver_name"] })
+	c.OnNotification(func(e teamspeak.NotificationEvent) { order <- "n:" + e.Name })
+
+	for _, line := range []string{
+		`notifychannelcreated cid=9 cpid=0 channel_name=n invokerid=3 invokername=a`,
+		`notifychanneledited cid=9 reasonid=9 channel_description=d`,
+		`notifychanneledited cid=9 reasonid=10 invokerid=3 channel_topic=t`,
+		`notifychannelmoved cid=9 cpid=0 order=0 reasonid=1`,
+		`notifychanneldescriptionchanged cid=9`,
+		`notifychannelpasswordchanged cid=9`,
+		`notifychanneldeleted cid=9 invokerid=0 invokername=Server`,
+		`notifyserveredited virtualserver_name=x`,
+	} {
+		transport.lines <- line
+	}
+
+	want := []string{
+		"created", "created:n", "n:notifychannelcreated",
+		"n:notifychanneledited", // the reason 9 answer: notification only
+		"edited:t", "n:notifychanneledited",
+		"moved", "n:notifychannelmoved",
+		"description", "n:notifychanneldescriptionchanged",
+		"password", "n:notifychannelpasswordchanged",
+		"deleted:Server", "n:notifychanneldeleted",
+		"server:x", "n:notifyserveredited",
+	}
+	for _, w := range want {
+		select {
+		case got := <-order:
+			if got != w {
+				t.Fatalf("got %q, want %q", got, w)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%q was never delivered", w)
+		}
+	}
+}
+
+// Over WebQuery the new On… methods are inert like the others, and warn once
+// per method.
+func TestNoEventsTransport_ChannelHandlersAreInert(t *testing.T) {
+	d := newFakeDialer(false)
+	c := newClient(t, d)
+	for range 2 {
+		c.OnChannelCreated(func(teamspeak.ChannelCreatedEvent) { t.Error("fired") })()
+		c.OnServerEdited(func(teamspeak.ServerEditedEvent) { t.Error("fired") })()
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.warned["OnChannelCreated"] || !c.warned["OnServerEdited"] {
+		t.Errorf("warned = %v", c.warned)
+	}
+}

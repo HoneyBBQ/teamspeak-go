@@ -16,17 +16,26 @@ import (
 
 // GetChannelDescription returns the channel's description, which channellist
 // omits for bandwidth. It fails with teamspeak.ErrNoData if the server answers
-// with no row.
+// with no row for that channel.
+//
+// The server answers with a notifychanneledited holding the text. Another
+// channel edit can arrive while the command waits, and it is collected as well:
+// the answer is the row for this channel that carries channel_description, not
+// the first row. The answer is no edit, so it produces no ChannelEditedEvent.
 func (c *Client) GetChannelDescription(ctx context.Context, cid teamspeak.ChannelID) (string, error) {
 	rows, err := c.Send(ctx, channelRequest("channelgetdescription", cid))
 	if err != nil {
 		return "", err
 	}
-	if len(rows) == 0 {
-		return "", teamspeak.ErrNoData
+	want := strconv.FormatUint(uint64(cid), 10)
+	for _, row := range rows {
+		description, ok := row["channel_description"]
+		if ok && row["cid"] == want {
+			return description, nil
+		}
 	}
 
-	return rows[0]["channel_description"], nil
+	return "", teamspeak.ErrNoData
 }
 
 // SubscribeChannel subscribes to a channel: its clients' events and voice

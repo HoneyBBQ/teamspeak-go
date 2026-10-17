@@ -16,6 +16,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
@@ -359,4 +360,220 @@ func ClientChannelGroupChanged(params map[string]string) teamspeak.ClientChannel
 		InvokerName:                    params["invokername"],
 		InvokerUID:                     teamspeak.UID(params["invokeruid"]),
 	}
+}
+
+// ChannelCreated reads notifychannelcreated. ok is false for a row that names no
+// channel.
+func ChannelCreated(params map[string]string) (teamspeak.ChannelCreatedEvent, bool) {
+	evt := teamspeak.ChannelCreatedEvent{
+		ChannelID:   ParseChannelID(params["cid"]),
+		ParentID:    ParseChannelID(params["cpid"]),
+		Changes:     ChannelChanges(params),
+		InvokerID:   ParseClientID(params["invokerid"]),
+		InvokerName: params["invokername"],
+		InvokerUID:  teamspeak.UID(params["invokeruid"]),
+	}
+
+	return evt, evt.ChannelID != 0
+}
+
+// ChannelEdited reads notifychanneledited. ok is false for a row that names no
+// channel, and for the answer to channelgetdescription: an edit with
+// reasonid=9 (teamspeak.ReasonChannelUpdate) that names no invoker, which holds
+// the description that was asked for and is no change. A real edit is told
+// apart by having an invoker, not by whether a command is waiting, so one that
+// arrives meanwhile is not swallowed.
+func ChannelEdited(params map[string]string) (teamspeak.ChannelEditedEvent, bool) {
+	reasonID, _ := ParseInt(params["reasonid"])
+	reason := teamspeak.Reason(reasonID)
+	_, hasInvoker := params["invokerid"]
+	evt := teamspeak.ChannelEditedEvent{
+		ChannelID:   ParseChannelID(params["cid"]),
+		Reason:      reason,
+		Changes:     ChannelChanges(params),
+		InvokerID:   ParseClientID(params["invokerid"]),
+		InvokerName: params["invokername"],
+		InvokerUID:  teamspeak.UID(params["invokeruid"]),
+	}
+	if reason == teamspeak.ReasonChannelUpdate && !hasInvoker {
+		return evt, false
+	}
+
+	return evt, evt.ChannelID != 0
+}
+
+// ChannelMoved reads notifychannelmoved.
+func ChannelMoved(params map[string]string) (teamspeak.ChannelMovedEvent, bool) {
+	reasonID, _ := ParseInt(params["reasonid"])
+	evt := teamspeak.ChannelMovedEvent{
+		ChannelID:   ParseChannelID(params["cid"]),
+		ParentID:    ParseChannelID(params["cpid"]),
+		Order:       ParseChannelID(params["order"]),
+		Reason:      teamspeak.Reason(reasonID),
+		InvokerID:   ParseClientID(params["invokerid"]),
+		InvokerName: params["invokername"],
+		InvokerUID:  teamspeak.UID(params["invokeruid"]),
+	}
+
+	return evt, evt.ChannelID != 0
+}
+
+// ChannelDeleted reads notifychanneldeleted.
+func ChannelDeleted(params map[string]string) (teamspeak.ChannelDeletedEvent, bool) {
+	evt := teamspeak.ChannelDeletedEvent{
+		ChannelID:   ParseChannelID(params["cid"]),
+		InvokerID:   ParseClientID(params["invokerid"]),
+		InvokerName: params["invokername"],
+		InvokerUID:  teamspeak.UID(params["invokeruid"]),
+	}
+
+	return evt, evt.ChannelID != 0
+}
+
+// ServerEdited reads notifyserveredited: the virtualserver_ properties it
+// names, raw. Changes is never nil.
+func ServerEdited(params map[string]string) teamspeak.ServerEditedEvent {
+	changes := teamspeak.Properties{}
+	for name, value := range params {
+		if strings.HasPrefix(name, "virtualserver_") {
+			changes[name] = value
+		}
+	}
+
+	return teamspeak.ServerEditedEvent{
+		Changes:     changes,
+		InvokerID:   ParseClientID(params["invokerid"]),
+		InvokerName: params["invokername"],
+		InvokerUID:  teamspeak.UID(params["invokeruid"]),
+	}
+}
+
+// PluginCommand reads notifyplugincmd.
+func PluginCommand(params map[string]string) teamspeak.PluginCommandEvent {
+	return teamspeak.PluginCommandEvent{
+		Name:        params["name"],
+		Data:        params["data"],
+		InvokerID:   ParseClientID(params["invokerid"]),
+		InvokerName: params["invokername"],
+		InvokerUID:  teamspeak.UID(params["invokeruid"]),
+	}
+}
+
+// ClientChatComposing reads notifyclientchatcomposing. ok is false for a row
+// that names no client.
+func ClientChatComposing(params map[string]string) (teamspeak.ClientChatComposingEvent, bool) {
+	evt := teamspeak.ClientChatComposingEvent{
+		ClientID: ParseClientID(params["clid"]),
+		UID:      teamspeak.UID(params["cluid"]),
+	}
+
+	return evt, evt.ClientID != 0
+}
+
+// ChannelChanges reads the channel properties a notification names. A property
+// is set exactly when its key is in params, as ClientChanges does. The parent
+// is read from pid or cpid, whichever the row has. The channel's own id (cid)
+// is not a property.
+func ChannelChanges(params map[string]string) teamspeak.ChannelChanges {
+	parent := key(params, "pid", asID[teamspeak.ChannelID])
+	if parent == nil {
+		parent = key(params, "cpid", asID[teamspeak.ChannelID])
+	}
+
+	return teamspeak.ChannelChanges{
+		UID:                  key(params, "channel_unique_identifier", identity[teamspeak.ChannelUID]),
+		Name:                 key(params, "channel_name", identity[string]),
+		Topic:                key(params, "channel_topic", identity[string]),
+		Description:          key(params, "channel_description", identity[string]),
+		ParentID:             parent,
+		Order:                key(params, "channel_order", asID[teamspeak.ChannelID]),
+		IconID:               key(params, "channel_icon_id", wire.ParseIconID[teamspeak.IconID]),
+		Codec:                key(params, "channel_codec", asCodec),
+		CodecQuality:         key(params, "channel_codec_quality", asInt32),
+		MaxClients:           key(params, "channel_maxclients", asInt32),
+		MaxFamilyClients:     key(params, "channel_maxfamilyclients", asInt32),
+		TotalClients:         key(params, "total_clients", asInt32),
+		TotalFamilyClients:   key(params, "total_clients_family", asInt32),
+		NeededSubscribePower: key(params, "channel_needed_subscribe_power", asInt32),
+		NeededTalkPower:      key(params, "channel_needed_talk_power", asInt32),
+		IsDefault:            key(params, "channel_flag_default", asBool),
+		IsPermanent:          key(params, "channel_flag_permanent", asBool),
+		IsSemiPermanent:      key(params, "channel_flag_semi_permanent", asBool),
+		HasPassword:          key(params, "channel_flag_password", asBool),
+
+		CodecLatencyFactor:          key(params, "channel_codec_latency_factor", asInt32),
+		IsUnencrypted:               key(params, "channel_codec_is_unencrypted", asBool),
+		IsMaxClientsUnlimited:       key(params, "channel_flag_maxclients_unlimited", asBool),
+		IsMaxFamilyClientsUnlimited: key(params, "channel_flag_maxfamilyclients_unlimited", asBool),
+		IsMaxFamilyClientsInherited: key(params, "channel_flag_maxfamilyclients_inherited", asBool),
+		DeleteDelay:                 key(params, "channel_delete_delay", asSeconds),
+		NamePhonetic:                key(params, "channel_name_phonetic", identity[string]),
+		IsForcedSilence:             key(params, "channel_forced_silence", asBool),
+		BannerURL:                   key(params, "channel_banner_gfx_url", identity[string]),
+		BannerMode:                  key(params, "channel_banner_mode", asInt32),
+	}
+}
+
+// asCodec reads a codec, clamped to one byte rather than wrapped.
+func asCodec(s string) teamspeak.Codec {
+	return teamspeak.Codec(min(uintOrZero(s), math.MaxUint8))
+}
+
+// asSeconds reads a count of seconds as a duration, clamped rather than
+// overflowing.
+func asSeconds(s string) time.Duration {
+	count := uintOrZero(s)
+	if count > math.MaxInt64/uint64(time.Second) {
+		return time.Duration(math.MaxInt64)
+	}
+
+	return time.Duration(count) * time.Second
+}
+
+// CloneChannelChanges returns a copy of c that shares no memory with it, so a
+// handler editing what it was given cannot change what the next one sees. A
+// field added to ChannelChanges must be added here, and the tests fail until it
+// is.
+func CloneChannelChanges(c teamspeak.ChannelChanges) teamspeak.ChannelChanges {
+	c.UID = clonePtr(c.UID)
+	c.Name = clonePtr(c.Name)
+	c.Topic = clonePtr(c.Topic)
+	c.Description = clonePtr(c.Description)
+	c.ParentID = clonePtr(c.ParentID)
+	c.Order = clonePtr(c.Order)
+	c.IconID = clonePtr(c.IconID)
+	c.Codec = clonePtr(c.Codec)
+	c.CodecQuality = clonePtr(c.CodecQuality)
+	c.MaxClients = clonePtr(c.MaxClients)
+	c.MaxFamilyClients = clonePtr(c.MaxFamilyClients)
+	c.TotalClients = clonePtr(c.TotalClients)
+	c.TotalFamilyClients = clonePtr(c.TotalFamilyClients)
+	c.NeededSubscribePower = clonePtr(c.NeededSubscribePower)
+	c.NeededTalkPower = clonePtr(c.NeededTalkPower)
+	c.IsDefault = clonePtr(c.IsDefault)
+	c.IsPermanent = clonePtr(c.IsPermanent)
+	c.IsSemiPermanent = clonePtr(c.IsSemiPermanent)
+	c.HasPassword = clonePtr(c.HasPassword)
+	c.CodecLatencyFactor = clonePtr(c.CodecLatencyFactor)
+	c.IsUnencrypted = clonePtr(c.IsUnencrypted)
+	c.IsMaxClientsUnlimited = clonePtr(c.IsMaxClientsUnlimited)
+	c.IsMaxFamilyClientsUnlimited = clonePtr(c.IsMaxFamilyClientsUnlimited)
+	c.IsMaxFamilyClientsInherited = clonePtr(c.IsMaxFamilyClientsInherited)
+	c.DeleteDelay = clonePtr(c.DeleteDelay)
+	c.NamePhonetic = clonePtr(c.NamePhonetic)
+	c.IsForcedSilence = clonePtr(c.IsForcedSilence)
+	c.BannerURL = clonePtr(c.BannerURL)
+	c.BannerMode = clonePtr(c.BannerMode)
+
+	return c
+}
+
+// clonePtr returns a pointer to a copy of what p points at, or nil.
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+
+	return &v
 }

@@ -41,8 +41,67 @@ func (c *Client) handleNotification(h *transport.PacketHandler, cmd *wire.Comman
 			slog.String("permid", cmd.Params["permid"]),
 			slog.String("permvalue", cmd.Params["permvalue"]))
 	default:
-		c.logger.Debug("unhandled notification", slog.String("name", cmd.Name))
+		if !c.handleChannelNotification(cmd) {
+			c.logger.Debug("unhandled notification", slog.String("name", cmd.Name))
+		}
 	}
+}
+
+// handleChannelNotification reports the channel, server, subscription and
+// plugin notifications, none of which changes state the client keeps. It
+// returns false for any other.
+func (c *Client) handleChannelNotification(cmd *wire.Command) bool {
+	switch cmd.Name {
+	case "notifychannelcreated":
+		if evt, ok := servernotify.ChannelCreated(cmd.Params); ok {
+			c.emitEvent(evt)
+		}
+	case "notifychanneledited":
+		// Not the answer to channelgetdescription, which is no edit; see
+		// servernotify.ChannelEdited.
+		if evt, ok := servernotify.ChannelEdited(cmd.Params); ok {
+			c.emitEvent(evt)
+		}
+	case "notifychannelmoved":
+		if evt, ok := servernotify.ChannelMoved(cmd.Params); ok {
+			c.emitEvent(evt)
+		}
+	case "notifychanneldeleted":
+		if evt, ok := servernotify.ChannelDeleted(cmd.Params); ok {
+			c.emitEvent(evt)
+		}
+	case "notifychanneldescriptionchanged":
+		c.emitForChannel(cmd, func(id teamspeak.ChannelID) Event { return ChannelDescriptionChangedEvent{ChannelID: id} })
+	case "notifychannelpasswordchanged":
+		c.emitForChannel(cmd, func(id teamspeak.ChannelID) Event { return ChannelPasswordChangedEvent{ChannelID: id} })
+	default:
+		return c.handleServerNotification(cmd)
+	}
+
+	return true
+}
+
+// handleServerNotification reports the server, subscription, plugin command and
+// typing notifications. It returns false for any other.
+func (c *Client) handleServerNotification(cmd *wire.Command) bool {
+	switch cmd.Name {
+	case "notifyserveredited":
+		c.emitEvent(servernotify.ServerEdited(cmd.Params))
+	case "notifychannelsubscribed":
+		c.emitForChannel(cmd, func(id teamspeak.ChannelID) Event { return ChannelSubscribedEvent{ChannelID: id} })
+	case "notifychannelunsubscribed":
+		c.emitForChannel(cmd, func(id teamspeak.ChannelID) Event { return ChannelUnsubscribedEvent{ChannelID: id} })
+	case "notifyplugincmd":
+		c.emitEvent(servernotify.PluginCommand(cmd.Params))
+	case "notifyclientchatcomposing":
+		if evt, ok := servernotify.ClientChatComposing(cmd.Params); ok {
+			c.emitEvent(evt)
+		}
+	default:
+		return false
+	}
+
+	return true
 }
 
 func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *wire.Command) {
@@ -243,4 +302,12 @@ func (c *Client) handleClientChannelGroupChanged(h *transport.PacketHandler, cmd
 	c.mu.Unlock()
 
 	c.emitEvent(evt)
+}
+
+// emitForChannel queues the event build makes of the channel cmd names; a
+// notification that names none describes nothing.
+func (c *Client) emitForChannel(cmd *wire.Command, build func(teamspeak.ChannelID) Event) {
+	if id := servernotify.ParseChannelID(cmd.Params["cid"]); id != 0 {
+		c.emitEvent(build(id))
+	}
 }

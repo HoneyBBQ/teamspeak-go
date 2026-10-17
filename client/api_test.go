@@ -164,7 +164,7 @@ func TestVoiceOnlyCommandsPassThroughCommandMiddleware(t *testing.T) {
 		return teamspeak.ExecutorFunc(func(_ context.Context, req teamspeak.Request) ([]map[string]string, error) {
 			seen = append(seen, req.Command())
 
-			return []map[string]string{{"channel_description": "hello"}}, nil
+			return []map[string]string{{"cid": "7", "channel_description": "hello"}}, nil
 		})
 	}))
 

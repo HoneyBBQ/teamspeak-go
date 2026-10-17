@@ -59,10 +59,19 @@ type Client struct {
 
 // subscribers holds the handlers for each server event.
 type subscribers struct {
-	textMessage  eventbus.Subscribers[teamspeak.TextMessageEvent]
-	clientEnter  eventbus.Subscribers[teamspeak.ClientEnterEvent]
-	clientLeave  eventbus.Subscribers[teamspeak.ClientLeaveEvent]
-	clientMoved  eventbus.Subscribers[teamspeak.ClientMovedEvent]
+	textMessage eventbus.Subscribers[teamspeak.TextMessageEvent]
+	clientEnter eventbus.Subscribers[teamspeak.ClientEnterEvent]
+	clientLeave eventbus.Subscribers[teamspeak.ClientLeaveEvent]
+	clientMoved eventbus.Subscribers[teamspeak.ClientMovedEvent]
+
+	channelCreated  eventbus.Subscribers[teamspeak.ChannelCreatedEvent]
+	channelEdited   eventbus.Subscribers[teamspeak.ChannelEditedEvent]
+	channelMoved    eventbus.Subscribers[teamspeak.ChannelMovedEvent]
+	channelDeleted  eventbus.Subscribers[teamspeak.ChannelDeletedEvent]
+	channelDesc     eventbus.Subscribers[teamspeak.ChannelDescriptionChangedEvent]
+	channelPassword eventbus.Subscribers[teamspeak.ChannelPasswordChangedEvent]
+	serverEdited    eventbus.Subscribers[teamspeak.ServerEditedEvent]
+
 	notification eventbus.Subscribers[teamspeak.NotificationEvent]
 }
 

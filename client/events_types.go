@@ -55,6 +55,39 @@ type ClientServerGroupRemovedEvent = teamspeak.ClientServerGroupRemovedEvent
 // ClientChannelGroupChangedEvent is teamspeak.ClientChannelGroupChangedEvent.
 type ClientChannelGroupChangedEvent = teamspeak.ClientChannelGroupChangedEvent
 
+// ChannelCreatedEvent is teamspeak.ChannelCreatedEvent.
+type ChannelCreatedEvent = teamspeak.ChannelCreatedEvent
+
+// ChannelEditedEvent is teamspeak.ChannelEditedEvent.
+type ChannelEditedEvent = teamspeak.ChannelEditedEvent
+
+// ChannelMovedEvent is teamspeak.ChannelMovedEvent.
+type ChannelMovedEvent = teamspeak.ChannelMovedEvent
+
+// ChannelDeletedEvent is teamspeak.ChannelDeletedEvent.
+type ChannelDeletedEvent = teamspeak.ChannelDeletedEvent
+
+// ChannelDescriptionChangedEvent is teamspeak.ChannelDescriptionChangedEvent.
+type ChannelDescriptionChangedEvent = teamspeak.ChannelDescriptionChangedEvent
+
+// ChannelPasswordChangedEvent is teamspeak.ChannelPasswordChangedEvent.
+type ChannelPasswordChangedEvent = teamspeak.ChannelPasswordChangedEvent
+
+// ServerEditedEvent is teamspeak.ServerEditedEvent.
+type ServerEditedEvent = teamspeak.ServerEditedEvent
+
+// ChannelSubscribedEvent is teamspeak.ChannelSubscribedEvent.
+type ChannelSubscribedEvent = teamspeak.ChannelSubscribedEvent
+
+// ChannelUnsubscribedEvent is teamspeak.ChannelUnsubscribedEvent.
+type ChannelUnsubscribedEvent = teamspeak.ChannelUnsubscribedEvent
+
+// PluginCommandEvent is teamspeak.PluginCommandEvent.
+type PluginCommandEvent = teamspeak.PluginCommandEvent
+
+// ClientChatComposingEvent is teamspeak.ClientChatComposingEvent.
+type ClientChatComposingEvent = teamspeak.ClientChatComposingEvent
+
 // Status is teamspeak.Status: the state of a client's connection.
 type Status = teamspeak.Status
 
