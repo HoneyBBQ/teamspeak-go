@@ -11,6 +11,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	engine "github.com/honeybbq/teamspeak-go/internal/serverquery"
+	"github.com/honeybbq/teamspeak-go/internal/sshalgo"
 )
 
 // SSHShell is the shell a ServerQuery session runs on, narrowed to what the
@@ -72,7 +73,8 @@ type SSHOptions struct {
 
 // sshDialer is ServerQuery inside an SSH shell. The SSH login is the query
 // login, so the session is already the query account when it opens, and only
-// `use` is left. Only TeamSpeak 6 serves it, and off by default.
+// `use` is left. TeamSpeak 3 (3.3 and later) and TeamSpeak 6 serve it, off by
+// default.
 type sshDialer struct {
 	conn         func(ctx context.Context, addr string) (SSHConn, error)
 	hostKeyCheck func(HostKey) error
@@ -128,7 +130,8 @@ const guestUser = "guest"
 //
 // TeamSpeak 6 beta13 and later serve it, and it is on unless the server was
 // started with --query-ssh-allow-guest=0 (or TSSERVER_QUERY_SSH_ALLOW_GUEST=0),
-// so a refused login is reported wrapping [ErrAuth]. Guest access is an
+// so a refused login is reported wrapping [ErrAuth] and [ErrNoGuestAccess], as
+// it is on TeamSpeak 3, which has no guest access. Guest access is an
 // explicit choice made by calling this: [SSH] and [SSHWith] refuse an empty
 // user, an empty password and the user name "guest" with [ErrInvalidConfig],
 // so a missing credential never turns into a guest connection unnoticed.
@@ -305,6 +308,8 @@ func (d sshDialer) dial(ctx context.Context, addr string) (SSHConn, error) {
 		// callback type is named, and validate has already refused a dialer
 		// without one.
 		HostKeyCallback: hostKeyCallback(addr, d.hostKeyCheck),
+		// TeamSpeak 3 signs with rsa-sha2-512 and the library asks for 256.
+		HostKeyAlgorithms: sshalgo.HostKeyAlgorithms(),
 	}
 	client, err := dialSSH(ctx, addr, config)
 	if err != nil {

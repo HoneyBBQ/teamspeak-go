@@ -11,6 +11,7 @@ var ErrDial error
 var ErrHostKey error
 var ErrInvalidConfig error
 var ErrMissingDependency error
+var ErrNoGuestAccess error
 func ByID(id teamspeak.ServerID) ServerSelector
 func ByPort(port uint16) ServerSelector
 func DefaultShouldRetry(err error, _ int) bool

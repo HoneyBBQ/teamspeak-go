@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/errcode"
 	"github.com/honeybbq/teamspeak-go/internal/eventbus"
 	"github.com/honeybbq/teamspeak-go/internal/servernotify"
 	engine "github.com/honeybbq/teamspeak-go/internal/serverquery"
@@ -198,9 +199,7 @@ func (c *Client) connect(ctx context.Context, kind connectKind) error {
 
 	eng, err := c.open(ctx, dialer)
 	if err != nil {
-		c.finishAttempt(err, !kind.fromCaller)
-
-		return err
+		return c.failAttempt(dialer, err, !kind.fromCaller)
 	}
 
 	err = c.handshake(ctx, eng, handshakeOptions{
@@ -212,9 +211,8 @@ func (c *Client) connect(ctx context.Context, kind connectKind) error {
 	})
 	if err != nil {
 		_ = eng.Close()
-		c.finishAttempt(err, !kind.fromCaller)
 
-		return err
+		return c.failAttempt(dialer, err, !kind.fromCaller)
 	}
 
 	c.mu.Lock()
@@ -225,6 +223,35 @@ func (c *Client) connect(ctx context.Context, kind connectKind) error {
 	emit(c, &c.onConnected, "Connected", teamspeak.ConnectedEvent{Reconnected: !kind.fromCaller})
 
 	return nil
+}
+
+// guestRefusal says so when a guest connection failed because the server offers
+// no guest access: the SSH login of the user "guest" was refused, or WebQuery
+// answered a request without an api key with 5124. The server's own error stays
+// in the chain. Any other failure, and any other dialer, is returned as it is.
+func guestRefusal(dialer Dialer, err error) error {
+	switch d := dialer.(type) {
+	case sshDialer:
+		if d.guest && errors.Is(err, ErrAuth) {
+			return fmt.Errorf("%w: %w", ErrNoGuestAccess, err)
+		}
+	case webDialer:
+		if d.guest && errors.Is(err, errcode.APIKeyMissing) {
+			return fmt.Errorf("%w: %w", ErrNoGuestAccess, err)
+		}
+	}
+
+	return err
+}
+
+// failAttempt ends a failed connection attempt and returns the error to report,
+// which says so when the failure was a guest connection with nothing to be a
+// guest of.
+func (c *Client) failAttempt(dialer Dialer, err error, reconnect bool) error {
+	err = guestRefusal(dialer, err)
+	c.finishAttempt(err, reconnect)
+
+	return err
 }
 
 // setStoppedLocked records a Disconnect, or its undoing by a caller's Connect,

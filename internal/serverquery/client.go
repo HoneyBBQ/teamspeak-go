@@ -38,9 +38,10 @@ const (
 // Transport is the connection a ServerQuery client talks over.
 //
 // ServerQuery is a line protocol on three transports: raw TCP (10011), SSH
-// (10022) and, on TeamSpeak 6, an HTTP WebQuery (10080) that frames each
-// command as a request. The client depends on this interface only, so each
-// transport is a separate piece, and a test or a proxy can supply its own.
+// (10022) and an HTTP WebQuery (10080) that frames each command as a request.
+// TeamSpeak 3 (3.3 and later for SSH, 3.12 for WebQuery) serves them as well as
+// TeamSpeak 6. The client depends on this interface only, so each transport is
+// a separate piece, and a test or a proxy can supply its own.
 type Transport interface {
 	// WriteLine sends one command line; the transport adds the terminator.
 	WriteLine(ctx context.Context, line string) error

@@ -48,8 +48,11 @@ func WithLogin(name, password string) Option {
 }
 
 // WithServer selects the virtual server to address by id, as `use sid=N` does.
-// Without it the client addresses the instance, which is enough for the
-// instance-wide commands and not for the rest.
+// Without it the client selects no server: over TCP and SSH that addresses the
+// instance, which is enough for the instance-wide commands and not for the
+// rest. TeamSpeak 3's WebQuery runs every command on a virtual server even
+// with none in the path, so an instance command such as queryloginadd answers
+// 1539 there; TeamSpeak 6's WebQuery reads it as the instance.
 //
 // It is mutually exclusive with WithServerPort; New returns ErrInvalidConfig
 // if both are set.

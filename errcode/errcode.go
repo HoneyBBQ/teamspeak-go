@@ -421,6 +421,17 @@ const (
 	ProvisioningTS3ServerNotFound Code = 0x1119
 	// ProvisioningNoPermission is "unknown permissionID".
 	ProvisioningNoPermission Code = 0x111A
+	// APIKeyOutOfScope is "out of scope": WebQuery refused a command outside the
+	// scope of the api key that made the request, or outside the guest scope of
+	// a request that carried none. The HTTP status is 401.
+	APIKeyOutOfScope Code = 0x1400
+	// APIKeyInvalid is "invalid apikey": WebQuery does not accept the api key
+	// sent, or the key may not address the virtual server in the path. The HTTP
+	// status is 401.
+	APIKeyInvalid Code = 0x1402
+	// APIKeyMissing is "missing apikey": the request carried no api key, or an
+	// empty one, and the server offers no guest access. The HTTP status is 401.
+	APIKeyMissing Code = 0x1404
 )
 
 var messages = map[Code]string{
@@ -606,4 +617,7 @@ var messages = map[Code]string{
 	ProvisioningAlreadyConnected:           "already connected",
 	ProvisioningIOError:                    "io_error",
 	ProvisioningNoPermission:               "unknown permissionID",
+	APIKeyOutOfScope:                       "out of scope",
+	APIKeyInvalid:                          "invalid apikey",
+	APIKeyMissing:                          "missing apikey",
 }

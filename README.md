@@ -33,7 +33,7 @@ Works with TeamSpeak 3 and TeamSpeak 6 servers. No proprietary SDK, no copied co
 - **Reconnection** — Opt-in retry with backoff, tuned for TeamSpeak's antiflood ban
 - **Server capabilities** — Reports the server version and the uid hash it uses (SHA-1 on TS3, SHA-256 on TS6), and the server's name, icon, banner and welcome message
 - **Custom transports** — Supply your own net.PacketConn and file transfer dialer
-- **ServerQuery** — The same typed commands over raw TCP, SSH or TeamSpeak 6's WebQuery, with the server's notifications as events
+- **ServerQuery** — The same typed commands over raw TCP, SSH or WebQuery, with the server's notifications as events
 - **Zero CGO** — Pure Go, cross-compile anywhere
 
 ## Installation
@@ -548,12 +548,16 @@ which one a program can use:
 | Transport | Where | Server | Login | Events |
 |---|---|---|---|---|
 | `TCP(addr)` | 10011 | TeamSpeak 3 only | `WithLogin` | yes |
-| `SSHWith(addr, user, password, SSHOptions{...})` | 10022 | TeamSpeak 6 only, off by default | the SSH login; `WithLogin` is refused | yes |
-| `Web(baseURL, apiKey)` | 10080 | TeamSpeak 6 only | the api key; `WithLogin` is refused | **none** |
+| `SSHWith(addr, user, password, SSHOptions{...})` | 10022 | TeamSpeak 3 (3.3 and later) and 6, off by default | the SSH login; `WithLogin` is refused | yes |
+| `Web(baseURL, apiKey)` | 10080 | TeamSpeak 3 (3.12 and later) and 6 | the api key; `WithLogin` is refused | **none** |
 
 TeamSpeak 6 dropped raw ServerQuery, so a TS6 server has no 10011 to connect
-to; a TS3 server serves no WebQuery. `ServerFamily()` reports which one the
-connected server is.
+to. TeamSpeak 3 serves SSH and WebQuery as well, but only the raw port is on
+until `query_protocols` lists the others; the official Docker image takes
+`TS3SERVER_QUERY_PROTOCOLS=raw,ssh,http`, and `TS3SERVER_SERVERADMIN_PASSWORD`
+for the SSH login. TS3 has no guest access and no key in its log: create the
+api key over raw TCP with `apikeyadd`. `ServerFamily()` reports which
+generation the connected server is.
 
 WebQuery has no session for the server to push to, so it delivers no events at
 all, and it refuses every file transfer command. A program that needs either

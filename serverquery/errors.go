@@ -30,6 +30,15 @@ var ErrDial = errors.New("could not open the query connection")
 // library's own error.
 var ErrAuth = errors.New("the query login was refused")
 
+// ErrNoGuestAccess reports a guest connection ([SSHGuest], [WebGuest]) that the
+// server refused because it offers no guest access: TeamSpeak 3 has none, and a
+// TeamSpeak 6 started with guest access off refuses the same way.
+//
+// The server's own refusal is wrapped beside it, so errors.Is still matches
+// [ErrAuth] for an SSH login and the code, errcode.APIKeyMissing (5124), for
+// WebQuery.
+var ErrNoGuestAccess = errors.New("the server does not offer guest access (TeamSpeak 3 has none)")
+
 // ErrHostKey reports an SSH server whose host key was not accepted: the check
 // failed, the key could not be read, or no check was given at all.
 //

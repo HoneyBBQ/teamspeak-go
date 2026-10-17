@@ -12,6 +12,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/honeybbq/teamspeak-go/internal/sshalgo"
 )
 
 // EnvSSHKnownHosts is a known_hosts file to verify the SSH host key against,
@@ -33,6 +35,9 @@ func PresentedHostKey(t *testing.T, addr string) ssh.PublicKey {
 	probe := &ssh.ClientConfig{
 		User: "probe",
 		Auth: []ssh.AuthMethod{ssh.Password("")},
+		// The same preference the client has, or a TeamSpeak 3 server's
+		// signature is refused before the key can be read.
+		HostKeyAlgorithms: sshalgo.HostKeyAlgorithms(),
 		HostKeyCallback: func(_ string, _ net.Addr, presented ssh.PublicKey) error {
 			key = presented
 

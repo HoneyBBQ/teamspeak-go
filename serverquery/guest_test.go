@@ -8,11 +8,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/errcode"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -189,8 +192,74 @@ func TestSSHGuest_RefusedWhenGuestAccessIsOff(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	err = c.Connect(t.Context())
-	if !errors.Is(err, ErrAuth) {
-		t.Errorf("Connect = %v, want ErrAuth", err)
+	if !errors.Is(err, ErrAuth) || !errors.Is(err, ErrNoGuestAccess) {
+		t.Errorf("Connect = %v, want ErrAuth and ErrNoGuestAccess", err)
+	}
+	if !strings.Contains(err.Error(), "does not offer guest access") {
+		t.Errorf("the error does not say there is no guest access: %v", err)
+	}
+}
+
+// An account login that is refused is not a refused guest.
+func TestSSH_WrongPasswordIsNotAMissingGuestAccess(t *testing.T) {
+	server := startSSHServer(t)
+	check := func(HostKey) error { return nil }
+	c, err := New(SSHWith(server.addr(), "serveradmin", "wrong", SSHOptions{HostKeyCheck: check}), WithServer(1))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	err = c.Connect(t.Context())
+	if !errors.Is(err, ErrAuth) || errors.Is(err, ErrNoGuestAccess) {
+		t.Errorf("Connect = %v, want ErrAuth and not ErrNoGuestAccess", err)
+	}
+}
+
+// webRefusing answers every request with the given WebQuery status code.
+func webRefusing(t *testing.T, code int) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"status":{"code":` + strconv.Itoa(code) +
+			`,"message":"missing apikey","extra_message":"api key missing"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	return srv.URL
+}
+
+// WebQuery answers a guest with 5124 where the server has no guest access.
+func TestWebGuest_RefusedWhenGuestAccessIsOff(t *testing.T) {
+	c, err := New(WebGuest(webRefusing(t, 5124)), WithServer(1))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	err = c.Connect(t.Context())
+	if !errors.Is(err, ErrNoGuestAccess) || !errors.Is(err, errcode.APIKeyMissing) {
+		t.Errorf("Connect = %v, want ErrNoGuestAccess and errcode.APIKeyMissing", err)
+	}
+	if _, ok := errors.AsType[*teamspeak.ServerError](err); !ok {
+		t.Errorf("Connect = %v, want the server's error in the chain", err)
+	}
+}
+
+// 5124 for a connection that sent a key, and any other refusal of a guest, stay
+// the server's own error.
+func TestWeb_OtherRefusalsAreNotAMissingGuestAccess(t *testing.T) {
+	for name, tc := range map[string]struct {
+		dialer Dialer
+		code   int
+	}{
+		"guest, wrong key code": {WebGuest(webRefusing(t, 5122)), 5122},
+		"api key, 5124":         {Web(webRefusing(t, 5124), "key"), 5124},
+	} {
+		c, err := New(tc.dialer, WithServer(1))
+		if err != nil {
+			t.Fatalf("%s: New: %v", name, err)
+		}
+		err = c.Connect(t.Context())
+		if err == nil || errors.Is(err, ErrNoGuestAccess) || !errors.Is(err, errcode.Code(tc.code)) {
+			t.Errorf("%s: Connect = %v, want the server's %d alone", name, err, tc.code)
+		}
 	}
 }
 
