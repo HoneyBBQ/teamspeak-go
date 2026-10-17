@@ -3,6 +3,17 @@
 const ConnectPhaseHandshake ConnectPhase = 1
 const ConnectPhaseJoin ConnectPhase = 2
 const ConnectPhaseOpen ConnectPhase = 0
+const GroupWhisperAllChannels GroupWhisperScope = 0
+const GroupWhisperAllClients GroupWhisperType = 3
+const GroupWhisperAllParentChannels GroupWhisperScope = 3
+const GroupWhisperChannelCommander GroupWhisperType = 2
+const GroupWhisperChannelFamily GroupWhisperScope = 4
+const GroupWhisperChannelGroup GroupWhisperType = 1
+const GroupWhisperCompleteChannelFamily GroupWhisperScope = 5
+const GroupWhisperCurrentChannel GroupWhisperScope = 1
+const GroupWhisperParentChannel GroupWhisperScope = 2
+const GroupWhisperServerGroup GroupWhisperType = 0
+const GroupWhisperSubchannels GroupWhisperScope = 6
 const ServerFamilyTS3 teamspeak.ServerFamily = "ts3"
 const ServerFamilyTS6 teamspeak.ServerFamily = "ts6"
 const ServerFamilyUnknown teamspeak.ServerFamily = ""
@@ -15,17 +26,25 @@ var ErrConnectionTimeout error
 var ErrHandshake error
 var ErrInvalidAddress error
 var ErrInvalidConfig error
+var ErrInvalidWhisperTarget error
 var ErrNoWhisperTargets error
+var ErrTooManyWhisperChannels error
 var ErrTooManyWhisperTargets error
 func DefaultShouldRetry(err error, _ int) bool
 func New(id *identity.Identity, addr string, nickname string, options ...Option) (*Client, error)
+func WhisperToAllClients(scope GroupWhisperScope) GroupWhisperTarget
+func WhisperToChannelCommanders(scope GroupWhisperScope) GroupWhisperTarget
+func WhisperToChannelGroup(scope GroupWhisperScope, id teamspeak.ChannelGroupID) GroupWhisperTarget
+func WhisperToServerGroup(scope GroupWhisperScope, id teamspeak.ServerGroupID) GroupWhisperTarget
 func WithCommandMiddleware(mw ...CommandMiddleware) Option
 func WithDefaultChannel(channel string) Option
 func WithDefaultChannelPassword(password string) Option
 func WithEventMiddleware(mw ...EventMiddleware) Option
 func WithLogger(logger *slog.Logger) Option
+func WithMetaData(data string) Option
 func WithNicknameLookup() Option
 func WithPacketConn(pc net.PacketConn) Option
+func WithPrivilegeKey(key string) Option
 func WithReconnect(options ReconnectOptions) Option
 func WithResolver(r AddrResolver) Option
 func WithServerPassword(password string) Option
@@ -101,6 +120,7 @@ method (Client) DeleteServerGroupPermissionByType(ctx context.Context, groups te
 method (Client) DeleteTempPassword(ctx context.Context, password string) error
 method (Client) DeployServerSnapshot(ctx context.Context, snapshot teamspeak.ServerSnapshot, opts teamspeak.SnapshotDeployOptions) ([]teamspeak.ChannelMapping, error)
 method (*Client) Disconnect(ctx context.Context) error
+method (*Client) DisconnectWithMessage(ctx context.Context, message string) error
 method (Client) EditChannel(ctx context.Context, cid teamspeak.ChannelID, opts teamspeak.ChannelEditOptions) error
 method (Client) EditClient(ctx context.Context, clid teamspeak.ClientID, opts teamspeak.ClientEditOptions) error
 method (Client) EditClientDatabase(ctx context.Context, clientDBID teamspeak.ClientDBID, opts teamspeak.ClientDatabaseEditOptions) error
@@ -205,6 +225,7 @@ method (*Client) Send(ctx context.Context, req teamspeak.Request) ([]map[string]
 method (Client) SendChannelMessage(ctx context.Context, message string) error
 method (Client) SendChatComposing(ctx context.Context, clid teamspeak.ClientID) error
 method (Client) SendGlobalMessage(ctx context.Context, message string) error
+method (*Client) SendGroupWhisper(data []byte, target GroupWhisperTarget, codec teamspeak.Codec) error
 method (Client) SendOfflineMessage(ctx context.Context, recipient teamspeak.UID, subject string, message string) error
 method (Client) SendPluginCommand(ctx context.Context, name string, data string, target teamspeak.PluginCommandTarget) error
 method (Client) SendPrivateMessage(ctx context.Context, clid teamspeak.ClientID, message string) error
@@ -229,6 +250,8 @@ method (*Client) UnsubscribeChannel(ctx context.Context, cid teamspeak.ChannelID
 method (Client) UpdateClient(ctx context.Context, opts teamspeak.ClientUpdateOptions) error
 method (Client) UpdateMessageFlag(ctx context.Context, messageID teamspeak.MessageID, flags teamspeak.MessageFlags) error
 method (Client) UsePrivilegeKey(ctx context.Context, token string) error
+method (*Client) VerifyChannelPassword(ctx context.Context, cid teamspeak.ChannelID, password string) (bool, error)
+method (*Client) VerifyServerPassword(ctx context.Context, password string) (bool, error)
 method (Client) ViewLog(ctx context.Context, opts teamspeak.LogViewOptions) (teamspeak.LogPage, error)
 method (Client) WhoAmI(ctx context.Context) (teamspeak.WhoAmI, error)
 type ClientChannelGroupChangedEvent = teamspeak.ClientChannelGroupChangedEvent
@@ -261,6 +284,11 @@ type DisconnectStartInfo struct
 type DisconnectedEvent = teamspeak.DisconnectedEvent
 type Event = teamspeak.Event
 type EventMiddleware func(next func(Event)) func(Event)
+type GroupWhisperScope uint8
+type GroupWhisperTarget struct
+method (GroupWhisperTarget) Scope() GroupWhisperScope
+method (GroupWhisperTarget) Type() GroupWhisperType
+type GroupWhisperType uint8
 type HandshakeDoneInfo struct
 field HandshakeDoneInfo.ServerPublicKey string
 field HandshakeDoneInfo.PuzzleDuration time.Duration
@@ -363,3 +391,4 @@ field WelcomeDoneInfo.Attempt int
 field WelcomeDoneInfo.Reconnect bool
 type WhisperTargets struct
 field WhisperTargets.Clients []teamspeak.ClientID
+field WhisperTargets.Channels []teamspeak.ChannelID

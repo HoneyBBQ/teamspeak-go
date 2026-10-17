@@ -60,18 +60,25 @@ const (
 	tagSize                = 8
 	voiceHeaderSize        = 3
 	whisperHeaderSize      = 5
+	groupWhisperHeaderSize = 13
 	maxWhisperTargets      = 32
-	ackDataSize            = 2
+	maxWhisperChannels     = 255
+	// typeByteOffset is where the packet type sits in a datagram: after the
+	// tag, the packet id and the client id.
+	typeByteOffset = tagSize + 4
+	ackDataSize    = 2
 )
 
 var (
 	// ErrTimedOut reports a connection the server stopped answering: nothing
 	// arrived, or a packet went unacknowledged, for PacketTimeout.
 	ErrTimedOut = errors.New("connection timed out: the server stopped answering")
-	// ErrNoWhisperTargets is returned when a whisper is sent to no clients.
-	ErrNoWhisperTargets = errors.New("whisper requires at least one target client")
+	// ErrNoWhisperTargets is returned when a whisper is sent to no one.
+	ErrNoWhisperTargets = errors.New("whisper requires at least one target client or channel")
 	// ErrTooManyWhisperTargets is returned when a whisper names more than 32 clients.
 	ErrTooManyWhisperTargets = errors.New("whisper supports at most 32 target clients")
+	// ErrTooManyWhisperChannels is returned when a whisper names more than 255 channels.
+	ErrTooManyWhisperChannels = errors.New("whisper supports at most 255 target channels")
 	// ErrNotOpen is returned by a send on a handler that has not started or
 	// has closed.
 	ErrNotOpen = errors.New("connection is not open")
@@ -122,6 +129,8 @@ type pooledBuffer struct {
 type PacketHandler struct {
 	lastMessageReceived time.Time
 	conn                io.ReadWriteCloser
+	// stats is what the connection has measured of itself.
+	stats *connStats
 	// closeCause is why the handler closed itself, reported to OnClosed; nil
 	// for a Close from outside. Guarded by lifecycleMu.
 	closeCause           error
@@ -201,6 +210,7 @@ func NewPacketHandler(tsCrypt *crypto.Crypt, logger *slog.Logger) *PacketHandler
 		TsCrypt:              tsCrypt,
 		logger:               logger,
 		ackManager:           make(map[uint32]*resendPacket),
+		stats:                newConnStats(),
 		packetProcessCh:      make(chan *pooledBuffer, packetProcessQueueSize),
 		stopCh:               make(chan struct{}),
 		recvWindowCommand:    NewGenerationWindow(1<<16, ReceivePacketWindowSize),
@@ -387,7 +397,7 @@ func (h *PacketHandler) sendPacket(pType byte, data []byte, flags byte, dummy bo
 	copy(final[8:13], header)
 	copy(final[13:], ciphertext)
 
-	_, err = h.conn.Write(final[:tagSize+headerSize+len(ciphertext)])
+	_, err = h.write(final[:tagSize+headerSize+len(ciphertext)])
 
 	rp := &resendPacket{
 		packet:       p,
@@ -513,7 +523,12 @@ func (h *PacketHandler) handleRawPacket(raw []byte) {
 	// Only a packet that authenticates counts as hearing from the server;
 	// noise must not keep a dead connection from timing out.
 	h.markMessageReceived()
+	h.stats.traffic.recordReceived(p.Type(), len(raw), p.ReceivedAt)
 	p.Data = decrypted.plaintext
+
+	if p.Type() == PacketTypePong && len(p.Data) >= ackDataSize {
+		h.stats.pongReceived(binary.BigEndian.Uint16(p.Data), p.ReceivedAt)
+	}
 
 	if p.Type() == PacketTypePing {
 		_ = h.sendPong(p.ID, decrypted.dummyUsed)
@@ -1060,6 +1075,7 @@ func (h *PacketHandler) pingLoop() {
 			return
 		case <-ticker.C:
 			if h.TsCrypt.InitComplete() {
+				h.notePing()
 				_ = h.SendPacket(byte(PacketTypePing), []byte{}, byte(PacketFlagUnencrypted))
 			}
 		}
@@ -1143,7 +1159,7 @@ func (h *PacketHandler) doResend(rp *resendPacket, now time.Time) {
 		copy(final[0:8], tag)
 		copy(final[8:13], header)
 		copy(final[13:], ciphertext)
-		_, err := h.conn.Write(final)
+		_, err := h.write(final)
 		if err != nil {
 			h.logger.Warn("resend write failed", slog.Any("error", err))
 		}
@@ -1193,7 +1209,7 @@ func (h *PacketHandler) SendVoicePacket(data []byte, codec byte) error {
 	copy(final[8:13], header)
 	copy(final[13:], voicePayload)
 
-	_, err := h.conn.Write(final[:tagSize+headerSize+payloadLen])
+	_, err := h.write(final[:tagSize+headerSize+payloadLen])
 
 	putPooledBytes(&bufPool, final)
 	putPooledBytes(&voicePayloadPool, voicePayload)
@@ -1201,18 +1217,63 @@ func (h *PacketHandler) SendVoicePacket(data []byte, codec byte) error {
 	return err
 }
 
-// SendWhisperPacket sends an unencrypted VoiceWhisper packet to up to 32 clients,
-// regardless of which channel they are in. On a handler that is not open it
-// returns ErrNotOpen.
+// SendWhisperPacket sends an unencrypted VoiceWhisper packet in its direct
+// form (the new-protocol flag unset) to up to 255 channels and up to 32
+// clients, at least one of the two, regardless of the channels the clients are
+// in. On a handler that is not open it returns ErrNotOpen.
 //
-// Payload layout: u16 voice packet ID, u8 codec, u8 channel target count (always
-// 0 here), u8 client target count, one u16 per client ID, then the Opus frame.
-func (h *PacketHandler) SendWhisperPacket(data []byte, targetClientIDs []uint16, codec byte) error {
-	err := h.checkWhisper(targetClientIDs)
+// Payload layout: u16 voice packet ID, u8 codec, u8 channel target count, u8
+// client target count, one u64 per channel ID, one u16 per client ID, then the
+// Opus frame.
+func (h *PacketHandler) SendWhisperPacket(data []byte, clients []uint16, channels []uint64, codec byte) error {
+	err := h.checkWhisper(clients, channels)
 	if err != nil {
 		return err
 	}
 
+	payload := make([]byte, whisperHeaderSize+len(channels)*8+len(clients)*2+len(data))
+	payload[2] = codec
+	payload[3] = byte(len(channels)) //nolint:gosec // bounded by maxWhisperChannels above
+	payload[4] = byte(len(clients))  //nolint:gosec // bounded by maxWhisperTargets above
+	at := whisperHeaderSize
+	for _, id := range channels {
+		binary.BigEndian.PutUint64(payload[at:], id)
+		at += 8
+	}
+	for _, id := range clients {
+		binary.BigEndian.PutUint16(payload[at:], id)
+		at += 2
+	}
+	copy(payload[at:], data)
+
+	return h.sendWhisperPayload(payload, 0)
+}
+
+// SendGroupWhisperPacket sends an unencrypted VoiceWhisper packet in its group
+// form (the new-protocol flag set): a group type, a target scope and one u64
+// ID, which is 0 where the type has none. On a handler that is not open it
+// returns ErrNotOpen.
+//
+// Payload layout: u16 voice packet ID, u8 codec, u8 group type, u8 scope, u64
+// ID, then the Opus frame.
+func (h *PacketHandler) SendGroupWhisperPacket(data []byte, groupType, scope byte, id uint64, codec byte) error {
+	if !h.IsOpen() {
+		return ErrNotOpen
+	}
+
+	payload := make([]byte, groupWhisperHeaderSize+len(data))
+	payload[2] = codec
+	payload[3] = groupType
+	payload[4] = scope
+	binary.BigEndian.PutUint64(payload[5:], id)
+	copy(payload[groupWhisperHeaderSize:], data)
+
+	return h.sendWhisperPayload(payload, byte(PacketFlagNewProtocol))
+}
+
+// sendWhisperPayload numbers a whisper payload, whose first two bytes are
+// left for the voice packet ID, and writes it.
+func (h *PacketHandler) sendWhisperPayload(payload []byte, flags byte) error {
 	h.mu.Lock()
 	pID := h.packetCounter[PacketTypeVoiceWhisper]
 	pGen := h.generationCounter[PacketTypeVoiceWhisper]
@@ -1222,50 +1283,71 @@ func (h *PacketHandler) SendWhisperPacket(data []byte, targetClientIDs []uint16,
 	}
 	clid := uint16(h.clientID.Load()) //nolint:gosec // stored from a uint16
 	h.mu.Unlock()
-
-	targetsLen := len(targetClientIDs) * 2
-	payloadLen := whisperHeaderSize + targetsLen + len(data)
-
-	payload := make([]byte, payloadLen)
 	binary.BigEndian.PutUint16(payload[0:2], pID)
-	payload[2] = codec
-	payload[3] = 0
-	payload[4] = byte(len(targetClientIDs)) //nolint:gosec // bounded by maxWhisperTargets above
-	for i, id := range targetClientIDs {
-		binary.BigEndian.PutUint16(payload[whisperHeaderSize+i*2:], id)
-	}
-	copy(payload[whisperHeaderSize+targetsLen:], data)
 
 	p := &Packet{
-		TypeFlagged:  byte(PacketTypeVoiceWhisper) | byte(PacketFlagUnencrypted),
+		TypeFlagged:  byte(PacketTypeVoiceWhisper) | byte(PacketFlagUnencrypted) | flags,
 		ID:           pID,
 		GenerationID: pGen,
 		Data:         payload,
 		ClientID:     clid,
 	}
 
-	final := make([]byte, tagSize+headerSize+payloadLen)
+	final := make([]byte, tagSize+headerSize+len(payload))
 	fakeSig := h.TsCrypt.FakeSignature()
 	copy(final[0:8], fakeSig[:])
 	copy(final[8:13], p.BuildC2SHeader())
 	copy(final[13:], payload)
 
-	_, err = h.conn.Write(final)
+	_, err := h.write(final)
 
 	return err
 }
 
-func (h *PacketHandler) checkWhisper(targetClientIDs []uint16) error {
+func (h *PacketHandler) checkWhisper(clients []uint16, channels []uint64) error {
 	switch {
-	case len(targetClientIDs) == 0:
+	case len(clients) == 0 && len(channels) == 0:
 		return ErrNoWhisperTargets
-	case len(targetClientIDs) > maxWhisperTargets:
+	case len(clients) > maxWhisperTargets:
 		return ErrTooManyWhisperTargets
+	case len(channels) > maxWhisperChannels:
+		return ErrTooManyWhisperChannels
 	case !h.IsOpen():
 		return ErrNotOpen
 	default:
 		return nil
 	}
+}
+
+// write sends one datagram on the connection and counts it, whether it is the
+// first send of a packet or a resend.
+func (h *PacketHandler) write(datagram []byte) (int, error) {
+	if len(datagram) > typeByteOffset {
+		h.stats.traffic.recordSent(PacketType(datagram[typeByteOffset]&0x0f), len(datagram), time.Now())
+	}
+
+	return h.conn.Write(datagram)
+}
+
+// Traffic returns what the connection has carried so far, per class.
+func (h *PacketHandler) Traffic() Traffic {
+	return h.stats.traffic.snapshot(time.Now())
+}
+
+// RoundTrip returns the keepalive round-trip time, as a mean and a standard
+// deviation over the last ten pongs; the bool is false before the first.
+func (h *PacketHandler) RoundTrip() (RoundTripEstimate, bool) {
+	return h.stats.rtt.get()
+}
+
+// notePing records the time the next ping is sent at, under the id it will
+// carry. Only the ping loop sends pings.
+func (h *PacketHandler) notePing() {
+	h.mu.Lock()
+	id := h.packetCounter[PacketTypePing]
+	h.mu.Unlock()
+
+	h.stats.pingSent(id, time.Now())
 }
 
 // IsOpen reports whether there is a live connection to send on.

@@ -20,6 +20,7 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/discovery"
 	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 	"github.com/honeybbq/teamspeak-go/versions"
 )
 
@@ -111,6 +112,10 @@ type clientInitOptions struct {
 	serverPasswordHash         string
 	defaultChannel             string
 	defaultChannelPasswordHash string
+	// privilegeKey is redeemed by the join that sends it and dropped once a
+	// connection succeeds, so a reconnection does not present a spent key.
+	privilegeKey string
+	metaData     string
 	// version is held by value, so changing the caller's copy afterwards has
 	// no effect.
 	version versions.ClientVersion
@@ -119,8 +124,9 @@ type clientInitOptions struct {
 // String describes the options without the password hashes, which the
 // server accepts as the passwords themselves.
 func (o clientInitOptions) String() string {
-	return fmt.Sprintf("{defaultChannel:%q serverPassword:%s defaultChannelPassword:%s}",
-		o.defaultChannel, redacted(o.serverPasswordHash), redacted(o.defaultChannelPasswordHash))
+	return fmt.Sprintf("{defaultChannel:%q serverPassword:%s defaultChannelPassword:%s privilegeKey:%s metaData:%q}",
+		o.defaultChannel, redacted(o.serverPasswordHash), redacted(o.defaultChannelPasswordHash),
+		redacted(o.privilegeKey), o.metaData)
 }
 
 // GoString is String, so %#v redacts too.
@@ -433,6 +439,28 @@ func WithDefaultChannelPassword(password string) Option {
 	})
 }
 
+// WithPrivilegeKey sets a privilege key to use while joining, sent as
+// client_default_token in clientinit: the server adds the key's group when it
+// accepts the join, and the key is spent. It is sent on the first successful
+// connection only, so a reconnection does not present a spent key again; a
+// join that fails leaves it for the next Connect. The key is a credential and
+// is redacted wherever the client is printed.
+func WithPrivilegeKey(key string) Option {
+	return optionFunc(func(c *Client) {
+		c.clientInitOptions.privilegeKey = key
+	})
+}
+
+// WithMetaData sets the meta data to join with, sent as client_meta_data in
+// clientinit: an opaque string other clients see in their record of this one.
+// It is sent again on every reconnection; UpdateClient changes it while
+// connected.
+func WithMetaData(data string) Option {
+	return optionFunc(func(c *Client) {
+		c.clientInitOptions.metaData = data
+	})
+}
+
 // WithVersion sets the platform, version and signature clientinit sends.
 // Without it the client sends a recent Windows build.
 //
@@ -488,13 +516,26 @@ func (c *Client) Connect(ctx context.Context) error {
 //
 // Disconnect does not wait for event handlers, so a handler may call it.
 func (c *Client) Disconnect(ctx context.Context) error {
-	return c.disconnect(ctx, nil)
+	return c.disconnect(ctx, nil, defaultLeaveMessage)
+}
+
+// defaultLeaveMessage is what Disconnect tells the other clients.
+const defaultLeaveMessage = "Shutdown"
+
+// DisconnectWithMessage is Disconnect with a leave message: the text the
+// server hands the other clients that see this one go, as the ReasonMessage of their
+// ClientLeaveEvent. Disconnect sends "Shutdown". The goodbye is sent with
+// reasonid=8 (teamspeak.ReasonDisconnect), without which both TeamSpeak 3 and
+// 6 drop the message. Called while an earlier Disconnect is still saying
+// goodbye, it joins that one, and the first call's message is the one sent.
+func (c *Client) DisconnectWithMessage(ctx context.Context, message string) error {
+	return c.disconnect(ctx, nil, message)
 }
 
 // disconnect is Disconnect. With a non-nil only, it acts only while only is
 // still the current handler, checked under the lock: a disconnect decided on
 // for one connection must not end the next.
-func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) error {
+func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler, message string) error {
 	c.mu.Lock()
 	if only != nil && c.handler != only {
 		c.mu.Unlock()
@@ -529,7 +570,7 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 	c.logger.InfoContext(ctx, "disconnecting from server")
 
 	if oldStatus == StatusConnected {
-		c.sayGoodbye(ctx, handler)
+		c.sayGoodbye(ctx, handler, message)
 	}
 
 	err := handler.Close()
@@ -545,7 +586,7 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler) 
 // sayGoodbye tells the server on handler that the client is leaving, waiting
 // for its acknowledgement for disconnectTimeout at most, with the trace's
 // DisconnectStart and DisconnectDone.
-func (c *Client) sayGoodbye(ctx context.Context, handler *transport.PacketHandler) {
+func (c *Client) sayGoodbye(ctx context.Context, handler *transport.PacketHandler, message string) {
 	c.traceDisconnectStart()
 	start := time.Now()
 	goodbyeCtx, cancel := context.WithTimeout(ctx, disconnectTimeout)
@@ -558,7 +599,11 @@ func (c *Client) sayGoodbye(ctx context.Context, handler *transport.PacketHandle
 	c.mu.Unlock()
 	answered := make(chan error, 1)
 	go func() {
-		_, err := c.execOn(goodbyeCtx, handler, "clientdisconnect reasonmsg=Shutdown")
+		line := wire.BuildCommandOrdered("clientdisconnect", [][2]string{
+			{"reasonid", strconv.Itoa(int(teamspeak.ReasonDisconnect))},
+			{"reasonmsg", message},
+		})
+		_, err := c.execOn(goodbyeCtx, handler, line)
 		answered <- err
 	}()
 	var acknowledged bool
