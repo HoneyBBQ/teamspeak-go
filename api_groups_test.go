@@ -2,6 +2,7 @@ package teamspeak
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -141,5 +142,99 @@ func TestListPrivilegeKeys_ReadsTheCustomSet(t *testing.T) {
 	}
 	if !got[0].Created.Equal(time.Unix(1792225305, 0)) {
 		t.Errorf("created = %v", got[0].Created)
+	}
+}
+
+// The create answers status ok with no rows: the group is the one in the list
+// with the requested name and type, and a group of another type may share the
+// name.
+func TestCreatedGroups_WithoutRowsFindTheGroupByNameAndType(t *testing.T) {
+	serverList := []map[string]string{
+		{"sgid": "2", "name": "bots", "type": "0"},
+		{"sgid": "3", "name": "bots", "type": "1"},
+		{"sgid": "4", "name": "bots 2", "type": "1"},
+		{"sgid": "5", "name": "bots", "type": "2"},
+	}
+	channelList := []map[string]string{
+		{"cgid": "2", "name": "bots", "type": "0"},
+		{"cgid": "3", "name": "bots", "type": "1"},
+		{"cgid": "5", "name": "bots", "type": "2"},
+	}
+	for _, tc := range []struct {
+		name string
+		run  func(c *Commands, kind GroupType) (uint64, error)
+		list []map[string]string
+		want map[GroupType]uint64
+	}{
+		{"CreateServerGroup", func(c *Commands, k GroupType) (uint64, error) {
+			id, err := c.CreateServerGroup(t.Context(), "bots", k)
+
+			return uint64(id), err
+		}, serverList, map[GroupType]uint64{GroupTemplate: 2, GroupRegular: 3, GroupQuery: 5}},
+		{"CopyServerGroup", func(c *Commands, k GroupType) (uint64, error) {
+			id, err := c.CopyServerGroup(t.Context(), 1, 0, "bots", k)
+
+			return uint64(id), err
+		}, serverList, map[GroupType]uint64{GroupTemplate: 2, GroupRegular: 3, GroupQuery: 5}},
+		{"CreateChannelGroup", func(c *Commands, k GroupType) (uint64, error) {
+			id, err := c.CreateChannelGroup(t.Context(), "bots", k)
+
+			return uint64(id), err
+		}, channelList, map[GroupType]uint64{GroupTemplate: 2, GroupRegular: 3, GroupQuery: 5}},
+		{"CopyChannelGroup", func(c *Commands, k GroupType) (uint64, error) {
+			id, err := c.CopyChannelGroup(t.Context(), 1, 0, "bots", k)
+
+			return uint64(id), err
+		}, channelList, map[GroupType]uint64{GroupTemplate: 2, GroupRegular: 3, GroupQuery: 5}},
+	} {
+		for kind, want := range tc.want {
+			s := &script{replies: []reply{{}, {rows: tc.list}}}
+			id, err := tc.run(NewCommands(s), kind)
+			if err != nil || id != want {
+				t.Errorf("%s type %d: id = %d, err = %v, want %d", tc.name, kind, id, err, want)
+			}
+			if len(s.sent) != 2 || !strings.HasSuffix(strings.Fields(s.sent[1])[0], "grouplist") {
+				t.Errorf("%s: sent %q, want the create then the list", tc.name, s.sent)
+			}
+		}
+	}
+}
+
+// onlyErr drops a command's result, for a test that looks at its error.
+func onlyErr[T any](_ T, err error) error { return err }
+
+func TestCreatedGroups_WithoutRowsAndNoMatchIsNoData(t *testing.T) {
+	serverList := []map[string]string{{"sgid": "3", "name": "bots", "type": "0"}}
+	channelList := []map[string]string{{"cgid": "3", "name": "other", "type": "1"}}
+	ctx := t.Context()
+	for name, run := range map[string]func(c *Commands) error{
+		"CreateServerGroup":  func(c *Commands) error { return onlyErr(c.CreateServerGroup(ctx, "bots", GroupRegular)) },
+		"CopyServerGroup":    func(c *Commands) error { return onlyErr(c.CopyServerGroup(ctx, 1, 0, "bots", GroupRegular)) },
+		"CreateChannelGroup": func(c *Commands) error { return onlyErr(c.CreateChannelGroup(ctx, "bots", GroupRegular)) },
+		"CopyChannelGroup":   func(c *Commands) error { return onlyErr(c.CopyChannelGroup(ctx, 1, 0, "bots", GroupRegular)) },
+	} {
+		list := serverList
+		if strings.Contains(name, "Channel") {
+			list = channelList
+		}
+		err := run(NewCommands(&script{replies: []reply{{}, {rows: list}}}))
+		if !errors.Is(err, ErrNoData) {
+			t.Errorf("%s: err = %v, want ErrNoData", name, err)
+		}
+	}
+}
+
+// A copy onto an existing group looks nothing up, and an answer that names the
+// group needs no list.
+func TestCreatedGroups_AnAnswerNeedsNoLookup(t *testing.T) {
+	s := &script{replies: []reply{{rows: []map[string]string{{"sgid": "12"}}}}}
+	id, err := NewCommands(s).CreateServerGroup(t.Context(), "bots", GroupRegular)
+	if err != nil || id != 12 || len(s.sent) != 1 {
+		t.Errorf("id = %d, err = %v, sent %q", id, err, s.sent)
+	}
+	s = &script{replies: []reply{{}}}
+	id, err = NewCommands(s).CopyServerGroup(t.Context(), 1, 9, "bots", GroupRegular)
+	if err != nil || id != 9 || len(s.sent) != 1 {
+		t.Errorf("copy onto 9: id = %d, err = %v, sent %q", id, err, s.sent)
 	}
 }

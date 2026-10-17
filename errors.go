@@ -20,8 +20,18 @@ var ErrNotConnected = errors.New("not connected")
 // ErrNoData reports a command that succeeded without the data it should carry,
 // such as a channelinfo for a channel the server no longer lists. Every
 // command defined to answer with a row — the Get and Init methods, the
-// creating ones that return an id, AddPrivilegeKey, ViewLog — fails with an error wrapping it rather than return a zero
-// value. A list that comes back empty is not this error.
+// creating ones that return an id, AddPrivilegeKey, ViewLog — fails with an
+// error wrapping it rather than return a zero value. A list that comes back
+// empty is not this error.
+//
+// From a command that creates something, this error means the command took
+// effect: the object exists, and the server only left its id out of the
+// answer, which TeamSpeak 6's WebQuery has been seen to do. Do not retry such a
+// command blindly, or it creates a second object or fails as a duplicate.
+// CreateChannel, CreateServerGroup, CreateChannelGroup, CopyServerGroup and
+// CopyChannelGroup look the new object up themselves, and return this error
+// only when nothing matches; AddPrivilegeKey and AddAPIKey cannot, and return
+// it with the object created.
 var ErrNoData = errors.New("the server answered with no data")
 
 // ErrFileTransfer reports a file transfer that failed: dialling the transfer

@@ -402,6 +402,14 @@ func fieldOptUint16(row map[string]string, key string) *uint16 {
 // indistinguishable from ours, channel groups as much as server groups, and
 // the id returned may be theirs rather than the one just made. That is a limit
 // of what the notification reports, not of this function.
+//
+// TeamSpeak 6's WebQuery has also been seen answering a successful create with
+// status ok and no body at all, so there are no rows. The callers then look the
+// group up in the group list (createdServerGroup, createdChannelGroup): a
+// server refuses a second group of the same name and type, so the one group
+// with the requested name and type is the one just made, though a group of
+// another type may share the name. This function reports ErrNoData for such an
+// answer, which is what sends them to the list.
 func createdGroupID[T ~uint64](rows []map[string]string, idKey, name string) (T, error) {
 	var listed bool
 	var id uint64

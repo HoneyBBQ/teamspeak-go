@@ -3,6 +3,7 @@ package teamspeak
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -353,6 +354,11 @@ func (c *Commands) GetServerIDByPort(ctx context.Context, port uint16) (ServerID
 //
 // groupType is always sent, for the reason CreateChannelGroup gives: the
 // server's default is GroupRegular, but the zero GroupType is GroupTemplate.
+//
+// When the answer names no group, the new one is looked up in the group list by
+// its exact name and type; see createdGroupID for why that is unambiguous. The
+// error wraps ErrNoData only when nothing matches, and then the group may
+// still have been created.
 func (c *Commands) CreateServerGroup(ctx context.Context, name string, groupType GroupType) (ServerGroupID, error) {
 	rows, err := c.query(ctx, "servergroupadd", []param{
 		strArg("name", name),
@@ -362,7 +368,33 @@ func (c *Commands) CreateServerGroup(ctx context.Context, name string, groupType
 		return 0, err
 	}
 
-	return createdGroupID[ServerGroupID](rows, "sgid", name)
+	return c.createdServerGroup(ctx, rows, name, groupType)
+}
+
+// createdServerGroup returns the id of the server group a create or copy just
+// made. When the answer names none — TeamSpeak 6's WebQuery sometimes answers a
+// success with no body — the group is looked up in the group list by its exact
+// name and type, which is unambiguous because a server refuses a second group
+// of the same name and type. The error wraps ErrNoData only when nothing
+// matches.
+func (c *Commands) createdServerGroup(
+	ctx context.Context, rows []map[string]string, name string, groupType GroupType,
+) (ServerGroupID, error) {
+	id, err := createdGroupID[ServerGroupID](rows, "sgid", name)
+	if !errors.Is(err, ErrNoData) {
+		return id, err
+	}
+	groups, listErr := c.ListServerGroups(ctx, ServerGroupListOptions{})
+	if listErr != nil {
+		return 0, listErr
+	}
+	for _, g := range groups {
+		if g.Name == name && g.Type == groupType {
+			return g.ID, nil
+		}
+	}
+
+	return 0, fmt.Errorf("%w: the server did not report the new group %q", ErrNoData, name)
 }
 
 // DeleteServerGroup deletes a server group.
@@ -383,7 +415,8 @@ func (c *Commands) RenameServerGroup(ctx context.Context, serverGroupID ServerGr
 
 // CopyServerGroup copies a server group.
 //
-// A targetGroupID of 0 makes the server allocate a new id.
+// A targetGroupID of 0 makes the server allocate a new id, and the new group is
+// then found as CreateServerGroup finds its own, by name and groupType.
 func (c *Commands) CopyServerGroup(
 	ctx context.Context, sourceGroupID, targetGroupID ServerGroupID, name string, groupType GroupType,
 ) (ServerGroupID, error) {
@@ -402,7 +435,7 @@ func (c *Commands) CopyServerGroup(
 		return targetGroupID, nil
 	}
 
-	return createdGroupID[ServerGroupID](rows, "sgid", name)
+	return c.createdServerGroup(ctx, rows, name, groupType)
 }
 
 // AddClientToServerGroup adds a client to a server group.
