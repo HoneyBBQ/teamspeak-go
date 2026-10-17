@@ -43,6 +43,8 @@ type webDialer struct {
 	client  *http.Client
 	baseURL string
 	apiKey  string
+	// guest reports a connection that sends no api key.
+	guest bool
 }
 
 // Web returns a Dialer for TeamSpeak 6's WebQuery at baseURL, such as
@@ -52,6 +54,11 @@ type webDialer struct {
 // [WithLogin] is refused here; the server refuses `login` and `use` as
 // commands, and this transport answers `use` by addressing the server the
 // following requests name.
+//
+// An empty apiKey is refused by [New] with [ErrInvalidConfig]: the server
+// treats a request without a key as a guest's, so sending one by accident, from
+// an unset variable, would be a silent downgrade. [WebGuest] is the explicit
+// way to connect as a guest.
 //
 // WebQuery keeps no session to push notifications to, so [Dialer.SupportsNotifications]
 // is false and the On… methods for server events do nothing here. The server
@@ -66,12 +73,44 @@ func Web(baseURL, apiKey string) Dialer {
 //
 // Experimental: this package may change in a minor release.
 func WebWith(baseURL, apiKey string, options WebOptions) Dialer {
+	return newWebDialer(baseURL, apiKey, options)
+}
+
+func newWebDialer(baseURL, apiKey string, options WebOptions) webDialer {
 	client := options.Client
 	if client == nil {
 		client = &http.Client{}
 	}
 
 	return webDialer{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, client: client}
+}
+
+// WebGuest returns a Dialer for TeamSpeak 6's WebQuery at baseURL that sends no
+// api key, so the server runs every request in its guest scope: the access of
+// the Guest ServerQuery group, limited to the commands the guest scope allows.
+// Anything outside it answers HTTP 401, code 5120 ("out of scope"), and a
+// permission the group lacks answers 2568, both as an [*Error].
+//
+// TeamSpeak 6 beta13 and later serve it, and it is on unless the server was
+// started with --query-http-allow-guest=0 (or TSSERVER_QUERY_HTTP_ALLOW_GUEST=0).
+// Guest access is an explicit choice made by calling this: [Web] refuses an
+// empty api key with [ErrInvalidConfig]. A wrong key is not a guest either; the
+// server answers 5122, "invalid apikey".
+//
+// Experimental: this package may change in a minor release.
+func WebGuest(baseURL string) Dialer {
+	return WebGuestWith(baseURL, WebOptions{})
+}
+
+// WebGuestWith returns a guest WebQuery dialer with options applied; see
+// [WebGuest] and [WebWith].
+//
+// Experimental: this package may change in a minor release.
+func WebGuestWith(baseURL string, options WebOptions) Dialer {
+	d := newWebDialer(baseURL, "", options)
+	d.guest = true
+
+	return d
 }
 
 // SupportsNotifications reports that the server cannot push notifications over
@@ -89,10 +128,18 @@ func (d webDialer) needsLogin() bool { return false }
 // refuses `quit` with an out-of-scope error.
 func (d webDialer) needsQuit() bool { return false }
 
-// validate accepts the dialer: an http.Client uses the system's own trust
-// store for a https:// base URL, and there is nothing here that could be
-// missing the way an SSH host key policy can.
-func (d webDialer) validate() error { return nil }
+// validate refuses a missing api key, which the server would take as a guest's
+// request. An http.Client uses the system's own trust store for a https://
+// base URL, and nothing else here could be missing the way an SSH host key
+// policy can.
+func (d webDialer) validate() error {
+	if !d.guest && d.apiKey == "" {
+		return fmt.Errorf("%w: the web dialer has no api key, which the server would answer as a guest; "+
+			"use WebGuest to connect as a guest", ErrInvalidConfig)
+	}
+
+	return nil
+}
 
 func (d webDialer) open(_ context.Context) (engine.Transport, error) {
 	base, err := url.Parse(d.baseURL)
@@ -104,6 +151,7 @@ func (d webDialer) open(_ context.Context) (engine.Transport, error) {
 		client: d.client,
 		base:   base,
 		apiKey: d.apiKey,
+		guest:  d.guest,
 		lines:  make(chan string, 64),
 		done:   make(chan struct{}),
 		opened: time.Now(),
@@ -124,6 +172,7 @@ type webQuery struct {
 	bytesReceived atomic.Uint64
 	closeOnce     sync.Once
 	mu            sync.Mutex
+	guest         bool
 }
 
 // WriteLine sends one command line, which is one request, and hands the answer
@@ -217,7 +266,9 @@ func (w *webQuery) request(ctx context.Context, path string, body []byte) (*webA
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %w", ErrDial, path, err)
 	}
-	req.Header.Set("X-Api-Key", w.apiKey)
+	if !w.guest {
+		req.Header.Set("X-Api-Key", w.apiKey)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	w.bytesSent.Add(uint64(len(body)))

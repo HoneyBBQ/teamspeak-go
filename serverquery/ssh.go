@@ -79,6 +79,8 @@ type sshDialer struct {
 	addr         string
 	user         string
 	password     string
+	// guest reports a login as the server's guest user, with no password.
+	guest bool
 	// ownDial reports whether conn is the built-in dial, which is what has to
 	// check a host key. A connection the caller opened is the caller's to
 	// check, and the transport never sees its key.
@@ -110,6 +112,43 @@ func SSH(addr, user, password string) Dialer {
 	return SSHWith(addr, user, password, SSHOptions{})
 }
 
+// guestUser is the SSH user name TeamSpeak 6 serves its guest ServerQuery
+// access under, and the one name [SSH] refuses, so that a guest connection is
+// only ever the one [SSHGuest] asks for.
+const guestUser = "guest"
+
+// SSHGuest returns a Dialer for ServerQuery over SSH at addr that connects as
+// the server's guest user, which takes no password: the access is that of the
+// Guest ServerQuery group, whose permissions the server's administrator
+// controls, and a session can still raise it by sending `login`.
+//
+// TeamSpeak 6 beta13 and later serve it, and it is on unless the server was
+// started with --query-ssh-allow-guest=0 (or TSSERVER_QUERY_SSH_ALLOW_GUEST=0),
+// so a refused login is reported wrapping [ErrAuth]. Guest access is an
+// explicit choice made by calling this: [SSH] and [SSHWith] refuse an empty
+// user, an empty password and the user name "guest" with [ErrInvalidConfig],
+// so a missing credential never turns into a guest connection unnoticed.
+//
+// The host key policy applies exactly as it does to [SSH]: this constructor
+// takes none, so it always produces a dialer that [New] refuses. Use
+// [SSHGuestWith].
+//
+// Experimental: this package may change in a minor release.
+func SSHGuest(addr string) Dialer {
+	return SSHGuestWith(addr, SSHOptions{})
+}
+
+// SSHGuestWith returns a guest SSH dialer with options applied; see [SSHGuest]
+// and [SSHWith]. The host key policy is required in the same way.
+//
+// Experimental: this package may change in a minor release.
+func SSHGuestWith(addr string, options SSHOptions) Dialer {
+	d := newSSHDialer(addr, guestUser, "", options)
+	d.guest = true
+
+	return d
+}
+
 // SSHWith returns an SSH dialer with options applied. It needs exactly one way
 // to know the server: HostKeyCheck, for a connection this package dials, or
 // Open, for one made elsewhere, whose caller checks the key. New returns
@@ -117,6 +156,10 @@ func SSH(addr, user, password string) Dialer {
 //
 // Experimental: this package may change in a minor release.
 func SSHWith(addr, user, password string, options SSHOptions) Dialer {
+	return newSSHDialer(addr, user, password, options)
+}
+
+func newSSHDialer(addr, user, password string, options SSHOptions) sshDialer {
 	d := sshDialer{
 		addr:         addr,
 		user:         user,
@@ -138,6 +181,26 @@ func (d sshDialer) SupportsNotifications() bool { return true }
 
 func (d sshDialer) String() string { return "ssh " + d.user + "@" + d.addr }
 
+// credentialError refuses a login that is not a complete account login, naming
+// SSHGuest for the case where a guest is what was meant.
+func (d sshDialer) credentialError() error {
+	switch {
+	case d.guest:
+		return nil
+	case d.user == "":
+		return fmt.Errorf("%w: the ssh dialer has no user; use SSHGuest to connect as the guest user",
+			ErrInvalidConfig)
+	case strings.EqualFold(d.user, guestUser):
+		return fmt.Errorf("%w: %q is the server's guest user, which takes no password; "+
+			"use SSHGuest to connect as a guest", ErrInvalidConfig, d.user)
+	case d.password == "":
+		return fmt.Errorf("%w: the ssh dialer has no password for %q; "+
+			"use SSHGuest to connect as the guest user", ErrInvalidConfig, d.user)
+	}
+
+	return nil
+}
+
 // needsLogin reports that the query login is not a command here: SSH logged in
 // already.
 func (d sshDialer) needsLogin() bool { return false }
@@ -156,6 +219,10 @@ func (d sshDialer) needsQuit() bool { return true }
 // since the connection Open returns has already done its handshake: whoever
 // set both believes the key is being checked when it is not.
 func (d sshDialer) validate() error {
+	err := d.credentialError()
+	if err != nil {
+		return err
+	}
 	switch {
 	case d.ownDial && d.hostKeyCheck == nil:
 		return fmt.Errorf("%w: the ssh dialer checks the host key before it logs in, and "+
@@ -214,6 +281,9 @@ func (d sshDialer) open(ctx context.Context) (engine.Transport, error) {
 func (d sshDialer) dial(ctx context.Context, addr string) (SSHConn, error) {
 	config := &ssh.ClientConfig{
 		User: d.user,
+		// The library tries the "none" method before the password, which is
+		// what the server takes a guest with; the empty password that follows
+		// is for a server that asks for one first.
 		Auth: []ssh.AuthMethod{ssh.Password(d.password)},
 		// The caller's policy, converted: this is the only place the library's
 		// callback type is named, and validate has already refused a dialer

@@ -106,6 +106,10 @@ linters:
       - path: '(perm/perm|commands/names|prop/prop)\.go'
         linters: [gosec]
         text: "G101"
+      # The permission tables are two lists of names, one name per constant, and
+      # the second repeats the shape of the first by design.
+      - path: perm/perm.go
+        linters: [dupl, lll]
       - path: handshake/crypt_handshake.go
         linters: [gosec]
         text: "G115"
