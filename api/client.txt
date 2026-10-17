@@ -121,6 +121,8 @@ method (Client) DeleteTempPassword(ctx context.Context, password string) error
 method (Client) DeployServerSnapshot(ctx context.Context, snapshot teamspeak.ServerSnapshot, opts teamspeak.SnapshotDeployOptions) ([]teamspeak.ChannelMapping, error)
 method (*Client) Disconnect(ctx context.Context) error
 method (*Client) DisconnectWithMessage(ctx context.Context, message string) error
+method (*Client) DownloadAvatar(ctx context.Context, uid teamspeak.UID, opts teamspeak.FileTransferOptions) ([]byte, bool, error)
+method (*Client) DownloadIcon(ctx context.Context, id teamspeak.IconID, opts teamspeak.FileTransferOptions) ([]byte, bool, error)
 method (Client) EditChannel(ctx context.Context, cid teamspeak.ChannelID, opts teamspeak.ChannelEditOptions) error
 method (Client) EditClient(ctx context.Context, clid teamspeak.ClientID, opts teamspeak.ClientEditOptions) error
 method (Client) EditClientDatabase(ctx context.Context, clientDBID teamspeak.ClientDBID, opts teamspeak.ClientDatabaseEditOptions) error
@@ -158,6 +160,7 @@ method (Client) GetServerIDByPort(ctx context.Context, port uint16) (teamspeak.S
 method (Client) GetServerInfo(ctx context.Context) (teamspeak.Properties, error)
 method (Client) GetVersion(ctx context.Context) (teamspeak.ServerVersion, error)
 method (*Client) GoString() string
+method (*Client) Host() string
 method (Client) InitFileDownload(ctx context.Context, channelID teamspeak.ChannelID, path string, opts teamspeak.FileDownloadOptions) (*teamspeak.FileDownloadInfo, error)
 method (Client) InitFileUpload(ctx context.Context, channelID teamspeak.ChannelID, path string, size uint64, opts teamspeak.FileUploadOptions) (*teamspeak.FileUploadInfo, error)
 method (Client) IterateClientDatabase(ctx context.Context, opts teamspeak.PagingOptions) iter.Seq2[teamspeak.ClientDatabaseEntry, error]
@@ -216,7 +219,9 @@ method (*Client) OnServerEdited(handler func(ServerEditedEvent)) func()
 method (*Client) OnTextMessage(handler func(TextMessageEvent)) func()
 method (*Client) OnVoiceData(handler func(VoiceDataEvent)) func()
 method (Client) PokeClient(ctx context.Context, clid teamspeak.ClientID, message string) error
+method (Client) RemoveAvatar(ctx context.Context) (bool, error)
 method (Client) RemoveClientFromServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, clientDBID teamspeak.ClientDBID) error
+method (Client) RemoveIcon(ctx context.Context, id teamspeak.IconID) error
 method (Client) RenameChannelGroup(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, name string) error
 method (Client) RenameFile(ctx context.Context, channelID teamspeak.ChannelID, oldName string, newName string, opts teamspeak.FileRenameOptions) error
 method (Client) RenameServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, name string) error
@@ -233,9 +238,14 @@ method (Client) SendServerMessage(ctx context.Context, message string) error
 method (*Client) SendVoice(data []byte, codec teamspeak.Codec, _ VoiceOptions) error
 method (*Client) SendWhisper(data []byte, targets WhisperTargets, codec teamspeak.Codec) error
 method (*Client) ServerCapabilities() ServerCapabilities
+method (Client) SetChannelGroupIcon(ctx context.Context, cgid teamspeak.ChannelGroupID, icon teamspeak.IconID) error
+method (Client) SetChannelIcon(ctx context.Context, cid teamspeak.ChannelID, icon teamspeak.IconID) error
 method (Client) SetClientChannelGroup(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, channelID teamspeak.ChannelID, clientDBID teamspeak.ClientDBID) error
+method (Client) SetClientIcon(ctx context.Context, cldbid teamspeak.ClientDBID, icon teamspeak.IconID) error
 method (Client) SetCustomProperty(ctx context.Context, clientDBID teamspeak.ClientDBID, ident string, value string) error
 method (Client) SetQueryLogin(ctx context.Context, name string) (teamspeak.QueryLoginCreated, error)
+method (Client) SetServerGroupIcon(ctx context.Context, sgid teamspeak.ServerGroupID, icon teamspeak.IconID) error
+method (Client) SetServerIcon(ctx context.Context, icon teamspeak.IconID) error
 method (Client) StartServer(ctx context.Context, id teamspeak.ServerID) error
 method (*Client) Status() Status
 method (Client) StopFileTransfer(ctx context.Context, serverFileTransferID teamspeak.ServerFileTransferID, opts teamspeak.FileTransferStopOptions) error
@@ -249,6 +259,8 @@ method (*Client) UnsubscribeAllChannels(ctx context.Context) error
 method (*Client) UnsubscribeChannel(ctx context.Context, cid teamspeak.ChannelID) error
 method (Client) UpdateClient(ctx context.Context, opts teamspeak.ClientUpdateOptions) error
 method (Client) UpdateMessageFlag(ctx context.Context, messageID teamspeak.MessageID, flags teamspeak.MessageFlags) error
+method (*Client) UploadAvatar(ctx context.Context, data []byte, opts teamspeak.FileTransferOptions) (string, error)
+method (*Client) UploadIcon(ctx context.Context, data []byte, opts teamspeak.FileTransferOptions) (teamspeak.IconID, error)
 method (Client) UsePrivilegeKey(ctx context.Context, token string) error
 method (*Client) VerifyChannelPassword(ctx context.Context, cid teamspeak.ChannelID, password string) (bool, error)
 method (*Client) VerifyServerPassword(ctx context.Context, password string) (bool, error)
