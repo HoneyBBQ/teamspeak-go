@@ -298,13 +298,6 @@ var voiceAnswers = []voiceAnswer{
 	},
 	{
 		map[string]string{
-			"clid": "17", "connection_client_ip": "192.168.215.1", "connection_client_port": "44905",
-			"connection_idle_time": "0",
-		},
-		"getconnectioninfo", "notifyconnectioninfo",
-	},
-	{
-		map[string]string{
 			"clid": "17", "client_created": "1792225244", "client_platform": "Windows",
 			"client_totalconnections": "4", "client_version": "3.6.2 [Build: 1695203293]",
 		},
@@ -377,18 +370,87 @@ func TestResponseTable_ClientGetVariablesTakesTheRowForTheClientAsked(t *testing
 // named none.
 func TestResponseTable_EchoKeyIsLenient(t *testing.T) {
 	tr := newReadyCommandTracker()
-	rc, done := tr.register(responseFor("getconnectioninfo"), "", false)
+	rc, done := tr.register(responseFor("clientgetvariables"), "", false)
 	tr.setEcho(rc, "17")
-	tr.collect(map[string]string{"connection_client_ip": "192.168.215.1"}, "notifyconnectioninfo")
+	tr.collect(map[string]string{"client_version": "3.6.2"}, "notifyclientupdated")
 	tr.resolve(rc, nil, 0)
 	if got := receive(t, done).Data; len(got) != 1 {
 		t.Errorf("a row with no clid: data = %v, want it taken", got)
 	}
 
-	rc, done = tr.register(responseFor("getconnectioninfo"), "", false)
-	tr.collect(map[string]string{"clid": "3", "connection_client_ip": "10.0.0.1"}, "notifyconnectioninfo")
+	rc, done = tr.register(responseFor("clientgetvariables"), "", false)
+	tr.collect(map[string]string{"clid": "3", "client_version": "3.6.2"}, "notifyclientupdated")
 	tr.resolve(rc, nil, 0)
 	if got := receive(t, done).Data; len(got) != 1 {
 		t.Errorf("a request that named no clid: data = %v, want the row taken", got)
+	}
+}
+
+func connectionInfoRow(clid string) map[string]string {
+	return map[string]string{"clid": clid, "connection_client_ip": "192.168.215.1", "connection_ping": "1.0000"}
+}
+
+// Recorded on both servers with one command in flight, and the usual order on
+// TeamSpeak 6 with several: the row, then the error.
+func TestGetConnectionInfo_TakesTheRowThatBeatsTheError(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := tr.register(responseFor("getconnectioninfo"), "8", true)
+	tr.offerCorrelated("notifyconnectioninfo", connectionInfoRow("8"))
+	tr.resolve(rc, nil, 0)
+
+	if got := receive(t, done).Data; !reflect.DeepEqual(got, []map[string]string{connectionInfoRow("8")}) {
+		t.Errorf("data = %v", got)
+	}
+}
+
+// Recorded on TeamSpeak 6 with four commands in flight: the error first, the
+// row after. Attributing by position answered ErrNoData here.
+func TestGetConnectionInfo_WaitsForTheRowWhenTheErrorComesFirst(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := tr.register(responseFor("getconnectioninfo"), "8", true)
+	tr.resolve(rc, nil, 0)
+
+	select {
+	case res := <-done:
+		t.Fatalf("resolved before the row arrived: %v", res)
+	case <-time.After(20 * time.Millisecond):
+	}
+	tr.offerCorrelated("notifyconnectioninfo", connectionInfoRow("3"))
+	tr.offerCorrelated("notifyconnectioninfo", connectionInfoRow("8"))
+	if got := receive(t, done).Data; !reflect.DeepEqual(got, []map[string]string{connectionInfoRow("8")}) {
+		t.Errorf("data = %v", got)
+	}
+}
+
+// error 33, row 192, row 193, error 34 and so on, as recorded: each command
+// gets its own client's row, and two commands for one client both get it.
+func TestGetConnectionInfo_KeepsInFlightCommandsApart(t *testing.T) {
+	tr := newReadyCommandTracker()
+	b1, b1Done := tr.register(responseFor("getconnectioninfo"), "192", true)
+	c1, c1Done := tr.register(responseFor("getconnectioninfo"), "193", true)
+	b2, b2Done := tr.register(responseFor("getconnectioninfo"), "192", true)
+	tr.resolve(b1, nil, 0)
+	tr.offerCorrelated("notifyconnectioninfo", connectionInfoRow("192"))
+	tr.offerCorrelated("notifyconnectioninfo", connectionInfoRow("193"))
+	tr.resolve(c1, nil, 0)
+	tr.resolve(b2, nil, 0)
+
+	for clid, done := range map[string]<-chan commandResult{"192": b1Done, "193": c1Done, "192 again": b2Done} {
+		got := receive(t, done).Data
+		if len(got) != 1 || got[0]["clid"] != clid[:3] {
+			t.Errorf("%s: data = %v", clid, got)
+		}
+	}
+}
+
+func TestGetConnectionInfo_FailsOnTheErrorWithoutWaiting(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := tr.register(responseFor("getconnectioninfo"), "8", true)
+	want := &teamspeak.ServerError{Code: 512, Message: "invalid clientID"}
+	tr.resolve(rc, want, 0)
+
+	got := receive(t, done).Err
+	if !errors.Is(got, want) {
+		t.Errorf("err = %v, want %v", got, want)
 	}
 }

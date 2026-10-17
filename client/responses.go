@@ -37,12 +37,13 @@ type correlation struct {
 
 // responseSpec is how the voice protocol delivers one command's data.
 type responseSpec struct {
-	// Correlated is set for answers that follow the error.
+	// Correlated is set for answers matched on a request field wherever they fall
+	// against the error. One that has arrived by the error is taken; if none has,
+	// the command waits for it until the caller gives up.
 	Correlated *correlation
 	// EchoKey names the request parameter an answer echoes back, to tell it
 	// from the same notification sent for someone else: notifyclientupdated
-	// and notifyconnectioninfo are sent whenever any client changes or is
-	// asked about, so the row answering clientgetvariables clid=7 is the one
+	// is sent whenever any client changes, so the row answering clientgetvariables clid=7 is the one
 	// with clid=7. A row without the key is taken.
 	EchoKey string
 	// Notifications carry the data and are sent before the command's error.
@@ -89,36 +90,45 @@ func fileTransfer(answer string) *responseSpec {
 }
 
 var responses = map[string]*responseSpec{
-	"apikeyadd":                   inline("notifyapikeyadd"),
-	"apikeylist":                  inline("notifyapikeylist"),
-	"banfind":                     inline("notifybanfind"),
-	"banlist":                     inline("notifybanlist"),
-	"channelclientpermlist":       inline("notifychannelclientpermlist"),
-	"channelcreate":               {Notifications: []string{"notifychannelcreated"}, OwnRowsOnly: true},
-	"channelgetdescription":       inline("notifychanneledited"),
-	"channelgroupadd":             inline("notifychannelgrouplist"),
-	"channelgroupclientlist":      inline("notifychannelgroupclientlist"),
-	"channelgroupcopy":            inline("notifychannelgrouplist"),
-	"channelgrouplist":            inline("notifychannelgrouplist"),
-	"channelgrouppermlist":        inline("notifychannelgrouppermlist"),
-	"channelpermlist":             inline("notifychannelpermlist"),
-	"clientdbfind":                inline("notifyclientdbfind"),
-	"clientdblist":                inline("notifyclientdblist"),
-	"clientgetdbidfromuid":        inline("notifyclientdbidfromuid"),
-	"clientgetids":                inline("notifyclientids"),
-	"clientgetnamefromdbid":       inline("notifyclientnamefromdbid"),
-	"clientgetnamefromuid":        inline("notifyclientnamefromuid"),
-	"clientgetuidfromclid":        inline("notifyclientuidfromclid"),
-	"clientgetvariables":          {Notifications: []string{"notifyclientupdated"}, EchoKey: "clid"},
-	"clientpermlist":              inline("notifyclientpermlist"),
-	"clientsetserverquerylogin":   inline("notifyclientserverqueryloginpassword"),
-	"complainlist":                inline("notifycomplainlist"),
-	"ftgetfileinfo":               inline("notifyfileinfo"),
-	"ftgetfilelist":               inline("notifyfilelist"),
-	"ftinitdownload":              fileTransfer("notifystartdownload"),
-	"ftinitupload":                fileTransfer("notifystartupload"),
-	"ftlist":                      inline("notifyfiletransferlist"),
-	"getconnectioninfo":           {Notifications: []string{"notifyconnectioninfo"}, EchoKey: "clid"},
+	"apikeyadd":                 inline("notifyapikeyadd"),
+	"apikeylist":                inline("notifyapikeylist"),
+	"banfind":                   inline("notifybanfind"),
+	"banlist":                   inline("notifybanlist"),
+	"channelclientpermlist":     inline("notifychannelclientpermlist"),
+	"channelcreate":             {Notifications: []string{"notifychannelcreated"}, OwnRowsOnly: true},
+	"channelgetdescription":     inline("notifychanneledited"),
+	"channelgroupadd":           inline("notifychannelgrouplist"),
+	"channelgroupclientlist":    inline("notifychannelgroupclientlist"),
+	"channelgroupcopy":          inline("notifychannelgrouplist"),
+	"channelgrouplist":          inline("notifychannelgrouplist"),
+	"channelgrouppermlist":      inline("notifychannelgrouppermlist"),
+	"channelpermlist":           inline("notifychannelpermlist"),
+	"clientdbfind":              inline("notifyclientdbfind"),
+	"clientdblist":              inline("notifyclientdblist"),
+	"clientgetdbidfromuid":      inline("notifyclientdbidfromuid"),
+	"clientgetids":              inline("notifyclientids"),
+	"clientgetnamefromdbid":     inline("notifyclientnamefromdbid"),
+	"clientgetnamefromuid":      inline("notifyclientnamefromuid"),
+	"clientgetuidfromclid":      inline("notifyclientuidfromclid"),
+	"clientgetvariables":        {Notifications: []string{"notifyclientupdated"}, EchoKey: "clid"},
+	"clientpermlist":            inline("notifyclientpermlist"),
+	"clientsetserverquerylogin": inline("notifyclientserverqueryloginpassword"),
+	"complainlist":              inline("notifycomplainlist"),
+	"ftgetfileinfo":             inline("notifyfileinfo"),
+	"ftgetfilelist":             inline("notifyfilelist"),
+	"ftinitdownload":            fileTransfer("notifystartdownload"),
+	"ftinitupload":              fileTransfer("notifystartupload"),
+	"ftlist":                    inline("notifyfiletransferlist"),
+	// Matched on the echoed clid, wherever the row falls against the error:
+	// TeamSpeak 6 sent error id=0 ahead of the notifyconnectioninfo row in about
+	// 3% of the commands (6 of 240) when four were in flight at once, never with
+	// one at a time (over 800 sequential commands, both servers); TeamSpeak 3
+	// never did. Rows for the same client also arrive unprompted, when the target
+	// answers the server's notifyconnectioninforequest, so a row's position says
+	// nothing about which command it answers; the echo does.
+	"getconnectioninfo": {Correlated: &correlation{
+		Key: "clid", Notifications: []string{"notifyconnectioninfo"},
+	}},
 	"logview":                     inline("notifyserverlog"),
 	"messageget":                  inline("notifymessage"),
 	"messagelist":                 inline("notifymessagelist"),

@@ -238,6 +238,11 @@ the optional ones are pointers, a plain assignment of a record shares them;
 
 ### Fixed
 
+- `GetClientConnectionInfo` failed with `ErrNoData` now and then on TeamSpeak 6
+  when several commands were in flight, because the server sent the end of the
+  answer before the figures. It now takes the `notifyconnectioninfo` row that
+  names the client asked about, whichever side of the command's `error` it
+  falls on, and waits for it until the context gives up.
 - `GetChannelDescription` returned an empty description, or failed, when
   another channel edit arrived while it waited, because it read the first row
   of the answer. It now takes the row for the requested channel that carries
