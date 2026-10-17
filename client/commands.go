@@ -401,6 +401,7 @@ func (c *Client) handleCommand(h *transport.PacketHandler, s string) {
 	// channellistfinished ends the server's unprompted welcome sequence. It
 	// carries no data of its own, so it is the only reliable marker.
 	if cmd.Name == "channellistfinished" {
+		c.finishViewWelcome(h)
 		c.cmdTrack.signalWelcomeComplete()
 		c.traceWelcomeDone(h)
 
@@ -435,6 +436,7 @@ func (c *Client) handleOtherCommand(h *transport.PacketHandler, cmd *wire.Comman
 		// A channel of the welcome sequence, counted for the trace; the answer
 		// to a command that asked for the list is held as any named row is.
 		c.countWelcomeChannel(h)
+		c.collectViewChannel(h, cmd.Params)
 	}
 	c.cmdTrack.collect(cmd.Params, cmd.Name)
 	c.logger.Debug("unhandled or data command", slog.String("name", cmd.Name), slog.Int("params", len(cmd.Params)))

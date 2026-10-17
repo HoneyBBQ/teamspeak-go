@@ -43,33 +43,52 @@ func (c *Client) handleNotification(h *transport.PacketHandler, cmd *wire.Comman
 			slog.String("permid", cmd.Params["permid"]),
 			slog.String("permvalue", cmd.Params["permvalue"]))
 	default:
-		if !c.handleChannelNotification(cmd) {
+		if !c.handleChannelNotification(h, cmd) {
 			c.logger.Debug("unhandled notification", slog.String("name", cmd.Name))
 		}
 	}
 }
 
-// handleChannelNotification reports the channel, server, subscription and
-// plugin notifications, none of which changes state the client keeps. It
-// returns false for any other.
-func (c *Client) handleChannelNotification(cmd *wire.Command) bool {
+// handleChannelNotification applies the channel notifications to the channel
+// tree of the view, and reports them, with the server, subscription and plugin
+// notifications, which change nothing the client keeps. It returns false for
+// any other.
+func (c *Client) handleChannelNotification(h *transport.PacketHandler, cmd *wire.Command) bool {
 	switch cmd.Name {
 	case "notifychannelcreated":
 		if evt, ok := servernotify.ChannelCreated(cmd.Params); ok {
+			c.applyChannelEvent(h, cmd.Name, func(t teamspeak.ChannelTree) teamspeak.ChannelTree {
+				shown := evt
+				shown.Changes = viewChanges(evt.Changes)
+
+				return t.ApplyCreated(shown)
+			})
 			c.emitEvent(evt)
 		}
 	case "notifychanneledited":
 		// Not the answer to channelgetdescription, which is no edit; see
 		// servernotify.ChannelEdited.
 		if evt, ok := servernotify.ChannelEdited(cmd.Params); ok {
+			c.applyChannelEvent(h, cmd.Name, func(t teamspeak.ChannelTree) teamspeak.ChannelTree {
+				shown := evt
+				shown.Changes = viewChanges(evt.Changes)
+
+				return t.ApplyEdited(shown)
+			})
 			c.emitEvent(evt)
 		}
 	case "notifychannelmoved":
 		if evt, ok := servernotify.ChannelMoved(cmd.Params); ok {
+			c.applyChannelEvent(h, cmd.Name, func(t teamspeak.ChannelTree) teamspeak.ChannelTree {
+				return t.ApplyMoved(evt)
+			})
 			c.emitEvent(evt)
 		}
 	case "notifychanneldeleted":
 		if evt, ok := servernotify.ChannelDeleted(cmd.Params); ok {
+			c.applyChannelEvent(h, cmd.Name, func(t teamspeak.ChannelTree) teamspeak.ChannelTree {
+				return t.ApplyDeleted(evt)
+			})
 			c.emitEvent(evt)
 		}
 	case "notifychanneldescriptionchanged":
@@ -77,22 +96,28 @@ func (c *Client) handleChannelNotification(cmd *wire.Command) bool {
 	case "notifychannelpasswordchanged":
 		c.emitForChannel(cmd, func(id teamspeak.ChannelID) Event { return ChannelPasswordChangedEvent{ChannelID: id} })
 	default:
-		return c.handleServerNotification(cmd)
+		return c.handleServerNotification(h, cmd)
 	}
 
 	return true
 }
 
 // handleServerNotification reports the server, subscription, plugin command and
-// typing notifications. It returns false for any other.
-func (c *Client) handleServerNotification(cmd *wire.Command) bool {
+// typing notifications, and forgets the clients of a channel that is no longer
+// subscribed to. It returns false for any other.
+func (c *Client) handleServerNotification(h *transport.PacketHandler, cmd *wire.Command) bool {
 	switch cmd.Name {
 	case "notifyserveredited":
 		c.emitEvent(servernotify.ServerEdited(cmd.Params))
 	case "notifychannelsubscribed":
 		c.emitForChannel(cmd, func(id teamspeak.ChannelID) Event { return ChannelSubscribedEvent{ChannelID: id} })
 	case "notifychannelunsubscribed":
-		c.emitForChannel(cmd, func(id teamspeak.ChannelID) Event { return ChannelUnsubscribedEvent{ChannelID: id} })
+		// The server sends nothing about the clients of the channel, then or
+		// later, so they are dropped here; see ChannelUnsubscribedEvent.
+		if id := servernotify.ParseChannelID(cmd.Params["cid"]); id != 0 {
+			c.forgetChannelClients(h, id)
+			c.emitEvent(ChannelUnsubscribedEvent{ChannelID: id})
+		}
 	case "notifyplugincmd":
 		c.emitEvent(servernotify.PluginCommand(cmd.Params))
 	case "notifyclientchatcomposing":
@@ -119,6 +144,7 @@ func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *wire.Com
 		return
 	}
 	c.clients[info.ID] = info
+	c.view.revision++
 	// Identify self by the clid initserver assigned, never by nickname alone:
 	// another client whose nickname is "<our nick><digits>" (the server's
 	// rename for a taken nickname) would otherwise be mistaken for us,
@@ -158,7 +184,10 @@ func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Comm
 		return
 	}
 	isSelf := evt.ClientID == c.clid
-	delete(c.clients, evt.ClientID)
+	if _, known := c.clients[evt.ClientID]; known {
+		delete(c.clients, evt.ClientID)
+		c.view.revision++
+	}
 	// This client leaving while a Disconnect waits is the answer to its
 	// goodbye, not the server removing it.
 	answersGoodbye := isSelf && c.goodbye != nil
@@ -203,6 +232,7 @@ func (c *Client) handleClientMoved(h *transport.PacketHandler, cmd *wire.Command
 	if info, ok := c.clients[evt.ClientID]; ok {
 		info.ChannelID = evt.TargetChannelID
 		c.clients[evt.ClientID] = info
+		c.view.revision++
 	}
 	isSelf := evt.ClientID == c.clid
 	c.mu.Unlock()
@@ -271,6 +301,7 @@ func (c *Client) handleClientUpdated(h *transport.PacketHandler, cmd *wire.Comma
 	// Changes and the client list share nothing.
 	if info, ok := c.clients[evt.ClientID]; ok {
 		c.clients[evt.ClientID] = evt.Changes.Apply(info)
+		c.view.revision++
 	}
 	if evt.ClientID == c.clid && evt.Changes.Nickname != nil {
 		c.nickname = *evt.Changes.Nickname
@@ -300,6 +331,7 @@ func (c *Client) handleClientChannelGroupChanged(h *transport.PacketHandler, cmd
 		info.ChannelGroupID = evt.ChannelGroupID
 		info.ChannelGroupInheritedChannelID = evt.ChannelGroupInheritedChannelID
 		c.clients[evt.ClientID] = info
+		c.view.revision++
 	}
 	c.mu.Unlock()
 

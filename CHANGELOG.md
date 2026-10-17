@@ -200,6 +200,31 @@ the optional ones are pointers, a plain assignment of a record shares them;
   beta13.1 lists or documents and answers with `command not found`:
   `authenticationtoken`, `chatlogintoken` and the `homebase*` commands, and that
   `clientdblist -homebaseonly` is accepted without being applied.
+- `ChannelTree`, in the root package, keeps the channels of a server in the
+  order the server shows them. `NewChannelTree` builds one from channel records
+  in any order, such as `ListChannels` returns, and `ApplyCreated`,
+  `ApplyEdited`, `ApplyMoved` and `ApplyDeleted` follow the four channel events,
+  so a ServerQuery connection, which receives them, can keep a tree. It never
+  changes: each of those returns a new tree, and the records it returns are
+  copies. `Get`, `Children`, `Path` and `Len` read it. A channel's `Order` in a
+  tree is worked out from its place and is not the value an event carried,
+  because the server rewrites the `channel_order` of the sibling after a channel
+  that was created, moved or deleted, and tells no one. An event the tree cannot
+  place puts the channel at the end of its parent and makes `Consistent` report
+  false. Experimental.
+- `(*client.Client).View` returns a `ServerView` of what the voice client knows
+  of the server: the channel tree in the server's order (`Channels`, `Channel`,
+  `Children`, `Path`) and the clients it has been told about and where they are
+  (`Clients`, `Client`, `ClientsIn`), with `Self`, `Revision` and a `Status`
+  (`ViewEmpty`, `ViewLoading`, `ViewLive`, `ViewStale`). It is a copy, kept
+  current by the notifications, and shares its clients with the record
+  `TextMessageEvent.InvokerGroups` reads. `WaitView` returns once it is live,
+  which is when the server has finished the channel list, and `OnViewReady`
+  reports that, on every reconnection too. A reconnection clears the view; a
+  connection that ends leaves the last view, stale. The channels' `TotalClients`
+  and `TotalFamilyClients` are nil in it, since the server sends them once and
+  nothing updates them. Clients in channels the client is not subscribed to are
+  not in it. Experimental.
 
 ### Changed
 
@@ -223,6 +248,13 @@ the optional ones are pointers, a plain assignment of a record shares them;
 - Over SSH, a TeamSpeak 6 server can hold the end of a reply until the client
   writes again; the SSH transport now writes an empty line when a command has
   waited 2 seconds, and once a second after, which releases it.
+- After the server unsubscribed the voice client from a channel, the client
+  kept what it knew of the channel's clients, though the server sends no leave
+  for them and nothing about them afterwards, so their `InvokerGroups` and
+  channels went stale. They are now forgotten when `ChannelUnsubscribedEvent`
+  arrives, except the client itself, and subscribing again announces them anew.
+  The documentation of `ClientEnterEvent` and `ChannelUnsubscribedEvent` says
+  what the client is and is not told.
 
 ## v1.0.0-beta.7 (2026-10-17)
 

@@ -169,6 +169,9 @@ type Client struct {
 	cmdTrack *commandTracker
 	throttle *commandThrottle
 	clients  map[teamspeak.ClientID]teamspeak.ClientEntry
+	// view is the channel tree and the rest of the server view; the client
+	// list it shares with the roster is clients.
+	view viewState
 	// evtChain is the event middleware wrapped around dispatchEvent.
 	evtChain func(Event)
 	addr     string
@@ -251,6 +254,7 @@ type Client struct {
 	onKicked         subscribers[KickedEvent]
 	onVoiceData      subscribers[VoiceDataEvent]
 	onNotification   subscribers[NotificationEvent]
+	onViewReady      subscribers[ViewReadyEvent]
 	status           Status
 	mu               sync.Mutex
 	clid             teamspeak.ClientID
@@ -559,6 +563,7 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler, 
 		return nil
 	}
 	c.status = StatusDisconnected
+	c.endViewLocked(nil)
 	report := c.endAttemptLocked(errDisconnectedDuringHandshake)
 	sessionEnd := c.endSessionLocked(nil)
 	handler := c.handler
@@ -917,6 +922,7 @@ func (c *Client) resetForConnectLocked() string {
 	}
 	c.cmdTrack.reset(teamspeak.ErrNotConnected)
 	c.clients = make(map[teamspeak.ClientID]teamspeak.ClientEntry)
+	c.resetViewLocked()
 	c.clid = 0
 	// Reset to the TS3 default; initserver sets it from the server's version.
 	c.uidAlgorithm = identity.UIDSHA1
@@ -1024,6 +1030,7 @@ func (c *Client) failConnectionLocked(err error) {
 		return
 	}
 	c.status = StatusDisconnected
+	c.endViewLocked(err)
 	handler := c.handler
 	c.emitDisconnectedLocked(err, c.failedAttemptVerdictLocked(err))
 	c.mu.Unlock()
@@ -1078,6 +1085,7 @@ func (c *Client) handleConnectionClosed(h *transport.PacketHandler, err error) {
 	if err == nil {
 		err = errConnectionClosed
 	}
+	c.endViewLocked(err)
 	c.runSessionEndLocked(c.endSessionLocked(err))
 	// Announced first, then retried: a caller watching OnDisconnected should
 	// hear about the drop even when a reconnect is already on its way, because
