@@ -49,6 +49,70 @@ the optional ones are pointers, a plain assignment of a record shares them;
   groups a `TextMessageEvent` carries as `InvokerGroups` were stale after any
   group change, and are now the current ones; the client's own nickname follows
   the server's rename.
+- Typed methods for the documented commands that could only be reached through
+  `Exec`, on `*teamspeak.Commands` and so on both clients. API keys:
+  `AddAPIKey`, `ListAPIKeys` and `DeleteAPIKey`. Query logins: `AddQueryLogin`,
+  `ListQueryLogins`, `DeleteQueryLogin` and `SetQueryLogin` (ServerQuery only;
+  the voice protocol answers 2). Client custom properties: `SetCustomProperty`,
+  `DeleteCustomProperty`, `ListCustomProperties` and `FindCustomProperty`.
+  `SendOfflineMessage` completes the offline message set, and
+  `GetOwnPermission` reads a permission's value (an `OwnPermission`) for the
+  connection's own client. A secret the server shows once — the key of
+  `AddAPIKey`, the password of `AddQueryLogin` and `SetQueryLogin`, the token
+  of `CreateServer`, a snapshot's data — is a plain field of the result
+  (`APIKeyCreated.Key`, `QueryLoginCreated.Password`, `ServerCreated.Token`,
+  `ServerSnapshot.Data`), and the result's `String`, `GoString` and `LogValue`
+  leave it out, as `PrivilegeKey` does with its token.
+- Instance administration, which needs a ServerQuery connection with the
+  instance permissions (a voice Server Admin is refused with 2568):
+  `ListServers`, `CreateServer`, `StartServer`, `StopServer`, `DeleteServer`
+  (with `-noevent`), `StopInstance` and `SendGlobalMessage`;
+  `AddServerGroupPermissionByType` and `DeleteServerGroupPermissionByType` set
+  or remove a permission on every regular group of one `GroupAutoUpdateType`
+  across all virtual servers; `CreateServerSnapshot` and `DeployServerSnapshot`
+  (with a password, `-keepfiles`, and `-mapping`, which returns the
+  `ChannelMapping` of each channel). A server without a license runs one
+  virtual server, so `CreateServer` needs the first stopped. A deploy drops the
+  deploying connection's server selection over raw TCP and SSH.
+- Bans: `BanOptions` takes `MyTSID` and `LastNickname`, and `BanEntry` reads
+  `MyTSID`; both servers send the field. `BanListOptions` pages with `Start`
+  and `Limit` (the server caps a page at 200). `FindBans` sends `banfind`,
+  which only TeamSpeak 6 has: over SSH and the voice protocol, not WebQuery,
+  which refuses it, and not TeamSpeak 3.
+- `PrivilegeKeyOptions.CustomSet` sends `tokencustomset`, and
+  `PrivilegeKey.CustomSet` reads `token_customset`. Each ident and value is
+  escaped inside the set as well as in the parameter: sent with only the
+  parameter's escape, a value with a space reaches the client that redeems the
+  key cut at the space.
+- `FindClientsWith` takes `ClientFindOptions{ChannelID, ChannelUID}`, which
+  send `-cid` and `-chuid` so that TeamSpeak 6 reports each client's channel in
+  `ClientMatch.ChannelID` and `ChannelUID`. The flags report; they filter
+  nothing, and TeamSpeak 3 accepts them and leaves the channel out.
+  `FindClients` is unchanged.
+- `FileUploadInfo.IP` and `FileDownloadInfo.IP` carry the `ip` the server adds
+  when the file transfer is not reachable at the address of the connection.
+- `serverquery.Client` gains the session commands: `Login`, `Logout`, `Use`
+  (with `ByID` and `ByPort`), `RegisterNotifications` and
+  `UnregisterNotifications`. After a `Use` the client reads its own id again,
+  and `Logout` clears it, since the id belongs to the server selected. A `Use`
+  the server refuses leaves the connection on no server, which was measured on
+  both generations; the client forgets its id with it. A reconnect starts over
+  from the options given to `New`, as it always did, and does not repeat what
+  was done by hand.
+- The voice client's response table maps the answers it was missing, so a raw
+  `Exec` returns their rows: `tokenadd`, `tokenlist`, `apikeyadd`,
+  `apikeylist`, TeamSpeak 6's `permget`, `getconnectioninfo`,
+  `clientgetvariables`, `servergetvariables`, `clientsetserverquerylogin` and
+  `banfind`. The rows of `clientgetvariables` and `getconnectioninfo` are the
+  ones for the client asked about, not the same notification sent for another.
+- `ClientListOptions.Icon` sends `-icon`, which fills `ClientEntry.IconID` in a
+  list; no other list brings it.
+
+### Changed
+
+- `ListChannels` also sends `-secondsempty -banners`. The banner fills
+  `Channel.BannerURL` and `BannerMode`; `Channel` has no field for the
+  `seconds_empty` the first adds.
 
 ## v1.0.0-beta.7 (2026-10-17)
 
