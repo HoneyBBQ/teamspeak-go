@@ -40,6 +40,21 @@ type KickedEvent = teamspeak.KickedEvent
 // VoiceDataEvent is teamspeak.VoiceDataEvent.
 type VoiceDataEvent = teamspeak.VoiceDataEvent
 
+// ClientUpdatedEvent is teamspeak.ClientUpdatedEvent.
+type ClientUpdatedEvent = teamspeak.ClientUpdatedEvent
+
+// ClientServerGroupChange is teamspeak.ClientServerGroupChange.
+type ClientServerGroupChange = teamspeak.ClientServerGroupChange
+
+// ClientServerGroupAddedEvent is teamspeak.ClientServerGroupAddedEvent.
+type ClientServerGroupAddedEvent = teamspeak.ClientServerGroupAddedEvent
+
+// ClientServerGroupRemovedEvent is teamspeak.ClientServerGroupRemovedEvent.
+type ClientServerGroupRemovedEvent = teamspeak.ClientServerGroupRemovedEvent
+
+// ClientChannelGroupChangedEvent is teamspeak.ClientChannelGroupChangedEvent.
+type ClientChannelGroupChangedEvent = teamspeak.ClientChannelGroupChangedEvent
+
 // Status is teamspeak.Status: the state of a client's connection.
 type Status = teamspeak.Status
 

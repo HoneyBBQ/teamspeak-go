@@ -1,9 +1,10 @@
 package teamspeak
 
 // Event is a server event: a TextMessageEvent, ClientEnterEvent,
-// ClientLeaveEvent, ClientMovedEvent, PokeEvent, VoiceDataEvent or
-// NotificationEvent. Code that receives events of any kind tells them apart
-// with a type switch.
+// ClientLeaveEvent, ClientMovedEvent, PokeEvent, VoiceDataEvent,
+// NotificationEvent, ClientUpdatedEvent, ClientServerGroupAddedEvent,
+// ClientServerGroupRemovedEvent or ClientChannelGroupChangedEvent. Code that
+// receives events of any kind tells them apart with a type switch.
 //
 // The set is closed — the method is unexported — because a client delivers
 // only the events it knows: a type invented elsewhere would have no handler to
@@ -17,12 +18,16 @@ type Event interface {
 }
 
 func (TextMessageEvent) serverEvent()  {}
-func (ClientEnterEvent) serverEvent()  {}
 func (ClientLeaveEvent) serverEvent()  {}
 func (ClientMovedEvent) serverEvent()  {}
 func (PokeEvent) serverEvent()         {}
 func (VoiceDataEvent) serverEvent()    {}
 func (NotificationEvent) serverEvent() {}
+
+func (ClientUpdatedEvent) serverEvent()             {}
+func (ClientServerGroupAddedEvent) serverEvent()    {}
+func (ClientServerGroupRemovedEvent) serverEvent()  {}
+func (ClientChannelGroupChangedEvent) serverEvent() {}
 
 // ClientEnterEvent is emitted when a client enters view
 // (notifycliententerview): on connecting, for everyone already there, and
@@ -35,6 +40,17 @@ func (NotificationEvent) serverEvent() {}
 type ClientEnterEvent struct {
 	ClientEntry
 }
+
+// Clone returns a copy of the event whose record shares no memory with e's; see
+// ClientEntry.Clone. It is here because the embedded record's Clone would
+// otherwise be promoted and return the record alone.
+func (e ClientEnterEvent) Clone() ClientEnterEvent {
+	e.ClientEntry = e.ClientEntry.Clone()
+
+	return e
+}
+
+func (ClientEnterEvent) serverEvent() {}
 
 // NotificationEvent is a notification exactly as the server sent it: its name,
 // such as "notifychanneledited", and its parameters, unescaped. The notify
@@ -155,4 +171,100 @@ type VoiceDataEvent struct {
 	ClientID ClientID
 	// Codec is the codec Data is encoded in.
 	Codec Codec
+}
+
+// ClientUpdatedEvent is emitted when a client in view changes some of its
+// properties (notifyclientupdated): its nickname, away or mute state, server
+// groups, talk power, description. It can be this client itself. Only the voice
+// client delivers it: a TeamSpeak 3 ServerQuery connection is not sent it.
+//
+// Changes holds only what the notification named; a nil field did not change.
+// Server groups arrive as the complete new list. Whoever invoked the change is
+// named only when someone edited the client (clientedit): the client changing
+// itself, and the server changing its groups, name no one.
+//
+// The client has already applied the change to what it knows of that client
+// when a handler runs, so a TextMessageEvent that follows carries the new
+// InvokerGroups. A client the voice client does not know, because it is in no
+// channel in view, is reported without being added.
+type ClientUpdatedEvent struct {
+	// Changes are the properties the notification carried. Each handler gets
+	// its own copy.
+	Changes ClientChanges
+	// InvokerName is who edited the client (invokername); empty when no one did.
+	InvokerName string
+	// InvokerUID is the identity of who edited the client (invokeruid).
+	InvokerUID UID
+	// ClientID is the client that changed (clid).
+	ClientID ClientID
+	// InvokerID is the client id of who edited the client (invokerid); 0 when
+	// no one did.
+	InvokerID ClientID
+}
+
+// ClientServerGroupChange is what a server group being granted or taken away
+// reports (notifyservergroupclientadded, notifyservergroupclientdeleted). Two
+// event types wrap it so that a type switch can tell them apart, as
+// ClientEnterEvent wraps ClientEntry.
+//
+// The notification names the group and who did it. It does not carry the
+// client's complete list of groups: that arrives as a ClientUpdatedEvent, in
+// either order relative to this one, and is what the client's own record of
+// the client follows.
+type ClientServerGroupChange struct {
+	// InvokerName is who changed the group (invokername); "Server" when the
+	// server did.
+	InvokerName string
+	// InvokerUID is the identity of who changed the group (invokeruid).
+	InvokerUID UID
+	// Nickname is the affected client's nickname (name).
+	Nickname string
+	// UID is the affected client's identity (cluid).
+	UID UID
+	// GroupID is the server group (sgid).
+	GroupID ServerGroupID
+	// ClientID is the affected client (clid).
+	ClientID ClientID
+	// InvokerID is the client id of who changed the group (invokerid); 0 when the
+	// server did.
+	InvokerID ClientID
+}
+
+// ClientServerGroupAddedEvent is emitted when a client is added to a server
+// group (notifyservergroupclientadded). Only the voice client delivers it.
+type ClientServerGroupAddedEvent struct {
+	ClientServerGroupChange
+}
+
+// ClientServerGroupRemovedEvent is emitted when a client is removed from a
+// server group (notifyservergroupclientdeleted). Only the voice client delivers
+// it.
+type ClientServerGroupRemovedEvent struct {
+	ClientServerGroupChange
+}
+
+// ClientChannelGroupChangedEvent is emitted when a client's channel group in a
+// channel changes (notifyclientchannelgroupchanged), which also happens
+// whenever the client moves, since the group is per channel. Only the voice
+// client delivers it.
+//
+// The voice client updates the channel group it remembers for the client when
+// ChannelID is the channel the client is in.
+type ClientChannelGroupChangedEvent struct {
+	// InvokerName is who changed the group (invokername); "Server" for a move.
+	InvokerName string
+	// InvokerUID is the identity of who changed the group (invokeruid).
+	InvokerUID UID
+	// ChannelID is the channel the group applies in (cid).
+	ChannelID ChannelID
+	// ChannelGroupID is the client's channel group there (cgid).
+	ChannelGroupID ChannelGroupID
+	// ChannelGroupInheritedChannelID is the channel the group is inherited from
+	// (cgi).
+	ChannelGroupInheritedChannelID ChannelID
+	// ClientID is the client whose group changed (clid).
+	ClientID ClientID
+	// InvokerID is the client id of who changed the group (invokerid); 0 for a
+	// move or when the server did.
+	InvokerID ClientID
 }

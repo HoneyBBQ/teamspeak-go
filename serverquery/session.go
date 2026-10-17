@@ -583,12 +583,10 @@ func (c *Client) dispatchNotification(cmd *wire.Command) {
 }
 
 // cloneEnterEvent and cloneTextMessage give each handler but the last its own
-// copy of the one slice the event carries, so a handler changing it cannot
-// change what the next one sees.
+// copy of what the event carries, so a handler changing it cannot change what
+// the next one sees.
 func cloneEnterEvent(e teamspeak.ClientEnterEvent) teamspeak.ClientEnterEvent {
-	e.ServerGroups = slices.Clone(e.ServerGroups)
-
-	return e
+	return e.Clone()
 }
 
 func cloneTextMessage(m teamspeak.TextMessageEvent) teamspeak.TextMessageEvent {
@@ -612,7 +610,9 @@ func (c *Client) handleClientEnter(cmd *wire.Command) {
 	c.clients[entry.ID] = entry
 	c.mu.Unlock()
 
-	evt := teamspeak.ClientEnterEvent{ClientEntry: entry}
+	// The event's record is its own: the last handler gets the event itself, and
+	// must not be able to edit the client list through it.
+	evt := teamspeak.ClientEnterEvent{ClientEntry: entry.Clone()}
 	c.events.Push(func() {
 		c.subs.clientEnter.Deliver(c.logger, "ClientEnterEvent", evt, cloneEnterEvent)
 	})

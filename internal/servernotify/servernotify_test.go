@@ -240,3 +240,136 @@ func TestClientEnter_AbsentFieldsAreUnknown(t *testing.T) {
 		t.Errorf("ClientEnter = %+v, want %+v", got, want)
 	}
 }
+
+// A change is set exactly when its key was sent.
+func TestClientUpdated_SetsOnlyTheKeysSent(t *testing.T) {
+	got := servernotify.ClientUpdated(map[string]string{
+		"clid": "7", "client_nickname": "Ann2", "client_away": "1", "client_away_message": "",
+	})
+	want := teamspeak.ClientUpdatedEvent{
+		ClientID: 7,
+		Changes: teamspeak.ClientChanges{
+			Nickname: new("Ann2"), IsAway: new(true), AwayMessage: new(""),
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ClientUpdated = %+v, want %+v", got, want)
+	}
+}
+
+// A group change sends the complete new list, and an empty one is "none".
+func TestClientUpdated_ReadsTheGroupList(t *testing.T) {
+	got := servernotify.ClientUpdated(map[string]string{"clid": "7", "client_servergroups": "6,9"})
+	if got.Changes.ServerGroups == nil || !reflect.DeepEqual(*got.Changes.ServerGroups, []teamspeak.ServerGroupID{6, 9}) {
+		t.Errorf("groups = %v", got.Changes.ServerGroups)
+	}
+
+	got = servernotify.ClientUpdated(map[string]string{"clid": "7", "client_servergroups": ""})
+	if got.Changes.ServerGroups == nil || len(*got.Changes.ServerGroups) != 0 {
+		t.Errorf("empty list = %v, want a pointer to an empty list", got.Changes.ServerGroups)
+	}
+
+	got = servernotify.ClientUpdated(map[string]string{"clid": "7", "client_talk_power": "75"})
+	if got.Changes.ServerGroups != nil || got.Changes.TalkPower == nil || *got.Changes.TalkPower != 75 {
+		t.Errorf("changes = %+v", got.Changes)
+	}
+}
+
+func TestClientUpdated_NamesAnAdminsEdit(t *testing.T) {
+	got := servernotify.ClientUpdated(map[string]string{
+		"clid": "7", "client_description": "hello", "invokerid": "2", "invokername": "Admin", "invokeruid": "adm",
+	})
+	want := teamspeak.ClientUpdatedEvent{
+		ClientID: 7, InvokerID: 2, InvokerName: "Admin", InvokerUID: "adm",
+		Changes: teamspeak.ClientChanges{Description: new("hello")},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ClientUpdated = %+v, want %+v", got, want)
+	}
+}
+
+// What an update names is read under the key, and so the name, a list does.
+func TestClientChanges_ReadAKeyAsTheListDoes(t *testing.T) {
+	row := map[string]string{
+		"clid": "7", "client_nickname": "Ann", "client_unique_identifier": "u", "client_type": "1",
+		"client_servergroups": "6", "client_channel_group_id": "8", "client_away": "1", "client_is_recording": "1",
+		"client_is_talker": "1", "client_database_id": "42", "client_away_message": "m",
+		"client_input_muted": "1", "client_output_muted": "0", "client_outputonly_muted": "1",
+		"client_input_hardware": "1", "client_output_hardware": "0", "client_is_channel_commander": "1",
+		"client_is_priority_speaker": "1", "client_talk_power": "75", "client_talk_request": "5",
+		"client_talk_request_msg": "r", "client_description": "d", "client_meta_data": "md",
+		"client_flag_avatar": "av", "client_icon_id": "99", "client_nickname_phonetic": "ph",
+		"client_unread_messages": "2", "client_needed_serverquery_view_power": "75",
+		"client_channel_group_inherited_channel_id": "3", "client_country": "SE", "client_version": "v",
+		"client_platform": "p", "connection_client_ip": "1.2.3.4", "client_badges": "b",
+		"client_signed_badges": "sb", "client_myteamspeak_id": "mt", "client_myteamspeak_avatar": "mta",
+		"client_integrations": "i", "client_user_tag": "ut", "client_is_streaming": "1",
+	}
+	commands := teamspeak.NewCommands(teamspeak.ExecutorFunc(
+		func(context.Context, teamspeak.Request) ([]map[string]string, error) {
+			return []map[string]string{row}, nil
+		}))
+	listed, err := commands.ListClients(t.Context(), teamspeak.ClientListOptions{})
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("ListClients = %v, %v", listed, err)
+	}
+
+	got := servernotify.ClientChanges(row).Apply(teamspeak.ClientEntry{ID: 7})
+	if !reflect.DeepEqual(got, listed[0]) {
+		t.Errorf("changes applied = %+v\nlist            = %+v", got, listed[0])
+	}
+}
+
+func TestClientServerGroup_ReadsTheMeasuredNotification(t *testing.T) {
+	got := servernotify.ClientServerGroup(map[string]string{
+		"sgid": "9", "clid": "5", "name": "Ann", "cluid": "u5",
+		"invokerid": "2", "invokername": "Admin", "invokeruid": "adm",
+	})
+	want := teamspeak.ClientServerGroupChange{
+		GroupID: 9, ClientID: 5, Nickname: "Ann", UID: "u5", InvokerID: 2, InvokerName: "Admin", InvokerUID: "adm",
+	}
+	if got != want {
+		t.Errorf("ClientServerGroup = %+v, want %+v", got, want)
+	}
+}
+
+// A move sends the group change from the server: invoker 0 and "Server".
+func TestClientChannelGroupChanged_ReadsAServerInvokedChange(t *testing.T) {
+	got := servernotify.ClientChannelGroupChanged(map[string]string{
+		"invokerid": "0", "invokername": "Server", "invokeruid": "", "cgid": "8", "cid": "10", "clid": "5", "cgi": "10",
+	})
+	want := teamspeak.ClientChannelGroupChangedEvent{
+		InvokerName: "Server", ClientID: 5, ChannelID: 10, ChannelGroupID: 8, ChannelGroupInheritedChannelID: 10,
+	}
+	if got != want {
+		t.Errorf("ClientChannelGroupChanged = %+v, want %+v", got, want)
+	}
+}
+
+// A number outside 32 bits clamps instead of wrapping, and what is not a number
+// reads as 0, or as unset where the key is absent.
+func TestClientChanges_ClampsNumbersTo32Bits(t *testing.T) {
+	for _, c := range []struct {
+		raw  string
+		want int32
+	}{
+		{"75", 75}, {"-3", -3}, {"2147483647", 2147483647}, {"2147483648", 2147483647},
+		{"99999999999999", 2147483647}, {"-2147483648", -2147483648}, {"-2147483649", -2147483648},
+		{"-99999999999999", -2147483648}, {"99999999999999999999", 0}, {"abc", 0}, {"", 0},
+	} {
+		got := servernotify.ClientChanges(map[string]string{"client_talk_power": c.raw}).TalkPower
+		if got == nil || *got != c.want {
+			t.Errorf("client_talk_power=%q read %v, want %d", c.raw, got, c.want)
+		}
+	}
+}
+
+func TestClientEnter_ClampsAndLeavesOutNumbers(t *testing.T) {
+	got := servernotify.ClientEnter(map[string]string{"clid": "1", "client_talk_power": "99999999999999"})
+	if got.TalkPower == nil || *got.TalkPower != 2147483647 || got.UnreadMessages != nil {
+		t.Errorf("TalkPower = %v, UnreadMessages = %v", got.TalkPower, got.UnreadMessages)
+	}
+	if got := servernotify.ClientEnter(map[string]string{"clid": "1", "client_talk_power": ""}); got.TalkPower != nil {
+		t.Errorf("an empty value read as %d, want unset", *got.TalkPower)
+	}
+}

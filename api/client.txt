@@ -141,9 +141,13 @@ method (Client) ListTempPasswords(ctx context.Context) ([]teamspeak.TempPassword
 method (*Client) LogValue() slog.Value
 method (Client) MoveChannel(ctx context.Context, cid teamspeak.ChannelID, parentID teamspeak.ChannelID, opts teamspeak.ChannelMoveOptions) error
 method (Client) MoveClient(ctx context.Context, clid teamspeak.ClientID, channelID teamspeak.ChannelID, opts teamspeak.ClientMoveOptions) error
+method (*Client) OnClientChannelGroupChanged(handler func(ClientChannelGroupChangedEvent)) func()
 method (*Client) OnClientEnter(handler func(ClientEnterEvent)) func()
 method (*Client) OnClientLeave(handler func(ClientLeaveEvent)) func()
 method (*Client) OnClientMoved(handler func(ClientMovedEvent)) func()
+method (*Client) OnClientServerGroupAdded(handler func(ClientServerGroupAddedEvent)) func()
+method (*Client) OnClientServerGroupRemoved(handler func(ClientServerGroupRemovedEvent)) func()
+method (*Client) OnClientUpdated(handler func(ClientUpdatedEvent)) func()
 method (*Client) OnConnected(handler func(ConnectedEvent)) func()
 method (*Client) OnDisconnected(handler func(DisconnectedEvent)) func()
 method (*Client) OnKicked(handler func(KickedEvent)) func()
@@ -178,9 +182,14 @@ method (Client) UpdateMessageFlag(ctx context.Context, messageID teamspeak.Messa
 method (Client) UsePrivilegeKey(ctx context.Context, token string) error
 method (Client) ViewLog(ctx context.Context, opts teamspeak.LogViewOptions) (teamspeak.LogPage, error)
 method (Client) WhoAmI(ctx context.Context) (teamspeak.WhoAmI, error)
+type ClientChannelGroupChangedEvent = teamspeak.ClientChannelGroupChangedEvent
 type ClientEnterEvent = teamspeak.ClientEnterEvent
 type ClientLeaveEvent = teamspeak.ClientLeaveEvent
 type ClientMovedEvent = teamspeak.ClientMovedEvent
+type ClientServerGroupAddedEvent = teamspeak.ClientServerGroupAddedEvent
+type ClientServerGroupChange = teamspeak.ClientServerGroupChange
+type ClientServerGroupRemovedEvent = teamspeak.ClientServerGroupRemovedEvent
+type ClientUpdatedEvent = teamspeak.ClientUpdatedEvent
 type CommandMiddleware = teamspeak.CommandMiddleware
 type ConnectDoneInfo struct
 field ConnectDoneInfo.Target string

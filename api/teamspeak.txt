@@ -147,6 +147,38 @@ field Channel.NamePhonetic string
 field Channel.IsForcedSilence *bool
 field Channel.BannerURL string
 field Channel.BannerMode *int32
+method (Channel) Clone() Channel
+type ChannelChanges struct
+field ChannelChanges.UID *ChannelUID
+field ChannelChanges.Name *string
+field ChannelChanges.Topic *string
+field ChannelChanges.Description *string
+field ChannelChanges.ParentID *ChannelID
+field ChannelChanges.Order *ChannelID
+field ChannelChanges.IconID *IconID
+field ChannelChanges.Codec *Codec
+field ChannelChanges.CodecQuality *int32
+field ChannelChanges.MaxClients *int32
+field ChannelChanges.MaxFamilyClients *int32
+field ChannelChanges.TotalClients *int32
+field ChannelChanges.TotalFamilyClients *int32
+field ChannelChanges.NeededSubscribePower *int32
+field ChannelChanges.NeededTalkPower *int32
+field ChannelChanges.IsDefault *bool
+field ChannelChanges.IsPermanent *bool
+field ChannelChanges.IsSemiPermanent *bool
+field ChannelChanges.HasPassword *bool
+field ChannelChanges.CodecLatencyFactor *int32
+field ChannelChanges.IsUnencrypted *bool
+field ChannelChanges.IsMaxClientsUnlimited *bool
+field ChannelChanges.IsMaxFamilyClientsUnlimited *bool
+field ChannelChanges.IsMaxFamilyClientsInherited *bool
+field ChannelChanges.DeleteDelay *time.Duration
+field ChannelChanges.NamePhonetic *string
+field ChannelChanges.IsForcedSilence *bool
+field ChannelChanges.BannerURL *string
+field ChannelChanges.BannerMode *int32
+method (ChannelChanges) Apply(ch Channel) Channel
 type ChannelCreateOptions struct
 field ChannelCreateOptions.Order *ChannelID
 field ChannelCreateOptions.DeleteDelay *time.Duration
@@ -213,6 +245,59 @@ field ChannelMatch.ID ChannelID
 type ChannelMoveOptions struct
 field ChannelMoveOptions.Order *ChannelID
 type ChannelUID string
+type ClientChanges struct
+field ClientChanges.Created *time.Time
+field ClientChanges.LastConnected *time.Time
+field ClientChanges.IdleTime *time.Duration
+field ClientChanges.Nickname *string
+field ClientChanges.UID *UID
+field ClientChanges.ServerGroups *[]ServerGroupID
+field ClientChanges.ChannelID *ChannelID
+field ClientChanges.ChannelGroupID *ChannelGroupID
+field ClientChanges.Type *ClientType
+field ClientChanges.IsAway *bool
+field ClientChanges.IsRecording *bool
+field ClientChanges.IsTalker *bool
+field ClientChanges.DatabaseID *ClientDBID
+field ClientChanges.AwayMessage *string
+field ClientChanges.IsInputMuted *bool
+field ClientChanges.IsOutputMuted *bool
+field ClientChanges.IsOutputOnlyMuted *bool
+field ClientChanges.HasInputHardware *bool
+field ClientChanges.HasOutputHardware *bool
+field ClientChanges.IsChannelCommander *bool
+field ClientChanges.IsPrioritySpeaker *bool
+field ClientChanges.TalkPower *int32
+field ClientChanges.IsRequestingTalk *bool
+field ClientChanges.TalkRequestMessage *string
+field ClientChanges.Description *string
+field ClientChanges.MetaData *string
+field ClientChanges.Avatar *string
+field ClientChanges.IconID *IconID
+field ClientChanges.NicknamePhonetic *string
+field ClientChanges.UnreadMessages *int32
+field ClientChanges.NeededServerQueryViewPower *int32
+field ClientChanges.ChannelGroupInheritedChannelID *ChannelID
+field ClientChanges.Country *string
+field ClientChanges.Version *string
+field ClientChanges.Platform *string
+field ClientChanges.IP *string
+field ClientChanges.Badges *string
+field ClientChanges.SignedBadges *string
+field ClientChanges.MyTeamSpeakID *string
+field ClientChanges.MyTeamSpeakAvatar *string
+field ClientChanges.Integrations *string
+field ClientChanges.UserTag *string
+field ClientChanges.IsStreaming *bool
+method (ClientChanges) Apply(e ClientEntry) ClientEntry
+type ClientChannelGroupChangedEvent struct
+field ClientChannelGroupChangedEvent.InvokerName string
+field ClientChannelGroupChangedEvent.InvokerUID UID
+field ClientChannelGroupChangedEvent.ChannelID ChannelID
+field ClientChannelGroupChangedEvent.ChannelGroupID ChannelGroupID
+field ClientChannelGroupChangedEvent.ChannelGroupInheritedChannelID ChannelID
+field ClientChannelGroupChangedEvent.ClientID ClientID
+field ClientChannelGroupChangedEvent.InvokerID ClientID
 type ClientDBID uint64
 type ClientDatabaseEditOptions struct
 field ClientDatabaseEditOptions.Description *string
@@ -236,6 +321,7 @@ field ClientEditOptions.Description *string
 field ClientEditOptions.IsTalker *bool
 type ClientEnterEvent struct
 embed ClientEnterEvent ClientEntry
+method (ClientEnterEvent) Clone() ClientEnterEvent
 type ClientEntry struct
 field ClientEntry.Created time.Time
 field ClientEntry.LastConnected time.Time
@@ -281,6 +367,7 @@ field ClientEntry.MyTeamSpeakAvatar string
 field ClientEntry.Integrations string
 field ClientEntry.UserTag string
 field ClientEntry.IsStreaming *bool
+method (ClientEntry) Clone() ClientEntry
 type ClientFileTransferID uint16
 type ClientID uint16
 type ClientKickOptions struct
@@ -317,6 +404,18 @@ field ClientMovedEvent.ClientID ClientID
 field ClientMovedEvent.InvokerID ClientID
 type ClientPermissionOptions struct
 field ClientPermissionOptions.Skip bool
+type ClientServerGroupAddedEvent struct
+embed ClientServerGroupAddedEvent ClientServerGroupChange
+type ClientServerGroupChange struct
+field ClientServerGroupChange.InvokerName string
+field ClientServerGroupChange.InvokerUID UID
+field ClientServerGroupChange.Nickname string
+field ClientServerGroupChange.UID UID
+field ClientServerGroupChange.GroupID ServerGroupID
+field ClientServerGroupChange.ClientID ClientID
+field ClientServerGroupChange.InvokerID ClientID
+type ClientServerGroupRemovedEvent struct
+embed ClientServerGroupRemovedEvent ClientServerGroupChange
 type ClientType int
 method (ClientType) String() string
 type ClientUpdateOptions struct
@@ -334,6 +433,12 @@ field ClientUpdateOptions.IsAway *bool
 field ClientUpdateOptions.IsChannelCommander *bool
 field ClientUpdateOptions.IsRecording *bool
 field ClientUpdateOptions.IsRequestingTalk *bool
+type ClientUpdatedEvent struct
+field ClientUpdatedEvent.Changes ClientChanges
+field ClientUpdatedEvent.InvokerName string
+field ClientUpdatedEvent.InvokerUID UID
+field ClientUpdatedEvent.ClientID ClientID
+field ClientUpdatedEvent.InvokerID ClientID
 type Codec uint8
 method (Codec) String() string
 type CommandMiddleware func(next Executor) Executor

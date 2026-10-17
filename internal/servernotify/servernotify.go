@@ -102,11 +102,7 @@ func optInt32(params map[string]string, key string) *int32 {
 	if raw == "" {
 		return nil
 	}
-	v, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil {
-		v = 0
-	}
-	n := int32(max(math.MinInt32, min(math.MaxInt32, v)))
+	n := asInt32(raw)
 
 	return &n
 }
@@ -225,4 +221,142 @@ func ParseIDList[T ~uint64](raw string) []T {
 	}
 
 	return out
+}
+
+// ClientUpdated reads notifyclientupdated.
+func ClientUpdated(params map[string]string) teamspeak.ClientUpdatedEvent {
+	return teamspeak.ClientUpdatedEvent{
+		ClientID:    ParseClientID(params["clid"]),
+		Changes:     ClientChanges(params),
+		InvokerID:   ParseClientID(params["invokerid"]),
+		InvokerName: params["invokername"],
+		InvokerUID:  teamspeak.UID(params["invokeruid"]),
+	}
+}
+
+// ClientChanges reads the client properties a notification names. A property
+// is set exactly when its key is in params, an empty value included, so a
+// cleared away message reads as a pointer to "" and not as no change. The keys
+// are those ClientEnter reads; ChannelID, Created, LastConnected and IdleTime
+// are not read, because no notification of an update carries them.
+func ClientChanges(params map[string]string) teamspeak.ClientChanges {
+	var groups *[]teamspeak.ServerGroupID
+	if raw, ok := params["client_servergroups"]; ok {
+		list := ParseIDList[teamspeak.ServerGroupID](raw)
+		if list == nil {
+			list = []teamspeak.ServerGroupID{}
+		}
+		groups = &list
+	}
+
+	return teamspeak.ClientChanges{
+		Nickname:       key(params, "client_nickname", identity[string]),
+		UID:            key(params, "client_unique_identifier", identity[teamspeak.UID]),
+		ServerGroups:   groups,
+		ChannelGroupID: key(params, "client_channel_group_id", asID[teamspeak.ChannelGroupID]),
+		Type:           key(params, "client_type", asType),
+		IsAway:         key(params, "client_away", asBool),
+		IsRecording:    key(params, "client_is_recording", asBool),
+		IsTalker:       key(params, "client_is_talker", asBool),
+
+		DatabaseID:                     key(params, "client_database_id", asID[teamspeak.ClientDBID]),
+		AwayMessage:                    key(params, "client_away_message", identity[string]),
+		IsInputMuted:                   key(params, "client_input_muted", asBool),
+		IsOutputMuted:                  key(params, "client_output_muted", asBool),
+		IsOutputOnlyMuted:              key(params, "client_outputonly_muted", asBool),
+		HasInputHardware:               key(params, "client_input_hardware", asBool),
+		HasOutputHardware:              key(params, "client_output_hardware", asBool),
+		IsChannelCommander:             key(params, "client_is_channel_commander", asBool),
+		IsPrioritySpeaker:              key(params, "client_is_priority_speaker", asBool),
+		TalkPower:                      key(params, "client_talk_power", asInt32),
+		IsRequestingTalk:               key(params, "client_talk_request", asBool),
+		TalkRequestMessage:             key(params, "client_talk_request_msg", identity[string]),
+		Description:                    key(params, "client_description", identity[string]),
+		MetaData:                       key(params, "client_meta_data", identity[string]),
+		Avatar:                         key(params, "client_flag_avatar", identity[string]),
+		IconID:                         key(params, "client_icon_id", wire.ParseIconID[teamspeak.IconID]),
+		NicknamePhonetic:               key(params, "client_nickname_phonetic", identity[string]),
+		UnreadMessages:                 key(params, "client_unread_messages", asInt32),
+		NeededServerQueryViewPower:     key(params, "client_needed_serverquery_view_power", asInt32),
+		ChannelGroupInheritedChannelID: key(params, "client_channel_group_inherited_channel_id", asID[teamspeak.ChannelID]),
+		Country:                        key(params, "client_country", identity[string]),
+		Version:                        key(params, "client_version", identity[string]),
+		Platform:                       key(params, "client_platform", identity[string]),
+		IP:                             key(params, "connection_client_ip", identity[string]),
+		Badges:                         key(params, "client_badges", identity[string]),
+		SignedBadges:                   key(params, "client_signed_badges", identity[string]),
+		MyTeamSpeakID:                  key(params, "client_myteamspeak_id", identity[string]),
+		MyTeamSpeakAvatar:              key(params, "client_myteamspeak_avatar", identity[string]),
+		Integrations:                   key(params, "client_integrations", identity[string]),
+		UserTag:                        key(params, "client_user_tag", identity[string]),
+		IsStreaming:                    key(params, "client_is_streaming", asBool),
+	}
+}
+
+// key reads the value of name with read, or returns nil when params does not
+// have the key at all.
+func key[T any](params map[string]string, name string, read func(string) T) *T {
+	raw, ok := params[name]
+	if !ok {
+		return nil
+	}
+	v := read(raw)
+
+	return &v
+}
+
+func identity[T ~string](s string) T { return T(s) }
+
+func asID[T ~uint64](s string) T { return T(uintOrZero(s)) }
+
+func asBool(s string) bool { return uintOrZero(s) != 0 }
+
+func asType(s string) teamspeak.ClientType {
+	v, _ := ParseInt(s)
+
+	return teamspeak.ClientType(v)
+}
+
+// asInt32 reads a signed 32-bit number: clamped rather than wrapped when out of
+// range, and 0 for anything that is not a number.
+func asInt32(s string) int32 {
+	value, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0
+	}
+	if value > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if value < math.MinInt32 {
+		return math.MinInt32
+	}
+
+	return int32(value)
+}
+
+// ClientServerGroup reads notifyservergroupclientadded and
+// notifyservergroupclientdeleted, which carry the same fields.
+func ClientServerGroup(params map[string]string) teamspeak.ClientServerGroupChange {
+	return teamspeak.ClientServerGroupChange{
+		GroupID:     teamspeak.ServerGroupID(uintOrZero(params["sgid"])),
+		ClientID:    ParseClientID(params["clid"]),
+		Nickname:    params["name"],
+		UID:         teamspeak.UID(params["cluid"]),
+		InvokerID:   ParseClientID(params["invokerid"]),
+		InvokerName: params["invokername"],
+		InvokerUID:  teamspeak.UID(params["invokeruid"]),
+	}
+}
+
+// ClientChannelGroupChanged reads notifyclientchannelgroupchanged.
+func ClientChannelGroupChanged(params map[string]string) teamspeak.ClientChannelGroupChangedEvent {
+	return teamspeak.ClientChannelGroupChangedEvent{
+		ClientID:                       ParseClientID(params["clid"]),
+		ChannelID:                      ParseChannelID(params["cid"]),
+		ChannelGroupID:                 teamspeak.ChannelGroupID(uintOrZero(params["cgid"])),
+		ChannelGroupInheritedChannelID: ParseChannelID(params["cgi"]),
+		InvokerID:                      ParseClientID(params["invokerid"]),
+		InvokerName:                    params["invokername"],
+		InvokerUID:                     teamspeak.UID(params["invokeruid"]),
+	}
 }
