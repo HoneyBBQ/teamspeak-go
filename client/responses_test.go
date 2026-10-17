@@ -252,3 +252,143 @@ func TestDefaultShouldRetry_StopsOnTheRealPermanentRefusals(t *testing.T) {
 		t.Error("does not retry 521, which clears once the server reaps the dropped session")
 	}
 }
+
+// voiceAnswer is one command's answer over the voice protocol: the
+// notification that carries it, and a row of it.
+type voiceAnswer struct {
+	row          map[string]string
+	command      string
+	notification string
+}
+
+// voiceAnswers are what the voice protocol answers with a notification, which
+// the table pairs with the command: a raw Exec returned no rows for any of
+// them before. Each row is one measured on TeamSpeak 3.13.8 or
+// 6.0.0-beta13.1.
+var voiceAnswers = []voiceAnswer{
+	{
+		map[string]string{
+			"apikey": "AQD80rwelNMqK1MeMoNb9iq2bRtJ0G9PXbsCDe6", "cldbid": "13", "created_at": "1792225961",
+			"expires_at": "1792312361", "id": "8", "scope": "read", "sid": "2", "time_left": "86399",
+		},
+		"apikeyadd", "notifyapikeyadd",
+	},
+	{
+		map[string]string{
+			"cldbid": "13", "created_at": "1792225252", "custom_id": "", "expires_at": "1792311652", "id": "6",
+			"scope": "read", "sid": "2", "time_left": "85691",
+		},
+		"apikeylist", "notifyapikeylist",
+	},
+	{
+		map[string]string{"token": "S7ef32Rddh0QPvjjbHVO0+uD0l2m7RWDv0Gq30gz"},
+		"tokenadd", "notifytokenadd",
+	},
+	{
+		map[string]string{
+			"token": "wYG6rbjcHftdWY8Xtf+z1KScoyh4Whk12N2RKSs1", "token_created": "1792225280",
+			"token_customset": "ident=a value=b", "token_description": "x", "token_id1": "9", "token_id2": "0",
+			"token_type": "0",
+		},
+		"tokenlist", "notifytokenlist",
+	},
+	{
+		map[string]string{"permid": "215", "permsid": "b_client_ban_list", "permvalue": "1"},
+		"permget", "notifypermget",
+	},
+	{
+		map[string]string{
+			"clid": "17", "connection_client_ip": "192.168.215.1", "connection_client_port": "44905",
+			"connection_idle_time": "0",
+		},
+		"getconnectioninfo", "notifyconnectioninfo",
+	},
+	{
+		map[string]string{
+			"clid": "17", "client_created": "1792225244", "client_platform": "Windows",
+			"client_totalconnections": "4", "client_version": "3.6.2 [Build: 1695203293]",
+		},
+		"clientgetvariables", "notifyclientupdated",
+	},
+	{
+		map[string]string{"virtualserver_clientsonline": "2", "virtualserver_autostart": "1"},
+		"servergetvariables", "notifyserverupdated",
+	},
+	{
+		map[string]string{"client_login_password": "eHkRuwwa"},
+		"clientsetserverquerylogin", "notifyclientserverqueryloginpassword",
+	},
+	{
+		map[string]string{
+			"banid": "13", "created": "1792225536", "duration": "0", "ip": "10.0.0.5", "mytsid": "",
+			"reason": "cap", "return_code": "2",
+		},
+		"banfind", "notifybanfind",
+	},
+}
+
+func TestResponseTable_VoiceAnswersCarryTheirRows(t *testing.T) {
+	for _, tc := range voiceAnswers {
+		tr := newReadyCommandTracker()
+		rc, done := tr.register(responseFor(tc.command), "", false)
+		tr.collect(tc.row, tc.notification)
+		tr.resolve(rc, nil, 0)
+
+		if got := receive(t, done).Data; !reflect.DeepEqual(got, []map[string]string{tc.row}) {
+			t.Errorf("%s: data = %v, want the %s row", tc.command, got, tc.notification)
+		}
+	}
+}
+
+// The same notification arriving for someone else's request is not this
+// command's answer: only the declared one is taken.
+func TestResponseTable_LeavesOtherNotificationsOutOfAPermget(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := tr.register(responseFor("permget"), "", false)
+	tr.collect(map[string]string{"clid": "3"}, "notifyclientmoved")
+	tr.collect(map[string]string{"permid": "215", "permvalue": "1"}, "notifypermget")
+	tr.resolve(rc, nil, 0)
+
+	want := []map[string]string{{"permid": "215", "permvalue": "1"}}
+	if got := receive(t, done).Data; !reflect.DeepEqual(got, want) {
+		t.Errorf("data = %v, want %v", got, want)
+	}
+}
+
+// notifyclientupdated is sent whenever any client changes, and arrives between
+// a clientgetvariables and its error as readily as anywhere: the row for the
+// client asked about is the answer, and the others are not.
+func TestResponseTable_ClientGetVariablesTakesTheRowForTheClientAsked(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := tr.register(responseFor("clientgetvariables"), "", false)
+	tr.setEcho(rc, "17")
+	tr.collect(map[string]string{"clid": "2", "client_input_muted": "0", "client_output_muted": "0"},
+		"notifyclientupdated")
+	tr.collect(map[string]string{"clid": "17", "client_version": "3.6.2 [Build: 1695203293]"}, "notifyclientupdated")
+	tr.resolve(rc, nil, 0)
+
+	want := []map[string]string{{"clid": "17", "client_version": "3.6.2 [Build: 1695203293]"}}
+	if got := receive(t, done).Data; !reflect.DeepEqual(got, want) {
+		t.Errorf("data = %v, want %v", got, want)
+	}
+}
+
+// A row that does not carry the key is taken, as is every row when the request
+// named none.
+func TestResponseTable_EchoKeyIsLenient(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := tr.register(responseFor("getconnectioninfo"), "", false)
+	tr.setEcho(rc, "17")
+	tr.collect(map[string]string{"connection_client_ip": "192.168.215.1"}, "notifyconnectioninfo")
+	tr.resolve(rc, nil, 0)
+	if got := receive(t, done).Data; len(got) != 1 {
+		t.Errorf("a row with no clid: data = %v, want it taken", got)
+	}
+
+	rc, done = tr.register(responseFor("getconnectioninfo"), "", false)
+	tr.collect(map[string]string{"clid": "3", "connection_client_ip": "10.0.0.1"}, "notifyconnectioninfo")
+	tr.resolve(rc, nil, 0)
+	if got := receive(t, done).Data; len(got) != 1 {
+		t.Errorf("a request that named no clid: data = %v, want the row taken", got)
+	}
+}

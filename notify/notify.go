@@ -15,6 +15,15 @@ package notify
 
 // The notifications, in alphabetical order.
 const (
+	// APIKeyAdd is notifyapikeyadd: reply to apikeyadd over the voice protocol:
+	// the new api key, with its key.
+	APIKeyAdd = "notifyapikeyadd"
+	// APIKeyList is notifyapikeylist: reply to apikeylist over the voice
+	// protocol: one row per api key.
+	APIKeyList = "notifyapikeylist"
+	// BanFind is notifybanfind: reply to banfind over the voice protocol: one row
+	// per matching ban rule. TeamSpeak 6 only.
+	BanFind = "notifybanfind"
 	// BanList is notifybanlist: reply to banlist: one row per ban rule on the
 	// virtual server.
 	BanList = "notifybanlist"
@@ -155,6 +164,10 @@ const (
 	// PermFind is notifypermfind: reply to permfind: one row per place a
 	// permission is assigned.
 	PermFind = "notifypermfind"
+	// PermGet is notifypermget: reply to permget on TeamSpeak 6 over the voice
+	// protocol: the permission, its id and its value. TeamSpeak 3 answers with a
+	// plain row instead.
+	PermGet = "notifypermget"
 	// PermissionList is notifypermissionlist: reply to permissionlist: one row per
 	// permission the server knows, with its id, name and description.
 	PermissionList = "notifypermissionlist"

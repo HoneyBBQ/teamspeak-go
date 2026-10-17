@@ -170,6 +170,11 @@ const (
 	// ClientGetUIDFromCLID is clientgetuidfromclid: displays the unique identifier
 	// matching the clientID specified by clid.
 	ClientGetUIDFromCLID = "clientgetuidfromclid"
+	// ClientGetVariables is clientgetvariables: asks the server to send the
+	// properties of the client with the given clid again, as a
+	// notifyclientupdated. A voice protocol command: the server's help does not
+	// list it.
+	ClientGetVariables = "clientgetvariables"
 	// ClientInfo is clientinfo: displays detailed configuration information about
 	// a client including unique ID, nickname, client version, etc.
 	ClientInfo = "clientinfo"
@@ -244,6 +249,11 @@ const (
 	// FTStop is ftstop: stops the running file transfer with server-side ID
 	// serverftfid.
 	FTStop = "ftstop"
+	// GetConnectionInfo is getconnectioninfo: asks the server to send the
+	// connection details of the client with the given clid, as a
+	// notifyconnectioninfo. A voice protocol command: the server's help does not
+	// list it.
+	GetConnectionInfo = "getconnectioninfo"
 	// GM is gm: sends a text message to all clients on all virtual servers in the
 	// server instance.
 	GM = "gm"
@@ -357,6 +367,10 @@ const (
 	// ServerEdit is serveredit: changes the selected virtual server's
 	// configuration using given properties.
 	ServerEdit = "serveredit"
+	// ServerGetVariables is servergetvariables: asks the server to send the
+	// virtual server's properties again, as a notifyserverupdated. A voice
+	// protocol command.
+	ServerGetVariables = "servergetvariables"
 	// ServerGroupAdd is servergroupadd: creates a new server group using the name
 	// specified with name and displays its ID.
 	ServerGroupAdd = "servergroupadd"

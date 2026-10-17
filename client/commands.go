@@ -45,9 +45,12 @@ type pendingCommand struct {
 	settled *commandResult
 	// correlation is the request's value for spec.Correlated.Key.
 	correlation string
+	// echo is the request's value for spec.EchoKey.
+	echo string
 	// correlated holds answers that arrived before the command's own error.
 	correlated     []map[string]string
 	hasCorrelation bool
+	hasEcho        bool
 }
 
 // commandTracker matches the server's answers to the commands that asked for
@@ -109,6 +112,18 @@ func (t *commandTracker) register(
 	t.mu.Unlock()
 
 	return rc, ch
+}
+
+// setEcho records the request's value for spec.EchoKey, so the rows that echo
+// another value are not taken as the answer. It is called before the command is
+// sent, which is before anything can answer it.
+func (t *commandTracker) setEcho(rc uint32, value string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if p, ok := t.pending[rc]; ok {
+		p.echo, p.hasEcho = value, true
+	}
 }
 
 func (t *commandTracker) unregister(rc uint32) {
@@ -195,7 +210,7 @@ func (t *commandTracker) resolve(rc uint32, err error, ownClientID teamspeak.Cli
 	own := strconv.FormatUint(uint64(ownClientID), 10)
 	var data []map[string]string
 	for _, row := range rows {
-		if answers(p.spec, row, own) {
+		if answers(p, row, own) {
 			data = append(data, row.params)
 		}
 	}
@@ -215,15 +230,24 @@ func (t *commandTracker) resolve(rc uint32, err error, ownClientID teamspeak.Cli
 	t.settleLocked(rc, p, commandResult{Data: append(data, p.correlated...)})
 }
 
-func answers(spec *responseSpec, row bufferedRow, ownClientID string) bool {
+func answers(p *pendingCommand, row bufferedRow, ownClientID string) bool {
 	if row.source == "" {
 		return true
 	}
+	spec := p.spec
 	if !spec.isInline(row.source) {
 		return false
 	}
+	if spec.OwnRowsOnly && row.params["invokerid"] != ownClientID {
+		return false
+	}
+	// A row that carries the key and names another value was meant for another
+	// request; one that does not carry it is taken.
+	if value, ok := row.params[spec.EchoKey]; spec.EchoKey != "" && p.hasEcho && ok && value != p.echo {
+		return false
+	}
 
-	return !spec.OwnRowsOnly || row.params["invokerid"] == ownClientID
+	return true
 }
 
 // settleLocked delivers a command's result exactly once. The channel has room
@@ -608,6 +632,11 @@ func (c *Client) execOn(ctx context.Context, h *transport.PacketHandler, cmd str
 
 	rc, ch := c.cmdTrack.register(spec, correlation, hasCorrelation)
 	defer c.cmdTrack.unregister(rc)
+	if spec != nil && spec.EchoKey != "" {
+		if echo, ok := parsed.Params[spec.EchoKey]; ok {
+			c.cmdTrack.setEcho(rc, echo)
+		}
+	}
 
 	// The name and code only: the full command carries password hashes the
 	// server accepts as passwords, and privilege keys.

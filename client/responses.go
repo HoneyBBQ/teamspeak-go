@@ -39,6 +39,12 @@ type correlation struct {
 type responseSpec struct {
 	// Correlated is set for answers that follow the error.
 	Correlated *correlation
+	// EchoKey names the request parameter an answer echoes back, to tell it
+	// from the same notification sent for someone else: notifyclientupdated
+	// and notifyconnectioninfo are sent whenever any client changes or is
+	// asked about, so the row answering clientgetvariables clid=7 is the one
+	// with clid=7. A row without the key is taken.
+	EchoKey string
 	// Notifications carry the data and are sent before the command's error.
 	//
 	// The same notification can also arrive unprompted —
@@ -83,6 +89,9 @@ func fileTransfer(answer string) *responseSpec {
 }
 
 var responses = map[string]*responseSpec{
+	"apikeyadd":                   inline("notifyapikeyadd"),
+	"apikeylist":                  inline("notifyapikeylist"),
+	"banfind":                     inline("notifybanfind"),
 	"banlist":                     inline("notifybanlist"),
 	"channelclientpermlist":       inline("notifychannelclientpermlist"),
 	"channelcreate":               {Notifications: []string{"notifychannelcreated"}, OwnRowsOnly: true},
@@ -100,17 +109,21 @@ var responses = map[string]*responseSpec{
 	"clientgetnamefromdbid":       inline("notifyclientnamefromdbid"),
 	"clientgetnamefromuid":        inline("notifyclientnamefromuid"),
 	"clientgetuidfromclid":        inline("notifyclientuidfromclid"),
+	"clientgetvariables":          {Notifications: []string{"notifyclientupdated"}, EchoKey: "clid"},
 	"clientpermlist":              inline("notifyclientpermlist"),
+	"clientsetserverquerylogin":   inline("notifyclientserverqueryloginpassword"),
 	"complainlist":                inline("notifycomplainlist"),
 	"ftgetfileinfo":               inline("notifyfileinfo"),
 	"ftgetfilelist":               inline("notifyfilelist"),
 	"ftinitdownload":              fileTransfer("notifystartdownload"),
 	"ftinitupload":                fileTransfer("notifystartupload"),
 	"ftlist":                      inline("notifyfiletransferlist"),
+	"getconnectioninfo":           {Notifications: []string{"notifyconnectioninfo"}, EchoKey: "clid"},
 	"logview":                     inline("notifyserverlog"),
 	"messageget":                  inline("notifymessage"),
 	"messagelist":                 inline("notifymessagelist"),
 	"permfind":                    inline("notifypermfind"),
+	"permget":                     inline("notifypermget"),
 	"permissionlist":              inline("notifypermissionlist"),
 	"permoverview":                inline("notifypermoverview"),
 	"privilegekeyadd":             inline("notifytokenadd"),
@@ -118,11 +131,14 @@ var responses = map[string]*responseSpec{
 	"servergroupadd":              inline("notifyservergrouplist"),
 	"servergroupclientlist":       inline("notifyservergroupclientlist"),
 	"servergroupcopy":             inline("notifyservergrouplist"),
+	"servergetvariables":          inline("notifyserverupdated"),
 	"servergrouplist":             inline("notifyservergrouplist"),
 	"servergrouppermlist":         inline("notifyservergrouppermlist"),
 	"servergroupsbyclientid":      inline("notifyservergroupsbyclientid"),
 	"serverrequestconnectioninfo": inline("notifyserverconnectioninfo"),
 	"servertemppasswordlist":      inline("notifyservertemppasswordlist"),
+	"tokenadd":                    inline("notifytokenadd"),
+	"tokenlist":                   inline("notifytokenlist"),
 }
 
 // responseFor returns the response shape of a command, or nil for plain rows.
