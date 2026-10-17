@@ -1,6 +1,7 @@
 package servernotify_test
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -192,5 +193,50 @@ func TestTextMessage_LeavesInvokerGroupsUnknown(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("TextMessage = %+v, want %+v", got, want)
+	}
+}
+
+// The enter notification and a client list describe a client with the same
+// keys, so one row reads as the same record by both. The two readers are
+// written apart (the list's is in the root package, which this package
+// imports), and this keeps them from disagreeing about a key.
+func TestClientEnter_ReadsARowAsTheListDoes(t *testing.T) {
+	row := map[string]string{
+		"clid": "7", "cid": "3", "ctid": "3", "client_database_id": "42", "client_nickname": "Ann",
+		"client_type": "0", "client_unique_identifier": "uidAnn=", "client_away": "1",
+		"client_away_message": "lunch", "client_is_recording": "0", "client_is_talker": "1",
+		"client_servergroups": "6,9", "client_channel_group_id": "8",
+		"client_channel_group_inherited_channel_id": "3",
+		"client_input_muted":                        "1", "client_output_muted": "0", "client_outputonly_muted": "0",
+		"client_input_hardware": "1", "client_output_hardware": "1",
+		"client_is_channel_commander": "0", "client_is_priority_speaker": "1", "client_talk_power": "75",
+		"client_talk_request": "1700000000", "client_talk_request_msg": "please",
+		"client_description": "desc", "client_meta_data": "meta", "client_flag_avatar": "abc123",
+		"client_icon_id": "99", "client_nickname_phonetic": "an", "client_unread_messages": "0",
+		"client_needed_serverquery_view_power": "75", "client_country": "SE",
+		"client_version": "3.6.2", "client_platform": "Windows", "connection_client_ip": "10.0.0.2",
+		"client_badges": "overwolf=0", "client_signed_badges": "sb", "client_myteamspeak_id": "mt",
+		"client_myteamspeak_avatar": "mta", "client_integrations": "int", "client_user_tag": "tag",
+		"client_is_streaming": "1",
+	}
+	commands := teamspeak.NewCommands(teamspeak.ExecutorFunc(
+		func(context.Context, teamspeak.Request) ([]map[string]string, error) {
+			return []map[string]string{row}, nil
+		}))
+	listed, err := commands.ListClients(t.Context(), teamspeak.ClientListOptions{})
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("ListClients = %v, %v", listed, err)
+	}
+
+	if got := servernotify.ClientEnter(row); !reflect.DeepEqual(got, listed[0]) {
+		t.Errorf("ClientEnter = %+v\nlist     = %+v", got, listed[0])
+	}
+}
+
+func TestClientEnter_AbsentFieldsAreUnknown(t *testing.T) {
+	got := servernotify.ClientEnter(map[string]string{"clid": "7", "ctid": "3", "client_nickname": "Ann"})
+	want := teamspeak.ClientEntry{ID: 7, ChannelID: 3, Nickname: "Ann"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ClientEnter = %+v, want %+v", got, want)
 	}
 }

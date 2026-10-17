@@ -342,6 +342,27 @@ func fieldOptInt32(row map[string]string, key string) *int32 {
 	return &value
 }
 
+// fieldOptBool reads a flag an answer may leave out: nil when the key is absent
+// or empty, otherwise a pointer to its value, false included.
+func fieldOptBool(row map[string]string, key string) *bool {
+	if row[key] == "" {
+		return nil
+	}
+	value := fieldBool(row, key)
+
+	return &value
+}
+
+// fieldOptDuration is fieldDuration for a field an answer may leave out.
+func fieldOptDuration(row map[string]string, key string, unit time.Duration) *time.Duration {
+	if row[key] == "" {
+		return nil
+	}
+	value := fieldDuration(row, key, unit)
+
+	return &value
+}
+
 // fieldOptUint16 is fieldOptInt32 for a 16-bit unsigned field.
 func fieldOptUint16(row map[string]string, key string) *uint16 {
 	if row[key] == "" {

@@ -13,10 +13,12 @@
 package servernotify
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 // ClientEnter reads notifycliententerview into the client it describes.
@@ -39,7 +41,74 @@ func ClientEnter(params map[string]string) teamspeak.ClientEntry {
 		IsAway:         params["client_away"] == "1",
 		IsRecording:    params["client_is_recording"] == "1",
 		IsTalker:       params["client_is_talker"] == "1",
+
+		DatabaseID:                     teamspeak.ClientDBID(uintOrZero(params["client_database_id"])),
+		AwayMessage:                    params["client_away_message"],
+		IsInputMuted:                   optBool(params, "client_input_muted"),
+		IsOutputMuted:                  optBool(params, "client_output_muted"),
+		IsOutputOnlyMuted:              optBool(params, "client_outputonly_muted"),
+		HasInputHardware:               optBool(params, "client_input_hardware"),
+		HasOutputHardware:              optBool(params, "client_output_hardware"),
+		IsChannelCommander:             optBool(params, "client_is_channel_commander"),
+		IsPrioritySpeaker:              optBool(params, "client_is_priority_speaker"),
+		TalkPower:                      optInt32(params, "client_talk_power"),
+		IsRequestingTalk:               optBool(params, "client_talk_request"),
+		TalkRequestMessage:             params["client_talk_request_msg"],
+		Description:                    params["client_description"],
+		MetaData:                       params["client_meta_data"],
+		Avatar:                         params["client_flag_avatar"],
+		IconID:                         wire.ParseIconID[teamspeak.IconID](params["client_icon_id"]),
+		NicknamePhonetic:               params["client_nickname_phonetic"],
+		UnreadMessages:                 optInt32(params, "client_unread_messages"),
+		NeededServerQueryViewPower:     optInt32(params, "client_needed_serverquery_view_power"),
+		ChannelGroupInheritedChannelID: teamspeak.ChannelID(uintOrZero(params["client_channel_group_inherited_channel_id"])),
+		Country:                        params["client_country"],
+		Version:                        params["client_version"],
+		Platform:                       params["client_platform"],
+		IP:                             params["connection_client_ip"],
+		Badges:                         params["client_badges"],
+		SignedBadges:                   params["client_signed_badges"],
+		MyTeamSpeakID:                  params["client_myteamspeak_id"],
+		MyTeamSpeakAvatar:              params["client_myteamspeak_avatar"],
+		Integrations:                   params["client_integrations"],
+		UserTag:                        params["client_user_tag"],
+		IsStreaming:                    optBool(params, "client_is_streaming"),
 	}
+}
+
+// uintOrZero reads a decimal uint64, 0 for anything unreadable.
+func uintOrZero(s string) uint64 {
+	v, _ := ParseUint64(s)
+
+	return v
+}
+
+// optBool reads a flag a notification may leave out: nil when the key is
+// absent or empty, otherwise a pointer to its value, false included.
+func optBool(params map[string]string, key string) *bool {
+	raw := params[key]
+	if raw == "" {
+		return nil
+	}
+	v := uintOrZero(raw) != 0
+
+	return &v
+}
+
+// optInt32 reads a signed 32-bit number a notification may leave out: nil when
+// the key is absent or empty, clamped rather than wrapped when too large.
+func optInt32(params map[string]string, key string) *int32 {
+	raw := params[key]
+	if raw == "" {
+		return nil
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		v = 0
+	}
+	n := int32(max(math.MinInt32, min(math.MaxInt32, v)))
+
+	return &n
 }
 
 // ClientLeave reads notifyclientleftview.

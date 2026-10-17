@@ -17,6 +17,18 @@ Breaking changes, made before v1.0.0 for two options the server never honoured.
   `Names` instead: the server then returns each member's nickname and unique
   identifier together, so `ServerGroupMember.UID` is filled by `Names`.
 
+### Added
+
+- `ClientEntry` and `Channel` carry more of what the server reports. A client
+  gains `DatabaseID`, `AwayMessage`, `IsInputMuted`, `IsOutputMuted`,
+  `TalkPower`, `Description`, `Avatar`, `Country`, `Version`, `Platform` and
+  others; a channel gains `IsMaxClientsUnlimited`, `DeleteDelay`,
+  `NamePhonetic` and others. A flag, count or duration is a pointer, and nil
+  means the answer did not carry it, which is not the same as false or 0: no
+  `ListClients` flag brings some of them, and `ListChannels` brings none of the
+  new channel fields, so `GetChannelInfo` is where to read them. Each field's
+  comment says which flag brings it. The existing fields are unchanged.
+
 ## v1.0.0-beta.7 (2026-10-17)
 
 ### Security
