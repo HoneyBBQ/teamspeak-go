@@ -33,11 +33,12 @@ func buildCryptoInit2Fixtures(t *testing.T) cryptoInit2Fixtures {
 		t.Fatalf("IdentityFromString: %v", err)
 	}
 	tc := crypto.NewCrypt(id)
-	tc.AlphaTmp = make([]byte, 10)
-	_, err = rand.Read(tc.AlphaTmp)
+	alpha := make([]byte, 10)
+	_, err = rand.Read(alpha)
 	if err != nil {
-		t.Fatalf("rand.Read AlphaTmp: %v", err)
+		t.Fatalf("rand.Read alpha: %v", err)
 	}
+	tc.FinishPuzzle(nil, nil, alpha, 0, 0)
 
 	// Use a fresh generated Identity as the "server" key (avoids deprecated X/Y access).
 	serverID, err := generateFreshIdentity(t)

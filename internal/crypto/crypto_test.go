@@ -258,7 +258,7 @@ func TestSolveRsaChallengeLevel0(t *testing.T) {
 	// level=0: no squarings, result = x (padded to 64 bytes)
 	tc := crypto.NewCrypt(nil)
 	data := makeSolveData(5, 100) // x=5, n=100
-	result, err := tc.SolveRsaChallenge(data, 0, 0)
+	result, err := tc.SolveRsaChallenge(context.Background(), data, 0, 0)
 	if err != nil {
 		t.Fatalf("SolveRsaChallenge failed: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestSolveRsaChallengeLevel2(t *testing.T) {
 	// x=2, n=17, level=2: y = ((2^2)^2) mod 17 = 4^2 mod 17 = 16
 	tc := crypto.NewCrypt(nil)
 	data := makeSolveData(2, 17)
-	result, err := tc.SolveRsaChallenge(data, 0, 2)
+	result, err := tc.SolveRsaChallenge(context.Background(), data, 0, 2)
 	if err != nil {
 		t.Fatalf("SolveRsaChallenge failed: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestSolveRsaChallengeLevel2(t *testing.T) {
 
 func TestSolveRsaChallengeNegativeLevel(t *testing.T) {
 	tc := crypto.NewCrypt(nil)
-	_, err := tc.SolveRsaChallenge(make([]byte, 128), 0, -1)
+	_, err := tc.SolveRsaChallenge(context.Background(), make([]byte, 128), 0, -1)
 	if err == nil {
 		t.Error("expected error for level < 0")
 	}
@@ -298,7 +298,7 @@ func TestSolveRsaChallengeNegativeLevel(t *testing.T) {
 
 func TestSolveRsaChallengeLevelTooHigh(t *testing.T) {
 	tc := crypto.NewCrypt(nil)
-	_, err := tc.SolveRsaChallenge(make([]byte, 128), 0, crypto.MaxRSAChallengeLevel+1)
+	_, err := tc.SolveRsaChallenge(context.Background(), make([]byte, 128), 0, crypto.MaxRSAChallengeLevel+1)
 	if err == nil {
 		t.Error("expected error for a level above MaxRSAChallengeLevel")
 	}
@@ -306,12 +306,12 @@ func TestSolveRsaChallengeLevelTooHigh(t *testing.T) {
 
 func TestSolveRsaChallengeRejectsMalformedInput(t *testing.T) {
 	tc := crypto.NewCrypt(nil)
-	_, err := tc.SolveRsaChallenge(make([]byte, 127), 0, 1)
+	_, err := tc.SolveRsaChallenge(context.Background(), make([]byte, 127), 0, 1)
 	if err == nil {
 		t.Error("expected error for data too short to hold x and n")
 	}
 	// A zero modulus would divide by zero.
-	_, err = tc.SolveRsaChallenge(make([]byte, 128), 0, 1)
+	_, err = tc.SolveRsaChallenge(context.Background(), make([]byte, 128), 0, 1)
 	if err == nil {
 		t.Error("expected error for a zero modulus")
 	}

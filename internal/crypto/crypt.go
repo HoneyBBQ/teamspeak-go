@@ -16,20 +16,16 @@ import (
 	"math/big"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/honeybbq/teamspeak-go/identity"
 	"github.com/honeybbq/teamspeak-go/internal/identitykey"
 )
 
 var (
-	errRSAChallengeOutRange = errors.New("RSA challenge level out of range")
-	errRSAChallengeShort    = errors.New("RSA challenge too short")
-	errRSAChallengeModulus  = errors.New("RSA challenge modulus is zero")
-	errInvalidPublicPoint   = errors.New("invalid public key point encoding")
-	errSharedSecretCompute  = errors.New("failed to compute ECDH shared secret")
-	errSharedSecretLength   = errors.New("alpha, beta and the shared secret do not fit together")
-	errNoPrivateKey         = errors.New("identity has no private key")
+	errInvalidPublicPoint  = errors.New("invalid public key point encoding")
+	errSharedSecretCompute = errors.New("failed to compute ECDH shared secret")
+	errSharedSecretLength  = errors.New("alpha, beta and the shared secret do not fit together")
+	errNoPrivateKey        = errors.New("identity has no private key")
 )
 
 const (
@@ -38,19 +34,13 @@ const (
 	p256ScalarSize          = 32
 	p256PointPrefix         = 0x04
 	p256UncompressedKeySize = 65
-	rsaChallengeBlockSize   = 64
-	// MaxRSAChallengeLevel is the most squarings SolveRsaChallenge performs.
-	// TeamSpeak 3 and 6 servers both ask for 10000; ten times that is still a
-	// fraction of a second, where a forged Init1 asking for millions would
-	// hold the connection's read loop for much longer.
-	MaxRSAChallengeLevel = 100000
-	packetTypeMask       = 0x0F
-	generationIDShift    = 32
-	fromServerShift      = 40
-	fakeSignatureSize    = 8
-	ivAlphaSize          = 10
-	sha1NumBufSize       = 20
-	bitsPerByte          = 8
+	packetTypeMask          = 0x0F
+	generationIDShift       = 32
+	fromServerShift         = 40
+	fakeSignatureSize       = 8
+	ivAlphaSize             = 10
+	sha1NumBufSize          = 20
+	bitsPerByte             = 8
 )
 
 // Crypt holds a connection's crypto state: the identity it authenticates with,
@@ -63,25 +53,14 @@ const (
 type Crypt struct {
 	// Identity is the identity the connection authenticates with.
 	Identity *identity.Identity
-	// AlphaTmp is the alpha the client sent in clientinitiv. Only the read
-	// loop touches it.
-	AlphaTmp []byte
-	// RSAChallenge is the Init1 RSA challenge the connection answered, and
-	// RSAAnswer the Init1 packet that answered it; nil until then. One
-	// connection answers one challenge. Only the read loop touches them.
-	RSAChallenge []byte
-	// RSAAnswer is the answer to RSAChallenge.
-	RSAAnswer []byte
-	// PuzzleLevel is the level of the RSA puzzle the server demanded, and
-	// PuzzleDuration the time spent solving it; zero until a puzzle was
-	// solved. Only the read loop writes them.
-	PuzzleLevel    int
-	PuzzleDuration time.Duration
-	cachedKeys     map[uint64]KeyNonce
-	ivStruct       []byte
-	fakeSig        [fakeSignatureSize]byte
-	keyMu          sync.Mutex
-	initComplete   atomic.Bool
+	// puzzle is the connection's Init1 RSA puzzle: what it answered and
+	// what it cost.
+	puzzle       puzzleState
+	cachedKeys   map[uint64]KeyNonce
+	ivStruct     []byte
+	fakeSig      [fakeSignatureSize]byte
+	keyMu        sync.Mutex
+	initComplete atomic.Bool
 }
 
 // KeyNonce is a derived AES key and EAX nonce for one direction, packet type
@@ -139,43 +118,6 @@ func (tc *Crypt) FakeSignature() [fakeSignatureSize]byte {
 	defer tc.keyMu.Unlock()
 
 	return tc.fakeSig
-}
-
-// SolveRsaChallenge solves the Init1 step 4 puzzle: y = x^(2^level) mod n,
-// with x and n the two 64-byte numbers at data[offset:], returned as 64
-// big-endian bytes. The server uses it as a proof of work against floods. A
-// level above MaxRSAChallengeLevel, data too short to hold x and n, and a zero
-// n are refused.
-func (tc *Crypt) SolveRsaChallenge(data []byte, offset int, level int) ([]byte, error) {
-	if level < 0 || level > MaxRSAChallengeLevel {
-		return nil, fmt.Errorf("%w: %d", errRSAChallengeOutRange, level)
-	}
-	if offset < 0 || len(data)-offset < 2*rsaChallengeBlockSize {
-		return nil, errRSAChallengeShort
-	}
-	x := new(big.Int).SetBytes(data[offset : offset+rsaChallengeBlockSize])
-	n := new(big.Int).SetBytes(data[offset+rsaChallengeBlockSize : offset+2*rsaChallengeBlockSize])
-	if n.Sign() == 0 {
-		return nil, errRSAChallengeModulus
-	}
-
-	// y = x^(2^level) mod n via repeated squaring.
-	y := new(big.Int).Set(x)
-	for range level {
-		y.Mul(y, y)
-		y.Mod(y, n)
-	}
-
-	res := y.Bytes()
-	if len(res) < rsaChallengeBlockSize {
-		aligned := make([]byte, rsaChallengeBlockSize)
-		copy(aligned[rsaChallengeBlockSize-len(res):], res)
-		res = aligned
-	} else if len(res) > rsaChallengeBlockSize {
-		res = res[len(res)-rsaChallengeBlockSize:]
-	}
-
-	return res, nil
 }
 
 // InitCrypto completes the legacy initivexpand key exchange: P-256 ECDH with

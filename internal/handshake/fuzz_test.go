@@ -1,6 +1,7 @@
 package handshake_test
 
 import (
+	"context"
 	"encoding/base64"
 	"testing"
 
@@ -31,7 +32,7 @@ func FuzzProcessInit1(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		out, err := handshake.ProcessInit1(crypto.NewCrypt(id), data)
+		out, err := handshake.ProcessInit1(context.Background(), crypto.NewCrypt(id), data)
 		if err != nil && out != nil {
 			t.Fatalf("an answer of %d bytes and an error: %v", len(out), err)
 		}

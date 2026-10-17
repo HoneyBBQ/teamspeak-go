@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
@@ -401,8 +402,15 @@ func TestHandshakeFailureEndsTheAttemptWithErrHandshake(t *testing.T) {
 		"empty init1": func(c *Client) {
 			c.handleInit1(c.handler, []byte{})
 		},
+		"a puzzle above the cap": func(c *Client) {
+			step := make([]byte, 1+64+64+4+100)
+			step[0] = 3
+			step[128] = 1
+			binary.BigEndian.PutUint32(step[129:133], 0xffffffff)
+			c.handleInit1(c.handler, step)
+		},
 		"initivexpand2 with a bad license": func(c *Client) {
-			c.handler.TsCrypt.AlphaTmp = make([]byte, 10)
+			c.handler.TsCrypt.FinishPuzzle(nil, nil, make([]byte, 10), 0, 0)
 			c.handleCommand(c.handler, "initivexpand2 l=AQ== beta=AAAA omega=AAAA proof=AAAA")
 		},
 	}
@@ -425,7 +433,35 @@ func TestHandshakeFailureEndsTheAttemptWithErrHandshake(t *testing.T) {
 			if got := c.Status(); got != StatusDisconnected {
 				t.Errorf("status = %v, want disconnected", got)
 			}
+			if name == "a puzzle above the cap" && !errors.Is(attempt.err, ErrPuzzleTooHard) {
+				t.Errorf("attempt ended with %v, want ErrPuzzleTooHard", attempt.err)
+			}
 		})
+	}
+}
+
+// A puzzle at the cap is solved off the receive loop, and closing the
+// connection stops the solve without ending the attempt a second time.
+func TestPuzzleSolveStopsWhenTheConnectionCloses(t *testing.T) {
+	c := newHandshakingClient(t)
+	markConnecting(c)
+	h := c.handler
+	step := make([]byte, 1+64+64+4+100)
+	step[0] = 3
+	for i := 1; i < 129; i++ {
+		step[i] = 0xfd
+	}
+	binary.BigEndian.PutUint32(step[129:133], crypto.MaxRSAChallengeLevel)
+
+	start := time.Now()
+	c.handleInit1(h, step)
+	if time.Since(start) > 100*time.Millisecond {
+		t.Fatal("handleInit1 solved the puzzle on the receive loop")
+	}
+	_ = h.Close()
+	time.Sleep(100 * time.Millisecond)
+	if level, _ := h.TsCrypt.Puzzle(); level != 0 {
+		t.Errorf("a closed connection still recorded a puzzle of level %d", level)
 	}
 }
 

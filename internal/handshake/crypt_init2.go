@@ -22,7 +22,8 @@ type init2Payload struct {
 
 // CryptoInit2 performs the second stage of crypto initialization (Ed25519 ECDH).
 func CryptoInit2(tc *crypto.Crypt, license, omega, proof, beta string, privateKey []byte) error {
-	if len(tc.AlphaTmp) == 0 {
+	alpha := tc.Alpha()
+	if len(alpha) == 0 {
 		return errAlphaNotInitialized
 	}
 	payload, err := decodeInit2Payload(license, omega, proof, beta)
@@ -52,7 +53,7 @@ func CryptoInit2(tc *crypto.Crypt, license, omega, proof, beta string, privateKe
 		return err
 	}
 
-	return tc.SetSharedSecret(tc.AlphaTmp, payload.beta, sharedSecret)
+	return tc.SetSharedSecret(alpha, payload.beta, sharedSecret)
 }
 
 func decodeInit2Payload(license, omega, proof, beta string) (*init2Payload, error) {

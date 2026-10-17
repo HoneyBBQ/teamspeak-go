@@ -443,9 +443,10 @@ func (c *Client) traceHandshakeDone(h *transport.PacketHandler, serverPublicKey 
 	if !ok || c.trace.HandshakeDone == nil {
 		return
 	}
+	puzzleLevel, puzzleDuration := h.TsCrypt.Puzzle()
 	callHook(c.logger, "HandshakeDone", c.trace.HandshakeDone, HandshakeDoneInfo{
 		Duration: time.Since(a.connectStart), Attempt: a.number, Reconnect: a.reconnect,
-		PuzzleLevel: h.TsCrypt.PuzzleLevel, PuzzleDuration: h.TsCrypt.PuzzleDuration,
+		PuzzleLevel: puzzleLevel, PuzzleDuration: puzzleDuration,
 		Resends: h.Resends(), ServerPublicKey: serverPublicKey,
 	})
 }

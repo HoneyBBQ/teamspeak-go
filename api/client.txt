@@ -32,6 +32,7 @@ var ErrInvalidAddress error
 var ErrInvalidConfig error
 var ErrInvalidWhisperTarget error
 var ErrNoWhisperTargets error
+var ErrPuzzleTooHard error
 var ErrTooManyWhisperChannels error
 var ErrTooManyWhisperTargets error
 func DefaultShouldRetry(err error, _ int) bool
