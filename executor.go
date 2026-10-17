@@ -63,6 +63,9 @@ func init() { //nolint:gochecknoinits // see above
 
 		return req
 	}
+	request.NewList = func(command, key string, values []string) any {
+		return Request{command: command, params: []param{rowsArg(key, values)}}
+	}
 	request.Encode = func(req any, encodePassword func(password string) string) string {
 		return req.(Request).encode(encodePassword) //nolint:forcetypeassert // only ever given a Request
 	}

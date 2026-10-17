@@ -186,6 +186,9 @@ const (
 	ClientList = "clientlist"
 	// ClientMove is clientmove: moves one or more clients to another channel.
 	ClientMove = "clientmove"
+	// ClientMute is clientmute: stops the server forwarding the given clients'
+	// voice to this client. Voice protocol only.
+	ClientMute = "clientmute"
 	// ClientPermList is clientpermlist: displays a list of permissions defined for
 	// a client.
 	ClientPermList = "clientpermlist"
@@ -195,6 +198,9 @@ const (
 	// ClientSetServerQueryLogin is clientsetserverquerylogin: updates your own
 	// ServerQuery login credentials using a specified username.
 	ClientSetServerQueryLogin = "clientsetserverquerylogin"
+	// ClientUnmute is clientunmute: resumes forwarding the given clients' voice
+	// to this client. Voice protocol only.
+	ClientUnmute = "clientunmute"
 	// ClientUpdate is clientupdate: changes your ServerQuery clients settings
 	// using given properties.
 	ClientUpdate = "clientupdate"

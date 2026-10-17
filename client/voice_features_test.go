@@ -242,3 +242,34 @@ func TestBuildSetConnectionInfo_KeysAndOrder(t *testing.T) {
 		t.Errorf("before the first pong: %d fields, ping present = %v", len(without.Params), ok)
 	}
 }
+
+func TestMuteClients_SendOneRowPerClient(t *testing.T) {
+	var sent []string
+	c := newTestClient(t)
+	c.wireHook = func(line string) error {
+		sent = append(sent, line)
+
+		return errCaptured
+	}
+	ids := []teamspeak.ClientID{3, 7}
+	_ = c.MuteClients(t.Context(), ids)
+	_ = c.UnmuteClients(t.Context(), ids)
+	_ = c.MuteClients(t.Context(), ids[:1])
+	err := c.MuteClients(t.Context(), nil)
+	if err != nil {
+		t.Errorf("an empty mute: %v", err)
+	}
+	err = c.UnmuteClients(t.Context(), []teamspeak.ClientID{})
+	if err != nil {
+		t.Errorf("an empty unmute: %v", err)
+	}
+	want := []string{"clientmute clid=3|clid=7", "clientunmute clid=3|clid=7", "clientmute clid=3"}
+	if len(sent) != len(want) {
+		t.Fatalf("sent %q, want %q", sent, want)
+	}
+	for i := range want {
+		if !strings.HasPrefix(sent[i], want[i]) {
+			t.Errorf("sent[%d] = %q, want prefix %q", i, sent[i], want[i])
+		}
+	}
+}
