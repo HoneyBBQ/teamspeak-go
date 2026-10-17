@@ -7,7 +7,7 @@ package client_test
 // Run locally:
 //
 //	docker compose -f docker-compose.integration.yml up -d --wait
-//	TEAMSPEAK_ADDR=127.0.0.1:9987 go test -tags integration ./... -v -timeout 120s
+//	TEAMSPEAK_ADDR=127.0.0.1:9987 go test -p 1 -tags integration ./... -v -timeout 120s
 //	docker compose -f docker-compose.integration.yml down
 //
 // In CI the server is provided by the workflow's service container and
