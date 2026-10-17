@@ -185,3 +185,32 @@ func TestParseCustomSet_ReadsAnUnescapedSet(t *testing.T) {
 		t.Errorf("parsed = %+v, want %+v", got, want)
 	}
 }
+
+// Measured on both servers: -icon adds client_icon_id to each client.
+func TestListClients_Icon(t *testing.T) {
+	s := &script{replies: []reply{{rows: []map[string]string{{
+		"cid": "24", "clid": "1", "client_database_id": "1", "client_icon_id": "4294967295",
+		"client_nickname": "serveradmin", "client_type": "1",
+	}}}}}
+	got, err := NewCommands(s).ListClients(t.Context(), ClientListOptions{Icon: true})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if want := "clientlist -uid -icon"; s.sent[0] != want {
+		t.Errorf("sent %q, want %q", s.sent[0], want)
+	}
+	// The server sends an icon id as an unsigned 32-bit number, or as the same
+	// bits signed.
+	if got[0].IconID != 4294967295 {
+		t.Errorf("IconID = %d, want 4294967295", got[0].IconID)
+	}
+
+	line := encoded(t, func(c *Commands) error {
+		_, err := c.ListClients(t.Context(), ClientListOptions{})
+
+		return err
+	})
+	if line != "clientlist -uid" {
+		t.Errorf("a list without Icon sent %q", line)
+	}
+}

@@ -110,8 +110,8 @@ type ClientEntry struct {
 	// Avatar is the MD5 of the client's avatar, empty for none
 	// (client_flag_avatar). No list brings it.
 	Avatar string
-	// IconID is the client's icon, or 0 for none (client_icon_id). No list
-	// brings it.
+	// IconID is the client's icon, or 0 for none (client_icon_id). Only
+	// ListClients with ClientListOptions.Icon brings it among the lists.
 	IconID IconID
 	// NicknamePhonetic is how the nickname is pronounced
 	// (client_nickname_phonetic). No list brings it.

@@ -89,6 +89,8 @@ type ClientListOptions struct {
 	Times bool
 	// Info adds each client's version and platform (-info).
 	Info bool
+	// Icon adds each client's icon id (-icon), as ClientEntry.IconID.
+	Icon bool
 	// Country adds each client's country (-country).
 	Country bool
 	// IP adds each client's address (-ip).
@@ -100,7 +102,7 @@ type ClientListOptions struct {
 // ListClients returns every client currently connected, with the optional
 // fields options asks for.
 func (c *Commands) ListClients(ctx context.Context, options ClientListOptions) ([]ClientEntry, error) {
-	params := make([]param, 0, 9)
+	params := make([]param, 0, 10)
 	if !options.OmitUID {
 		params = append(params, boolArg("-uid", true))
 	}
@@ -113,6 +115,7 @@ func (c *Commands) ListClients(ctx context.Context, options ClientListOptions) (
 		{"-groups", options.Groups},
 		{"-times", options.Times},
 		{"-info", options.Info},
+		{"-icon", options.Icon},
 		{"-country", options.Country},
 		{"-ip", options.IP},
 		{"-badges", options.Badges},
