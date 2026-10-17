@@ -98,6 +98,8 @@ jobs:
             query_port: 10011
             # TS3 has no SSH ServerQuery.
             query_ssh_port: ""
+            # Nor guest ServerQuery access.
+            query_guest: ""
             api_key_env: TS3SERVER_LICENSE
           - name: TS6
             image: teamspeaksystems/teamspeak6-server:latest
@@ -110,6 +112,9 @@ jobs:
             # carries the serveradmin password and checks the host key, so the
             # suite has to reach it. Off unless the service enables it below.
             query_ssh_port: 10022
+            # TS6 serves guest ServerQuery access over SSH and WebQuery, on by
+            # default, so the guest tests run here.
+            query_guest: "1"
             api_key_env: TSSERVER_LICENSE_ACCEPTED
     services:
       teamspeak:
@@ -161,6 +166,7 @@ jobs:
           TS3_QUERY_PORT='${{ matrix.server.query_port }}' \
           TS3_QUERY_SSH_PORT='${{ matrix.server.query_ssh_port }}' \
           TS3_QUERY_SSH_PASSWORD=ci-serveradmin-password \
+          TS3_QUERY_GUEST='${{ matrix.server.query_guest }}' \
           ./scripts/ts3-fixture.sh
       - name: Run integration tests
         env:
