@@ -3,6 +3,20 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+Breaking changes, made before v1.0.0 for two options the server never honoured.
+
+- `ClientDatabaseEditOptions.Nickname` is gone. `EditClientDatabase` sent
+  `client_nickname`, which `clientdbedit` does not take: TeamSpeak 3 and
+  TeamSpeak 6 both answered error 1542 (missing required parameter). The
+  command edits `Description` only, and there is no way to change a stored
+  nickname through it.
+- `ServerGroupClientListOptions.UIDs` is gone. It sent `-uid`, which
+  `servergroupclientlist` ignores, so the rows stayed `cldbid` only. Set
+  `Names` instead: the server then returns each member's nickname and unique
+  identifier together, so `ServerGroupMember.UID` is filled by `Names`.
+
 ## v1.0.0-beta.7 (2026-10-17)
 
 ### Security
@@ -447,7 +461,7 @@ The changes from the earlier v1 previews are listed first, under
 | `KickedEvent.Message`, `RemovedError.Message` | `.ReasonMessage`, as on `ClientLeaveEvent` |
 | `TokenType`, `TokenServerGroup`, `TokenChannelGroup` | `PrivilegeKeyType`, `PrivilegeKeyServerGroup`, `PrivilegeKeyChannelGroup` |
 | `MoveChannel(ctx, cid, parent, order)` | `…, ChannelMoveOptions{Order: order})` |
-| `ListServerGroupClients(ctx, sgid, names, uids)` | `…, ServerGroupClientListOptions{Names, UIDs})` |
+| `ListServerGroupClients(ctx, sgid, names, uids)` | `…, ServerGroupClientListOptions{Names})`; the uid comes with `Names` |
 | `ListChannelGroupClients(ctx, cid, dbid, cgid)` | `ListChannelGroupClients(ctx, ChannelGroupClientListOptions{…})` |
 | `ListComplaints(ctx, dbid)`, `ListBindings(ctx, sub)` | `ComplaintListOptions{TargetDatabaseID}`, `BindingListOptions{Subsystem}` |
 | `ListFiles`, `GetFileInfo`, `DeleteFile`, `CreateDirectory` taking `pw` | `FileOptions{Password: pw}` |
