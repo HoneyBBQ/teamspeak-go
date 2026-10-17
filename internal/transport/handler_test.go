@@ -2,6 +2,7 @@ package transport
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -686,7 +687,7 @@ func answerInit1(h *PacketHandler) {
 		if p.Type() != PacketTypeInit1 {
 			return
 		}
-		response, err := handshake.ProcessInit1(h.TsCrypt, p.Data)
+		response, err := handshake.ProcessInit1(context.Background(), h.TsCrypt, p.Data)
 		if err != nil || response == nil {
 			return
 		}

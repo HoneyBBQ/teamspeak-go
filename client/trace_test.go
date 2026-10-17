@@ -310,7 +310,7 @@ func TestTrace_EveryFailureIsOneAttemptFailedWithItsPhase(t *testing.T) {
 			want:  ErrHandshake,
 			drive: func(_ *testing.T, c *Client, _ <-chan error) {
 				h := c.currentHandler()
-				h.TsCrypt.AlphaTmp = make([]byte, 10)
+				h.TsCrypt.FinishPuzzle(nil, nil, make([]byte, 10), 0, 0)
 				c.handleCommand(h, "initivexpand2 l=AQ== beta=AAAA omega=AAAA proof=AAAA")
 			},
 		},

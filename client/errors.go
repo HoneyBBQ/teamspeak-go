@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/internal/crypto"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
@@ -16,6 +17,12 @@ var ErrConnectionTimeout = transport.ErrTimedOut
 // verification — so the attempt ended there. Connect returns an error wrapping
 // it, with the step's own error alongside.
 var ErrHandshake = errors.New("TeamSpeak handshake failed")
+
+// ErrPuzzleTooHard reports a connection attempt whose server asked for more
+// squarings in its Init1 puzzle than the client will do. A server under a burst
+// of connections raises the level it asks for, but not this far; nothing was
+// solved. Connect returns an error wrapping it and ErrHandshake.
+var ErrPuzzleTooHard = crypto.ErrPuzzleTooHard
 
 // ErrInvalidAddress reports a server address that cannot be one: no host, a
 // host containing what no host name or IP address can, or a port outside
