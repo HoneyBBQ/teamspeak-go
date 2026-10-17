@@ -564,9 +564,59 @@ func (c *Client) handleNotification(cmd *wire.Command) {
 		c.handleClientMoved(cmd)
 	case "notifytextmessage":
 		c.handleTextMessage(cmd)
+	default:
+		c.handleChannelNotification(cmd)
 	}
 
 	c.dispatchNotification(cmd)
+}
+
+// handleChannelNotification reads the channel and server notifications, which
+// keep no state here.
+func (c *Client) handleChannelNotification(cmd *wire.Command) {
+	switch cmd.Name {
+	case "notifychannelcreated":
+		if evt, ok := servernotify.ChannelCreated(cmd.Params); ok {
+			c.events.Push(func() {
+				c.subs.channelCreated.Deliver(c.logger, "ChannelCreatedEvent", evt, cloneChannelCreated)
+			})
+		}
+	case "notifychanneledited":
+		// Not the answer to channelgetdescription, which is no edit; see
+		// servernotify.ChannelEdited.
+		if evt, ok := servernotify.ChannelEdited(cmd.Params); ok {
+			c.events.Push(func() {
+				c.subs.channelEdited.Deliver(c.logger, "ChannelEditedEvent", evt, cloneChannelEdited)
+			})
+		}
+	case "notifychannelmoved":
+		if evt, ok := servernotify.ChannelMoved(cmd.Params); ok {
+			c.events.Push(func() { c.subs.channelMoved.Deliver(c.logger, "ChannelMovedEvent", evt, nil) })
+		}
+	case "notifychanneldeleted":
+		if evt, ok := servernotify.ChannelDeleted(cmd.Params); ok {
+			c.events.Push(func() { c.subs.channelDeleted.Deliver(c.logger, "ChannelDeletedEvent", evt, nil) })
+		}
+	case "notifychanneldescriptionchanged":
+		if id := servernotify.ParseChannelID(cmd.Params["cid"]); id != 0 {
+			evt := teamspeak.ChannelDescriptionChangedEvent{ChannelID: id}
+			c.events.Push(func() {
+				c.subs.channelDesc.Deliver(c.logger, "ChannelDescriptionChangedEvent", evt, nil)
+			})
+		}
+	case "notifychannelpasswordchanged":
+		if id := servernotify.ParseChannelID(cmd.Params["cid"]); id != 0 {
+			evt := teamspeak.ChannelPasswordChangedEvent{ChannelID: id}
+			c.events.Push(func() {
+				c.subs.channelPassword.Deliver(c.logger, "ChannelPasswordChangedEvent", evt, nil)
+			})
+		}
+	case "notifyserveredited":
+		evt := servernotify.ServerEdited(cmd.Params)
+		c.events.Push(func() {
+			c.subs.serverEdited.Deliver(c.logger, "ServerEditedEvent", evt, cloneServerEdited)
+		})
+	}
 }
 
 // dispatchNotification hands every notification, modelled or not, to the
@@ -593,6 +643,24 @@ func cloneTextMessage(m teamspeak.TextMessageEvent) teamspeak.TextMessageEvent {
 	m.InvokerGroups = slices.Clone(m.InvokerGroups)
 
 	return m
+}
+
+func cloneChannelCreated(e teamspeak.ChannelCreatedEvent) teamspeak.ChannelCreatedEvent {
+	e.Changes = servernotify.CloneChannelChanges(e.Changes)
+
+	return e
+}
+
+func cloneChannelEdited(e teamspeak.ChannelEditedEvent) teamspeak.ChannelEditedEvent {
+	e.Changes = servernotify.CloneChannelChanges(e.Changes)
+
+	return e
+}
+
+func cloneServerEdited(e teamspeak.ServerEditedEvent) teamspeak.ServerEditedEvent {
+	e.Changes = maps.Clone(e.Changes)
+
+	return e
 }
 
 func (c *Client) handleClientEnter(cmd *wire.Command) {

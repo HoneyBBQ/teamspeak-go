@@ -111,3 +111,54 @@ func TestSharedNames(_ *testing.T) {
 	_ = WhoAmI{ServerUID: ""}
 	_ = PrivilegeKeyServerGroup
 }
+
+func TestSendPluginCommand_AddressesTheChannelTheServerOrOneClient(t *testing.T) {
+	rec := &recorder{}
+	cmds := NewCommands(rec)
+	for _, target := range []PluginCommandTarget{{}, PluginToChannel(), PluginToServer(), PluginToClient(9)} {
+		err := cmds.SendPluginCommand(t.Context(), "plug", "hello", target)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := cmds.SendPluginCommand(t.Context(), "b2 plug", "a b|c/d", PluginToChannel())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = cmds.SendPluginCommand(t.Context(), "plug", "", PluginToChannel())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"plugincmd name=plug data=hello targetmode=0",
+		"plugincmd name=plug data=hello targetmode=0",
+		"plugincmd name=plug data=hello targetmode=1",
+		"plugincmd name=plug data=hello targetmode=2 target=9",
+		`plugincmd name=b2\splug data=a\sb\pc\/d targetmode=0`,
+		"plugincmd name=plug data= targetmode=0",
+	}
+	for i, req := range rec.requests {
+		if got := req.encode(func(pw string) string { return pw }); got != want[i] {
+			t.Errorf("request %d = %q, want %q", i, got, want[i])
+		}
+	}
+}
+
+func TestChatComposingAndClose_NameTheClient(t *testing.T) {
+	rec := &recorder{}
+	cmds := NewCommands(rec)
+	err := cmds.SendChatComposing(t.Context(), 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = cmds.ClosePrivateChat(t.Context(), 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{"clientchatcomposing clid=9", "clientchatclosed clid=9"} {
+		if got := rec.requests[i].encode(func(pw string) string { return pw }); got != want {
+			t.Errorf("request %d = %q, want %q", i, got, want)
+		}
+	}
+}

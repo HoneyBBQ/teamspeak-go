@@ -21,6 +21,7 @@ import (
 	"github.com/honeybbq/teamspeak-go/client"
 	"github.com/honeybbq/teamspeak-go/errcode"
 	"github.com/honeybbq/teamspeak-go/identity"
+	"github.com/honeybbq/teamspeak-go/internal/livetest"
 	"github.com/honeybbq/teamspeak-go/perm"
 	"github.com/honeybbq/teamspeak-go/serverquery"
 	"github.com/honeybbq/teamspeak-go/versions"
@@ -76,7 +77,7 @@ func tcpDialer(t *testing.T) (serverquery.Dialer, []serverquery.Option, account)
 func sshDialer(t *testing.T) (serverquery.Dialer, []serverquery.Option, account) {
 	t.Helper()
 	addr, user, password := sshVars(t)
-	check, err := serverquery.KnownHosts(knownHostsFor(t, addr))
+	check, err := serverquery.KnownHosts(livetest.KnownHostsFor(t, addr))
 	if err != nil {
 		t.Fatalf("KnownHosts: %v", err)
 	}

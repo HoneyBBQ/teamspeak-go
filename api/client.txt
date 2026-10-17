@@ -41,6 +41,14 @@ field AttemptFailedInfo.Duration time.Duration
 field AttemptFailedInfo.Attempt int
 field AttemptFailedInfo.Reconnect bool
 type BackoffPolicy = teamspeak.BackoffPolicy
+type ChannelCreatedEvent = teamspeak.ChannelCreatedEvent
+type ChannelDeletedEvent = teamspeak.ChannelDeletedEvent
+type ChannelDescriptionChangedEvent = teamspeak.ChannelDescriptionChangedEvent
+type ChannelEditedEvent = teamspeak.ChannelEditedEvent
+type ChannelMovedEvent = teamspeak.ChannelMovedEvent
+type ChannelPasswordChangedEvent = teamspeak.ChannelPasswordChangedEvent
+type ChannelSubscribedEvent = teamspeak.ChannelSubscribedEvent
+type ChannelUnsubscribedEvent = teamspeak.ChannelUnsubscribedEvent
 type Client struct
 method (Client) AddAPIKey(ctx context.Context, opts teamspeak.APIKeyOptions) (teamspeak.APIKeyCreated, error)
 method (Client) AddBan(ctx context.Context, opts teamspeak.BanOptions) (teamspeak.BanID, bool, error)
@@ -59,6 +67,7 @@ method (Client) AddTempPassword(ctx context.Context, opts teamspeak.TempPassword
 method (Client) BanClient(ctx context.Context, clid teamspeak.ClientID, opts teamspeak.BanClientOptions) ([]teamspeak.BanID, error)
 method (*Client) ChannelID() teamspeak.ChannelID
 method (*Client) ClientID() teamspeak.ClientID
+method (Client) ClosePrivateChat(ctx context.Context, clid teamspeak.ClientID) error
 method (*Client) Connect(ctx context.Context) error
 method (Client) CopyChannelGroup(ctx context.Context, sourceGroupID teamspeak.ChannelGroupID, targetGroupID teamspeak.ChannelGroupID, name string, groupType teamspeak.GroupType) (teamspeak.ChannelGroupID, error)
 method (Client) CopyServerGroup(ctx context.Context, sourceGroupID teamspeak.ServerGroupID, targetGroupID teamspeak.ServerGroupID, name string, groupType teamspeak.GroupType) (teamspeak.ServerGroupID, error)
@@ -160,7 +169,16 @@ method (Client) ListTempPasswords(ctx context.Context) ([]teamspeak.TempPassword
 method (*Client) LogValue() slog.Value
 method (Client) MoveChannel(ctx context.Context, cid teamspeak.ChannelID, parentID teamspeak.ChannelID, opts teamspeak.ChannelMoveOptions) error
 method (Client) MoveClient(ctx context.Context, clid teamspeak.ClientID, channelID teamspeak.ChannelID, opts teamspeak.ClientMoveOptions) error
+method (*Client) OnChannelCreated(handler func(ChannelCreatedEvent)) func()
+method (*Client) OnChannelDeleted(handler func(ChannelDeletedEvent)) func()
+method (*Client) OnChannelDescriptionChanged(handler func(ChannelDescriptionChangedEvent)) func()
+method (*Client) OnChannelEdited(handler func(ChannelEditedEvent)) func()
+method (*Client) OnChannelMoved(handler func(ChannelMovedEvent)) func()
+method (*Client) OnChannelPasswordChanged(handler func(ChannelPasswordChangedEvent)) func()
+method (*Client) OnChannelSubscribed(handler func(ChannelSubscribedEvent)) func()
+method (*Client) OnChannelUnsubscribed(handler func(ChannelUnsubscribedEvent)) func()
 method (*Client) OnClientChannelGroupChanged(handler func(ClientChannelGroupChangedEvent)) func()
+method (*Client) OnClientChatComposing(handler func(ClientChatComposingEvent)) func()
 method (*Client) OnClientEnter(handler func(ClientEnterEvent)) func()
 method (*Client) OnClientLeave(handler func(ClientLeaveEvent)) func()
 method (*Client) OnClientMoved(handler func(ClientMovedEvent)) func()
@@ -171,7 +189,9 @@ method (*Client) OnConnected(handler func(ConnectedEvent)) func()
 method (*Client) OnDisconnected(handler func(DisconnectedEvent)) func()
 method (*Client) OnKicked(handler func(KickedEvent)) func()
 method (*Client) OnNotification(handler func(NotificationEvent)) func()
+method (*Client) OnPluginCommand(handler func(PluginCommandEvent)) func()
 method (*Client) OnPoked(handler func(PokeEvent)) func()
+method (*Client) OnServerEdited(handler func(ServerEditedEvent)) func()
 method (*Client) OnTextMessage(handler func(TextMessageEvent)) func()
 method (*Client) OnVoiceData(handler func(VoiceDataEvent)) func()
 method (Client) PokeClient(ctx context.Context, clid teamspeak.ClientID, message string) error
@@ -182,8 +202,10 @@ method (Client) RenameServerGroup(ctx context.Context, serverGroupID teamspeak.S
 method (Client) ResetPermissions(ctx context.Context) error
 method (*Client) Send(ctx context.Context, req teamspeak.Request) ([]map[string]string, error)
 method (Client) SendChannelMessage(ctx context.Context, message string) error
+method (Client) SendChatComposing(ctx context.Context, clid teamspeak.ClientID) error
 method (Client) SendGlobalMessage(ctx context.Context, message string) error
 method (Client) SendOfflineMessage(ctx context.Context, recipient teamspeak.UID, subject string, message string) error
+method (Client) SendPluginCommand(ctx context.Context, name string, data string, target teamspeak.PluginCommandTarget) error
 method (Client) SendPrivateMessage(ctx context.Context, clid teamspeak.ClientID, message string) error
 method (Client) SendServerMessage(ctx context.Context, message string) error
 method (*Client) SendVoice(data []byte, codec teamspeak.Codec, _ VoiceOptions) error
@@ -209,6 +231,7 @@ method (Client) UsePrivilegeKey(ctx context.Context, token string) error
 method (Client) ViewLog(ctx context.Context, opts teamspeak.LogViewOptions) (teamspeak.LogPage, error)
 method (Client) WhoAmI(ctx context.Context) (teamspeak.WhoAmI, error)
 type ClientChannelGroupChangedEvent = teamspeak.ClientChannelGroupChangedEvent
+type ClientChatComposingEvent = teamspeak.ClientChatComposingEvent
 type ClientEnterEvent = teamspeak.ClientEnterEvent
 type ClientLeaveEvent = teamspeak.ClientLeaveEvent
 type ClientMovedEvent = teamspeak.ClientMovedEvent
@@ -249,6 +272,7 @@ type KickedEvent = teamspeak.KickedEvent
 type NotificationEvent = teamspeak.NotificationEvent
 type Option interface
 sealed Option
+type PluginCommandEvent = teamspeak.PluginCommandEvent
 type PokeEvent = teamspeak.PokeEvent
 type ReconnectOptions = teamspeak.ReconnectOptions
 type ReconnectScheduledInfo struct
@@ -293,6 +317,7 @@ field ServerCapabilities.Major int
 field ServerCapabilities.ServerID teamspeak.ServerID
 field ServerCapabilities.HostMessageMode teamspeak.HostMessageMode
 field ServerCapabilities.IconID teamspeak.IconID
+type ServerEditedEvent = teamspeak.ServerEditedEvent
 type ServerFamily = teamspeak.ServerFamily
 type SessionEndInfo struct
 field SessionEndInfo.Cause error

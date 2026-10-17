@@ -107,12 +107,46 @@ the optional ones are pointers, a plain assignment of a record shares them;
   ones for the client asked about, not the same notification sent for another.
 - `ClientListOptions.Icon` sends `-icon`, which fills `ClientEntry.IconID` in a
   list; no other list brings it.
+- `OnChannelCreated`, `OnChannelEdited`, `OnChannelMoved`, `OnChannelDeleted`,
+  `OnChannelDescriptionChanged`, `OnChannelPasswordChanged` and `OnServerEdited`
+  report changes to channels and to the server, on the voice client and on the
+  ServerQuery client, which receives them through the `channel` and `server`
+  categories it registers by default. `ChannelCreatedEvent` and
+  `ChannelEditedEvent` carry `Changes`, a `ChannelChanges` holding only the
+  properties the server sent; for a new channel, a nil field has the server's
+  default. `ServerEditedEvent.Changes` holds the changed `virtualserver_`
+  properties by their wire names, and none for a welcome message change.
+- The voice client also reports its own subscriptions
+  (`OnChannelSubscribed`, `OnChannelUnsubscribed`), plugin commands
+  (`OnPluginCommand`, which the sender receives too when it sent to its channel
+  or the server) and a client typing a private message to it
+  (`OnClientChatComposing`). Neither TeamSpeak 3 over raw ServerQuery nor
+  TeamSpeak 6 over SSH sends a query connection these, nor `OnClientUpdated`,
+  the group events or `OnClientChannelGroupChanged`, so the ServerQuery client
+  has no such methods; the `serverquery` documentation lists what each category
+  delivers.
+- `Commands.SendPluginCommand` sends a plugin command to the sender's channel
+  (`PluginToChannel`, the zero value), to every client (`PluginToServer`) or to
+  one (`PluginToClient`). `Commands.SendChatComposing` sends the typing
+  indicator, and `Commands.ClosePrivateChat` tells a client the private chat is
+  closed, which the server delivers only to a client that was sent a private
+  message first. A ServerQuery connection cannot send any of them.
 
 ### Changed
 
 - `ListChannels` also sends `-secondsempty -banners`. The banner fills
   `Channel.BannerURL` and `BannerMode`; `Channel` has no field for the
   `seconds_empty` the first adds.
+
+### Fixed
+
+- `GetChannelDescription` returned an empty description, or failed, when
+  another channel edit arrived while it waited, because it read the first row
+  of the answer. It now takes the row for the requested channel that carries
+  the description, and fails with `ErrNoData` if there is none. Its answer, a
+  channel edit with reason `ReasonChannelUpdate` and no invoker, is not a
+  change and produces no `ChannelEditedEvent`; it still reaches
+  `OnNotification`.
 
 ## v1.0.0-beta.7 (2026-10-17)
 

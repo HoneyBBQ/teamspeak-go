@@ -3,8 +3,12 @@ package teamspeak
 // Event is a server event: a TextMessageEvent, ClientEnterEvent,
 // ClientLeaveEvent, ClientMovedEvent, PokeEvent, VoiceDataEvent,
 // NotificationEvent, ClientUpdatedEvent, ClientServerGroupAddedEvent,
-// ClientServerGroupRemovedEvent or ClientChannelGroupChangedEvent. Code that
-// receives events of any kind tells them apart with a type switch.
+// ClientServerGroupRemovedEvent, ClientChannelGroupChangedEvent,
+// ChannelCreatedEvent, ChannelEditedEvent, ChannelMovedEvent,
+// ChannelDeletedEvent, ChannelDescriptionChangedEvent,
+// ChannelPasswordChangedEvent, ServerEditedEvent, ChannelSubscribedEvent,
+// ChannelUnsubscribedEvent, PluginCommandEvent or ClientChatComposingEvent.
+// Code that receives events of any kind tells them apart with a type switch.
 //
 // The set is closed — the method is unexported — because a client delivers
 // only the events it knows: a type invented elsewhere would have no handler to
@@ -28,6 +32,18 @@ func (ClientUpdatedEvent) serverEvent()             {}
 func (ClientServerGroupAddedEvent) serverEvent()    {}
 func (ClientServerGroupRemovedEvent) serverEvent()  {}
 func (ClientChannelGroupChangedEvent) serverEvent() {}
+
+func (ChannelCreatedEvent) serverEvent()            {}
+func (ChannelEditedEvent) serverEvent()             {}
+func (ChannelMovedEvent) serverEvent()              {}
+func (ChannelDeletedEvent) serverEvent()            {}
+func (ChannelDescriptionChangedEvent) serverEvent() {}
+func (ChannelPasswordChangedEvent) serverEvent()    {}
+func (ServerEditedEvent) serverEvent()              {}
+func (ChannelSubscribedEvent) serverEvent()         {}
+func (ChannelUnsubscribedEvent) serverEvent()       {}
+func (PluginCommandEvent) serverEvent()             {}
+func (ClientChatComposingEvent) serverEvent()       {}
 
 // ClientEnterEvent is emitted when a client enters view
 // (notifycliententerview): on connecting, for everyone already there, and
@@ -267,4 +283,162 @@ type ClientChannelGroupChangedEvent struct {
 	// InvokerID is the client id of who changed the group (invokerid); 0 for a
 	// move or when the server did.
 	InvokerID ClientID
+}
+
+// ChannelCreatedEvent is emitted when a channel is created
+// (notifychannelcreated), by a client or by the server.
+//
+// Changes holds the properties the server sent, which are those that differ
+// from a new channel's defaults: for a channel left at its defaults, little
+// more than the name and the position. A property that is nil there has the
+// server's default; it is not unknown. The description is never among them;
+// GetChannelInfo has it. ChannelChanges.Apply merges them into a Channel.
+type ChannelCreatedEvent struct {
+	// Changes are the properties the notification carried. Each handler gets
+	// its own copy.
+	Changes ChannelChanges
+	// InvokerName is who created the channel (invokername).
+	InvokerName string
+	// InvokerUID is the identity of who created the channel (invokeruid).
+	InvokerUID UID
+	// ChannelID is the new channel (cid).
+	ChannelID ChannelID
+	// ParentID is the channel it was created under (cpid); 0 for the top
+	// level.
+	ParentID ChannelID
+	// InvokerID is the client id of who created the channel (invokerid).
+	InvokerID ClientID
+}
+
+// ChannelEditedEvent is emitted when a channel's properties are edited
+// (notifychanneledited).
+//
+// Changes holds only the properties the notification named. Editing a
+// description names none: ChannelDescriptionChangedEvent follows, and the text
+// is fetched. The answer to a description fetch is not an edit and produces no
+// event: it arrives with ReasonChannelUpdate and no invoker.
+type ChannelEditedEvent struct {
+	// Changes are the properties the notification carried. Each handler gets
+	// its own copy.
+	Changes ChannelChanges
+	// InvokerName is who edited the channel (invokername).
+	InvokerName string
+	// InvokerUID is the identity of who edited the channel (invokeruid).
+	InvokerUID UID
+	// ChannelID is the channel that changed (cid).
+	ChannelID ChannelID
+	// Reason is why it changed (reasonid); ReasonChannelEdit for an edit.
+	Reason Reason
+	// InvokerID is the client id of who edited the channel (invokerid).
+	InvokerID ClientID
+}
+
+// ChannelMovedEvent is emitted when a channel is moved under another or
+// reordered (notifychannelmoved).
+type ChannelMovedEvent struct {
+	// InvokerName is who moved the channel (invokername).
+	InvokerName string
+	// InvokerUID is the identity of who moved the channel (invokeruid).
+	InvokerUID UID
+	// ChannelID is the channel that moved (cid).
+	ChannelID ChannelID
+	// ParentID is the channel it is now under (cpid); 0 for the top level.
+	ParentID ChannelID
+	// Order is the sibling it is now sorted after (order); 0 sorts it first.
+	Order ChannelID
+	// Reason is why it moved (reasonid).
+	Reason Reason
+	// InvokerID is the client id of who moved the channel (invokerid).
+	InvokerID ClientID
+}
+
+// ChannelDeletedEvent is emitted when a channel is deleted
+// (notifychanneldeleted).
+type ChannelDeletedEvent struct {
+	// InvokerName is who deleted the channel (invokername); "Server" when the
+	// server did, as it does for a temporary channel that has emptied.
+	InvokerName string
+	// InvokerUID is the identity of who deleted the channel (invokeruid).
+	InvokerUID UID
+	// ChannelID is the channel that was deleted (cid).
+	ChannelID ChannelID
+	// InvokerID is the client id of who deleted the channel (invokerid); 0 when
+	// the server did.
+	InvokerID ClientID
+}
+
+// ChannelDescriptionChangedEvent is emitted when a channel's description
+// changed (notifychanneldescriptionchanged). It does not carry the text, nor
+// does the ChannelEditedEvent that accompanies it: fetch it.
+type ChannelDescriptionChangedEvent struct {
+	// ChannelID is the channel (cid).
+	ChannelID ChannelID
+}
+
+// ChannelPasswordChangedEvent is emitted when a channel's password was set,
+// changed or removed (notifychannelpasswordchanged). The ChannelEditedEvent
+// that accompanies it names the password flag only when the flag flipped.
+type ChannelPasswordChangedEvent struct {
+	// ChannelID is the channel (cid).
+	ChannelID ChannelID
+}
+
+// ServerEditedEvent is emitted when the virtual server's settings are edited
+// (notifyserveredited).
+//
+// Changes are the changed properties by their wire names, such as
+// "virtualserver_name"; the prop package names them. They are raw because the
+// SDK has no typed record of the server. A change of the welcome message names
+// no property, so Changes may be empty.
+type ServerEditedEvent struct {
+	// Changes are the changed properties. Each handler gets its own copy.
+	Changes Properties
+	// InvokerName is who edited the server (invokername).
+	InvokerName string
+	// InvokerUID is the identity of who edited the server (invokeruid).
+	InvokerUID UID
+	// InvokerID is the client id of who edited the server (invokerid).
+	InvokerID ClientID
+}
+
+// ChannelSubscribedEvent is emitted when this client is subscribed to a
+// channel (notifychannelsubscribed), by SubscribeChannel or by the server. Only
+// the voice client delivers it: subscriptions are a voice-protocol concept.
+type ChannelSubscribedEvent struct {
+	// ChannelID is the channel (cid).
+	ChannelID ChannelID
+}
+
+// ChannelUnsubscribedEvent is emitted when this client is no longer subscribed
+// to a channel (notifychannelunsubscribed), by request or because the server
+// withdrew the subscription. Only the voice client delivers it.
+type ChannelUnsubscribedEvent struct {
+	// ChannelID is the channel (cid).
+	ChannelID ChannelID
+}
+
+// PluginCommandEvent is a plugin command from a client (notifyplugincmd), sent
+// with SendPluginCommand. The sender receives its own command when it was sent
+// to the channel or to the server. Only the voice client delivers it.
+type PluginCommandEvent struct {
+	// Name is the command's name (name).
+	Name string
+	// Data is its payload (data); it may be empty.
+	Data string
+	// InvokerName is the sender's nickname (invokername).
+	InvokerName string
+	// InvokerUID is the sender's identity (invokeruid).
+	InvokerUID UID
+	// InvokerID is the sender's client id (invokerid).
+	InvokerID ClientID
+}
+
+// ClientChatComposingEvent is emitted when a client is typing a private message
+// to this client (notifyclientchatcomposing), sent with SendChatComposing. Only
+// the voice client delivers it.
+type ClientChatComposingEvent struct {
+	// UID is the typing client's identity (cluid).
+	UID UID
+	// ClientID is the typing client (clid).
+	ClientID ClientID
 }

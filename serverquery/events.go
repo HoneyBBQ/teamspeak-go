@@ -81,6 +81,105 @@ func (c *Client) OnClientMoved(handler func(teamspeak.ClientMovedEvent)) func() 
 	})
 }
 
+// OnChannelCreated registers a handler for channels being created. It is
+// delivered under the channel category. The event's Changes hold the properties
+// the server sent, which are those that differ from a new channel's defaults. It
+// returns a function that removes the handler.
+//
+// Over a transport that cannot deliver events — WebQuery — nothing arrives, and
+// the returned function does nothing; the client logs once at Warn.
+//
+// Experimental: this package may change in a minor release.
+func (c *Client) OnChannelCreated(handler func(teamspeak.ChannelCreatedEvent)) func() {
+	return c.serverEvent("OnChannelCreated", func() func() {
+		return c.subs.channelCreated.Add(handler)
+	})
+}
+
+// OnChannelEdited registers a handler for channels being edited, delivered under
+// the channel category. The event's Changes hold only what changed. It returns a
+// function that removes the handler.
+//
+// Over a transport that cannot deliver events — WebQuery — nothing arrives, and
+// the returned function does nothing; the client logs once at Warn.
+//
+// Experimental: this package may change in a minor release.
+func (c *Client) OnChannelEdited(handler func(teamspeak.ChannelEditedEvent)) func() {
+	return c.serverEvent("OnChannelEdited", func() func() {
+		return c.subs.channelEdited.Add(handler)
+	})
+}
+
+// OnChannelMoved registers a handler for channels being moved or reordered,
+// delivered under the channel category. It returns a function that removes the
+// handler.
+//
+// Over a transport that cannot deliver events — WebQuery — nothing arrives, and
+// the returned function does nothing; the client logs once at Warn.
+//
+// Experimental: this package may change in a minor release.
+func (c *Client) OnChannelMoved(handler func(teamspeak.ChannelMovedEvent)) func() {
+	return c.serverEvent("OnChannelMoved", func() func() {
+		return c.subs.channelMoved.Add(handler)
+	})
+}
+
+// OnChannelDeleted registers a handler for channels being deleted, delivered
+// under the channel category. It returns a function that removes the handler.
+//
+// Over a transport that cannot deliver events — WebQuery — nothing arrives, and
+// the returned function does nothing; the client logs once at Warn.
+//
+// Experimental: this package may change in a minor release.
+func (c *Client) OnChannelDeleted(handler func(teamspeak.ChannelDeletedEvent)) func() {
+	return c.serverEvent("OnChannelDeleted", func() func() {
+		return c.subs.channelDeleted.Add(handler)
+	})
+}
+
+// OnChannelDescriptionChanged registers a handler for a channel's description
+// changing, delivered under the channel category. The event does not carry the
+// text; GetChannelInfo has it. It returns a function that removes the handler.
+//
+// Over a transport that cannot deliver events — WebQuery — nothing arrives, and
+// the returned function does nothing; the client logs once at Warn.
+//
+// Experimental: this package may change in a minor release.
+func (c *Client) OnChannelDescriptionChanged(handler func(teamspeak.ChannelDescriptionChangedEvent)) func() {
+	return c.serverEvent("OnChannelDescriptionChanged", func() func() {
+		return c.subs.channelDesc.Add(handler)
+	})
+}
+
+// OnChannelPasswordChanged registers a handler for a channel's password being
+// set, changed or removed, delivered under the channel category. It returns a
+// function that removes the handler.
+//
+// Over a transport that cannot deliver events — WebQuery — nothing arrives, and
+// the returned function does nothing; the client logs once at Warn.
+//
+// Experimental: this package may change in a minor release.
+func (c *Client) OnChannelPasswordChanged(handler func(teamspeak.ChannelPasswordChangedEvent)) func() {
+	return c.serverEvent("OnChannelPasswordChanged", func() func() {
+		return c.subs.channelPassword.Add(handler)
+	})
+}
+
+// OnServerEdited registers a handler for the virtual server's settings being
+// edited, delivered under the server category. The event's Changes are the
+// changed properties by their wire names. It returns a function that removes the
+// handler.
+//
+// Over a transport that cannot deliver events — WebQuery — nothing arrives, and
+// the returned function does nothing; the client logs once at Warn.
+//
+// Experimental: this package may change in a minor release.
+func (c *Client) OnServerEdited(handler func(teamspeak.ServerEditedEvent)) func() {
+	return c.serverEvent("OnServerEdited", func() func() {
+		return c.subs.serverEdited.Add(handler)
+	})
+}
+
 // OnKicked registers a handler for this client being kicked from its channel.
 // It returns a function that removes the handler.
 //

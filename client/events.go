@@ -6,6 +6,7 @@ import (
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/internal/eventbus"
+	"github.com/honeybbq/teamspeak-go/internal/servernotify"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
@@ -109,6 +110,122 @@ func (c *Client) OnClientServerGroupRemoved(handler func(ClientServerGroupRemove
 // the other handlers and later events are still delivered.
 func (c *Client) OnClientChannelGroupChanged(handler func(ClientChannelGroupChangedEvent)) func() {
 	return c.onCGChanged.Add(handler)
+}
+
+// OnChannelCreated registers a handler for channels being created. The event's
+// Changes hold the properties the server sent, which are those that differ from
+// a new channel's defaults; ChannelChanges.Apply merges them into a Channel. It
+// returns a function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnChannelCreated(handler func(ChannelCreatedEvent)) func() {
+	return c.onChCreated.Add(handler)
+}
+
+// OnChannelEdited registers a handler for channels being edited. The event's
+// Changes hold only what changed. The answer to GetChannelDescription also
+// arrives as a channel edit, with no invoker; it is not a change and produces
+// no event. It returns a function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnChannelEdited(handler func(ChannelEditedEvent)) func() {
+	return c.onChEdited.Add(handler)
+}
+
+// OnChannelMoved registers a handler for channels being moved under another
+// channel or reordered. It returns a function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnChannelMoved(handler func(ChannelMovedEvent)) func() {
+	return c.onChMoved.Add(handler)
+}
+
+// OnChannelDeleted registers a handler for channels being deleted, including a
+// temporary channel the server deletes once it has emptied. It returns a
+// function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnChannelDeleted(handler func(ChannelDeletedEvent)) func() {
+	return c.onChDeleted.Add(handler)
+}
+
+// OnChannelDescriptionChanged registers a handler for a channel's description
+// changing. The event does not carry the text; GetChannelDescription fetches
+// it. It returns a function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnChannelDescriptionChanged(handler func(ChannelDescriptionChangedEvent)) func() {
+	return c.onChDescription.Add(handler)
+}
+
+// OnChannelPasswordChanged registers a handler for a channel's password being
+// set, changed or removed. It returns a function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnChannelPasswordChanged(handler func(ChannelPasswordChangedEvent)) func() {
+	return c.onChPassword.Add(handler)
+}
+
+// OnServerEdited registers a handler for the virtual server's settings being
+// edited. The event's Changes are the changed properties by their wire names;
+// a change of the welcome message names none. It returns a function that
+// removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnServerEdited(handler func(ServerEditedEvent)) func() {
+	return c.onServerEdited.Add(handler)
+}
+
+// OnChannelSubscribed registers a handler for this client being subscribed to a
+// channel, by SubscribeChannel, SubscribeAllChannels or the server. Only a voice
+// connection has subscriptions; ServerQuery clients have no such method. It
+// returns a function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnChannelSubscribed(handler func(ChannelSubscribedEvent)) func() {
+	return c.onChSubscribed.Add(handler)
+}
+
+// OnChannelUnsubscribed registers a handler for this client no longer being
+// subscribed to a channel, by request or because the server withdrew the
+// subscription. Unsubscribing from a channel it is not subscribed to sends
+// nothing. It returns a function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnChannelUnsubscribed(handler func(ChannelUnsubscribedEvent)) func() {
+	return c.onChUnsubscribed.Add(handler)
+}
+
+// OnPluginCommand registers a handler for plugin commands, which Commands.
+// SendPluginCommand sends. The sender receives its own command when it was sent
+// to its channel or to the server. Only a voice connection hears these;
+// ServerQuery clients have no such method. It returns a function that removes
+// the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnPluginCommand(handler func(PluginCommandEvent)) func() {
+	return c.onPluginCommand.Add(handler)
+}
+
+// OnClientChatComposing registers a handler for a client typing a private
+// message to this client, which Commands.SendChatComposing sends. Only the
+// target is told. Only a voice connection hears it. It returns a function that
+// removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnClientChatComposing(handler func(ClientChatComposingEvent)) func() {
+	return c.onChatComposing.Add(handler)
 }
 
 // OnKicked registers a handler for this client being kicked from its channel
@@ -299,6 +416,49 @@ func (c *Client) dispatchEvent(evt Event) {
 
 			return n
 		})
+	default:
+		c.dispatchChannelEvent(evt)
+	}
+}
+
+// dispatchChannelEvent hands a channel, server, subscription or plugin event to
+// its handlers.
+func (c *Client) dispatchChannelEvent(evt Event) {
+	switch e := evt.(type) {
+	case ChannelCreatedEvent:
+		c.onChCreated.Deliver(c.logger, eventbus.EventName(e), e, func(v ChannelCreatedEvent) ChannelCreatedEvent {
+			v.Changes = servernotify.CloneChannelChanges(v.Changes)
+
+			return v
+		})
+	case ChannelEditedEvent:
+		c.onChEdited.Deliver(c.logger, eventbus.EventName(e), e, func(v ChannelEditedEvent) ChannelEditedEvent {
+			v.Changes = servernotify.CloneChannelChanges(v.Changes)
+
+			return v
+		})
+	case ChannelMovedEvent:
+		c.onChMoved.Deliver(c.logger, eventbus.EventName(e), e, nil)
+	case ChannelDeletedEvent:
+		c.onChDeleted.Deliver(c.logger, eventbus.EventName(e), e, nil)
+	case ChannelDescriptionChangedEvent:
+		c.onChDescription.Deliver(c.logger, eventbus.EventName(e), e, nil)
+	case ChannelPasswordChangedEvent:
+		c.onChPassword.Deliver(c.logger, eventbus.EventName(e), e, nil)
+	case ServerEditedEvent:
+		c.onServerEdited.Deliver(c.logger, eventbus.EventName(e), e, func(v ServerEditedEvent) ServerEditedEvent {
+			v.Changes = maps.Clone(v.Changes)
+
+			return v
+		})
+	case ChannelSubscribedEvent:
+		c.onChSubscribed.Deliver(c.logger, eventbus.EventName(e), e, nil)
+	case ChannelUnsubscribedEvent:
+		c.onChUnsubscribed.Deliver(c.logger, eventbus.EventName(e), e, nil)
+	case PluginCommandEvent:
+		c.onPluginCommand.Deliver(c.logger, eventbus.EventName(e), e, nil)
+	case ClientChatComposingEvent:
+		c.onChatComposing.Deliver(c.logger, eventbus.EventName(e), e, nil)
 	}
 }
 
