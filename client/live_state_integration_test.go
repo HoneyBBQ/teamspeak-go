@@ -138,6 +138,12 @@ func requireAdmin(t *testing.T) *serverquery.Client {
 		dialer = serverquery.TCP(os.Getenv("TEAMSPEAK_QUERY_HOST") + ":" + os.Getenv("TEAMSPEAK_QUERY_PORT"))
 		opts = append(opts, serverquery.WithLogin(
 			os.Getenv("TEAMSPEAK_QUERY_LOGIN_NAME"), os.Getenv("TEAMSPEAK_QUERY_LOGIN_PASSWORD")))
+	case os.Getenv("TEAMSPEAK_QUERY_KIND") == "ssh" && os.Getenv("TEAMSPEAK_QUERY_SSH_HOST") != "":
+		// A throwaway fixture whose host key is generated on first start.
+		dialer = serverquery.SSHWith(
+			os.Getenv("TEAMSPEAK_QUERY_SSH_HOST")+":"+os.Getenv("TEAMSPEAK_QUERY_SSH_PORT"),
+			os.Getenv("TEAMSPEAK_QUERY_SSH_USER"), os.Getenv("TEAMSPEAK_QUERY_SSH_PASSWORD"),
+			serverquery.SSHOptions{HostKeyCheck: serverquery.InsecureIgnoreHostKey()})
 	case os.Getenv("TEAMSPEAK_QUERY_KIND") == "web" && os.Getenv("TEAMSPEAK_QUERY_URL") != "":
 		dialer = serverquery.Web(os.Getenv("TEAMSPEAK_QUERY_URL"), os.Getenv("TEAMSPEAK_QUERY_API_KEY"))
 	default:
