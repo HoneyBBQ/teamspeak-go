@@ -77,6 +77,9 @@ func DownloadFileData(ctx context.Context, host string, info *FileDownloadInfo, 
 func NewCommands(executor Executor) *Commands
 func PermissionByID(id PermissionID) Permission
 func PermissionByName(name string) Permission
+func PluginToChannel() PluginCommandTarget
+func PluginToClient(clid ClientID) PluginCommandTarget
+func PluginToServer() PluginCommandTarget
 func ServerFamilyForVersion(version string) ServerFamily
 func UploadFileData(ctx context.Context, host string, info *FileUploadInfo, data io.Reader, opts FileTransferOptions) error
 type APIKey struct
@@ -246,8 +249,22 @@ field ChannelCreateOptions.Password *string
 field ChannelCreateOptions.NamePhonetic *string
 field ChannelCreateOptions.Name string
 field ChannelCreateOptions.ParentID ChannelID
+type ChannelCreatedEvent struct
+field ChannelCreatedEvent.Changes ChannelChanges
+field ChannelCreatedEvent.InvokerName string
+field ChannelCreatedEvent.InvokerUID UID
+field ChannelCreatedEvent.ChannelID ChannelID
+field ChannelCreatedEvent.ParentID ChannelID
+field ChannelCreatedEvent.InvokerID ClientID
 type ChannelDeleteOptions struct
 field ChannelDeleteOptions.Force bool
+type ChannelDeletedEvent struct
+field ChannelDeletedEvent.InvokerName string
+field ChannelDeletedEvent.InvokerUID UID
+field ChannelDeletedEvent.ChannelID ChannelID
+field ChannelDeletedEvent.InvokerID ClientID
+type ChannelDescriptionChangedEvent struct
+field ChannelDescriptionChangedEvent.ChannelID ChannelID
 type ChannelEditOptions struct
 field ChannelEditOptions.Name *string
 field ChannelEditOptions.Topic *string
@@ -265,6 +282,13 @@ field ChannelEditOptions.IsSemiPermanent *bool
 field ChannelEditOptions.IsDefault *bool
 field ChannelEditOptions.DeleteDelay *time.Duration
 field ChannelEditOptions.NamePhonetic *string
+type ChannelEditedEvent struct
+field ChannelEditedEvent.Changes ChannelChanges
+field ChannelEditedEvent.InvokerName string
+field ChannelEditedEvent.InvokerUID UID
+field ChannelEditedEvent.ChannelID ChannelID
+field ChannelEditedEvent.Reason Reason
+field ChannelEditedEvent.InvokerID ClientID
 type ChannelGroup struct
 field ChannelGroup.Name string
 field ChannelGroup.ID ChannelGroupID
@@ -296,7 +320,21 @@ field ChannelMatch.Name string
 field ChannelMatch.ID ChannelID
 type ChannelMoveOptions struct
 field ChannelMoveOptions.Order *ChannelID
+type ChannelMovedEvent struct
+field ChannelMovedEvent.InvokerName string
+field ChannelMovedEvent.InvokerUID UID
+field ChannelMovedEvent.ChannelID ChannelID
+field ChannelMovedEvent.ParentID ChannelID
+field ChannelMovedEvent.Order ChannelID
+field ChannelMovedEvent.Reason Reason
+field ChannelMovedEvent.InvokerID ClientID
+type ChannelPasswordChangedEvent struct
+field ChannelPasswordChangedEvent.ChannelID ChannelID
+type ChannelSubscribedEvent struct
+field ChannelSubscribedEvent.ChannelID ChannelID
 type ChannelUID string
+type ChannelUnsubscribedEvent struct
+field ChannelUnsubscribedEvent.ChannelID ChannelID
 type ClientChanges struct
 field ClientChanges.Created *time.Time
 field ClientChanges.LastConnected *time.Time
@@ -350,6 +388,9 @@ field ClientChannelGroupChangedEvent.ChannelGroupID ChannelGroupID
 field ClientChannelGroupChangedEvent.ChannelGroupInheritedChannelID ChannelID
 field ClientChannelGroupChangedEvent.ClientID ClientID
 field ClientChannelGroupChangedEvent.InvokerID ClientID
+type ClientChatComposingEvent struct
+field ClientChatComposingEvent.UID UID
+field ClientChatComposingEvent.ClientID ClientID
 type ClientDBID uint64
 type ClientDatabaseEditOptions struct
 field ClientDatabaseEditOptions.Description *string
@@ -516,6 +557,7 @@ method (*Commands) AddServerGroupPermission(ctx context.Context, serverGroupID S
 method (*Commands) AddServerGroupPermissionByType(ctx context.Context, groups GroupAutoUpdateType, perm Permission, value int32, opts ServerGroupPermissionOptions) error
 method (*Commands) AddTempPassword(ctx context.Context, opts TempPasswordOptions) error
 method (*Commands) BanClient(ctx context.Context, clid ClientID, opts BanClientOptions) ([]BanID, error)
+method (*Commands) ClosePrivateChat(ctx context.Context, clid ClientID) error
 method (*Commands) CopyChannelGroup(ctx context.Context, sourceGroupID ChannelGroupID, targetGroupID ChannelGroupID, name string, groupType GroupType) (ChannelGroupID, error)
 method (*Commands) CopyServerGroup(ctx context.Context, sourceGroupID ServerGroupID, targetGroupID ServerGroupID, name string, groupType GroupType) (ServerGroupID, error)
 method (*Commands) CreateChannel(ctx context.Context, opts ChannelCreateOptions) (ChannelID, error)
@@ -617,8 +659,10 @@ method (*Commands) RenameFile(ctx context.Context, channelID ChannelID, oldName 
 method (*Commands) RenameServerGroup(ctx context.Context, serverGroupID ServerGroupID, name string) error
 method (*Commands) ResetPermissions(ctx context.Context) error
 method (*Commands) SendChannelMessage(ctx context.Context, message string) error
+method (*Commands) SendChatComposing(ctx context.Context, clid ClientID) error
 method (*Commands) SendGlobalMessage(ctx context.Context, message string) error
 method (*Commands) SendOfflineMessage(ctx context.Context, recipient UID, subject string, message string) error
+method (*Commands) SendPluginCommand(ctx context.Context, name string, data string, target PluginCommandTarget) error
 method (*Commands) SendPrivateMessage(ctx context.Context, clid ClientID, message string) error
 method (*Commands) SendServerMessage(ctx context.Context, message string) error
 method (*Commands) SetClientChannelGroup(ctx context.Context, channelGroupID ChannelGroupID, channelID ChannelID, clientDBID ClientDBID) error
@@ -809,6 +853,13 @@ field PermissionOverviewEntry.Negated bool
 field PermissionOverviewEntry.Skip bool
 type PermissionTarget int
 method (PermissionTarget) String() string
+type PluginCommandEvent struct
+field PluginCommandEvent.Name string
+field PluginCommandEvent.Data string
+field PluginCommandEvent.InvokerName string
+field PluginCommandEvent.InvokerUID UID
+field PluginCommandEvent.InvokerID ClientID
+type PluginCommandTarget struct
 type PokeEvent struct
 field PokeEvent.InvokerName string
 field PokeEvent.InvokerUID UID
@@ -886,6 +937,11 @@ method (ServerCreated) LogValue() slog.Value
 method (ServerCreated) String() string
 type ServerDeleteOptions struct
 field ServerDeleteOptions.NoEvent bool
+type ServerEditedEvent struct
+field ServerEditedEvent.Changes Properties
+field ServerEditedEvent.InvokerName string
+field ServerEditedEvent.InvokerUID UID
+field ServerEditedEvent.InvokerID ClientID
 type ServerError struct
 field ServerError.Message string
 field ServerError.ExtraMessage string

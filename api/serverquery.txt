@@ -49,6 +49,7 @@ method (Client) AddServerGroupPermission(ctx context.Context, serverGroupID team
 method (Client) AddServerGroupPermissionByType(ctx context.Context, groups teamspeak.GroupAutoUpdateType, perm teamspeak.Permission, value int32, opts teamspeak.ServerGroupPermissionOptions) error
 method (Client) AddTempPassword(ctx context.Context, opts teamspeak.TempPasswordOptions) error
 method (Client) BanClient(ctx context.Context, clid teamspeak.ClientID, opts teamspeak.BanClientOptions) ([]teamspeak.BanID, error)
+method (Client) ClosePrivateChat(ctx context.Context, clid teamspeak.ClientID) error
 method (*Client) Connect(ctx context.Context) error
 method (Client) CopyChannelGroup(ctx context.Context, sourceGroupID teamspeak.ChannelGroupID, targetGroupID teamspeak.ChannelGroupID, name string, groupType teamspeak.GroupType) (teamspeak.ChannelGroupID, error)
 method (Client) CopyServerGroup(ctx context.Context, sourceGroupID teamspeak.ServerGroupID, targetGroupID teamspeak.ServerGroupID, name string, groupType teamspeak.GroupType) (teamspeak.ServerGroupID, error)
@@ -150,6 +151,12 @@ method (*Client) Login(ctx context.Context, name string, password string) error
 method (*Client) Logout(ctx context.Context) error
 method (Client) MoveChannel(ctx context.Context, cid teamspeak.ChannelID, parentID teamspeak.ChannelID, opts teamspeak.ChannelMoveOptions) error
 method (Client) MoveClient(ctx context.Context, clid teamspeak.ClientID, channelID teamspeak.ChannelID, opts teamspeak.ClientMoveOptions) error
+method (*Client) OnChannelCreated(handler func(teamspeak.ChannelCreatedEvent)) func()
+method (*Client) OnChannelDeleted(handler func(teamspeak.ChannelDeletedEvent)) func()
+method (*Client) OnChannelDescriptionChanged(handler func(teamspeak.ChannelDescriptionChangedEvent)) func()
+method (*Client) OnChannelEdited(handler func(teamspeak.ChannelEditedEvent)) func()
+method (*Client) OnChannelMoved(handler func(teamspeak.ChannelMovedEvent)) func()
+method (*Client) OnChannelPasswordChanged(handler func(teamspeak.ChannelPasswordChangedEvent)) func()
 method (*Client) OnClientEnter(handler func(teamspeak.ClientEnterEvent)) func()
 method (*Client) OnClientLeave(handler func(teamspeak.ClientLeaveEvent)) func()
 method (*Client) OnClientMoved(handler func(teamspeak.ClientMovedEvent)) func()
@@ -157,6 +164,7 @@ method (*Client) OnConnected(handler func(teamspeak.ConnectedEvent)) func()
 method (*Client) OnDisconnected(handler func(teamspeak.DisconnectedEvent)) func()
 method (*Client) OnKicked(handler func(teamspeak.KickedEvent)) func()
 method (*Client) OnNotification(handler func(teamspeak.NotificationEvent)) func()
+method (*Client) OnServerEdited(handler func(teamspeak.ServerEditedEvent)) func()
 method (*Client) OnTextMessage(handler func(teamspeak.TextMessageEvent)) func()
 method (Client) PokeClient(ctx context.Context, clid teamspeak.ClientID, message string) error
 method (*Client) RegisterNotifications(ctx context.Context, category Category, opts NotificationOptions) error
@@ -167,8 +175,10 @@ method (Client) RenameServerGroup(ctx context.Context, serverGroupID teamspeak.S
 method (Client) ResetPermissions(ctx context.Context) error
 method (*Client) Send(ctx context.Context, req teamspeak.Request) ([]map[string]string, error)
 method (Client) SendChannelMessage(ctx context.Context, message string) error
+method (Client) SendChatComposing(ctx context.Context, clid teamspeak.ClientID) error
 method (Client) SendGlobalMessage(ctx context.Context, message string) error
 method (Client) SendOfflineMessage(ctx context.Context, recipient teamspeak.UID, subject string, message string) error
+method (Client) SendPluginCommand(ctx context.Context, name string, data string, target teamspeak.PluginCommandTarget) error
 method (Client) SendPrivateMessage(ctx context.Context, clid teamspeak.ClientID, message string) error
 method (Client) SendServerMessage(ctx context.Context, message string) error
 method (*Client) ServerFamily() teamspeak.ServerFamily
