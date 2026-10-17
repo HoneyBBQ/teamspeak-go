@@ -257,7 +257,7 @@ func TestTrace_SuccessfulConnectCallsEveryHookInOrder(t *testing.T) {
 		t.Error("SessionStart.Capabilities is empty")
 	}
 	rs, rd := rec.resolveStart[0], rec.resolveDone[0]
-	if rs.Attempt != 1 || rs.Reconnect || rs.Addr != "127.0.0.1:9987" {
+	if rs.Attempt != 1 || rs.Reconnect || rs.Addr != unitTestServerAddr {
 		t.Errorf("ResolveStart = %+v", rs)
 	}
 	if rd.Source != "test" || rd.Err != nil || rd.Target != rec.connectStart[0].Target || rd.Addr != rs.Addr {
@@ -451,7 +451,7 @@ func TestTrace_ResolveDoneReportsTheFallbackAndTheResolversError(t *testing.T) {
 	if len(rec.resolveDone) != 1 {
 		t.Fatalf("hooks = %v", rec.sequence())
 	}
-	if got := rec.resolveDone[0]; !errors.Is(got.Err, boom) || got.Target != "127.0.0.1:9987" {
+	if got := rec.resolveDone[0]; !errors.Is(got.Err, boom) || got.Target != unitTestServerAddr {
 		t.Errorf("ResolveDone = %+v", got)
 	}
 }

@@ -33,9 +33,11 @@ func TestIntegration_CustomPacketConn(t *testing.T) {
 
 	opts := append(integrationClientOptions(nil), client.WithPacketConn(pc))
 	c := newClient(t, id, addr, "custom-packetconn", opts...)
+	// Paced before the deadline starts: the wait for the budget is not part of
+	// the time the connection gets.
+	requireNoErr(t, paceConnect(t.Context()))
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	requireNoErr(t, paceConnect(ctx))
 	err = c.Connect(ctx)
 	if err != nil {
 		t.Fatalf("Connect over a caller-supplied PacketConn: %v", err)
@@ -63,13 +65,16 @@ func reconnectOnSamePacketConn(t *testing.T, c *client.Client) {
 	// ended a moment ago — measured at three to four seconds — so a second
 	// connection from the same port has to wait that out.
 	time.Sleep(5 * time.Second)
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
-	requireNoErr(t, paceConnect(ctx))
-	err = c.Connect(ctx)
+	// With the retries every live connect gets: under protection TeamSpeak
+	// sometimes leaves a handshake unanswered after its key exchange, and one
+	// 30 s attempt would only wait on it. The SDK's part, a reader that has
+	// stopped before the next session starts, is what this checks.
+	err = connectWithRetries(t.Context(), t, c)
 	if err != nil {
 		t.Fatalf("second Connect on the same PacketConn: %v", err)
 	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
 	_, err = c.WhoAmI(ctx)
 	if err != nil {
 		t.Fatalf("command on the second connection: %v", err)

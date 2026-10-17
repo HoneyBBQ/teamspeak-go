@@ -51,12 +51,20 @@ func (c *testConn) Close() error {
 	return nil
 }
 
+// unitTestServerAddr is the server address the unit tests give their clients.
+// Nothing listens there: the tests that go as far as sending handshake packets
+// must not reach a real server. They used to use TeamSpeak's own port, which on
+// the integration job is the live server, and about 100 Init1 packets from
+// these tests in 20 seconds were enough to make it raise its protection level
+// before the first live test ran.
+const unitTestServerAddr = "127.0.0.1:1"
+
 // newTestClient creates a Client whose PacketHandler is wired to a no-op testConn.
 // Goroutines are started so the handler is fully functional. t.Cleanup shuts down.
 // mustNew builds a client, failing the test if the configuration is rejected.
 func mustNew(t *testing.T, id *identity.Identity, nickname string, opts ...Option) *Client {
 	t.Helper()
-	c, err := New(id, "127.0.0.1:9987", nickname, opts...)
+	c, err := New(id, unitTestServerAddr, nickname, opts...)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

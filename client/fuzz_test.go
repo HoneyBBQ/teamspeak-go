@@ -34,7 +34,7 @@ func FuzzHandleCommandLines(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data string) {
-		c, err := New(id, "127.0.0.1:9987", "fuzz")
+		c, err := New(id, unitTestServerAddr, "fuzz")
 		if err != nil {
 			t.Fatalf("New: %v", err)
 		}
