@@ -441,6 +441,11 @@ func TestConnect_ReportsADialFailure(t *testing.T) {
 	d := &fakeDialer{notify: true, openErr: fmt.Errorf("%w: %w", ErrDial, sentinel), opened: make(chan *fakeTransport, 8)}
 	c := newClient(t, d)
 
+	// Events are delivered on their own goroutine, so the handler has to be
+	// there before Connect fails or the event can be gone by the time it is.
+	heard := make(chan teamspeak.DisconnectedEvent, 1)
+	c.OnDisconnected(func(e teamspeak.DisconnectedEvent) { heard <- e })
+
 	err := c.Connect(context.Background())
 	if !errors.Is(err, ErrDial) || !errors.Is(err, sentinel) {
 		t.Fatalf("Connect = %v, want ErrDial wrapping the cause", err)
@@ -449,9 +454,12 @@ func TestConnect_ReportsADialFailure(t *testing.T) {
 		t.Errorf("status = %v, want disconnected", got)
 	}
 	// The failure is reported once, as a disconnected event with no reconnect.
-	got := receiveEvent(t, func(h func(teamspeak.DisconnectedEvent)) func() {
-		return c.OnDisconnected(h)
-	})
+	var got teamspeak.DisconnectedEvent
+	select {
+	case got = <-heard:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no disconnected event was delivered")
+	}
 	if !errors.Is(got.Err, sentinel) || got.WillReconnect {
 		t.Errorf("disconnected event = %+v, want the cause and no reconnect", got)
 	}
@@ -929,22 +937,4 @@ func containsSubstring(lines []string, want string) bool {
 	}
 
 	return false
-}
-
-// receiveEvent registers a handler through register, then waits for one event.
-func receiveEvent[E any](t *testing.T, register func(func(E)) func()) E {
-	t.Helper()
-	ch := make(chan E, 1)
-	register(func(e E) { ch <- e })
-
-	select {
-	case e := <-ch:
-		return e
-	case <-time.After(2 * time.Second):
-		t.Fatal("no event was delivered")
-
-		var zero E
-
-		return zero
-	}
 }
