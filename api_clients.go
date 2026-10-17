@@ -262,6 +262,81 @@ func (c *Commands) PokeClient(ctx context.Context, clid ClientID, message string
 	})
 }
 
+// PluginCommandTarget is who receives a plugin command. The zero value is the
+// sender's channel. Build the others with PluginToServer and PluginToClient.
+type PluginCommandTarget struct {
+	clientID ClientID
+	mode     pluginTargetMode
+}
+
+type pluginTargetMode uint8
+
+// The targetmode values of plugincmd. The server has a fourth, 3, which was seen
+// to reach the same clients as the whole server, so it is not offered.
+const (
+	pluginTargetChannel pluginTargetMode = 0
+	pluginTargetServer  pluginTargetMode = 1
+	pluginTargetClient  pluginTargetMode = 2
+)
+
+// PluginToChannel addresses the clients in the sender's channel, the sender
+// included. A client in another channel gets nothing, subscribed to this one or
+// not. It is the zero value of PluginCommandTarget.
+func PluginToChannel() PluginCommandTarget {
+	return PluginCommandTarget{mode: pluginTargetChannel}
+}
+
+// PluginToServer addresses every client on the server, the sender included.
+func PluginToServer() PluginCommandTarget {
+	return PluginCommandTarget{mode: pluginTargetServer}
+}
+
+// PluginToClient addresses one client. The sender receives the command only when
+// it names itself. An id no client has is refused with
+// errcode.ClientInvalidID.
+func PluginToClient(clid ClientID) PluginCommandTarget {
+	return PluginCommandTarget{mode: pluginTargetClient, clientID: clid}
+}
+
+// SendPluginCommand sends a plugin command: a named payload that other clients'
+// plugins agree on and the server relays without reading. A voice client
+// receives it as a PluginCommandEvent, the sender too when target is its channel
+// or the server. data may be empty, and is delivered empty.
+//
+// Only a voice connection can send one: a ServerQuery connection is refused with
+// 516, invalid client type.
+func (c *Commands) SendPluginCommand(ctx context.Context, name, data string, target PluginCommandTarget) error {
+	params := []param{
+		strArg("name", name),
+		strArg("data", data),
+		uintArg("targetmode", uint64(target.mode)),
+	}
+	if target.mode == pluginTargetClient {
+		params = append(params, idArg("target", target.clientID))
+	}
+
+	return c.exec(ctx, "plugincmd", params)
+}
+
+// SendChatComposing tells a client that we are typing a private message to it,
+// which it receives as a ClientChatComposingEvent. Only that client is told,
+// whatever channel it is in; naming ourselves tells ourselves. An id no client
+// has is refused with errcode.ClientInvalidID. Only a voice connection can send
+// it: the server answers a ServerQuery connection with 256, command not found.
+func (c *Commands) SendChatComposing(ctx context.Context, clid ClientID) error {
+	return c.exec(ctx, "clientchatcomposing", []param{idArg("clid", clid)})
+}
+
+// ClosePrivateChat tells a client that we closed our private chat with it. It
+// only does something after we have sent that client a private message: for any
+// other the server accepts the command and sends nothing, and raises no error.
+// The client receives it as a NotificationEvent named
+// notify.ClientChatClosed, since it has no typed event. Only a voice connection
+// can send it.
+func (c *Commands) ClosePrivateChat(ctx context.Context, clid ClientID) error {
+	return c.exec(ctx, "clientchatclosed", []param{idArg("clid", clid)})
+}
+
 // ClientMatch is a client a lookup found, as clientfind and clientgetids
 // report one.
 type ClientMatch struct {
