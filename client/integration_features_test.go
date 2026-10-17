@@ -215,20 +215,40 @@ func TestIntegration_ReportsHandshakeFailureAndDisconnects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateIdentity: %v", err)
 	}
-	rejected := newClient(t,
-		id, addr, "teamspeak-go-bad-password",
-		client.WithServerPassword("definitely-not-the-password"),
+	// While TeamSpeak 6 is under protection (the integration job always is, and
+	// it was measured to answer a wrong password in 30 ms there), it now and
+	// then leaves a handshake unanswered after its key exchange, whatever
+	// the password: one to three of the suite's 35 connects per run in the CI logs. Such an attempt
+	// ends on the caller's deadline with no word from the server, and is tried
+	// again on a new client. Only an answer counts: the rejection is still what
+	// each attempt has to end in, and a client that is never answered, three
+	// times, fails the test.
+	const attempts = 3
+	var (
+		rejected     *client.Client
+		disconnected chan error
 	)
-	disconnected := make(chan error, 1)
-	rejected.OnDisconnected(func(e client.DisconnectedEvent) { disconnected <- e.Err })
-	t.Cleanup(func() { _ = rejected.Disconnect(context.Background()) })
+	for attempt := 1; ; attempt++ {
+		rejected = newClient(t,
+			id, addr, "teamspeak-go-bad-password",
+			client.WithServerPassword("definitely-not-the-password"),
+		)
+		disconnected = make(chan error, 1)
+		rejected.OnDisconnected(func(e client.DisconnectedEvent) { disconnected <- e.Err })
+		t.Cleanup(func() { _ = rejected.Disconnect(context.Background()) })
 
-	// Paced before the deadline starts: waiting for the server's budget is not
-	// part of what the 8 seconds measure.
-	requireNoErr(t, paceConnect(t.Context()))
-	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
-	defer cancel()
-	err = rejected.Connect(ctx)
+		// Paced before the deadline starts: waiting for the server's budget is
+		// not part of what the 8 seconds measure.
+		requireNoErr(t, paceConnect(t.Context()))
+		ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+		err = rejected.Connect(ctx)
+		unanswered := errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil
+		cancel()
+		if !unanswered || attempt == attempts {
+			break
+		}
+		t.Logf("attempt %d of %d: no answer from the server within 8s", attempt, attempts)
+	}
 	// The cause must be the server's rejection, not the caller's own timeout.
 	if !errors.Is(err, errcode.ServerInvalidPassword) {
 		t.Fatalf("Connect = %v, want the server's password rejection", err)
