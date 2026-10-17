@@ -94,6 +94,10 @@ type sshDialer struct {
 // this transport no query password goes over the wire at all. [WithLogin] is
 // refused here.
 //
+// A TeamSpeak 6 server may hold back the end of a reply until the client writes
+// again; this transport handles that itself, by writing an empty line while a
+// command waits.
+//
 // The host key has to be checked, and this constructor takes no policy for it,
 // so it always produces a dialer that [New] refuses. Use [SSHWith] with
 // [KnownHosts], [InsecureIgnoreHostKey], or [SSHOptions.HostKeyCheck]:
@@ -260,7 +264,7 @@ func (d sshDialer) open(ctx context.Context) (engine.Transport, error) {
 		return err
 	}
 
-	return newStream(shell.Stdout(), streamOptions{
+	return &nudgingStream{newStream(shell.Stdout(), streamOptions{
 		banner: 2,
 		identity: streamIdentity{
 			transport: "ssh",
@@ -273,7 +277,19 @@ func (d sshDialer) open(ctx context.Context) (engine.Transport, error) {
 			return err
 		},
 		closeConn: closeAll,
-	}), nil
+	})}, nil
+}
+
+// nudgingStream is an SSH stream that can release a held reply. See
+// [engine.Nudger] for what the server does and why only SSH.
+type nudgingStream struct {
+	*stream
+}
+
+// Nudge writes a bare line terminator. The server answers an empty line with
+// nothing, so it adds no reply line.
+func (s *nudgingStream) Nudge() error {
+	return s.WriteLine(context.Background(), "")
 }
 
 // dial is the built-in opener: one SSH connection to addr, logging in as the

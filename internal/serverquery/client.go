@@ -27,6 +27,14 @@ import (
 // caller's context sets no deadline.
 const defaultCommandTimeout = 10 * time.Second
 
+// nudgeAfter is how long a command waits for its answer before a transport
+// that is a [Nudger] is asked to nudge, and nudgeEvery how often after that,
+// until the answer is complete or the command ends.
+const (
+	nudgeAfter = 2 * time.Second
+	nudgeEvery = time.Second
+)
+
 // Transport is the connection a ServerQuery client talks over.
 //
 // ServerQuery is a line protocol on three transports: raw TCP (10011), SSH
@@ -43,6 +51,20 @@ type Transport interface {
 	ReadLine() (string, error)
 	// Close ends the connection.
 	Close() error
+}
+
+// Nudger is a transport that can release a reply the server is holding back.
+//
+// On TeamSpeak 6 over SSH the server may keep the last line of a reply,
+// usually "error id=0 msg=ok", until the client writes again. An empty line
+// releases it, and the server answers an empty line with nothing. This was
+// measured on TeamSpeak 6 and only over SSH: raw TCP and WebQuery do not show
+// it, so only the SSH transport implements this. While a command is
+// outstanding the client calls Nudge once it has waited nudgeAfter, then every
+// nudgeEvery, until its answer is complete or it ends by timeout, cancel or
+// close. Nudge writes the bare line terminator and adds no reply line.
+type Nudger interface {
+	Nudge() error
 }
 
 type result struct {
@@ -144,6 +166,8 @@ func (c *Client) Exec(ctx context.Context, line string) ([]map[string]string, er
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 
+	defer c.startNudging(p)()
+
 	select {
 	case res := <-p.result:
 		return res.rows, res.err
@@ -206,6 +230,50 @@ func (c *Client) send(ctx context.Context, line string) (*pending, error) {
 	}
 
 	return p, nil
+}
+
+// startNudging nudges the transport while p, the command on the wire, waits
+// for its answer, and returns the function that stops it. It does nothing for
+// a transport that is not a [Nudger].
+//
+// The timing follows p alone: the next command takes the turn only after p's
+// Exec has returned, and so has stopped this, so a command waiting for its turn
+// is never nudged for. Stopping waits for a nudge in flight, so none is written
+// after the command has ended.
+func (c *Client) startNudging(p *pending) func() {
+	n, ok := c.transport.(Nudger)
+	if !ok {
+		return func() {}
+	}
+	var (
+		mu      sync.Mutex
+		stopped bool
+		timer   *time.Timer
+	)
+	mu.Lock()
+	timer = time.AfterFunc(nudgeAfter, func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if stopped {
+			return
+		}
+		c.mu.Lock()
+		waiting := c.pending == p && !c.closed
+		c.mu.Unlock()
+		if !waiting {
+			return
+		}
+		_ = n.Nudge()
+		timer.Reset(nudgeEvery)
+	})
+	mu.Unlock()
+
+	return func() {
+		timer.Stop()
+		mu.Lock()
+		stopped = true
+		mu.Unlock()
+	}
 }
 
 func (c *Client) readLoop() {

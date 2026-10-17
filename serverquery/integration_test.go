@@ -22,10 +22,12 @@ package serverquery_test
 // connections down.
 
 import (
+	"bufio"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -273,6 +275,120 @@ func TestQuery_TS6OverSSH(t *testing.T) {
 
 	t.Run("text message", func(t *testing.T) { assertTextMessageEvent(t, c) })
 	t.Run("own channel kick", func(t *testing.T) { assertOwnChannelKick(t, c) })
+}
+
+// rawShell opens a plain SSH shell on the query server, past the package's own
+// transport, so a test can write what it likes and see every line that comes
+// back. It returns the writer and the lines, with blanks dropped.
+func rawShell(t *testing.T) (func(string), <-chan string) {
+	t.Helper()
+	addr, user, password := sshVars(t)
+	waitForOtherSuites()
+
+	callback, err := knownhosts.New(livetest.KnownHostsFor(t, addr))
+	if err != nil {
+		t.Fatalf("knownhosts.New: %v", err)
+	}
+	conn, err := ssh.Dial("tcp", addr, &ssh.ClientConfig{
+		User:            user,
+		Auth:            []ssh.AuthMethod{ssh.Password(password)},
+		HostKeyCallback: callback,
+		Timeout:         10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("ssh.Dial: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	session, err := conn.NewSession()
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		t.Fatalf("StdinPipe: %v", err)
+	}
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		t.Fatalf("StdoutPipe: %v", err)
+	}
+	err = session.Shell()
+	if err != nil {
+		t.Fatalf("Shell: %v", err)
+	}
+
+	lines := scanLines(stdout)
+	write := func(s string) {
+		_, err := io.WriteString(stdin, s)
+		if err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+
+	return write, lines
+}
+
+// scanLines delivers the non-blank lines of r, and closes the channel at its end.
+func scanLines(r io.Reader) <-chan string {
+	lines := make(chan string, 64)
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			if line := strings.TrimSpace(scanner.Text()); line != "" {
+				lines <- line
+			}
+		}
+	}()
+
+	return lines
+}
+
+// untilError reads lines up to and including the next error line.
+func untilError(t *testing.T, lines <-chan string) []string {
+	t.Helper()
+	var got []string
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				t.Fatalf("connection ended; saw %q", got)
+			}
+			got = append(got, line)
+			if strings.HasPrefix(line, "error ") {
+				return got
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("no error line; saw %q", got)
+		}
+	}
+}
+
+// The SSH transport writes an empty line to release a reply the server holds
+// back. That rests on the server taking an empty line and sending nothing for
+// it, which this pins on a raw SSH shell: no reply line arrives for it, and
+// the next command is answered as usual.
+func TestQuery_SSHEmptyLineGetsNoReply(t *testing.T) {
+	write, lines := rawShell(t)
+
+	// A command first, to be sure the session is up.
+	write("use 1\n")
+	untilError(t, lines)
+
+	write("\n")
+	select {
+	case line := <-lines:
+		t.Fatalf("an empty line was answered with %q", line)
+	case <-time.After(time.Second):
+	}
+
+	write("version\n")
+	got := untilError(t, lines)
+	t.Logf("lines after the next command: %q", got)
+	if len(got) != 2 || !strings.HasPrefix(got[0], "version=") ||
+		!strings.HasPrefix(got[1], "error id=0 msg=ok") {
+		t.Fatalf("version answered %q", got)
+	}
 }
 
 // A server that is not the one recorded is refused before the login goes
