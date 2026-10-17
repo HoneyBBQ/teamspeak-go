@@ -3,9 +3,11 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
-## Unreleased
+## v1.0.0-beta.8 (2026-10-17)
 
-Breaking changes, made before v1.0.0 for two options the server never honoured.
+### Removed
+
+Breaking, and made before v1.0.0: two options the server never honoured.
 
 - `ClientDatabaseEditOptions.Nickname` is gone. `EditClientDatabase` sent
   `client_nickname`, which `clientdbedit` does not take: TeamSpeak 3 and
