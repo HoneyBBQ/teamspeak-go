@@ -173,7 +173,9 @@ method (*Client) OnServerEdited(handler func(teamspeak.ServerEditedEvent)) func(
 method (*Client) OnTextMessage(handler func(teamspeak.TextMessageEvent)) func()
 method (Client) PokeClient(ctx context.Context, clid teamspeak.ClientID, message string) error
 method (*Client) RegisterNotifications(ctx context.Context, category Category, opts NotificationOptions) error
+method (Client) RemoveAvatar(ctx context.Context) (bool, error)
 method (Client) RemoveClientFromServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, clientDBID teamspeak.ClientDBID) error
+method (Client) RemoveIcon(ctx context.Context, id teamspeak.IconID) error
 method (Client) RenameChannelGroup(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, name string) error
 method (Client) RenameFile(ctx context.Context, channelID teamspeak.ChannelID, oldName string, newName string, opts teamspeak.FileRenameOptions) error
 method (Client) RenameServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, name string) error
@@ -187,9 +189,14 @@ method (Client) SendPluginCommand(ctx context.Context, name string, data string,
 method (Client) SendPrivateMessage(ctx context.Context, clid teamspeak.ClientID, message string) error
 method (Client) SendServerMessage(ctx context.Context, message string) error
 method (*Client) ServerFamily() teamspeak.ServerFamily
+method (Client) SetChannelGroupIcon(ctx context.Context, cgid teamspeak.ChannelGroupID, icon teamspeak.IconID) error
+method (Client) SetChannelIcon(ctx context.Context, cid teamspeak.ChannelID, icon teamspeak.IconID) error
 method (Client) SetClientChannelGroup(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, channelID teamspeak.ChannelID, clientDBID teamspeak.ClientDBID) error
+method (Client) SetClientIcon(ctx context.Context, cldbid teamspeak.ClientDBID, icon teamspeak.IconID) error
 method (Client) SetCustomProperty(ctx context.Context, clientDBID teamspeak.ClientDBID, ident string, value string) error
 method (Client) SetQueryLogin(ctx context.Context, name string) (teamspeak.QueryLoginCreated, error)
+method (Client) SetServerGroupIcon(ctx context.Context, sgid teamspeak.ServerGroupID, icon teamspeak.IconID) error
+method (Client) SetServerIcon(ctx context.Context, icon teamspeak.IconID) error
 method (Client) StartServer(ctx context.Context, id teamspeak.ServerID) error
 method (*Client) Stats() TransportStats
 method (*Client) Status() teamspeak.Status

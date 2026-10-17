@@ -19,6 +19,16 @@ Breaking changes, made before v1.0.0 for two options the server never honoured.
 
 ### Added
 
+- Avatar and icon helpers. `Client.UploadAvatar` hashes an image, uploads it and
+  sets the client's avatar flag; `Client.DownloadAvatar` reads any client's
+  avatar from `AvatarFileName(uid)`, the name the server stores it under
+  (`avatar_` and the unique identifier in the letters a to p, which is not the
+  MD5 name); `Commands.RemoveAvatar` deletes your own. `Client.UploadIcon` sends
+  an icon under its CRC-32 id (`IconIDOf`), `DownloadIcon` and
+  `Commands.RemoveIcon` read and delete one, and `SetChannelIcon`,
+  `SetServerGroupIcon`, `SetChannelGroupIcon`, `SetClientIcon` and
+  `SetServerIcon` point a record at it. `Client.Host` is the host the file
+  transfer port is on.
 - `ClientEntry` and `Channel` carry more of what the server reports. A client
   gains `DatabaseID`, `AwayMessage`, `IsInputMuted`, `IsOutputMuted`,
   `TalkPower`, `Description`, `Avatar`, `Country`, `Version`, `Platform` and

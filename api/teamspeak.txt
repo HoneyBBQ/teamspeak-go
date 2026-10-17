@@ -67,13 +67,17 @@ const TextMessageTargetServer TextMessageTarget = 3
 var ErrAlreadyConnected error
 var ErrFileTransfer error
 var ErrInvalidCommand error
+var ErrInvalidUID error
 var ErrMissingDependency error
 var ErrNoData error
 var ErrNotConnected error
 var ErrServer error
+func AvatarFileName(uid UID) (string, error)
 func DefaultBackoffPolicy() BackoffPolicy
 func DialFileTransfer(ctx context.Context, host string, port uint16, key string, opts FileTransferOptions) (net.Conn, error)
 func DownloadFileData(ctx context.Context, host string, info *FileDownloadInfo, dest io.Writer, opts FileTransferOptions) error
+func IconFileName(id IconID) string
+func IconIDOf(data []byte) IconID
 func NewCommands(executor Executor) *Commands
 func PermissionByID(id PermissionID) Permission
 func PermissionByName(name string) Permission
@@ -669,7 +673,9 @@ method (*Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error
 method (*Commands) MoveChannel(ctx context.Context, cid ChannelID, parentID ChannelID, opts ChannelMoveOptions) error
 method (*Commands) MoveClient(ctx context.Context, clid ClientID, channelID ChannelID, opts ClientMoveOptions) error
 method (*Commands) PokeClient(ctx context.Context, clid ClientID, message string) error
+method (*Commands) RemoveAvatar(ctx context.Context) (bool, error)
 method (*Commands) RemoveClientFromServerGroup(ctx context.Context, serverGroupID ServerGroupID, clientDBID ClientDBID) error
+method (*Commands) RemoveIcon(ctx context.Context, id IconID) error
 method (*Commands) RenameChannelGroup(ctx context.Context, channelGroupID ChannelGroupID, name string) error
 method (*Commands) RenameFile(ctx context.Context, channelID ChannelID, oldName string, newName string, opts FileRenameOptions) error
 method (*Commands) RenameServerGroup(ctx context.Context, serverGroupID ServerGroupID, name string) error
@@ -681,9 +687,14 @@ method (*Commands) SendOfflineMessage(ctx context.Context, recipient UID, subjec
 method (*Commands) SendPluginCommand(ctx context.Context, name string, data string, target PluginCommandTarget) error
 method (*Commands) SendPrivateMessage(ctx context.Context, clid ClientID, message string) error
 method (*Commands) SendServerMessage(ctx context.Context, message string) error
+method (*Commands) SetChannelGroupIcon(ctx context.Context, cgid ChannelGroupID, icon IconID) error
+method (*Commands) SetChannelIcon(ctx context.Context, cid ChannelID, icon IconID) error
 method (*Commands) SetClientChannelGroup(ctx context.Context, channelGroupID ChannelGroupID, channelID ChannelID, clientDBID ClientDBID) error
+method (*Commands) SetClientIcon(ctx context.Context, cldbid ClientDBID, icon IconID) error
 method (*Commands) SetCustomProperty(ctx context.Context, clientDBID ClientDBID, ident string, value string) error
 method (*Commands) SetQueryLogin(ctx context.Context, name string) (QueryLoginCreated, error)
+method (*Commands) SetServerGroupIcon(ctx context.Context, sgid ServerGroupID, icon IconID) error
+method (*Commands) SetServerIcon(ctx context.Context, icon IconID) error
 method (*Commands) StartServer(ctx context.Context, id ServerID) error
 method (*Commands) StopFileTransfer(ctx context.Context, serverFileTransferID ServerFileTransferID, opts FileTransferStopOptions) error
 method (*Commands) StopInstance(ctx context.Context, opts InstanceStopOptions) error
