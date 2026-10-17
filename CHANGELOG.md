@@ -5,17 +5,6 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ## Unreleased
 
-### Fixed
-
-- A client can connect to a server that is under a burst of connections. Such a
-  server raises its protection level and asks for a bigger Init1 puzzle: 100000
-  squarings at level 1 and 1000000 at level 2, where it asks for 10000 when
-  calm; the client refused anything above 100000. The cap is now 4000000, four
-  times the highest level measured. The puzzle is solved off the receive loop,
-  so the connection keeps receiving, and cancelling the `Connect` context stops
-  the solve. A level above the cap fails `Connect` with an error wrapping
-  `ErrPuzzleTooHard` and `ErrHandshake`.
-
 ### Added
 
 - `ServerView` also holds the groups and the server's settings. `ServerGroups`
@@ -61,6 +50,14 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ### Fixed
 
+- A client can connect to a server that is under a burst of connections. Such a
+  server raises its protection level and asks for a bigger Init1 puzzle: 100000
+  squarings at level 1 and 1000000 at level 2, where it asks for 10000 when
+  calm; the client refused anything above 100000. The cap is now 4000000, four
+  times the highest level measured. The puzzle is solved off the receive loop,
+  so the connection keeps receiving, and cancelling the `Connect` context stops
+  the solve. A level above the cap fails `Connect` with an error wrapping
+  `ErrPuzzleTooHard` and `ErrHandshake`.
 - The SSH transport could not connect to a TeamSpeak 3 server: the ssh library
   asks for `rsa-sha2-256` and the server signs with `rsa-sha2-512` whichever
   it was asked for, so the handshake failed with "invalid signature algorithm".
