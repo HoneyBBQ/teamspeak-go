@@ -25,6 +25,9 @@ type BanEntry struct {
 	// LastNickname is the banned client's nickname when the ban was made
 	// (lastnickname).
 	LastNickname string
+	// MyTSID is the MyTeamSpeak id the ban matches (mytsid); "" if it matches
+	// none. TeamSpeak 3 and 6 both send the field, empty unless one was set.
+	MyTSID string
 	// InvokerName is who made the ban (invokername).
 	InvokerName string
 	// InvokerUID is the identity of who made the ban (invokeruid).
@@ -47,6 +50,7 @@ func parseBan(row map[string]string) BanEntry {
 		Name:              fieldStr(row, "name"),
 		UID:               UID(fieldStr(row, "uid")),
 		LastNickname:      fieldStr(row, "lastnickname"),
+		MyTSID:            fieldStr(row, "mytsid"),
 		Created:           fieldTime(row, "created"),
 		Duration:          fieldDuration(row, "duration", time.Second),
 		InvokerDatabaseID: ClientDBID(fieldUint(row, "invokercldbid")),
@@ -56,13 +60,26 @@ func parseBan(row map[string]string) BanEntry {
 	}
 }
 
-// BanListOptions are ListBans' optional parameters. It has no fields yet: it is
-// reserved for the parameters of banlist.
-type BanListOptions struct{}
+// BanListOptions are ListBans' optional parameters.
+type BanListOptions struct {
+	// Start is how many bans to skip (start); 0 starts at the first.
+	Start int
+	// Limit is how many bans to return at most (duration); 0 leaves it to the
+	// server, which then returns every ban. The server caps a given Limit at
+	// 200, so a larger one returns 200: to walk a long list, ask for pages and
+	// step Start by how many came back.
+	Limit int
+}
 
-// ListBans returns every active ban.
-func (c *Commands) ListBans(ctx context.Context, _ BanListOptions) ([]BanEntry, error) {
-	rows, err := c.list(ctx, "banlist", nil)
+// ListBans returns active bans: every one, or the page BanListOptions names.
+// It sends banlist.
+//
+// The server answers an empty list, or a Start past the last ban, with error
+// 1281, which here is no bans. A negative Start or Limit is refused with
+// ErrInvalidCommand. banlist also takes -count, which adds the total to each
+// row; it is not sent, as the result has nowhere to put it.
+func (c *Commands) ListBans(ctx context.Context, opts BanListOptions) ([]BanEntry, error) {
+	rows, err := c.list(ctx, "banlist", pageParams(opts.Start, opts.Limit))
 	if err != nil {
 		return nil, err
 	}
@@ -76,8 +93,9 @@ func (c *Commands) ListBans(ctx context.Context, _ BanListOptions) ([]BanEntry, 
 }
 
 // BanOptions describe a ban. IP and Name are regular expressions matched
-// against a client's address and nickname. At least one of IP, Name or UID
-// must be set; a ban matching nothing is refused with ErrInvalidCommand.
+// against a client's address and nickname. At least one of IP, Name, UID or
+// MyTSID must be set; a ban matching nothing is refused with
+// ErrInvalidCommand.
 type BanOptions struct {
 	// IP is a regular expression matched against a client's address (ip).
 	IP string
@@ -85,6 +103,14 @@ type BanOptions struct {
 	Name string
 	// UID is a client identity to ban (uid).
 	UID UID
+	// MyTSID is a MyTeamSpeak id to ban (mytsid): 44 characters of base64, the
+	// 32 bytes of a client's id. The server refuses anything else with 1538,
+	// "invalid parameter", except the word "empty", which it takes and stores
+	// as written. "" sends none. TeamSpeak 3 (3.13) and 6 both take it.
+	MyTSID string
+	// LastNickname is the nickname to show for the ban in the list
+	// (lastnickname); "" sends none.
+	LastNickname string
 	// Reason is shown to the banned client; "" sends none.
 	Reason string
 	// Duration is how long the ban lasts, sent in whole seconds. 0 is a
@@ -110,16 +136,18 @@ func banDurationArg(d time.Duration) param {
 // answers one banid, so there the id is there.
 func (c *Commands) AddBan(ctx context.Context, opts BanOptions) (BanID, bool, error) {
 	target := optStrArg("ip", opts.IP)
-	if opts.IP == "" && opts.Name == "" && opts.UID == "" {
-		target = invalidArg("a ban needs an IP, a name or a UID to match")
+	if opts.IP == "" && opts.Name == "" && opts.UID == "" && opts.MyTSID == "" {
+		target = invalidArg("a ban needs an IP, a name, a UID or a MyTeamSpeak id to match")
 	}
 
 	rows, err := c.query(ctx, "banadd", []param{
 		target,
 		optStrArg("name", opts.Name),
 		optStrArg("uid", string(opts.UID)),
+		optStrArg("mytsid", opts.MyTSID),
 		banDurationArg(opts.Duration),
 		optStrArg("banreason", opts.Reason),
+		optStrArg("lastnickname", opts.LastNickname),
 	})
 	if err != nil {
 		return 0, false, err
@@ -189,6 +217,53 @@ func (c *Commands) DeleteBan(ctx context.Context, banID BanID) error {
 // DeleteAllBans removes every ban.
 func (c *Commands) DeleteAllBans(ctx context.Context) error {
 	return c.exec(ctx, "bandelall", nil)
+}
+
+// BanCriteria say which bans FindBans looks for. A ban matches when it
+// holds the value given; at least one field is required.
+type BanCriteria struct {
+	// IP is an address to look for (ip): the bans whose address pattern covers
+	// it.
+	IP string
+	// Name is a nickname to look for (name).
+	Name string
+	// UID is a client identity to look for (uid).
+	UID UID
+	// MyTSID is a MyTeamSpeak id to look for (mytsid).
+	MyTSID string
+}
+
+// FindBans returns the active bans that match criteria, none when none do. It
+// sends banfind.
+//
+// TeamSpeak 6 only, and needs b_client_ban_list. Criteria with
+// nothing set is refused with ErrInvalidCommand. TeamSpeak 3 answers 256,
+// "command not found", over ServerQuery and not at all over the voice
+// protocol, where the command waits out its timeout. TeamSpeak 6 serves it
+// over SSH and the voice protocol; WebQuery refuses it with 1538, "invalid
+// parameter".
+func (c *Commands) FindBans(ctx context.Context, criteria BanCriteria) ([]BanEntry, error) {
+	first := optStrArg("ip", criteria.IP)
+	if criteria.IP == "" && criteria.Name == "" && criteria.UID == "" && criteria.MyTSID == "" {
+		first = invalidArg("banfind needs an IP, a name, a UID or a MyTeamSpeak id to look for")
+	}
+
+	rows, err := c.list(ctx, "banfind", []param{
+		first,
+		optStrArg("name", criteria.Name),
+		optStrArg("uid", string(criteria.UID)),
+		optStrArg("mytsid", criteria.MyTSID),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]BanEntry, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, parseBan(row))
+	}
+
+	return out, nil
 }
 
 // ---- Complaints -------------------------------------------------------------
@@ -287,6 +362,23 @@ func parseMessage(row map[string]string) OfflineMessage {
 		Sent:    fieldTime(row, "timestamp"),
 		IsRead:  fieldBool(row, "flag_read"),
 	}
+}
+
+// SendOfflineMessage leaves a message for a client, to read when it next
+// connects. It sends messageadd with the recipient's identity (cluid).
+//
+// The recipient must be a client the server knows: an identity that never
+// connected is refused with 512, "invalid clientID". The recipient's own
+// ListMessages and GetMessage read it, and the server tells a connected
+// recipient through client_unread_messages in a notifyclientupdated. Needs no
+// permission; both TeamSpeak 3 and 6 serve it, over ServerQuery and the voice
+// protocol.
+func (c *Commands) SendOfflineMessage(ctx context.Context, recipient UID, subject, message string) error {
+	return c.exec(ctx, "messageadd", []param{
+		strArg("cluid", string(recipient)),
+		strArg("subject", subject),
+		strArg("message", message),
+	})
 }
 
 // MessageListOptions are ListMessages' optional parameters. It has no fields
