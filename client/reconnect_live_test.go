@@ -59,6 +59,8 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 	// drops and comes back; see sendCommandsUntilStopped.
 	defer sendCommandsUntilStopped(t, c)()
 
+	// The reconnection the drop causes is a connection like any other.
+	requireNoErr(t, paceConnect(t.Context()))
 	dropErr := c.DropConnectionForTest()
 	if dropErr != nil {
 		t.Fatalf("drop connection: %v", dropErr)

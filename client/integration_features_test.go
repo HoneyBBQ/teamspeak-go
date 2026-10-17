@@ -223,6 +223,9 @@ func TestIntegration_ReportsHandshakeFailureAndDisconnects(t *testing.T) {
 	rejected.OnDisconnected(func(e client.DisconnectedEvent) { disconnected <- e.Err })
 	t.Cleanup(func() { _ = rejected.Disconnect(context.Background()) })
 
+	// Paced before the deadline starts: waiting for the server's budget is not
+	// part of what the 8 seconds measure.
+	requireNoErr(t, paceConnect(t.Context()))
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
 	err = rejected.Connect(ctx)

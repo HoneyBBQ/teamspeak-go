@@ -35,6 +35,7 @@ func TestIntegration_CustomPacketConn(t *testing.T) {
 	c := newClient(t, id, addr, "custom-packetconn", opts...)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
+	requireNoErr(t, paceConnect(ctx))
 	err = c.Connect(ctx)
 	if err != nil {
 		t.Fatalf("Connect over a caller-supplied PacketConn: %v", err)
@@ -64,6 +65,7 @@ func reconnectOnSamePacketConn(t *testing.T, c *client.Client) {
 	time.Sleep(5 * time.Second)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
+	requireNoErr(t, paceConnect(ctx))
 	err = c.Connect(ctx)
 	if err != nil {
 		t.Fatalf("second Connect on the same PacketConn: %v", err)
