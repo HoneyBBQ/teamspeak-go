@@ -477,12 +477,10 @@ func assertTextMessageEvent(t *testing.T, c *serverquery.Client) {
 	})
 	defer remove()
 
-	// The voice client leaves as soon as it has sent, and the server can hold
-	// back the answer to a command sent while that departure is being
-	// announced (observed on TS6 over SSH: a reply 30 seconds late, released
-	// only by the next write). The test waits for the announcement, so the
-	// next one starts from a quiet connection; the delay is the server's, not
-	// the client's, whose read loop had received nothing to act on.
+	// The voice client leaves straight after sending. Waiting for that
+	// departure checks that OnClientLeave is delivered over this transport
+	// too, and means the next subtest starts after the announcement rather
+	// than with it arriving in the middle of a command.
 	left := make(chan struct{}, 8)
 	removeLeave := c.OnClientLeave(func(teamspeak.ClientLeaveEvent) {
 		select {
