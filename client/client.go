@@ -255,6 +255,7 @@ type Client struct {
 	onVoiceData      subscribers[VoiceDataEvent]
 	onNotification   subscribers[NotificationEvent]
 	onViewReady      subscribers[ViewReadyEvent]
+	onViewChanged    subscribers[ViewChangedEvent]
 	status           Status
 	mu               sync.Mutex
 	clid             teamspeak.ClientID

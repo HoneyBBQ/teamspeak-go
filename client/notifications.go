@@ -9,6 +9,7 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/servernotify"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
+	"github.com/honeybbq/teamspeak-go/notify"
 )
 
 // Reading a notification into its event lives in internal/servernotify, which
@@ -87,6 +88,12 @@ func (c *Client) handleChannelNotification(h *transport.PacketHandler, cmd *wire
 	case "notifychanneldeleted":
 		if evt, ok := servernotify.ChannelDeleted(cmd.Params); ok {
 			c.applyChannelEvent(h, cmd.Name, func(t teamspeak.ChannelTree) teamspeak.ChannelTree {
+				// Read in the step that removes the record, so a later deletion
+				// cannot take it first. Get returns a copy.
+				if ch, held := t.Get(evt.ChannelID); held {
+					evt.Previous = &ch
+				}
+
 				return t.ApplyDeleted(evt)
 			})
 			c.emitEvent(evt)
@@ -108,7 +115,15 @@ func (c *Client) handleChannelNotification(h *transport.PacketHandler, cmd *wire
 func (c *Client) handleServerNotification(h *transport.PacketHandler, cmd *wire.Command) bool {
 	switch cmd.Name {
 	case "notifyserveredited":
-		c.emitEvent(servernotify.ServerEdited(cmd.Params))
+		evt := servernotify.ServerEdited(cmd.Params)
+		c.mergeViewServer(h, evt.Changes, false)
+		c.emitEvent(evt)
+	case "notifyserverupdated":
+		// The answer to servergetvariables, which the server sends to the
+		// caller only. It is no event: the view takes what it holds of it.
+		c.mergeViewServer(h, cmd.Params, true)
+	case notify.ServerGroupList, notify.ChannelGroupList:
+		c.collectGroupRow(h, cmd)
 	case "notifychannelsubscribed":
 		c.emitForChannel(cmd, func(id teamspeak.ChannelID) Event { return ChannelSubscribedEvent{ChannelID: id} })
 	case "notifychannelunsubscribed":
@@ -184,7 +199,10 @@ func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Comm
 		return
 	}
 	isSelf := evt.ClientID == c.clid
-	if _, known := c.clients[evt.ClientID]; known {
+	if info, known := c.clients[evt.ClientID]; known {
+		// The record leaves with the client, so it goes to the event: the
+		// entry was removed from the list, and nothing else holds it.
+		evt.Previous = &info
 		delete(c.clients, evt.ClientID)
 		c.view.revision++
 	}

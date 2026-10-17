@@ -820,6 +820,10 @@ func FuzzViewNotifications(f *testing.F) {
 		"notifychanneledited cid=1 channel_order=1\nnotifychanneldeleted cid=1")
 	f.Add("channellist cid=1 cpid=2|cid=2 cpid=1\nchannellistfinished\nnotifychannelunsubscribed cid=1")
 	f.Add("notifycliententerview clid=3 ctid=2\nnotifychannelunsubscribed cid=2\nnotifyclientleftview clid=3")
+	f.Add("channellistfinished\nnotifyservergrouplist sgid=3 name=C|sgid=1 name=A|sgid=3 name=D\n" +
+		"notifychannelgrouplist cgid=2 name=X\nnotifyservergrouplist name=Nameless")
+	f.Add("channellistfinished\nnotifyserveredited reasonid=10 virtualserver_name=N\n" +
+		"notifyserverupdated virtualserver_uptime=1 virtualserver_maxclients=2\nnotifyserveredited")
 
 	f.Fuzz(func(t *testing.T, data string) {
 		c := newTestClient(t)
@@ -840,6 +844,21 @@ func FuzzViewNotifications(f *testing.F) {
 			if len(v.Channels()) != v.tree.Len() {
 				t.Fatalf("%d channels listed of %d", len(v.Channels()), v.tree.Len())
 			}
+			requireGroupsAndServerInOrder(t, v)
 		}
 	})
+}
+
+// requireGroupsAndServerInOrder fails unless the view's groups are in strictly
+// ascending id and its server settings are all the server's own.
+func requireGroupsAndServerInOrder(t *testing.T, v ServerView) {
+	t.Helper()
+	if !ascending(serverGroupIDs(v.ServerGroups)) || !ascending(channelGroupIDs(v.ChannelGroups)) {
+		t.Fatalf("the groups are not in ascending id: %v, %v", v.ServerGroups, v.ChannelGroups)
+	}
+	for name := range v.Server {
+		if !strings.HasPrefix(name, serverPropertyPrefix) {
+			t.Fatalf("the view holds the setting %q", name)
+		}
+	}
 }

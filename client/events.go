@@ -399,7 +399,13 @@ func (c *Client) dispatchEvent(evt Event) {
 	case ClientChannelGroupChangedEvent:
 		c.onCGChanged.Deliver(c.logger, eventbus.EventName(e), e, nil)
 	case ClientLeaveEvent:
-		c.onClientLeave.Deliver(c.logger, eventbus.EventName(e), e, nil)
+		c.onClientLeave.Deliver(c.logger, eventbus.EventName(e), e, func(v ClientLeaveEvent) ClientLeaveEvent {
+			if v.Previous != nil {
+				v.Previous = new(v.Previous.Clone())
+			}
+
+			return v
+		})
 	case ClientMovedEvent:
 		c.onClientMoved.Deliver(c.logger, eventbus.EventName(e), e, nil)
 	case PokeEvent:
@@ -440,7 +446,13 @@ func (c *Client) dispatchChannelEvent(evt Event) {
 	case ChannelMovedEvent:
 		c.onChMoved.Deliver(c.logger, eventbus.EventName(e), e, nil)
 	case ChannelDeletedEvent:
-		c.onChDeleted.Deliver(c.logger, eventbus.EventName(e), e, nil)
+		c.onChDeleted.Deliver(c.logger, eventbus.EventName(e), e, func(v ChannelDeletedEvent) ChannelDeletedEvent {
+			if v.Previous != nil {
+				v.Previous = new(v.Previous.Clone())
+			}
+
+			return v
+		})
 	case ChannelDescriptionChangedEvent:
 		c.onChDescription.Deliver(c.logger, eventbus.EventName(e), e, nil)
 	case ChannelPasswordChangedEvent:
