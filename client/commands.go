@@ -189,8 +189,8 @@ func (t *commandTracker) offerCorrelated(name string, params map[string]string) 
 		if p.settled != nil {
 			t.settleLocked(rc, p, commandResult{Data: append(p.settled.Data, p.correlated...)})
 		}
-
-		return
+		// Not a return: several commands can ask for the same key (two
+		// getconnectioninfo for one client), and each takes the row.
 	}
 }
 
