@@ -170,4 +170,7 @@ jobs:
           set -a
           . "$TS3_FIXTURE_ENV"
           set +a
-          go test -v -race -tags integration -timeout 300s ./...
+          # One package at a time (-p 1): they all use the one live server,
+          # and server-wide state or load from one must not reach another.
+          # -timeout applies to each package on its own, so it is unchanged.
+          go test -v -race -p 1 -tags integration -timeout 300s ./...

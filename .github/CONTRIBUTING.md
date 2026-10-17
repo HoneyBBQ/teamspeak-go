@@ -89,7 +89,7 @@ docker run -d --name ts3 -e TS3SERVER_LICENSE=accept \
   -p 9987:9987/udp -p 10011:10011 -p 30033:30033 teamspeak:latest
 TS3_QUERY_HOST=127.0.0.1 ./scripts/ts3-fixture.sh
 set -a; . "${TS3_FIXTURE_ENV:-${TMPDIR:-/tmp}/ts3-fixture.env}"; set +a
-go test -race -tags integration -timeout 300s ./...
+go test -race -p 1 -tags integration -timeout 300s ./...
 ```
 
 The fixture sets `TEAMSPEAK_ADDR`, `TEAMSPEAK_DEFAULT_CHANNEL`,

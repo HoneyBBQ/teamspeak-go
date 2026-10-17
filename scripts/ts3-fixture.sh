@@ -6,7 +6,7 @@
 #     -p 9987:9987/udp -p 10011:10011 -p 30033:30033 teamspeak:latest
 #   ./scripts/ts3-fixture.sh
 #   source "${TS3_FIXTURE_ENV:-${TMPDIR:-/tmp}/ts3-fixture.env}"
-#   go test -tags integration ./...
+#   go test -p 1 -tags integration ./...
 #
 # Creates the channels the tests need (one password-protected), puts a password
 # on the server itself, grants the default server group the permissions they
