@@ -18,10 +18,13 @@ package serverquery_test
 // runs against whichever endpoints are actually there.
 //
 // One connection at a time: a server's flood protection bans an IP that
-// connects too fast, so the tests that only read share one client.
+// connects too fast, so the tests wait for each other and keep the number of
+// connections down.
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"log/slog"
 	"net"
@@ -29,7 +32,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -121,15 +123,9 @@ func sshVars(t *testing.T) (addr, user, password string) {
 	return host + ":" + port, user, password
 }
 
-// knownHostsFor returns the known_hosts file the SSH test verifies against:
-// the one the caller named, or one recorded from the server itself. There is
-// no path that accepts any key, so the check is exercised either way.
-func knownHostsFor(t *testing.T, addr string) string {
+// presentedHostKey is the host key the server at addr presents.
+func presentedHostKey(t *testing.T, addr string) ssh.PublicKey {
 	t.Helper()
-	if path := os.Getenv(envSSHKnownHosts); path != "" {
-		return path
-	}
-
 	// The host key is checked before authentication, so a probe that is
 	// refused for its credentials has still seen the key.
 	var key ssh.PublicKey
@@ -152,14 +148,35 @@ func knownHostsFor(t *testing.T, addr string) string {
 		t.Fatalf("the server at %s presented no host key", addr)
 	}
 
+	return key
+}
+
+// writeKnownHosts writes a known_hosts file holding key for the host at addr,
+// in a directory the test owns.
+func writeKnownHosts(t *testing.T, addr string, key ssh.PublicKey) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "known_hosts")
 	err := os.WriteFile(path, []byte(knownhosts.Line([]string{addr}, key)+"\n"), 0o600)
 	if err != nil {
-		t.Fatalf("writing the recorded known_hosts: %v", err)
+		t.Fatalf("writing known_hosts: %v", err)
 	}
-	t.Logf("verifying %s against the key it presented: %s", addr, ssh.FingerprintSHA256(key))
 
 	return path
+}
+
+// knownHostsFor returns the known_hosts file the SSH test verifies against:
+// the one the caller named, or one recorded from the server itself. There is
+// no path that accepts any key, so the check is exercised either way.
+func knownHostsFor(t *testing.T, addr string) string {
+	t.Helper()
+	if path := os.Getenv(envSSHKnownHosts); path != "" {
+		return path
+	}
+
+	key := presentedHostKey(t, addr)
+	t.Logf("verifying %s against the key it presented: %s", addr, ssh.FingerprintSHA256(key))
+
+	return writeKnownHosts(t, addr, key)
 }
 
 // assertCoreCommands runs the commands every transport serves, against the
@@ -226,8 +243,8 @@ func open(t *testing.T, c *serverquery.Client) {
 	})
 }
 
-// TeamSpeak 3 over raw ServerQuery: the commands, and a text message from a
-// voice client arriving as an event.
+// TeamSpeak 3 over raw ServerQuery: the commands, and the events the
+// connection delivers.
 func TestQuery_TS3OverTCP(t *testing.T) {
 	addr, login, password := tcpVars(t)
 	waitForOtherSuites()
@@ -248,37 +265,8 @@ func TestQuery_TS3OverTCP(t *testing.T) {
 	}
 	assertCoreCommands(t, c, teamspeak.ServerFamilyTS3)
 
-	// This account is serveradmin and the voice client connects as a guest,
-	// which the default group does not let send a server message. The fixture
-	// grants the permissions the voice suite exercises; this one is the query
-	// suite's, so it is granted here.
-	grantGuestPermission(t, c, perm.ClientServerTextMessageSend)
-
-	channel := os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL")
-	if channel == "" {
-		channel = "Alpha"
-	}
-	heard := make(chan teamspeak.TextMessageEvent, 8)
-	c.OnTextMessage(func(e teamspeak.TextMessageEvent) {
-		select {
-		case heard <- e:
-		default:
-		}
-	})
-
-	sendMessageFromVoiceClient(t, channel)
-
-	select {
-	case e := <-heard:
-		if e.Message == "" {
-			t.Error("the message arrived with no body")
-		}
-		if e.InvokerName == "" {
-			t.Error("the message arrived with no sender")
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("the text message a voice client sent never arrived")
-	}
+	t.Run("text message", func(t *testing.T) { assertTextMessageEvent(t, c) })
+	t.Run("own channel kick", func(t *testing.T) { assertOwnChannelKick(t, c) })
 }
 
 // TeamSpeak 6 over WebQuery: the commands, over the one transport TS6 serves
@@ -319,7 +307,11 @@ func TestQuery_TS6OverWebQuery(t *testing.T) {
 
 // TeamSpeak 6 over SSH, where the server was started with it: the SSH login
 // replaced the query login, so no `login` command is sent and the session is
-// the query account as soon as it opens.
+// the query account as soon as it opens. SSH is also the one transport on TS6
+// that delivers events, so they are checked here, on the same connection.
+//
+// No nickname is set on purpose: a client that found its own id by matching
+// its nickname would lose its own kick when it had none.
 func TestQuery_TS6OverSSH(t *testing.T) {
 	addr, user, password := sshVars(t)
 	waitForOtherSuites()
@@ -341,6 +333,102 @@ func TestQuery_TS6OverSSH(t *testing.T) {
 	open(t, c)
 
 	assertCoreCommands(t, c, teamspeak.ServerFamilyTS6)
+
+	t.Run("text message", func(t *testing.T) { assertTextMessageEvent(t, c) })
+	t.Run("own channel kick", func(t *testing.T) { assertOwnChannelKick(t, c) })
+}
+
+// A server that is not the one recorded is refused before the login goes
+// anywhere, so the password is never offered to it and the refusal does not
+// read as bad credentials. The two ways of not being the recorded server are
+// told apart by the ssh library's own error, which the package wraps.
+func TestQuery_SSHRefusesUnrecordedHostKey(t *testing.T) {
+	addr, _, _ := sshVars(t)
+
+	t.Run("key changed", func(t *testing.T) {
+		// A key generated here, recorded for the server's own address: what a
+		// server answering in place of the real one looks like.
+		stranger, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatalf("ed25519.GenerateKey: %v", err)
+		}
+		public, err := ssh.NewPublicKey(stranger)
+		if err != nil {
+			t.Fatalf("ssh.NewPublicKey: %v", err)
+		}
+
+		keyErr := refusedHostKey(t, writeKnownHosts(t, addr, public))
+		if len(keyErr.Want) == 0 {
+			t.Error("a changed key was reported as an unknown host: Want is empty")
+		}
+	})
+
+	t.Run("host not recorded", func(t *testing.T) {
+		// The right key, recorded for another port: what a mistyped port looks
+		// like.
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			t.Fatalf("SSH address %q: %v", addr, err)
+		}
+		number, err := strconv.Atoi(port)
+		if err != nil {
+			t.Fatalf("SSH port %q: %v", port, err)
+		}
+		elsewhere := net.JoinHostPort(host, strconv.Itoa(number+1))
+		path := writeKnownHosts(t, elsewhere, presentedHostKey(t, addr))
+
+		keyErr := refusedHostKey(t, path)
+		if len(keyErr.Want) != 0 {
+			t.Errorf("an unknown host was reported as a changed key: Want = %v", keyErr.Want)
+		}
+	})
+}
+
+// refusedHostKey connects to the SSH server checking its key against the
+// known_hosts file at path, and asserts the connect is refused for the key and
+// for nothing else. It returns the ssh library's error for the caller to tell
+// an unknown host from a changed key.
+func refusedHostKey(t *testing.T, path string) *knownhosts.KeyError {
+	t.Helper()
+	addr, user, password := sshVars(t)
+	waitForOtherSuites()
+
+	check, err := serverquery.KnownHosts(path)
+	if err != nil {
+		t.Fatalf("KnownHosts: %v", err)
+	}
+	c, err := serverquery.New(serverquery.SSHWith(addr, user, password,
+		serverquery.SSHOptions{HostKeyCheck: check}),
+		serverquery.WithServer(1),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err = c.Connect(ctx)
+	if err == nil {
+		_ = c.Disconnect(context.Background())
+		t.Fatal("Connect accepted a host key that was not the recorded one")
+	}
+	if !errors.Is(err, serverquery.ErrHostKey) {
+		t.Errorf("Connect error = %v, want it to wrap ErrHostKey", err)
+	}
+	if errors.Is(err, serverquery.ErrAuth) {
+		t.Errorf("a refused host key was reported as bad credentials: %v", err)
+	}
+	if got := c.Status(); got == teamspeak.StatusConnected {
+		t.Errorf("Status = %v after a refused connect", got)
+	}
+	t.Logf("refused: %v", err)
+
+	var keyErr *knownhosts.KeyError
+	if !errors.As(err, &keyErr) {
+		t.Fatalf("the refusal does not carry the ssh library's KeyError: %v", err)
+	}
+
+	return keyErr
 }
 
 // grantGuestPermission gives the server's default group a permission, so a
@@ -363,6 +451,143 @@ func grantGuestPermission(t *testing.T, c *serverquery.Client, permission string
 		teamspeak.PermissionByName(permission), 1, teamspeak.ServerGroupPermissionOptions{})
 	if err != nil {
 		t.Fatalf("adding %s to the default group: %v", permission, err)
+	}
+}
+
+// assertTextMessageEvent has a voice client send a message and expects the
+// query client to hear it.
+func assertTextMessageEvent(t *testing.T, c *serverquery.Client) {
+	t.Helper()
+	// This account is serveradmin and the voice client connects as a guest,
+	// which the default group does not let send a server message. The fixture
+	// grants the permissions the voice suite exercises; this one is the query
+	// suite's, so it is granted here.
+	grantGuestPermission(t, c, perm.ClientServerTextMessageSend)
+
+	channel := os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL")
+	if channel == "" {
+		channel = "Alpha"
+	}
+	heard := make(chan teamspeak.TextMessageEvent, 8)
+	remove := c.OnTextMessage(func(e teamspeak.TextMessageEvent) {
+		select {
+		case heard <- e:
+		default:
+		}
+	})
+	defer remove()
+
+	// The voice client leaves straight after sending. Waiting for that
+	// departure checks that OnClientLeave is delivered over this transport
+	// too, and means the next subtest starts after the announcement rather
+	// than with it arriving in the middle of a command.
+	left := make(chan struct{}, 8)
+	removeLeave := c.OnClientLeave(func(teamspeak.ClientLeaveEvent) {
+		select {
+		case left <- struct{}{}:
+		default:
+		}
+	})
+	defer removeLeave()
+
+	sendMessageFromVoiceClient(t, channel)
+
+	select {
+	case e := <-heard:
+		if e.Message == "" {
+			t.Error("the message arrived with no body")
+		}
+		if e.InvokerName == "" {
+			t.Error("the message arrived with no sender")
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the text message a voice client sent never arrived")
+	}
+	select {
+	case <-left:
+	case <-time.After(10 * time.Second):
+		t.Error("the voice client left, but its departure was never announced")
+	}
+}
+
+// channelIDByName finds a channel the fixture created.
+func channelIDByName(t *testing.T, c *serverquery.Client, name string) teamspeak.ChannelID {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	channels, err := c.ListChannels(ctx, teamspeak.ChannelListOptions{})
+	if err != nil {
+		t.Fatalf("ListChannels: %v", err)
+	}
+	for _, ch := range channels {
+		if ch.Name == name {
+			return ch.ID
+		}
+	}
+	t.Fatalf("the fixture's channel %q is not on the server", name)
+
+	return 0
+}
+
+// assertOwnChannelKick kicks the query client from its channel and expects
+// OnKicked to report it. A query client is never kicked from the server (the
+// server answers 516), but a channel kick is accepted and reaches it as a move
+// of its own, so the client has to know which client id is its own to see it.
+func assertOwnChannelKick(t *testing.T, c *serverquery.Client) {
+	t.Helper()
+	name := os.Getenv("TEAMSPEAK_PASSWORD_CHANNEL")
+	password := os.Getenv("TEAMSPEAK_PASSWORD_CHANNEL_PASSWORD")
+	if name == "" {
+		t.Skip("TEAMSPEAK_PASSWORD_CHANNEL not set, so there is no channel to be kicked out of")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	who, err := c.WhoAmI(ctx)
+	if err != nil {
+		t.Fatalf("WhoAmI: %v", err)
+	}
+	target := channelIDByName(t, c, name)
+
+	// A kick moves the client out of its channel, so it has to be in one it
+	// can be moved out of: the default channel answers 770.
+	err = c.MoveClient(ctx, who.ClientID, target, teamspeak.ClientMoveOptions{Password: password})
+	if err != nil {
+		t.Fatalf("MoveClient into %q: %v", name, err)
+	}
+
+	kicked := make(chan teamspeak.KickedEvent, 1)
+	remove := c.OnKicked(func(e teamspeak.KickedEvent) {
+		select {
+		case kicked <- e:
+		default:
+		}
+	})
+	defer remove()
+
+	reason := "out-of-" + strconv.Itoa(int(who.ClientID))
+	err = c.KickClient(ctx, who.ClientID, teamspeak.ReasonKickChannel,
+		teamspeak.ClientKickOptions{ReasonMessage: reason})
+	if err != nil {
+		t.Fatalf("KickClient: %v", err)
+	}
+
+	select {
+	case e := <-kicked:
+		if e.Reason != teamspeak.ReasonKickChannel {
+			t.Errorf("kick Reason = %v, want a channel kick", e.Reason)
+		}
+		if e.ReasonMessage != reason {
+			t.Errorf("kick ReasonMessage = %q, want %q", e.ReasonMessage, reason)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the client's own channel kick was never reported")
+	}
+
+	// A channel kick moves the client; it does not remove it from the server.
+	if got := c.Status(); got != teamspeak.StatusConnected {
+		t.Errorf("Status = %v after a channel kick, want connected", got)
 	}
 }
 
@@ -402,51 +627,62 @@ func sendMessageFromVoiceClient(t *testing.T, channel string) {
 	}
 }
 
-// A shared query client for the test that writes, so the server sees one
-// connection rather than one per test.
-var (
-	sharedOnce   sync.Once
-	sharedClient *serverquery.Client
-	sharedErr    error
-)
-
-func sharedQueryClient(t *testing.T) *serverquery.Client {
-	t.Helper()
-	sharedOnce.Do(func() {
-		host := os.Getenv(envHost)
-		port := os.Getenv(envPort)
-		login := os.Getenv(envLogin)
-		password := os.Getenv(envPassword)
-		if host == "" || port == "" || login == "" || password == "" {
-			return
-		}
-		sharedClient, sharedErr = serverquery.New(serverquery.TCP(host+":"+port),
-			serverquery.WithLogin(login, password),
-			serverquery.WithServer(1),
-		)
-		if sharedErr != nil {
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		sharedErr = sharedClient.Connect(ctx)
-	})
-	if sharedErr != nil {
-		t.Fatalf("shared query client: %v", sharedErr)
-	}
-	if sharedClient == nil {
-		t.Skipf("%s, %s, %s and %s not set", envHost, envPort, envLogin, envPassword)
-	}
-
-	return sharedClient
-}
-
 // A typed command that writes, to prove the session is usable for more than
 // reading: the client creates a channel under a fresh name, finds it in the
 // list, and removes it again.
+//
+// It runs over each command transport the job has, as subtests, so a transport
+// the server does not serve shows as skipped by name. Each opens its own
+// connection and closes it: a connection shared between tests would need a
+// TestMain to close it, and this is the only test that writes.
 func TestQuery_TypedCommandRoundTrip(t *testing.T) {
-	c := sharedQueryClient(t)
+	t.Run("tcp", func(t *testing.T) {
+		addr, login, password := tcpVars(t)
+		waitForOtherSuites()
+		c, err := serverquery.New(serverquery.TCP(addr),
+			serverquery.WithLogin(login, password),
+			serverquery.WithServer(1),
+		)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		open(t, c)
+		assertChannelRoundTrip(t, c)
+	})
 
+	t.Run("ssh", func(t *testing.T) {
+		addr, user, password := sshVars(t)
+		waitForOtherSuites()
+		check, err := serverquery.KnownHosts(knownHostsFor(t, addr))
+		if err != nil {
+			t.Fatalf("KnownHosts: %v", err)
+		}
+		c, err := serverquery.New(serverquery.SSHWith(addr, user, password,
+			serverquery.SSHOptions{HostKeyCheck: check}),
+			serverquery.WithServer(1),
+		)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		open(t, c)
+		assertChannelRoundTrip(t, c)
+	})
+
+	t.Run("web", func(t *testing.T) {
+		base, apiKey := webVars(t)
+		waitForOtherSuites()
+		c, err := serverquery.New(serverquery.Web(base, apiKey), serverquery.WithServer(1))
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		open(t, c)
+		assertChannelRoundTrip(t, c)
+	})
+}
+
+// assertChannelRoundTrip creates a channel on c, finds it, and removes it.
+func assertChannelRoundTrip(t *testing.T, c *serverquery.Client) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
