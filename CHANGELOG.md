@@ -131,6 +131,45 @@ the optional ones are pointers, a plain assignment of a record shares them;
   indicator, and `Commands.ClosePrivateChat` tells a client the private chat is
   closed, which the server delivers only to a client that was sent a private
   message first. A ServerQuery connection cannot send any of them.
+- `SendWhisper` can name channels as well as clients (`WhisperTargets.Channels`,
+  at most 255; clients stay at most 32), and `SendGroupWhisper` whispers to a
+  server group, a channel group, the channel commanders or everyone, within the
+  channels a scope picks. Build the target with `WhisperToServerGroup`,
+  `WhisperToChannelGroup`, `WhisperToChannelCommanders` or `WhisperToAllClients`:
+  the group id is the kind its type takes, and a target not built by one of them
+  is refused with `ErrInvalidWhisperTarget`. `GroupWhisperType` and
+  `GroupWhisperScope` name the packet's two enums. Whether a client hears it
+  is the server's decision, from the whisper powers.
+- `WithPrivilegeKey` sends a privilege key as `client_default_token` in
+  `clientinit`; the server adds the key's group when it accepts the join and the
+  key is spent, so it is sent on the first successful connection only and a
+  reconnection does not present it again. `WithMetaData` sends `client_meta_data`
+  the same way, on every connection, and `ClientUpdateOptions.MetaData` changes
+  it while connected.
+- `DisconnectWithMessage` leaves with a message that bystanders receive as
+  `ClientLeaveEvent.ReasonMessage`; `Disconnect` sends `Shutdown`. The goodbye
+  now carries `reasonid=8`, without which both servers drop the message.
+- The client answers `notifyconnectioninforequest` with `setconnectioninfo`
+  from what it has measured: the keepalive round trip (mean and standard
+  deviation of the last 10 pongs, left out until the first), packets and bytes
+  sent and received per class, counted as whole datagrams with their headers
+  and resends, and the bandwidth of the last second and the last minute.
+  `GetClientConnectionInfo` reads another client's figures as a
+  `ClientConnectionInfo`, with durations for ping, deviation, connected and idle
+  time; a client that has not reported yet shows zeros.
+- `VerifyServerPassword` and `VerifyChannelPassword` check a password on the
+  voice client without joining or moving: true for a match, false for error 1028
+  or 781, an error for anything else.
+- `CreateChannel` looks the channel up by its exact name and parent when the
+  answer carries no `cid`, and `CreateServerGroup`, `CreateChannelGroup` and the
+  copies that allocate a group look it up by name and type when the answer names
+  none. TeamSpeak 6's WebQuery has been seen answering a create that succeeded
+  with status ok and no body, and a server refuses a duplicate, so the match is
+  the object just made. `ErrNoData` from a create now means the command took
+  effect: `AddPrivilegeKey` and `AddAPIKey` cannot look their object up, and
+  say so, and for an API key the secret is lost, so find it with `ListAPIKeys`
+  and remove it with `DeleteAPIKey`.
+
 
 ### Changed
 

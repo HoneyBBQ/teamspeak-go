@@ -391,6 +391,20 @@ field ClientChannelGroupChangedEvent.InvokerID ClientID
 type ClientChatComposingEvent struct
 field ClientChatComposingEvent.UID UID
 field ClientChatComposingEvent.ClientID ClientID
+type ClientConnectionInfo struct
+field ClientConnectionInfo.IP string
+field ClientConnectionInfo.Sent ConnectionTrafficByClass
+field ClientConnectionInfo.Received ConnectionTrafficByClass
+field ClientConnectionInfo.ServerToClientLoss PacketLoss
+field ClientConnectionInfo.ClientToServerLoss PacketLoss
+field ClientConnectionInfo.Ping time.Duration
+field ClientConnectionInfo.PingDeviation time.Duration
+field ClientConnectionInfo.ConnectedTime time.Duration
+field ClientConnectionInfo.IdleTime time.Duration
+field ClientConnectionInfo.FileTransferBandwidthSent uint64
+field ClientConnectionInfo.FileTransferBandwidthReceived uint64
+field ClientConnectionInfo.ID ClientID
+field ClientConnectionInfo.Port uint16
 type ClientDBID uint64
 type ClientDatabaseEditOptions struct
 field ClientDatabaseEditOptions.Description *string
@@ -532,6 +546,7 @@ field ClientUpdateOptions.IsAway *bool
 field ClientUpdateOptions.IsChannelCommander *bool
 field ClientUpdateOptions.IsRecording *bool
 field ClientUpdateOptions.IsRequestingTalk *bool
+field ClientUpdateOptions.MetaData *string
 type ClientUpdatedEvent struct
 field ClientUpdatedEvent.Changes ClientChanges
 field ClientUpdatedEvent.InvokerName string
@@ -602,6 +617,7 @@ method (*Commands) FindClientsWith(ctx context.Context, pattern string, opts Cli
 method (*Commands) FindCustomProperty(ctx context.Context, ident string, pattern string) ([]CustomPropertyMatch, error)
 method (*Commands) FindPermission(ctx context.Context, perm Permission) ([]PermissionLocation, error)
 method (*Commands) GetChannelInfo(ctx context.Context, cid ChannelID) (Channel, error)
+method (*Commands) GetClientConnectionInfo(ctx context.Context, clid ClientID) (ClientConnectionInfo, error)
 method (*Commands) GetClientDBIDByUID(ctx context.Context, uid UID) (ClientDBID, error)
 method (*Commands) GetClientDatabaseInfo(ctx context.Context, clientDBID ClientDBID) (ClientDatabaseEntry, error)
 method (*Commands) GetClientIDs(ctx context.Context, uid UID) ([]ClientMatch, error)
@@ -688,6 +704,15 @@ type ComplaintListOptions struct
 field ComplaintListOptions.TargetDatabaseID ClientDBID
 type ConnectedEvent struct
 field ConnectedEvent.Reconnected bool
+type ConnectionTraffic struct
+field ConnectionTraffic.Packets uint64
+field ConnectionTraffic.Bytes uint64
+field ConnectionTraffic.BandwidthLastSecond uint64
+field ConnectionTraffic.BandwidthLastMinute uint64
+type ConnectionTrafficByClass struct
+field ConnectionTrafficByClass.Speech ConnectionTraffic
+field ConnectionTrafficByClass.Keepalive ConnectionTraffic
+field ConnectionTrafficByClass.Control ConnectionTraffic
 type CustomProperty struct
 field CustomProperty.Ident string
 field CustomProperty.Value string
@@ -822,6 +847,11 @@ type OwnPermission struct
 field OwnPermission.Name string
 field OwnPermission.ID PermissionID
 field OwnPermission.Value int32
+type PacketLoss struct
+field PacketLoss.Speech float32
+field PacketLoss.Keepalive float32
+field PacketLoss.Control float32
+field PacketLoss.Total float32
 type PagingOptions struct
 field PagingOptions.PageSize int
 type Permission struct

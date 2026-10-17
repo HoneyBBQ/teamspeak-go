@@ -213,6 +213,9 @@ type ClientUpdateOptions struct {
 	// IsRequestingTalk is whether we are requesting to talk
 	// (client_talk_request).
 	IsRequestingTalk *bool
+	// MetaData is opaque data other clients see in their record of us
+	// (client_meta_data); a pointer to "" clears it.
+	MetaData *string
 }
 
 // UpdateClient changes our own client state (nickname, mute, away, …).
@@ -231,6 +234,7 @@ func (c *Commands) UpdateClient(ctx context.Context, opts ClientUpdateOptions) e
 		strPtrArg("client_talk_request_msg", opts.TalkRequestMessage),
 		boolPtrArg("client_is_recording", opts.IsRecording),
 		strPtrArg("client_badges", opts.Badges),
+		strPtrArg("client_meta_data", opts.MetaData),
 	})
 }
 
@@ -666,6 +670,137 @@ func (c *Commands) DeleteClientPermission(ctx context.Context, clientDBID Client
 		idArg("cldbid", clientDBID),
 		permArg(perm),
 	})
+}
+
+// ConnectionTraffic is one direction of one class of a client's traffic, as
+// the client itself reported it. Bandwidth is in bytes per second.
+type ConnectionTraffic struct {
+	// Packets is the count of packets (connection_packets_<direction>_<class>).
+	Packets uint64
+	// Bytes is the count of bytes (connection_bytes_<direction>_<class>).
+	Bytes uint64
+	// BandwidthLastSecond is the bandwidth over the last second
+	// (connection_bandwidth_<direction>_last_second_<class>).
+	BandwidthLastSecond uint64
+	// BandwidthLastMinute is the bandwidth over the last minute
+	// (connection_bandwidth_<direction>_last_minute_<class>).
+	BandwidthLastMinute uint64
+}
+
+// ConnectionTrafficByClass is the traffic of one direction in the three
+// classes TeamSpeak counts: speech (voice and whispers), keepalive (ping and
+// pong) and control (commands, acknowledgements and the handshake).
+type ConnectionTrafficByClass struct {
+	// Speech is voice and whisper traffic.
+	Speech ConnectionTraffic
+	// Keepalive is ping and pong traffic.
+	Keepalive ConnectionTraffic
+	// Control is everything else.
+	Control ConnectionTraffic
+}
+
+// PacketLoss is the share of packets lost, 0 to 1, per class and in total.
+type PacketLoss struct {
+	// Speech is the loss of voice packets.
+	Speech float32
+	// Keepalive is the loss of ping and pong packets.
+	Keepalive float32
+	// Control is the loss of command and acknowledgement packets.
+	Control float32
+	// Total is the loss over all packets.
+	Total float32
+}
+
+// ClientConnectionInfo is one client's connection statistics, as
+// getconnectioninfo reports them. Most figures are what the client itself
+// reported with setconnectioninfo; a client that has not reported yet shows
+// zeros. ConnectedTime, IdleTime and ClientToServerLoss come from the server,
+// which ignores a client's own report of the loss.
+type ClientConnectionInfo struct {
+	// IP is the client's address (connection_client_ip); empty when the server
+	// does not send it.
+	IP string
+	// Sent is what the client sent.
+	Sent ConnectionTrafficByClass
+	// Received is what the client received.
+	Received ConnectionTrafficByClass
+	// ServerToClientLoss is the loss on the way from the server to the client
+	// (connection_server2client_packetloss_<class>).
+	ServerToClientLoss PacketLoss
+	// ClientToServerLoss is the loss on the way from the client to the server
+	// (connection_client2server_packetloss_<class>).
+	ClientToServerLoss PacketLoss
+	// Ping is the round-trip time (connection_ping, in milliseconds).
+	Ping time.Duration
+	// PingDeviation is the deviation of the round-trip time
+	// (connection_ping_deviation, in milliseconds).
+	PingDeviation time.Duration
+	// ConnectedTime is how long the client has been connected
+	// (connection_connected_time, in milliseconds).
+	ConnectedTime time.Duration
+	// IdleTime is how long the client has been idle (connection_idle_time, in
+	// milliseconds).
+	IdleTime time.Duration
+	// FileTransferBandwidthSent is the file transfer bandwidth out, in bytes
+	// per second (connection_filetransfer_bandwidth_sent).
+	FileTransferBandwidthSent uint64
+	// FileTransferBandwidthReceived is the file transfer bandwidth in
+	// (connection_filetransfer_bandwidth_received).
+	FileTransferBandwidthReceived uint64
+	// ID is the client the figures are about (clid).
+	ID ClientID
+	// Port is the client's port (connection_client_port); 0 when the server
+	// does not send it.
+	Port uint16
+}
+
+func parseConnectionTraffic(row map[string]string, direction string) ConnectionTrafficByClass {
+	one := func(class string) ConnectionTraffic {
+		return ConnectionTraffic{
+			Packets:             fieldUint(row, "connection_packets_"+direction+"_"+class),
+			Bytes:               fieldUint(row, "connection_bytes_"+direction+"_"+class),
+			BandwidthLastSecond: fieldUint(row, "connection_bandwidth_"+direction+"_last_second_"+class),
+			BandwidthLastMinute: fieldUint(row, "connection_bandwidth_"+direction+"_last_minute_"+class),
+		}
+	}
+
+	return ConnectionTrafficByClass{Speech: one("speech"), Keepalive: one("keepalive"), Control: one("control")}
+}
+
+func parsePacketLoss(row map[string]string, way string) PacketLoss {
+	return PacketLoss{
+		Speech:    fieldFloat32(row, "connection_"+way+"_packetloss_speech"),
+		Keepalive: fieldFloat32(row, "connection_"+way+"_packetloss_keepalive"),
+		Control:   fieldFloat32(row, "connection_"+way+"_packetloss_control"),
+		Total:     fieldFloat32(row, "connection_"+way+"_packetloss_total"),
+	}
+}
+
+// GetClientConnectionInfo returns another client's connection statistics
+// (getconnectioninfo). The server answers with what it holds and asks that
+// client to report its figures meanwhile, so a client that never reported
+// shows zeros. It is not GetConnectionInfo, which is about the virtual server.
+func (c *Commands) GetClientConnectionInfo(ctx context.Context, clid ClientID) (ClientConnectionInfo, error) {
+	row, err := c.queryRow(ctx, "getconnectioninfo", "", []param{idArg("clid", clid)})
+	if err != nil {
+		return ClientConnectionInfo{}, err
+	}
+
+	return ClientConnectionInfo{
+		ID:                            ClientID(fieldUint16(row, "clid")),
+		Ping:                          fieldMillis(row, "connection_ping"),
+		PingDeviation:                 fieldMillis(row, "connection_ping_deviation"),
+		ConnectedTime:                 fieldDuration(row, "connection_connected_time", time.Millisecond),
+		IdleTime:                      fieldDuration(row, "connection_idle_time", time.Millisecond),
+		IP:                            fieldStr(row, "connection_client_ip"),
+		Port:                          fieldUint16(row, "connection_client_port"),
+		Sent:                          parseConnectionTraffic(row, "sent"),
+		Received:                      parseConnectionTraffic(row, "received"),
+		ServerToClientLoss:            parsePacketLoss(row, "server2client"),
+		ClientToServerLoss:            parsePacketLoss(row, "client2server"),
+		FileTransferBandwidthSent:     fieldUint(row, "connection_filetransfer_bandwidth_sent"),
+		FileTransferBandwidthReceived: fieldUint(row, "connection_filetransfer_bandwidth_received"),
+	}, nil
 }
 
 // ClientMoveOptions are MoveClient's optional parameters.

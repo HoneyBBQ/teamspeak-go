@@ -2,10 +2,12 @@ package client
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
+	"github.com/honeybbq/teamspeak-go/errcode"
 	"github.com/honeybbq/teamspeak-go/internal/request"
 )
 
@@ -65,6 +67,48 @@ func (c *Client) UnsubscribeAllChannels(ctx context.Context) error {
 	_, err := c.Send(ctx, newRequest("channelunsubscribeall", nil))
 
 	return err
+}
+
+// VerifyServerPassword reports whether password is the server's password,
+// without joining (verifyserverpassword). The password is given in cleartext
+// and hashed on the wire, as when connecting. The server answers a match with
+// plain success and a mismatch with error 1028
+// (errcode.ServerInvalidPassword), which returns false; any other error is
+// returned.
+func (c *Client) VerifyServerPassword(ctx context.Context, password string) (bool, error) {
+	req := newRequest("verifyserverpassword", [][2]string{{"password", prepareClientPassword(password)}})
+
+	return passwordMatches(c.Send(ctx, req))(errcode.ServerInvalidPassword)
+}
+
+// VerifyChannelPassword reports whether password is channel cid's password,
+// without moving (verifychannelpassword). The password is given in cleartext
+// and hashed on the wire, as MoveClient does. A mismatch is error 781
+// (errcode.ChannelInvalidPassword) and returns false; a channel without a
+// password accepts any value and returns true; any other error, such as an
+// unknown channel, is returned.
+func (c *Client) VerifyChannelPassword(ctx context.Context, cid teamspeak.ChannelID, password string) (bool, error) {
+	req := newRequest("verifychannelpassword", [][2]string{
+		{"cid", strconv.FormatUint(uint64(cid), 10)},
+		{"password", prepareClientPassword(password)},
+	})
+
+	return passwordMatches(c.Send(ctx, req))(errcode.ChannelInvalidPassword)
+}
+
+// passwordMatches turns the answer to a password check into a verdict: success
+// is a match, the given mismatch error is not, anything else is an error.
+func passwordMatches(_ []map[string]string, err error) func(mismatch errcode.Code) (bool, error) {
+	return func(mismatch errcode.Code) (bool, error) {
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, mismatch):
+			return false, nil
+		default:
+			return false, err
+		}
+	}
 }
 
 // newRequest builds a typed request, so that the voice-only commands pass

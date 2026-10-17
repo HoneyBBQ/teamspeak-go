@@ -137,6 +137,12 @@ type APIKeyOptions struct {
 // clientID". Both TeamSpeak 3 (3.13) and TeamSpeak 6 serve it, over
 // ServerQuery and the voice protocol; TeamSpeak 6 adds custom_id to the
 // answer.
+//
+// An error wrapping ErrNoData means the key was created, but its secret is
+// lost: TeamSpeak 6's WebQuery has been seen answering a successful create
+// with no body, and the server never lists the secret. Do not retry blindly.
+// Find the key with ListAPIKeys and remove it with DeleteAPIKey, then create
+// another.
 func (c *Commands) AddAPIKey(ctx context.Context, opts APIKeyOptions) (APIKeyCreated, error) {
 	scope := optStrArg("scope", string(opts.Scope))
 	if opts.Scope == "" {

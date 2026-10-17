@@ -522,7 +522,7 @@ func (c *Client) disconnectBanned(h *transport.PacketHandler) {
 	// caller context. It is bounded all the same: the goodbye waits
 	// disconnectTimeout at most, and joining a Disconnect already in progress
 	// waits for that one's goodbye, which has the same bound.
-	disconnectErr := c.disconnect(context.Background(), h)
+	disconnectErr := c.disconnect(context.Background(), h, defaultLeaveMessage)
 	if disconnectErr != nil {
 		c.logger.Warn("disconnect after fatal error failed", slog.Any("error", disconnectErr))
 	}

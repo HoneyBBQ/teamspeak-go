@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/honeybbq/teamspeak-go/errcode"
 )
@@ -212,5 +213,52 @@ func TestListClients_Icon(t *testing.T) {
 	})
 	if line != "clientlist -uid" {
 		t.Errorf("a list without Icon sent %q", line)
+	}
+}
+
+func TestGetClientConnectionInfo_AsksAndReadsTheFigures(t *testing.T) {
+	s := &script{replies: []reply{{rows: []map[string]string{{
+		"clid": "5", "connection_ping": "12.5000", "connection_ping_deviation": "1.2500",
+		"connection_connected_time": "4000", "connection_idle_time": "3000",
+		"connection_client_ip": "10.0.0.1", "connection_client_port": "9000",
+		"connection_packets_sent_speech": "7", "connection_bytes_received_control": "800",
+		"connection_bandwidth_sent_last_minute_keepalive": "3",
+		"connection_server2client_packetloss_total":       "0.0500",
+		"connection_client2server_packetloss_control":     "0.1000",
+		"connection_filetransfer_bandwidth_sent":          "11",
+	}}}}}
+	info, err := NewCommands(s).GetClientConnectionInfo(t.Context(), 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.sent) != 1 || s.sent[0] != "getconnectioninfo clid=5" {
+		t.Errorf("sent %q", s.sent)
+	}
+	if info.ID != 5 || info.Ping != 12500*time.Microsecond || info.PingDeviation != 1250*time.Microsecond ||
+		info.ConnectedTime != 4*time.Second || info.IdleTime != 3*time.Second ||
+		info.IP != "10.0.0.1" || info.Port != 9000 || info.FileTransferBandwidthSent != 11 {
+		t.Errorf("info = %+v", info)
+	}
+	if info.Sent.Speech.Packets != 7 || info.Received.Control.Bytes != 800 ||
+		info.Sent.Keepalive.BandwidthLastMinute != 3 ||
+		info.ServerToClientLoss.Total != 0.05 || info.ClientToServerLoss.Control != 0.1 {
+		t.Errorf("traffic = %+v / %+v", info.Sent, info.Received)
+	}
+}
+
+func TestGetClientConnectionInfo_LeavesIPAndPortOutWhenAbsent(t *testing.T) {
+	s := &script{replies: []reply{{rows: []map[string]string{{"clid": "5"}}}}}
+	info, err := NewCommands(s).GetClientConnectionInfo(t.Context(), 5)
+	if err != nil || info.IP != "" || info.Port != 0 || info.Ping != 0 {
+		t.Errorf("info = %+v, err = %v", info, err)
+	}
+}
+
+func TestUpdateClient_SendsMetaData(t *testing.T) {
+	line := encoded(t, func(c *Commands) error {
+		return c.UpdateClient(t.Context(), ClientUpdateOptions{MetaData: new("m")})
+	})
+	if line != "clientupdate client_meta_data=m" {
+		t.Errorf("line = %q", line)
 	}
 }

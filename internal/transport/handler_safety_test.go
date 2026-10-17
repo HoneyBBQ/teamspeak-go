@@ -69,7 +69,11 @@ func TestHandlerRefusesSendsWhenNotOpen(t *testing.T) {
 	if !errors.Is(err, ErrNotOpen) {
 		t.Errorf("SendVoicePacket before Start = %v, want ErrNotOpen", err)
 	}
-	err = h.SendWhisperPacket([]byte{1}, []uint16{1}, 4)
+	err = h.SendWhisperPacket([]byte{1}, []uint16{1}, nil, 4)
+	if !errors.Is(err, ErrNotOpen) {
+		t.Errorf("SendWhisperPacket before Start = %v, want ErrNotOpen", err)
+	}
+	err = h.SendGroupWhisperPacket([]byte{1}, 3, 0, 0, 4)
 	if !errors.Is(err, ErrNotOpen) {
 		t.Errorf("SendWhisperPacket before Start = %v, want ErrNotOpen", err)
 	}

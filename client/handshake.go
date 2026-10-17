@@ -141,6 +141,9 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 		return
 	}
 	c.status = StatusConnected
+	// A privilege key is spent by the join that used it: a reconnection must
+	// not present it again.
+	c.clientInitOptions.privilegeKey = ""
 	reconnected := c.attempt.reconnect
 	c.adoptClientIDLocked(h, cmd.Params)
 
@@ -210,24 +213,25 @@ func (c *Client) buildClientInitCommand(tc *crypto.Crypt) string {
 	// HWID matches TS3 client UID format: base64(SHA1(publicKeyBase64))
 	hwidSum := sha1.Sum([]byte(pubKeyBase64)) //nolint:gosec
 	hwid := base64.StdEncoding.EncodeToString(hwidSum[:])
-	defaultChannelPassword := c.clientInitOptions.defaultChannelPasswordHash
-	serverPassword := c.clientInitOptions.serverPasswordHash
+	c.mu.Lock()
+	opts := *c.clientInitOptions
+	c.mu.Unlock()
 	nickname, _ := c.describe()
 
 	return wire.BuildCommandOrdered("clientinit", [][2]string{
 		{"client_nickname", nickname},
-		{"client_version", c.clientInitOptions.version.Version},
-		{"client_platform", c.clientInitOptions.version.Platform},
+		{"client_version", opts.version.Version},
+		{"client_platform", opts.version.Platform},
 		{"client_input_hardware", "1"},
 		{"client_output_hardware", "1"},
-		{"client_default_channel", c.clientInitOptions.defaultChannel},
-		{"client_default_channel_password", defaultChannelPassword},
-		{"client_server_password", serverPassword},
-		{"client_meta_data", ""},
-		{"client_version_sign", c.clientInitOptions.version.Sign},
+		{"client_default_channel", opts.defaultChannel},
+		{"client_default_channel_password", opts.defaultChannelPasswordHash},
+		{"client_server_password", opts.serverPasswordHash},
+		{"client_meta_data", opts.metaData},
+		{"client_version_sign", opts.version.Sign},
 		{"client_key_offset", strconv.FormatUint(tc.Identity.Offset(), 10)},
 		{"client_nickname_phonetic", ""},
-		{"client_default_token", ""},
+		{"client_default_token", opts.privilegeKey},
 		{"hwid", hwid},
 	})
 }

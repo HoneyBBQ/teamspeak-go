@@ -2,6 +2,7 @@ package teamspeak
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -77,6 +78,11 @@ func (c *Commands) ListChannelGroups(ctx context.Context, _ ChannelGroupListOpti
 // GroupRegular: the zero GroupType is GroupTemplate, and a parameter that
 // silently meant "regular" when omitted and "template" when zero would be a
 // trap.
+//
+// When the answer names no group, the new one is looked up in the group list by
+// its exact name and type; see createdGroupID for why that is unambiguous. The
+// error wraps ErrNoData only when nothing matches, and then the group may
+// still have been created.
 func (c *Commands) CreateChannelGroup(ctx context.Context, name string, groupType GroupType) (ChannelGroupID, error) {
 	rows, err := c.query(ctx, "channelgroupadd", []param{
 		strArg("name", name),
@@ -86,7 +92,28 @@ func (c *Commands) CreateChannelGroup(ctx context.Context, name string, groupTyp
 		return 0, err
 	}
 
-	return createdGroupID[ChannelGroupID](rows, "cgid", name)
+	return c.createdChannelGroup(ctx, rows, name, groupType)
+}
+
+// createdChannelGroup is createdServerGroup for channel groups.
+func (c *Commands) createdChannelGroup(
+	ctx context.Context, rows []map[string]string, name string, groupType GroupType,
+) (ChannelGroupID, error) {
+	id, err := createdGroupID[ChannelGroupID](rows, "cgid", name)
+	if !errors.Is(err, ErrNoData) {
+		return id, err
+	}
+	groups, listErr := c.ListChannelGroups(ctx, ChannelGroupListOptions{})
+	if listErr != nil {
+		return 0, listErr
+	}
+	for _, g := range groups {
+		if g.Name == name && g.Type == groupType {
+			return g.ID, nil
+		}
+	}
+
+	return 0, fmt.Errorf("%w: the server did not report the new group %q", ErrNoData, name)
 }
 
 // GroupDeleteOptions are DeleteServerGroup's and DeleteChannelGroup's
@@ -115,7 +142,9 @@ func (c *Commands) RenameChannelGroup(ctx context.Context, channelGroupID Channe
 	})
 }
 
-// CopyChannelGroup copies a channel group; a targetGroupID of 0 allocates one.
+// CopyChannelGroup copies a channel group; a targetGroupID of 0 allocates one,
+// and the new group is then found as CreateChannelGroup finds its own, by name
+// and groupType.
 func (c *Commands) CopyChannelGroup(
 	ctx context.Context, sourceGroupID, targetGroupID ChannelGroupID, name string, groupType GroupType,
 ) (ChannelGroupID, error) {
@@ -134,7 +163,7 @@ func (c *Commands) CopyChannelGroup(
 		return targetGroupID, nil
 	}
 
-	return createdGroupID[ChannelGroupID](rows, "cgid", name)
+	return c.createdChannelGroup(ctx, rows, name, groupType)
 }
 
 // ChannelGroupMembership is which channel group a client holds in a channel.
@@ -596,6 +625,12 @@ func (c *Commands) addKey(ctx context.Context, command string, opts PrivilegeKey
 
 // AddPrivilegeKey creates a privilege key and returns it as the server
 // generated it. A CustomSet is sent as tokencustomset.
+//
+// An error wrapping ErrNoData means the key was created: TeamSpeak 6's WebQuery
+// has been seen answering a successful create with no body. Keys with the same
+// settings cannot be told apart in the list, so nothing here looks one up; do
+// not retry blindly, or a second key results. Find the key with
+// ListPrivilegeKeys and remove the extra with DeletePrivilegeKey.
 func (c *Commands) AddPrivilegeKey(ctx context.Context, opts PrivilegeKeyOptions) (string, error) {
 	return c.addKey(ctx, "privilegekeyadd", opts)
 }

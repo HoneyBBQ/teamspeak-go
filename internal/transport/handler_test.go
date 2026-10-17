@@ -492,7 +492,7 @@ func TestHandlerSendWhisperPacket_Format(t *testing.T) {
 	_ = readPacket(t, serverConn)
 
 	audio := []byte{0xaa, 0xbb, 0xcc}
-	err := h.SendWhisperPacket(audio, []uint16{0x0102, 0x0304}, 5)
+	err := h.SendWhisperPacket(audio, []uint16{0x0102, 0x0304}, nil, 5)
 	if err != nil {
 		t.Fatalf("SendWhisperPacket: %v", err)
 	}
@@ -526,13 +526,88 @@ func TestHandlerSendWhisperPacket_RejectsUnencodableTargets(t *testing.T) {
 	defer func() { _ = h.Close() }()
 	_ = readPacket(t, serverConn)
 
-	err := h.SendWhisperPacket([]byte{1}, nil, 5)
+	err := h.SendWhisperPacket([]byte{1}, nil, nil, 5)
 	if !errors.Is(err, ErrNoWhisperTargets) {
 		t.Errorf("no targets: got %v, want ErrNoWhisperTargets", err)
 	}
-	err = h.SendWhisperPacket([]byte{1}, make([]uint16, 33), 5)
+	err = h.SendWhisperPacket([]byte{1}, make([]uint16, 33), nil, 5)
 	if !errors.Is(err, ErrTooManyWhisperTargets) {
 		t.Errorf("33 targets: got %v, want ErrTooManyWhisperTargets", err)
+	}
+}
+
+func TestHandlerSendWhisperPacket_RejectsTooManyChannels(t *testing.T) {
+	h, serverConn := newTestHandler(t)
+	defer func() { _ = h.Close() }()
+	_ = readPacket(t, serverConn)
+
+	err := h.SendWhisperPacket([]byte{1}, nil, make([]uint64, 256), 5)
+	if !errors.Is(err, ErrTooManyWhisperChannels) {
+		t.Errorf("256 channels: got %v, want ErrTooManyWhisperChannels", err)
+	}
+	err = h.SendWhisperPacket([]byte{1}, nil, make([]uint64, 255), 5)
+	if err != nil {
+		t.Errorf("255 channels: %v", err)
+	}
+}
+
+// The direct form, byte for byte: no new-protocol flag, then VId, C, N, M, the
+// u64 channel ids, the u16 client ids and the data.
+func TestHandlerSendWhisperPacket_ChannelsAndClientsLayout(t *testing.T) {
+	h, serverConn := newTestHandler(t)
+	defer func() { _ = h.Close() }()
+	_ = readPacket(t, serverConn)
+
+	err := h.SendWhisperPacket([]byte{0xaa, 0xbb}, []uint16{0x0102}, []uint64{0x0102030405060708, 9}, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkt := readPacket(t, serverConn)
+	if pkt[12] != byte(PacketTypeVoiceWhisper)|byte(PacketFlagUnencrypted) {
+		t.Errorf("type byte = %#02x, want whisper and unencrypted only", pkt[12])
+	}
+	want := []byte{
+		0x00, 0x00, // voice packet id
+		5, 2, 1,
+		1, 2, 3, 4, 5, 6, 7, 8,
+		0, 0, 0, 0, 0, 0, 0, 9,
+		0x01, 0x02,
+		0xaa, 0xbb,
+	}
+	if !bytes.Equal(pkt[13:], want) {
+		t.Errorf("payload = %x, want %x", pkt[13:], want)
+	}
+}
+
+// The group form, byte for byte: the new-protocol flag, then VId, C, TY, TA, a
+// u64 id and the data.
+func TestHandlerSendGroupWhisperPacket_Layout(t *testing.T) {
+	h, serverConn := newTestHandler(t)
+	defer func() { _ = h.Close() }()
+	_ = readPacket(t, serverConn)
+
+	err := h.SendGroupWhisperPacket([]byte{0xaa}, 1, 4, 0x0a0b, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkt := readPacket(t, serverConn)
+	if pkt[12] != byte(PacketTypeVoiceWhisper)|byte(PacketFlagUnencrypted)|byte(PacketFlagNewProtocol) {
+		t.Errorf("type byte = %#02x, want whisper, unencrypted and new protocol", pkt[12])
+	}
+	want := []byte{0, 0, 5, 1, 4, 0, 0, 0, 0, 0, 0, 0x0a, 0x0b, 0xaa}
+	if !bytes.Equal(pkt[13:], want) {
+		t.Errorf("payload = %x, want %x", pkt[13:], want)
+	}
+	err = h.SendGroupWhisperPacket(nil, 3, 0, 0, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkt = readPacket(t, serverConn)
+	if got := binary.BigEndian.Uint16(pkt[13:15]); got != 1 {
+		t.Errorf("second voice packet id = %d, want 1", got)
+	}
+	if len(pkt[13:]) != 13 {
+		t.Errorf("payload length = %d, want 13", len(pkt[13:]))
 	}
 }
 

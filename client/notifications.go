@@ -36,6 +36,8 @@ func (c *Client) handleNotification(h *transport.PacketHandler, cmd *wire.Comman
 		c.emitEvent(ClientServerGroupRemovedEvent{ClientServerGroupChange: servernotify.ClientServerGroup(cmd.Params)})
 	case "notifyclientchannelgroupchanged":
 		c.handleClientChannelGroupChanged(h, cmd)
+	case "notifyconnectioninforequest":
+		c.answerConnectionInfoRequest(h)
 	case "notifyclientneededpermissions":
 		c.logger.Debug("insufficient permissions",
 			slog.String("permid", cmd.Params["permid"]),
