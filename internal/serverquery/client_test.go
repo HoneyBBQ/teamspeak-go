@@ -7,7 +7,9 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
@@ -353,4 +355,177 @@ func TestClient_CloseFailsWhatIsWaiting(t *testing.T) {
 	if sent := transport.sentLines(); len(sent) != 1 {
 		t.Errorf("sent %v, want nothing after Close", sent)
 	}
+}
+
+// nudgingTransport is a fakeTransport that is a Nudger, as the SSH one is.
+type nudgingTransport struct {
+	*fakeTransport
+
+	nudges atomic.Int32
+}
+
+func (n *nudgingTransport) Nudge() error {
+	n.nudges.Add(1)
+
+	return nil
+}
+
+// nudgeFixture runs body in a bubble of fake time, with a client over a
+// nudging transport that is closed afterwards.
+func nudgeFixture(t *testing.T, body func(t *testing.T, c *serverquery.Client, tr *nudgingTransport)) {
+	t.Helper()
+	synctest.Test(t, func(t *testing.T) {
+		tr := &nudgingTransport{fakeTransport: newFakeTransport()}
+		c := serverquery.New(tr)
+		defer func() { _ = c.Close() }()
+		body(t, c, tr)
+	})
+}
+
+func TestClient_NudgesNothingForACommandAnsweredInTime(t *testing.T) {
+	nudgeFixture(t, func(t *testing.T, c *serverquery.Client, tr *nudgingTransport) {
+		t.Helper()
+		done := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "version") })
+		time.Sleep(1900 * time.Millisecond)
+		tr.receive("version=1", "error id=0 msg=ok")
+		if a := await(t, done); a.err != nil {
+			t.Fatal(a.err)
+		}
+		time.Sleep(10 * time.Second)
+		if n := tr.nudges.Load(); n != 0 {
+			t.Fatalf("nudges = %d, want 0", n)
+		}
+	})
+}
+
+func TestClient_NudgesAnUnansweredCommandUntilItsErrorLine(t *testing.T) {
+	nudgeFixture(t, func(t *testing.T, c *serverquery.Client, tr *nudgingTransport) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		defer cancel()
+		done := run(func() ([]map[string]string, error) { return c.Exec(ctx, "version") })
+		time.Sleep(1999 * time.Millisecond)
+		if n := tr.nudges.Load(); n != 0 {
+			t.Fatalf("nudges at 1.999s = %d, want 0", n)
+		}
+		time.Sleep(time.Millisecond)
+		synctest.Wait()
+		if n := tr.nudges.Load(); n != 1 {
+			t.Fatalf("nudges at 2s = %d, want 1", n)
+		}
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		if n := tr.nudges.Load(); n != 3 {
+			t.Fatalf("nudges at 4s = %d, want 3", n)
+		}
+		// A data row arrived on time and the terminator was held: the nudge
+		// released it and the command resolves with the row.
+		tr.receive("version=1", "error id=0 msg=ok")
+		a := await(t, done)
+		if a.err != nil || !reflect.DeepEqual(a.value, []map[string]string{{"version": "1"}}) {
+			t.Fatalf("got %v, %v", a.value, a.err)
+		}
+		time.Sleep(10 * time.Second)
+		if n := tr.nudges.Load(); n != 3 {
+			t.Fatalf("nudges after the answer = %d, want 3", n)
+		}
+	})
+}
+
+func TestClient_StopsNudgingWhenACommandTimesOutIsCancelledOrClosed(t *testing.T) {
+	nudgeFixture(t, func(t *testing.T, c *serverquery.Client, tr *nudgingTransport) {
+		t.Helper()
+		// Times out at 3.5s, after nudges at 2s and 3s.
+		ctx, cancel := context.WithTimeout(t.Context(), 3500*time.Millisecond)
+		defer cancel()
+		// Read the channel itself: await gives up at 2s, before this deadline.
+		if a := <-run(func() ([]map[string]string, error) { return c.Exec(ctx, "version") }); a.err == nil {
+			t.Fatal("expected a timeout")
+		}
+		time.Sleep(10 * time.Second)
+		if n := tr.nudges.Load(); n != 2 {
+			t.Fatalf("nudges after a timeout = %d, want 2", n)
+		}
+		// Its error line is still due.
+		tr.receive("error id=0 msg=ok")
+
+		// Cancelled at 2.5s.
+		cctx, ccancel := context.WithCancel(t.Context())
+		done := run(func() ([]map[string]string, error) { return c.Exec(cctx, "version") })
+		time.Sleep(2500 * time.Millisecond)
+		ccancel()
+		await(t, done)
+		time.Sleep(10 * time.Second)
+		if n := tr.nudges.Load(); n != 3 {
+			t.Fatalf("nudges after a cancel = %d, want 3", n)
+		}
+		tr.receive("error id=0 msg=ok")
+
+		// Closed at 2.5s.
+		lctx, lcancel := context.WithTimeout(t.Context(), time.Minute)
+		defer lcancel()
+		done = run(func() ([]map[string]string, error) { return c.Exec(lctx, "version") })
+		time.Sleep(2500 * time.Millisecond)
+		_ = c.Close()
+		await(t, done)
+		time.Sleep(10 * time.Second)
+		if n := tr.nudges.Load(); n != 4 {
+			t.Fatalf("nudges after close = %d, want 4", n)
+		}
+	})
+}
+
+func TestClient_NudgesTheCommandOnTheWireNotTheQueue(t *testing.T) {
+	nudgeFixture(t, func(t *testing.T, c *serverquery.Client, tr *nudgingTransport) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		defer cancel()
+		first := run(func() ([]map[string]string, error) { return c.Exec(ctx, "version") })
+		synctest.Wait()
+		second := run(func() ([]map[string]string, error) { return c.Exec(ctx, "whoami") })
+		time.Sleep(2500 * time.Millisecond)
+		synctest.Wait()
+		if got := tr.sentLines(); len(got) != 1 {
+			t.Fatalf("sent %q, want one command", got)
+		}
+		if n := tr.nudges.Load(); n != 1 {
+			t.Fatalf("nudges = %d, want 1", n)
+		}
+		tr.receive("error id=0 msg=ok")
+		await(t, first)
+		synctest.Wait()
+		if got := tr.sentLines(); len(got) != 2 {
+			t.Fatalf("sent %q, want two commands", got)
+		}
+		// The first command's schedule would nudge at 3s; the second counts
+		// from its own send.
+		time.Sleep(1999 * time.Millisecond)
+		if n := tr.nudges.Load(); n != 1 {
+			t.Fatalf("nudges = %d, want 1", n)
+		}
+		time.Sleep(time.Millisecond)
+		synctest.Wait()
+		if n := tr.nudges.Load(); n != 2 {
+			t.Fatalf("nudges = %d, want 2", n)
+		}
+		tr.receive("error id=0 msg=ok")
+		await(t, second)
+	})
+}
+
+func TestClient_DoesNotNudgeATransportThatIsNotANudger(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c, tr := newClient(t)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		defer cancel()
+		done := run(func() ([]map[string]string, error) { return c.Exec(ctx, "version") })
+		time.Sleep(5 * time.Second)
+		synctest.Wait()
+		if got := tr.sentLines(); len(got) != 1 {
+			t.Fatalf("sent %q, want only the command", got)
+		}
+		tr.receive("error id=0 msg=ok")
+		await(t, done)
+		_ = c.Close()
+	})
 }

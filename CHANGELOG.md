@@ -220,6 +220,9 @@ the optional ones are pointers, a plain assignment of a record shares them;
   channel edit with reason `ReasonChannelUpdate` and no invoker, is not a
   change and produces no `ChannelEditedEvent`; it still reaches
   `OnNotification`.
+- Over SSH, a TeamSpeak 6 server can hold the end of a reply until the client
+  writes again; the SSH transport now writes an empty line when a command has
+  waited 2 seconds, and once a second after, which releases it.
 
 ## v1.0.0-beta.7 (2026-10-17)
 
