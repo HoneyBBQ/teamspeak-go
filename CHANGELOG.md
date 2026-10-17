@@ -40,6 +40,15 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   when the client did not hold the record, and always nil on the ServerQuery
   client. Experimental.
 
+### Fixed
+
+- The SSH transport could not connect to a TeamSpeak 3 server: the ssh library
+  asks for `rsa-sha2-256` and the server signs with `rsa-sha2-512` whichever
+  it was asked for, so the handshake failed with "invalid signature algorithm".
+  The transport now prefers `rsa-sha2-512` among the host key algorithms.
+  TeamSpeak 3 has served SSH ServerQuery since 3.3, and WebQuery since 3.12;
+  the documentation said TeamSpeak 6 only.
+
 ## v1.0.0-beta.8 (2026-10-17)
 
 ### Removed

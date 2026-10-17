@@ -24,12 +24,14 @@
 //   - [TCP] is the raw protocol, on port 10011, which only TeamSpeak 3 serves.
 //     It needs `login` unless the address is already allowlisted, and it
 //     delivers notifications.
-//   - [SSH] carries the same session on port 10022, and only TeamSpeak 6 serves
-//     it, off by default. The SSH login replaces `login`, so no query password
-//     goes over the wire, and it delivers notifications.
-//   - [Web] is TeamSpeak 6's WebQuery, on port 10080, an HTTP interface where
-//     an api key replaces the login. It has no session for the server to push
-//     to, so it delivers no events and refuses file transfers.
+//   - [SSH] carries the same session on port 10022. TeamSpeak 3 (3.3 and later)
+//     and TeamSpeak 6 both serve it, off by default: a TS3 server needs
+//     `query_protocols` to list `ssh`. The SSH login replaces `login`, so no
+//     query password goes over the wire, and it delivers notifications.
+//   - [Web] is WebQuery, the HTTP interface of TeamSpeak 3 (3.12 and later,
+//     off until `query_protocols` lists `http`) and TeamSpeak 6, on port 10080,
+//     where an api key replaces the login. It has no session for the server to
+//     push to, so it delivers no events and refuses file transfers.
 //
 // # Guest access
 //

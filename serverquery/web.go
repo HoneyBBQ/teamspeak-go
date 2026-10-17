@@ -33,8 +33,8 @@ type WebOptions struct {
 	Client *http.Client
 }
 
-// webDialer is TeamSpeak 6's WebQuery: an HTTP interface where each command is
-// one request and the api key is the login.
+// webDialer is WebQuery, the HTTP interface of TeamSpeak 3 (3.12 and later) and
+// TeamSpeak 6: each command is one request and the api key is the login.
 //
 // It has no session. The server cannot push anything to a client that is not
 // holding a connection open, so there are no notifications, and the transport
@@ -47,10 +47,11 @@ type webDialer struct {
 	guest bool
 }
 
-// Web returns a Dialer for TeamSpeak 6's WebQuery at baseURL, such as
+// Web returns a Dialer for WebQuery at baseURL, such as
 // "http://127.0.0.1:10080", authenticating with apiKey.
 //
-// Only TeamSpeak 6 serves it. The api key replaces the query login, so
+// TeamSpeak 3 (3.12 and later, with `http` in its query_protocols) and
+// TeamSpeak 6 serve it. The api key replaces the query login, so
 // [WithLogin] is refused here; the server refuses `login` and `use` as
 // commands, and this transport answers `use` by addressing the server the
 // following requests name.
@@ -85,7 +86,8 @@ func newWebDialer(baseURL, apiKey string, options WebOptions) webDialer {
 	return webDialer{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, client: client}
 }
 
-// WebGuest returns a Dialer for TeamSpeak 6's WebQuery at baseURL that sends no
+// WebGuest returns a Dialer for TeamSpeak 6's WebQuery at baseURL (TeamSpeak 3
+// has no guest access) that sends no
 // api key, so the server runs every request in its guest scope: the access of
 // the Guest ServerQuery group, limited to the commands the guest scope allows.
 // Anything outside it answers HTTP 401, code 5120 ("out of scope"), and a

@@ -98,6 +98,11 @@ them the live tests skip. The TeamSpeak 6 image
 (`teamspeaksystems/teamspeak6-server`) has no raw ServerQuery port; see
 `.github/workflows/ci.yml` for the environment it needs, and set
 `TS3_QUERY_HTTP` instead of `TS3_QUERY_HOST` when running the fixture.
+TeamSpeak 3 serves SSH and WebQuery too, once the container is started with
+`-e TS3SERVER_QUERY_PROTOCOLS=raw,ssh,http -e TS3SERVER_SERVERADMIN_PASSWORD=...`
+and `-p 10022:10022 -p 10080:10080`: give the fixture `TS3_QUERY_HTTP`,
+`TS3_QUERY_SSH_PORT`, `TS3_ADMIN_PW` and `TS3_QUERY_SSH_PASSWORD` (the password
+you set) as well as `TS3_QUERY_HOST`, and the suites run over all three.
 
 Run one server at a time. A server's flood protection bans an IP that connects
 too fast, and two suites at once, or a rerun straight after a failure, can get
