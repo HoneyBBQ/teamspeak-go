@@ -12,6 +12,7 @@ package serverquery_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -39,62 +40,117 @@ func databaseIDOf(ctx context.Context, t *testing.T, c *serverquery.Client, voic
 	return name.DatabaseID
 }
 
+// listBansIfAny reads the ban list, which the servers refuse as an empty
+// result when there is none.
+func listBansIfAny(ctx context.Context, t *testing.T, c *serverquery.Client) []teamspeak.BanEntry {
+	t.Helper()
+	bans, err := c.ListBans(ctx, teamspeak.BanListOptions{})
+	if err != nil && !errors.Is(err, errcode.DatabaseEmptyResult) {
+		t.Fatalf("ListBans: %v", err)
+	}
+
+	return bans
+}
+
+// removeBansSince deletes every ban that is not in before, whatever made it,
+// and says which it removed. A ban of a connected client names its address as
+// well as its uid, and the voice clients of these tests share the runner's
+// address, so a rule left behind refuses every voice connect after it.
+func removeBansSince(ctx context.Context, c *serverquery.Client, before []teamspeak.BanEntry) ([]teamspeak.BanID, error) {
+	bans, err := c.ListBans(ctx, teamspeak.BanListOptions{})
+	if err != nil && !errors.Is(err, errcode.DatabaseEmptyResult) {
+		return nil, err
+	}
+	var removed []teamspeak.BanID
+	for _, b := range bans {
+		if banByID(before, b.ID) != nil {
+			continue
+		}
+		delErr := c.DeleteBan(ctx, b.ID)
+		if delErr != nil && !errors.Is(delErr, errcode.BanInvalidID) {
+			return removed, delErr
+		}
+		removed = append(removed, b.ID)
+	}
+
+	return removed, nil
+}
+
 // A connected client is banned from the query connection, which kicks it and
-// records a ban for each thing the server can identify it by; deleting those
-// bans lets it back.
+// records a ban for each thing the server can identify it by: measured on TS3
+// 3.13.8 and TS6 beta13.1, one for its uid and one for its address, and none
+// for a MyTeamSpeak id when it has none. The ids BanClient returns are the
+// server's own answer, which TS6 sometimes leaves empty (once in about a
+// hundred calls over SSH and WebQuery) though both bans are made, so the test
+// finds what was made by comparing the list before and after, and removes all
+// of it, also when an assertion fails.
 //
 //nolint:gocognit // one scenario, step by step
 func TestQueryAdmin_BanClient(t *testing.T) {
 	forEachTransport(t, 1, func(t *testing.T, c *serverquery.Client, _ teamspeak.ServerFamily, _ string) {
 		ctx := adminCtx(t)
 		voice := voiceClient(t, "ts-go-ban-"+uniqueStamp()[:6])
+		before := listBansIfAny(ctx, t, c)
+		cleanup(t, "the bans of the banned client", func(ctx context.Context) error {
+			_, err := removeBansSince(ctx, c, before)
+			if err != nil {
+				return err
+			}
+			left, err := c.ListBans(ctx, teamspeak.BanListOptions{})
+			if err != nil && !errors.Is(err, errcode.DatabaseEmptyResult) {
+				return err
+			}
+			if len(left) != len(before) {
+				return fmt.Errorf("the ban list has %d entries, want the %d it started with", len(left), len(before))
+			}
+
+			return nil
+		})
 
 		ids, err := c.BanClient(ctx, voice.ClientID(), teamspeak.BanClientOptions{Reason: "ts-go-it", Duration: time.Hour})
 		skipUnlessAllowed(t, err, "BanClient")
 		if err != nil {
 			t.Fatalf("BanClient: %v", err)
 		}
+
+		all := listBansIfAny(ctx, t, c)
+		var made []teamspeak.BanEntry
+		for _, b := range all {
+			if banByID(before, b.ID) == nil {
+				made = append(made, b)
+			}
+		}
+		if len(made) == 0 {
+			t.Fatal("BanClient made no ban the list shows")
+		}
+		for _, b := range made {
+			if b.Reason != "ts-go-it" || b.Duration != time.Hour {
+				t.Errorf("ban %d = %+v, want the reason and the hour that were given", b.ID, b)
+			}
+		}
 		for _, id := range ids {
-			cleanup(t, "ban "+strconv.Itoa(int(id)), func(ctx context.Context) error {
-				delErr := c.DeleteBan(ctx, id)
-				if errors.Is(delErr, errcode.BanInvalidID) {
-					return nil
-				}
-
-				return delErr
-			})
+			if !slices.ContainsFunc(made, func(b teamspeak.BanEntry) bool { return b.ID == id }) {
+				t.Errorf("BanClient returned id %d, which is not one of the new bans %+v", id, made)
+			}
 		}
-		if len(ids) == 0 {
-			t.Fatal("BanClient reported no ban ids over ServerQuery")
+		if !slices.ContainsFunc(made, func(b teamspeak.BanEntry) bool { return b.UID == voice.UID() }) {
+			t.Errorf("no new ban names the client's uid %s: %+v", voice.UID(), made)
+		}
+		if !slices.ContainsFunc(made, func(b teamspeak.BanEntry) bool { return b.IP != "" }) {
+			t.Errorf("no new ban names the client's address: %+v", made)
 		}
 
-		all, err := c.ListBans(ctx, teamspeak.BanListOptions{})
+		removed, err := removeBansSince(ctx, c, before)
 		if err != nil {
-			t.Fatalf("ListBans: %v", err)
+			t.Fatalf("deleting the new bans: %v", err)
 		}
-		for _, id := range ids {
-			b := banByID(all, id)
-			if b == nil || b.Reason != "ts-go-it" || b.Duration != time.Hour {
-				t.Errorf("ban %d = %+v, want the reason and the hour that were given", id, b)
-			}
+		if len(removed) != len(made) {
+			t.Errorf("removed %d bans, want the %d that were made", len(removed), len(made))
 		}
-		if i := slices.IndexFunc(all, func(b teamspeak.BanEntry) bool { return b.UID == voice.UID() }); i < 0 {
-			t.Errorf("no ban names the client's uid %s: %+v", voice.UID(), all)
-		}
-
-		for _, id := range ids {
-			err = c.DeleteBan(ctx, id)
-			if err != nil {
-				t.Fatalf("DeleteBan %d: %v", id, err)
-			}
-		}
-		after, err := c.ListBans(ctx, teamspeak.BanListOptions{})
-		if err != nil && !errors.Is(err, errcode.DatabaseEmptyResult) {
-			t.Fatalf("ListBans after the deletes: %v", err)
-		}
-		for _, id := range ids {
-			if banByID(after, id) != nil {
-				t.Errorf("ban %d is still listed after DeleteBan", id)
+		after := listBansIfAny(ctx, t, c)
+		for _, b := range made {
+			if banByID(after, b.ID) != nil {
+				t.Errorf("ban %d is still listed after DeleteBan", b.ID)
 			}
 		}
 	})
