@@ -235,6 +235,10 @@ func (w *webQuery) WriteLine(ctx context.Context, line string) error {
 	return nil
 }
 
+// WholeAnswers marks that each answer arrives whole, rows and error line
+// together.
+func (w *webQuery) WholeAnswers() {}
+
 // ReadLine returns the next line of the answer to the last command.
 func (w *webQuery) ReadLine() (string, error) {
 	select {

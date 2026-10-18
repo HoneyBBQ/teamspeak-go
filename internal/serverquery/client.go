@@ -13,6 +13,7 @@ package serverquery
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -75,8 +76,19 @@ type result struct {
 
 // pending is the command whose answer is arriving.
 type pending struct {
-	result chan result
-	rows   []map[string]string
+	// command is the name of the command, to know what its answer carries.
+	command string
+	result  chan result
+	rows    []map[string]string
+	// held is set once the error line has been read and the answer is being
+	// kept open for a late row.
+	held *held
+}
+
+// held is an answer whose error line has come but whose row has not.
+type held struct {
+	timer *time.Timer
+	late  lateRow
 }
 
 // Client runs commands over a Transport. It is a teamspeak.Executor, so the
@@ -115,6 +127,10 @@ type Client struct {
 	// waiting. With only order to go on, each is read and discarded when it
 	// arrives; otherwise it would be taken for the next command's.
 	abandoned int
+	// strayKey is the key of a row that was waited for and did not come before
+	// its answer was given up on. Should it arrive later, it belongs to that
+	// command, and is dropped rather than handed to the next one.
+	strayKey  string
 	mu        sync.Mutex
 	closeOnce sync.Once
 	closed    bool
@@ -184,7 +200,13 @@ func (c *Client) Exec(ctx context.Context, line string) ([]map[string]string, er
 		return res.rows, res.err
 	}
 	c.pending = nil
-	c.abandoned++
+	// An answer held for a late row has had its error line already: nothing
+	// more is coming that would need discarding.
+	if p.held != nil {
+		p.held.timer.Stop()
+	} else {
+		c.abandoned++
+	}
 	c.mu.Unlock()
 
 	return nil, fmt.Errorf("%s: %w", name, ctx.Err())
@@ -208,7 +230,7 @@ func (c *Client) Close() error {
 // send writes line as the command whose answer the next lines carry. The
 // caller holds the turn.
 func (c *Client) send(ctx context.Context, line string) (*pending, error) {
-	p := &pending{result: make(chan result, 1)}
+	p := &pending{command: commandName(line), result: make(chan result, 1)}
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
@@ -312,37 +334,152 @@ func (c *Client) handleLine(line string) {
 	defer c.mu.Unlock()
 
 	if cmd.Name == "error" {
-		if c.abandoned > 0 {
-			c.abandoned--
-
-			return
-		}
-		p := c.pending
-		c.pending = nil
-		if p == nil {
-			return
-		}
-		// Checked as a *ServerError before it becomes an error: a nil pointer
-		// in an error interface is not a nil error.
-		serverErr := servererr.Parse(cmd.Params)
-		if serverErr != nil {
-			p.result <- result{err: serverErr}
-		} else {
-			p.result <- result{rows: p.rows}
-		}
+		c.handleError(cmd)
 
 		return
 	}
+	c.handleRows(line)
+}
 
-	// A data line, possibly several rows separated by "|".
+// handleError ends the answer the error line closes. Called with the lock held.
+func (c *Client) handleError(cmd *wire.Command) {
+	if c.abandoned > 0 {
+		c.abandoned--
+
+		return
+	}
+	p := c.pending
+	if p == nil {
+		return
+	}
+	c.strayKey = ""
+	// Checked as a *ServerError before it becomes an error: a nil pointer in an
+	// error interface is not a nil error.
+	serverErr := servererr.Parse(cmd.Params)
+	if serverErr != nil {
+		c.pending = nil
+		p.result <- result{err: serverErr}
+
+		return
+	}
+	if late, ok := c.lateRow(p); ok && (late.several || !late.answered(p.rows)) {
+		// A create that succeeded and has no row yet: the server may write the
+		// row just after this line. Wait briefly, with the command still the
+		// one on the wire, so the row is its own and the next command is not
+		// sent before it.
+		p.held = &held{late: late}
+		wait := lateRowGrace
+		if late.answered(p.rows) || late.any {
+			wait = lateRowQuiet
+		}
+		p.held.timer = time.AfterFunc(wait, func() { c.giveUp(p) })
+
+		return
+	}
+	c.pending = nil
+	p.result <- result{rows: p.rows}
+}
+
+// handleRows adds a data line, possibly several rows separated by "|", to the
+// answer being read. Called with the lock held.
+func (c *Client) handleRows(line string) {
 	if c.abandoned > 0 || c.pending == nil {
 		return
 	}
 	for _, row := range wire.SplitRows(line) {
-		if parsed := wire.ParseCommand(row); parsed != nil {
-			c.pending.rows = append(c.pending.rows, parsed.Params)
+		parsed := wire.ParseCommand(row)
+		if parsed == nil {
+			continue
+		}
+		if c.isStray(parsed.Params) {
+			// The late row of an earlier command, which gave up waiting for it.
+			c.strayKey = ""
+
+			continue
+		}
+		p := c.pending
+		p.rows = append(p.rows, parsed.Params)
+		if p.held != nil && p.held.late.answered(p.rows) && c.rowArrivedWhileHeld(p) {
+			return
 		}
 	}
+}
+
+// isStray reports whether a row is the late row of an earlier command: the lone
+// key that command's answer was missing. A command whose own answer carries
+// that key keeps the row. The two cases cannot be told apart, and lateness was
+// measured at under a millisecond against a wait of 250, so the row almost
+// certainly belongs to the command asking now. Called with the lock held.
+func (c *Client) isStray(params map[string]string) bool {
+	if c.strayKey == "" || len(params) != 1 {
+		return false
+	}
+	if _, only := params[c.strayKey]; !only {
+		return false
+	}
+	if own, ok := lateRowOf(c.pending.command); ok && slices.Contains(own.keys, c.strayKey) {
+		c.strayKey = ""
+
+		return false
+	}
+
+	return true
+}
+
+// rowArrivedWhileHeld handles the row that an answer held for a late row was
+// waiting for, and reports whether that completed the answer. An answer of
+// several rows is complete once they stop, so the wait starts over. Called with
+// the lock held.
+func (c *Client) rowArrivedWhileHeld(p *pending) bool {
+	p.held.timer.Stop()
+	if p.held.late.several || p.held.late.any {
+		p.held.timer = time.AfterFunc(lateRowQuiet, func() { c.giveUp(p) })
+
+		return false
+	}
+	c.pending = nil
+	p.result <- result{rows: p.rows}
+
+	return true
+}
+
+// lateRow is the row p's command is waited for, or false when its answer is
+// complete at the error line: a command that makes nothing, or a transport that
+// delivers whole answers. Called with the lock held.
+func (c *Client) lateRow(p *pending) (lateRow, bool) {
+	if _, whole := c.transport.(WholeAnswers); whole {
+		return lateRow{}, false
+	}
+
+	return lateRowOf(p.command)
+}
+
+// giveUp ends the wait for a late row: the answer is what it was at the error
+// line, and a row that still comes is not the next command's.
+func (c *Client) giveUp(p *pending) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pending != p {
+		return
+	}
+	c.pending = nil
+	// With no row at all, one that still comes is not the next command's.
+	if !p.held.late.answered(p.rows) && len(p.held.late.keys) > 0 {
+		c.strayKey = p.held.late.keys[0]
+	}
+	p.result <- result{rows: p.rows}
+}
+
+func hasKey(rows []map[string]string, keys []string) bool {
+	for _, row := range rows {
+		for _, k := range keys {
+			if _, ok := row[k]; ok {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // notify hands a notification line to the hook, one call per row. A batched

@@ -200,7 +200,8 @@ type BanClientOptions struct {
 // each: measured on TeamSpeak 3 3.13.8 and 6 beta13.1, two (the uid and the
 // address), and none for a MyTeamSpeak id when the client has none. TeamSpeak 6
 // has answered with no banid at all, though both bans were made (once in about
-// a hundred calls over SSH and WebQuery). Over the voice protocol both servers
+// a hundred calls over WebQuery). Over SSH it may write the banid rows after
+// the error line, which the ServerQuery client waits for. Over the voice protocol both servers
 // answer nothing, so the result is empty though the bans are made. An empty
 // result therefore does not mean no ban: ListBans finds what was made, and a
 // caller that must undo it lists the bans before and after rather than relying
