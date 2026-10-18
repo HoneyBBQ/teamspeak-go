@@ -12,7 +12,7 @@ import (
 // Measured on TeamSpeak 3.13.8 and 6.0.0-beta13.1, which both send mytsid.
 func TestListBans_ReadsTheMyTSIDAndPages(t *testing.T) {
 	s := &script{replies: []reply{{rows: []map[string]string{{
-		"banid": "3", "created": "1792225115", "duration": "0", "enforcements": "0", "invokercldbid": "1",
+		"banid": "3", "created": "1792225115", "duration": "0", "enforcements": "7", "invokercldbid": "1",
 		"invokername": "serveradmin", "invokeruid": "serveradmin", "ip": "", "lastnickname": "",
 		"mytsid": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "name": "", "reason": "x", "uid": "",
 	}}}}}
@@ -25,7 +25,7 @@ func TestListBans_ReadsTheMyTSIDAndPages(t *testing.T) {
 	}
 	want := BanEntry{
 		ID: 3, Created: time.Unix(1792225115, 0), InvokerDatabaseID: 1, InvokerName: "serveradmin",
-		InvokerUID: "serveradmin", Reason: "x", MyTSID: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		InvokerUID: "serveradmin", Reason: "x", Enforcements: 7, MyTSID: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 	}
 	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("bans = %+v, want %+v", got, want)
@@ -150,5 +150,21 @@ func TestSendOfflineMessage(t *testing.T) {
 	err := NewCommands(unknown).SendOfflineMessage(t.Context(), "nobody", "s", "m")
 	if !errors.Is(err, errcode.ClientInvalidID) {
 		t.Errorf("err = %v, want the server's 512", err)
+	}
+}
+
+// Measured on TeamSpeak 3.13.8 and 6.0.0-beta13.1: the list names who made the
+// password under nickname and uid.
+func TestListTempPasswords_ReadsTheCreator(t *testing.T) {
+	s := &script{replies: []reply{{rows: []map[string]string{{
+		"nickname": "serveradmin", "uid": "serveradmin", "desc": "guest", "pw_clear": "s3cret",
+		"start": "1792225115", "end": "1792228715", "tcid": "2", "tcpw": "",
+	}}}}}
+	got, err := NewCommands(s).ListTempPasswords(t.Context())
+	if err != nil || len(got) != 1 {
+		t.Fatalf("ListTempPasswords = %v, %v", got, err)
+	}
+	if got[0].CreatorNickname != "serveradmin" || got[0].CreatorUID != "serveradmin" || got[0].TargetChannelID != 2 {
+		t.Errorf("password = %+v", got[0])
 	}
 }

@@ -60,6 +60,7 @@ method (AddrResolver) Resolve(ctx context.Context, addr string) ([]ResolvedAddr,
 type AttemptFailedInfo struct
 field AttemptFailedInfo.Err error
 field AttemptFailedInfo.Target string
+field AttemptFailedInfo.WaitingFor string
 field AttemptFailedInfo.Phase ConnectPhase
 field AttemptFailedInfo.Duration time.Duration
 field AttemptFailedInfo.Attempt int

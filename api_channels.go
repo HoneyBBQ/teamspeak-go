@@ -207,6 +207,26 @@ type ChannelCreateOptions struct {
 	// NamePhonetic is how the name is pronounced, for text-to-speech
 	// (channel_name_phonetic).
 	NamePhonetic *string
+	// CodecLatencyFactor is how many packets of voice to send at once
+	// (channel_codec_latency_factor).
+	CodecLatencyFactor *int32
+	// IsUnencrypted sends the channel's voice unencrypted
+	// (channel_codec_is_unencrypted).
+	IsUnencrypted *bool
+	// IsMaxClientsUnlimited ignores MaxClients
+	// (channel_flag_maxclients_unlimited).
+	IsMaxClientsUnlimited *bool
+	// IsMaxFamilyClientsUnlimited ignores MaxFamilyClients
+	// (channel_flag_maxfamilyclients_unlimited).
+	IsMaxFamilyClientsUnlimited *bool
+	// IsMaxFamilyClientsInherited takes the family limit from the parent
+	// (channel_flag_maxfamilyclients_inherited).
+	IsMaxFamilyClientsInherited *bool
+	// BannerURL is the channel banner's address (channel_banner_gfx_url); it
+	// takes b_channel_modify_banner. A pointer to "" clears it.
+	BannerURL *string
+	// BannerMode is how the banner is shown (channel_banner_mode).
+	BannerMode *int32
 
 	// Name is the channel's name (channel_name). Required.
 	Name string
@@ -242,6 +262,13 @@ func (c *Commands) CreateChannel(ctx context.Context, opts ChannelCreateOptions)
 		boolPtrArg("channel_flag_default", opts.IsDefault),
 		durationPtrArg("channel_delete_delay", opts.DeleteDelay, time.Second),
 		strPtrArg("channel_name_phonetic", opts.NamePhonetic),
+		int32PtrArg("channel_codec_latency_factor", opts.CodecLatencyFactor),
+		boolPtrArg("channel_codec_is_unencrypted", opts.IsUnencrypted),
+		boolPtrArg("channel_flag_maxclients_unlimited", opts.IsMaxClientsUnlimited),
+		boolPtrArg("channel_flag_maxfamilyclients_unlimited", opts.IsMaxFamilyClientsUnlimited),
+		boolPtrArg("channel_flag_maxfamilyclients_inherited", opts.IsMaxFamilyClientsInherited),
+		strPtrArg("channel_banner_gfx_url", opts.BannerURL),
+		int32PtrArg("channel_banner_mode", opts.BannerMode),
 	}
 
 	rows, err := c.query(ctx, "channelcreate", params, "channel_password")
@@ -314,6 +341,26 @@ type ChannelEditOptions struct {
 	// NamePhonetic is how the name is pronounced, for text-to-speech
 	// (channel_name_phonetic).
 	NamePhonetic *string
+	// CodecLatencyFactor is how many packets of voice to send at once
+	// (channel_codec_latency_factor).
+	CodecLatencyFactor *int32
+	// IsUnencrypted sends the channel's voice unencrypted
+	// (channel_codec_is_unencrypted).
+	IsUnencrypted *bool
+	// IsMaxClientsUnlimited ignores MaxClients
+	// (channel_flag_maxclients_unlimited).
+	IsMaxClientsUnlimited *bool
+	// IsMaxFamilyClientsUnlimited ignores MaxFamilyClients
+	// (channel_flag_maxfamilyclients_unlimited).
+	IsMaxFamilyClientsUnlimited *bool
+	// IsMaxFamilyClientsInherited takes the family limit from the parent
+	// (channel_flag_maxfamilyclients_inherited).
+	IsMaxFamilyClientsInherited *bool
+	// BannerURL is the channel banner's address (channel_banner_gfx_url); it
+	// takes b_channel_modify_banner. A pointer to "" clears it.
+	BannerURL *string
+	// BannerMode is how the banner is shown (channel_banner_mode).
+	BannerMode *int32
 }
 
 // EditChannel changes a channel's settings.
@@ -336,6 +383,13 @@ func (c *Commands) EditChannel(ctx context.Context, cid ChannelID, opts ChannelE
 		boolPtrArg("channel_flag_default", opts.IsDefault),
 		durationPtrArg("channel_delete_delay", opts.DeleteDelay, time.Second),
 		strPtrArg("channel_name_phonetic", opts.NamePhonetic),
+		int32PtrArg("channel_codec_latency_factor", opts.CodecLatencyFactor),
+		boolPtrArg("channel_codec_is_unencrypted", opts.IsUnencrypted),
+		boolPtrArg("channel_flag_maxclients_unlimited", opts.IsMaxClientsUnlimited),
+		boolPtrArg("channel_flag_maxfamilyclients_unlimited", opts.IsMaxFamilyClientsUnlimited),
+		boolPtrArg("channel_flag_maxfamilyclients_inherited", opts.IsMaxFamilyClientsInherited),
+		strPtrArg("channel_banner_gfx_url", opts.BannerURL),
+		int32PtrArg("channel_banner_mode", opts.BannerMode),
 	}, "channel_password")
 }
 

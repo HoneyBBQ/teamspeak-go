@@ -682,6 +682,12 @@ type TempPassword struct {
 	// TargetChannelID is the channel a client joining with the password lands
 	// in, or 0 for the default channel.
 	TargetChannelID ChannelID
+	// CreatorNickname is the nickname of the client that made the password
+	// (nickname).
+	CreatorNickname string
+	// CreatorUID is the identity of the client that made the password
+	// (uid).
+	CreatorUID UID
 }
 
 // String describes the password without the password itself.
@@ -719,6 +725,8 @@ func (c *Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error
 			Starts:          fieldTime(row, "start"),
 			Ends:            fieldTime(row, "end"),
 			TargetChannelID: ChannelID(fieldUint(row, "tcid")),
+			CreatorNickname: fieldStr(row, "nickname"),
+			CreatorUID:      UID(fieldStr(row, "uid")),
 		})
 	}
 

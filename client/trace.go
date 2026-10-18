@@ -176,6 +176,10 @@ type AttemptFailedInfo struct {
 	// Target is the host:port that was being dialled; "" when the attempt
 	// failed before ResolveDone.
 	Target string
+	// WaitingFor is what the attempt was waiting for when it ended, in the
+	// words a cancelled Connect's error uses, such as "the server's answer to
+	// clientek".
+	WaitingFor string
 	// Phase is where the attempt failed.
 	Phase ConnectPhase
 	// Duration is the time since ResolveStart.
@@ -498,11 +502,12 @@ func (c *Client) endAttemptLocked(err error) func() {
 	stamp, traced := c.stampLocked()
 	phase := a.phase()
 	target := a.target
+	waitingFor := a.waiting(c.handler != nil && c.handler.ClientEkPending())
 
 	return func() {
 		if traced && c.trace.AttemptFailed != nil {
 			callHook(c.logger, "AttemptFailed", c.trace.AttemptFailed, AttemptFailedInfo{
-				Phase: phase, Err: err, Target: target, Duration: time.Since(stamp.resolveStart),
+				Phase: phase, Err: err, Target: target, WaitingFor: waitingFor, Duration: time.Since(stamp.resolveStart),
 				Attempt: stamp.number, Reconnect: stamp.reconnect,
 			})
 		}
