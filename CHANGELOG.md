@@ -19,6 +19,34 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   it ended, in the words of a cancelled `Connect`'s error.
 - `serverquery.Client.ServerVersion` returns the version string the server answered
   the `version` command with, `""` before connecting.
+- Enter, leave and move events name the channels the server names. `ClientMovedEvent`
+  has `FromChannelID` (`cfid`: TeamSpeak 6 sends it, TeamSpeak 3.13.8 does not
+  on a move, so it is 0 there); `ClientLeaveEvent` has `FromChannelID` and
+  `TargetChannelID` (`ctid`, 0 for a disconnect); `ClientEnterEvent` has
+  `FromChannelID` and `Reason` of its own, apart from the client's record
+  (`ReasonNone` on connecting, `ReasonSubscription` when it comes into view
+  because this client moved into its channel).
+- `ClientChatClosedEvent` and `OnClientChatClosed`, for `notifyclientchatclosed`,
+  which the server sends after the other client has written to this one.
+- `Commands.GetClientUIDInfoByID` returns the nickname and MyTeamSpeak id
+  `clientgetuidfromclid` sends with the uid; `ClientDatabaseName.UID` is the uid
+  `clientgetnamefromdbid` sends.
+- `ClientDatabaseEntry` has `AvatarHash` and the four byte counts
+  (`TotalBytesUploaded`, `TotalBytesDownloaded`, `MonthBytesUploaded`,
+  `MonthBytesDownloaded`) from `clientdbinfo`, and `LoginName` from
+  `clientdblist`.
+- `Channel.EmptyFor` (`seconds_empty`; nil for a channel that holds a client,
+  where both servers send -1), `Channel.StorageQuota` (TeamSpeak 6) and
+  `Channel.FilePath`.
+- `WhoAmI.ServerUUID` and `OriginServerID`; `VirtualServer.UUID`,
+  `GuestCanCreateChannels`, `GuestCanCreateHomebase` and `WeblistEnabled`
+  (TeamSpeak 6).
+- `TempPassword.TargetChannelPassword`, kept out of `String`, `GoString` and
+  `LogValue` like the password.
+- `ClientEntry.TalkRequestedAt`, the time `client_talk_request` carries.
+- `notify.BanUpdate` names `notifybanupdate`, and `serverquery.CategoryTokenUsed`
+  registers the `tokenused` category, which is never registered by default. Both
+  stay `NotificationEvent`s.
 
 ### Changed
 

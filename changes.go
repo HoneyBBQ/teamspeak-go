@@ -65,6 +65,8 @@ type ClientChanges struct {
 	TalkPower *int32
 	// IsRequestingTalk is the new ClientEntry.IsRequestingTalk.
 	IsRequestingTalk *bool
+	// TalkRequestedAt is the new ClientEntry.TalkRequestedAt.
+	TalkRequestedAt *time.Time
 	// TalkRequestMessage is the new ClientEntry.TalkRequestMessage.
 	TalkRequestMessage *string
 	// Description is the new ClientEntry.Description.
@@ -138,6 +140,7 @@ func (c ClientChanges) Apply(e ClientEntry) ClientEntry {
 	setPtr(&e.IsPrioritySpeaker, c.IsPrioritySpeaker)
 	setPtr(&e.TalkPower, c.TalkPower)
 	setPtr(&e.IsRequestingTalk, c.IsRequestingTalk)
+	set(&e.TalkRequestedAt, c.TalkRequestedAt)
 	set(&e.TalkRequestMessage, c.TalkRequestMessage)
 	set(&e.Description, c.Description)
 	set(&e.MetaData, c.MetaData)
@@ -226,6 +229,13 @@ type ChannelChanges struct {
 	BannerURL *string
 	// BannerMode is the new Channel.BannerMode.
 	BannerMode *int32
+	// EmptyFor is the new Channel.EmptyFor. The notification reader never sets
+	// it, though Apply honours it.
+	EmptyFor *time.Duration
+	// StorageQuota is the new Channel.StorageQuota.
+	StorageQuota *uint64
+	// FilePath is the new Channel.FilePath.
+	FilePath *string
 }
 
 // Apply returns ch with the changes made, as ClientChanges.Apply does.
@@ -262,6 +272,9 @@ func (c ChannelChanges) Apply(ch Channel) Channel {
 	setPtr(&ch.IsForcedSilence, c.IsForcedSilence)
 	set(&ch.BannerURL, c.BannerURL)
 	setPtr(&ch.BannerMode, c.BannerMode)
+	setPtr(&ch.EmptyFor, c.EmptyFor)
+	setPtr(&ch.StorageQuota, c.StorageQuota)
+	set(&ch.FilePath, c.FilePath)
 
 	return ch
 }
@@ -339,6 +352,8 @@ func (ch Channel) Clone() Channel {
 	ch.DeleteDelay = clonePtr(ch.DeleteDelay)
 	ch.IsForcedSilence = clonePtr(ch.IsForcedSilence)
 	ch.BannerMode = clonePtr(ch.BannerMode)
+	ch.EmptyFor = clonePtr(ch.EmptyFor)
+	ch.StorageQuota = clonePtr(ch.StorageQuota)
 
 	return ch
 }

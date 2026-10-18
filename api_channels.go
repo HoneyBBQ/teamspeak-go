@@ -113,6 +113,22 @@ type Channel struct {
 	BannerURL string
 	// BannerMode is how the banner is shown (channel_banner_mode).
 	BannerMode *int32
+	// EmptyFor is how long the channel has had no client in it
+	// (seconds_empty, which ListChannels asks for with -secondsempty). It is
+	// nil for a channel that holds a client: both servers send -1 then, and
+	// -1 also for the default channel, which counts nothing, so -1 means "not
+	// empty" here and is not a duration. A channel that was never occupied
+	// counts from when the server created it. Whole seconds on the wire.
+	EmptyFor *time.Duration
+	// StorageQuota is the channel's file storage quota (channel_storage_quota),
+	// nil when the answer does not carry it. TeamSpeak 6 sends it in
+	// channelinfo, 4294967295 on a channel with none set; TeamSpeak 3 sends
+	// none.
+	StorageQuota *uint64
+	// FilePath is where the server keeps the channel's files, relative to its
+	// own directory (channel_filepath); empty when not carried, as in
+	// channellist. Both servers send it in channelinfo.
+	FilePath string
 }
 
 func parseChannel(row map[string]string) Channel {
@@ -153,6 +169,9 @@ func parseChannel(row map[string]string) Channel {
 		IsForcedSilence:             fieldOptBool(row, "channel_forced_silence"),
 		BannerURL:                   fieldStr(row, "channel_banner_gfx_url"),
 		BannerMode:                  fieldOptInt32(row, "channel_banner_mode"),
+		EmptyFor:                    fieldOptEmptyFor(row, "seconds_empty"),
+		StorageQuota:                fieldOptUint64(row, "channel_storage_quota"),
+		FilePath:                    fieldStr(row, "channel_filepath"),
 	}
 }
 

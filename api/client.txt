@@ -153,6 +153,7 @@ method (Client) GetClientNameByDBID(ctx context.Context, clientDBID teamspeak.Cl
 method (Client) GetClientNameByUID(ctx context.Context, uid teamspeak.UID) (teamspeak.ClientDatabaseName, error)
 method (Client) GetClientProperties(ctx context.Context, clid teamspeak.ClientID) (teamspeak.Properties, error)
 method (Client) GetClientUIDByID(ctx context.Context, clid teamspeak.ClientID) (teamspeak.UID, error)
+method (Client) GetClientUIDInfoByID(ctx context.Context, clid teamspeak.ClientID) (teamspeak.ClientUIDInfo, error)
 method (Client) GetConnectionInfo(ctx context.Context) (teamspeak.ServerConnectionInfo, error)
 method (Client) GetFileInfo(ctx context.Context, channelID teamspeak.ChannelID, path string, opts teamspeak.FileOptions) (teamspeak.FileEntry, error)
 method (Client) GetHostInfo(ctx context.Context) (teamspeak.Properties, error)
@@ -210,6 +211,7 @@ method (*Client) OnChannelPasswordChanged(handler func(ChannelPasswordChangedEve
 method (*Client) OnChannelSubscribed(handler func(ChannelSubscribedEvent)) func()
 method (*Client) OnChannelUnsubscribed(handler func(ChannelUnsubscribedEvent)) func()
 method (*Client) OnClientChannelGroupChanged(handler func(ClientChannelGroupChangedEvent)) func()
+method (*Client) OnClientChatClosed(handler func(ClientChatClosedEvent)) func()
 method (*Client) OnClientChatComposing(handler func(ClientChatComposingEvent)) func()
 method (*Client) OnClientEnter(handler func(ClientEnterEvent)) func()
 method (*Client) OnClientLeave(handler func(ClientLeaveEvent)) func()
@@ -280,6 +282,7 @@ method (Client) ViewLog(ctx context.Context, opts teamspeak.LogViewOptions) (tea
 method (*Client) WaitView(ctx context.Context) error
 method (Client) WhoAmI(ctx context.Context) (teamspeak.WhoAmI, error)
 type ClientChannelGroupChangedEvent = teamspeak.ClientChannelGroupChangedEvent
+type ClientChatClosedEvent = teamspeak.ClientChatClosedEvent
 type ClientChatComposingEvent = teamspeak.ClientChatComposingEvent
 type ClientEnterEvent = teamspeak.ClientEnterEvent
 type ClientLeaveEvent = teamspeak.ClientLeaveEvent

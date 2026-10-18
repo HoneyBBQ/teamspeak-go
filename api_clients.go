@@ -48,6 +48,7 @@ func parseClient(row map[string]string) ClientEntry {
 		IsPrioritySpeaker:              fieldOptBool(row, "client_is_priority_speaker"),
 		TalkPower:                      fieldOptInt32(row, "client_talk_power"),
 		IsRequestingTalk:               fieldOptBool(row, "client_talk_request"),
+		TalkRequestedAt:                fieldTime(row, "client_talk_request"),
 		TalkRequestMessage:             fieldStr(row, "client_talk_request_msg"),
 		Description:                    fieldStr(row, "client_description"),
 		MetaData:                       fieldStr(row, "client_meta_data"),
@@ -334,8 +335,7 @@ func (c *Commands) SendChatComposing(ctx context.Context, clid ClientID) error {
 // ClosePrivateChat tells a client that we closed our private chat with it. It
 // only does something after we have sent that client a private message: for any
 // other the server accepts the command and sends nothing, and raises no error.
-// The client receives it as a NotificationEvent named
-// notify.ClientChatClosed, since it has no typed event. Only a voice connection
+// The client receives it as a ClientChatClosedEvent. Only a voice connection
 // can send it.
 func (c *Commands) ClosePrivateChat(ctx context.Context, clid ClientID) error {
 	return c.exec(ctx, "clientchatclosed", []param{idArg("clid", clid)})
@@ -445,6 +445,27 @@ type ClientDatabaseEntry struct {
 	// TotalConnections is how often the client has connected
 	// (client_totalconnections).
 	TotalConnections uint64
+	// LoginName is the client's ServerQuery account name (client_login_name),
+	// empty for a client with none. Only clientdblist carries it, so
+	// GetClientDatabaseInfo leaves it empty.
+	LoginName string
+	// AvatarHash is the hash of the client's avatar (client_flag_avatar), empty
+	// for a client with none. Only clientdbinfo carries it, so
+	// ListClientDatabase leaves it empty.
+	AvatarHash string
+	// TotalBytesUploaded is the bytes the client has uploaded in all
+	// (client_total_bytes_uploaded). Only clientdbinfo carries the four byte
+	// counts, so ListClientDatabase leaves them nil.
+	TotalBytesUploaded *uint64
+	// TotalBytesDownloaded is the bytes the client has downloaded in all
+	// (client_total_bytes_downloaded).
+	TotalBytesDownloaded *uint64
+	// MonthBytesUploaded is the bytes the client uploaded this month
+	// (client_month_bytes_uploaded).
+	MonthBytesUploaded *uint64
+	// MonthBytesDownloaded is the bytes the client downloaded this month
+	// (client_month_bytes_downloaded).
+	MonthBytesDownloaded *uint64
 }
 
 func parseDatabaseEntry(row map[string]string) ClientDatabaseEntry {
@@ -457,6 +478,13 @@ func parseDatabaseEntry(row map[string]string) ClientDatabaseEntry {
 		TotalConnections: fieldUint(row, "client_totalconnections"),
 		Description:      fieldStr(row, "client_description"),
 		LastIP:           fieldStr(row, "client_lastip"),
+		LoginName:        fieldStr(row, "client_login_name"),
+
+		AvatarHash:           fieldStr(row, "client_flag_avatar"),
+		TotalBytesUploaded:   fieldOptUint64(row, "client_total_bytes_uploaded"),
+		TotalBytesDownloaded: fieldOptUint64(row, "client_total_bytes_downloaded"),
+		MonthBytesUploaded:   fieldOptUint64(row, "client_month_bytes_uploaded"),
+		MonthBytesDownloaded: fieldOptUint64(row, "client_month_bytes_downloaded"),
 	}
 }
 
@@ -858,18 +886,53 @@ func (c *Commands) GetClientIDs(ctx context.Context, uid UID) ([]ClientMatch, er
 
 // GetClientUIDByID returns the uid of a connected client.
 func (c *Commands) GetClientUIDByID(ctx context.Context, clid ClientID) (UID, error) {
-	row, err := c.queryRow(ctx, "clientgetuidfromclid", "cluid", []param{idArg("clid", clid)})
+	info, err := c.GetClientUIDInfoByID(ctx, clid)
 	if err != nil {
 		return "", err
 	}
 
-	return UID(fieldStr(row, "cluid")), nil
+	return info.UID, nil
+}
+
+// ClientUIDInfo is what clientgetuidfromclid says about a connected client.
+type ClientUIDInfo struct {
+	// UID is the client's identity (cluid).
+	UID UID
+	// Nickname is the client's nickname (nickname).
+	Nickname string
+	// MyTSID is the client's MyTeamSpeak id (mytsid); empty for a client with
+	// none, which is what both TeamSpeak 3.13.8 and 6.0.0-beta13.1 sent for an
+	// anonymous client.
+	MyTSID string
+	// ClientID is the client id asked about (clid).
+	ClientID ClientID
+}
+
+// GetClientUIDInfoByID returns the uid, nickname and MyTeamSpeak id of a
+// connected client. GetClientUIDByID is the same command, keeping the uid
+// only.
+func (c *Commands) GetClientUIDInfoByID(ctx context.Context, clid ClientID) (ClientUIDInfo, error) {
+	row, err := c.queryRow(ctx, "clientgetuidfromclid", "cluid", []param{idArg("clid", clid)})
+	if err != nil {
+		return ClientUIDInfo{}, err
+	}
+
+	return ClientUIDInfo{
+		ClientID: cmp.Or(ClientID(fieldUint16(row, "clid")), clid),
+		UID:      UID(fieldStr(row, "cluid")),
+		Nickname: fieldStr(row, "nickname"),
+		MyTSID:   fieldStr(row, "mytsid"),
+	}, nil
 }
 
 // ClientDatabaseName is the database record a lookup by name names.
 type ClientDatabaseName struct {
 	// Name is the nickname the client last used (name).
 	Name string
+	// UID is the client's identity (cluid). GetClientNameByDBID is the lookup
+	// from a database id to a uid; GetClientNameByUID, which was asked the uid,
+	// leaves it empty.
+	UID UID
 	// DatabaseID is the client's database id (cldbid).
 	DatabaseID ClientDBID
 }
@@ -886,6 +949,7 @@ func (c *Commands) GetClientNameByDBID(ctx context.Context, clientDBID ClientDBI
 	return ClientDatabaseName{
 		DatabaseID: cmp.Or(ClientDBID(fieldUint(row, "cldbid")), clientDBID),
 		Name:       fieldStr(row, "name"),
+		UID:        UID(fieldStr(row, "cluid")),
 	}, nil
 }
 

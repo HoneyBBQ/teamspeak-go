@@ -54,6 +54,7 @@ func ClientEnter(params map[string]string) teamspeak.ClientEntry {
 		IsPrioritySpeaker:              optBool(params, "client_is_priority_speaker"),
 		TalkPower:                      optInt32(params, "client_talk_power"),
 		IsRequestingTalk:               optBool(params, "client_talk_request"),
+		TalkRequestedAt:                asTime(params["client_talk_request"]),
 		TalkRequestMessage:             params["client_talk_request_msg"],
 		Description:                    params["client_description"],
 		MetaData:                       params["client_meta_data"],
@@ -119,6 +120,9 @@ func ClientLeave(params map[string]string) teamspeak.ClientLeaveEvent {
 		InvokerID:     ParseClientID(params["invokerid"]),
 		InvokerName:   params["invokername"],
 		InvokerUID:    teamspeak.UID(params["invokeruid"]),
+
+		FromChannelID:   ParseChannelID(params["cfid"]),
+		TargetChannelID: ParseChannelID(params["ctid"]),
 	}
 }
 
@@ -129,6 +133,7 @@ func ClientMoved(params map[string]string) teamspeak.ClientMovedEvent {
 	return teamspeak.ClientMovedEvent{
 		ClientID:        ParseClientID(params["clid"]),
 		TargetChannelID: ParseChannelID(params["ctid"]),
+		FromChannelID:   ParseChannelID(params["cfid"]),
 		Reason:          teamspeak.Reason(reasonID),
 		InvokerID:       ParseClientID(params["invokerid"]),
 		InvokerName:     params["invokername"],
@@ -271,6 +276,7 @@ func ClientChanges(params map[string]string) teamspeak.ClientChanges {
 		IsPrioritySpeaker:              key(params, "client_is_priority_speaker", asBool),
 		TalkPower:                      key(params, "client_talk_power", asInt32),
 		IsRequestingTalk:               key(params, "client_talk_request", asBool),
+		TalkRequestedAt:                key(params, "client_talk_request", asTime),
 		TalkRequestMessage:             key(params, "client_talk_request_msg", identity[string]),
 		Description:                    key(params, "client_description", identity[string]),
 		MetaData:                       key(params, "client_meta_data", identity[string]),
@@ -316,6 +322,18 @@ func asType(s string) teamspeak.ClientType {
 	v, _ := ParseInt(s)
 
 	return teamspeak.ClientType(v)
+}
+
+// asTime reads a unix timestamp in whole seconds; 0, an empty value and
+// anything that is not a positive number are the zero time, as the server sends
+// 0 for "never".
+func asTime(s string) time.Time {
+	seconds, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || seconds <= 0 {
+		return time.Time{}
+	}
+
+	return time.Unix(seconds, 0)
 }
 
 // asInt32 reads a signed 32-bit number: clamped rather than wrapped when out of
@@ -459,6 +477,26 @@ func PluginCommand(params map[string]string) teamspeak.PluginCommandEvent {
 	}
 }
 
+// ClientEnterOrigin reads the parts of notifycliententerview that describe the
+// entry and not the client: the channel the client came from and why it came
+// into view.
+func ClientEnterOrigin(params map[string]string) (teamspeak.ChannelID, teamspeak.Reason) {
+	reasonID, _ := ParseInt(params["reasonid"])
+
+	return ParseChannelID(params["cfid"]), teamspeak.Reason(reasonID)
+}
+
+// ClientChatClosed reads notifyclientchatclosed. ok is false for a row that
+// names no client.
+func ClientChatClosed(params map[string]string) (teamspeak.ClientChatClosedEvent, bool) {
+	evt := teamspeak.ClientChatClosedEvent{
+		ClientID: ParseClientID(params["clid"]),
+		UID:      teamspeak.UID(params["cluid"]),
+	}
+
+	return evt, evt.ClientID != 0
+}
+
 // ClientChatComposing reads notifyclientchatcomposing. ok is false for a row
 // that names no client.
 func ClientChatComposing(params map[string]string) (teamspeak.ClientChatComposingEvent, bool) {
@@ -511,6 +549,8 @@ func ChannelChanges(params map[string]string) teamspeak.ChannelChanges {
 		IsForcedSilence:             key(params, "channel_forced_silence", asBool),
 		BannerURL:                   key(params, "channel_banner_gfx_url", identity[string]),
 		BannerMode:                  key(params, "channel_banner_mode", asInt32),
+		StorageQuota:                key(params, "channel_storage_quota", uintOrZero),
+		FilePath:                    key(params, "channel_filepath", identity[string]),
 	}
 }
 
@@ -539,6 +579,8 @@ func asSeconds(s string) time.Duration {
 // handler editing what it was given cannot change what the next one sees. A
 // field added to ChannelChanges must be added here, and the tests fail until it
 // is.
+//
+//nolint:funlen // one line per field
 func CloneChannelChanges(c teamspeak.ChannelChanges) teamspeak.ChannelChanges {
 	c.UID = clonePtr(c.UID)
 	c.Name = clonePtr(c.Name)
@@ -569,6 +611,9 @@ func CloneChannelChanges(c teamspeak.ChannelChanges) teamspeak.ChannelChanges {
 	c.IsForcedSilence = clonePtr(c.IsForcedSilence)
 	c.BannerURL = clonePtr(c.BannerURL)
 	c.BannerMode = clonePtr(c.BannerMode)
+	c.EmptyFor = clonePtr(c.EmptyFor)
+	c.StorageQuota = clonePtr(c.StorageQuota)
+	c.FilePath = clonePtr(c.FilePath)
 
 	return c
 }

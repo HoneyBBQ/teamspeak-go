@@ -251,6 +251,7 @@ type Client struct {
 	onChUnsubscribed subscribers[ChannelUnsubscribedEvent]
 	onPluginCommand  subscribers[PluginCommandEvent]
 	onChatComposing  subscribers[ClientChatComposingEvent]
+	onChatClosed     subscribers[ClientChatClosedEvent]
 	onKicked         subscribers[KickedEvent]
 	onVoiceData      subscribers[VoiceDataEvent]
 	onNotification   subscribers[NotificationEvent]

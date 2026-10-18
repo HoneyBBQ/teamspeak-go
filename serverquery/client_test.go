@@ -335,6 +335,34 @@ func TestWithEvents_RegistersBansWhenAsked(t *testing.T) {
 	}
 }
 
+// tokenused is never in the defaults, and is registered when it is named.
+func TestWithEvents_RegistersTokenUsedOnlyWhenAsked(t *testing.T) {
+	for name, tc := range map[string]struct {
+		opt  Option
+		want bool
+	}{
+		"named":   {WithEvents(CategoryServer, CategoryTokenUsed), true},
+		"default": {WithEvents(), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := newFakeDialer(true)
+			c := newClient(t, d, tc.opt)
+
+			done := make(chan error, 1)
+			go func() { done <- c.Connect(context.Background()) }()
+			transport := d.answer(t)
+			sent := transport.sentLines()
+			err := <-done
+			if err != nil {
+				t.Fatalf("Connect: %v", err)
+			}
+			if got := containsSubstring(sent, "event=tokenused"); got != tc.want {
+				t.Errorf("tokenused registered = %t, want %t: %v", got, tc.want, sent)
+			}
+		})
+	}
+}
+
 // WithoutEvents connects and runs commands with nothing registered.
 func TestWithoutEvents_RegistersNothing(t *testing.T) {
 	d := newFakeDialer(true)
@@ -1041,5 +1069,55 @@ func TestServerVersion_IsTheVersionTheServerAnswered(t *testing.T) {
 	}
 	if got := c.ServerFamily(); got != teamspeak.ServerFamilyTS3 {
 		t.Errorf("ServerFamily = %v, want TS3", got)
+	}
+}
+
+// Recorded from TeamSpeak 6.0.0-beta13.1 over SSH: the query client's enter,
+// move and leave events name the channels the notifications name.
+func TestNotification_EnterMoveAndLeaveCarryTheChannels(t *testing.T) {
+	d := newFakeDialer(true)
+	c := newClient(t, d)
+
+	done := make(chan error, 1)
+	go func() { done <- c.Connect(context.Background()) }()
+	transport := d.answer(t)
+	err := <-done
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	enter := make(chan teamspeak.ClientEnterEvent, 1)
+	moved := make(chan teamspeak.ClientMovedEvent, 1)
+	left := make(chan teamspeak.ClientLeaveEvent, 1)
+	c.OnClientEnter(func(e teamspeak.ClientEnterEvent) { enter <- e })
+	c.OnClientMoved(func(e teamspeak.ClientMovedEvent) { moved <- e })
+	c.OnClientLeave(func(e teamspeak.ClientLeaveEvent) { left <- e })
+
+	transport.lines <- `notifycliententerview cfid=0 ctid=6 reasonid=2 clid=12 client_nickname=A client_type=0`
+	transport.lines <- `notifyclientmoved cfid=1 clid=13 ctid=6 reasonid=1 invokerid=11 invokername=a invokeruid=u`
+	transport.lines <- `notifyclientleftview cfid=6 clid=13 ctid=0 reasonid=8 reasonmsg=Shutdown`
+
+	select {
+	case e := <-enter:
+		if e.FromChannelID != 0 || e.Reason != teamspeak.ReasonSubscription || e.ChannelID != 6 {
+			t.Errorf("enter = from %d, %v, in %d", e.FromChannelID, e.Reason, e.ChannelID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the enter was never delivered")
+	}
+	select {
+	case e := <-moved:
+		if e.FromChannelID != 1 || e.TargetChannelID != 6 {
+			t.Errorf("move = %+v", e)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the move was never delivered")
+	}
+	select {
+	case e := <-left:
+		if e.FromChannelID != 6 || e.TargetChannelID != 0 {
+			t.Errorf("leave = %+v", e)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the leave was never delivered")
 	}
 }

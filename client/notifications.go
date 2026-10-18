@@ -139,6 +139,10 @@ func (c *Client) handleServerNotification(h *transport.PacketHandler, cmd *wire.
 		if evt, ok := servernotify.ClientChatComposing(cmd.Params); ok {
 			c.emitEvent(evt)
 		}
+	case "notifyclientchatclosed":
+		if evt, ok := servernotify.ClientChatClosed(cmd.Params); ok {
+			c.emitEvent(evt)
+		}
 	default:
 		return false
 	}
@@ -180,7 +184,8 @@ func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *wire.Com
 
 	// The event's record is its own: the last handler gets the event itself,
 	// and must not be able to edit the client list through it.
-	c.emitEvent(ClientEnterEvent{ClientEntry: info.Clone()})
+	from, reason := servernotify.ClientEnterOrigin(cmd.Params)
+	c.emitEvent(ClientEnterEvent{ClientEntry: info.Clone(), FromChannelID: from, Reason: reason})
 }
 
 func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Command) {

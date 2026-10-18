@@ -384,6 +384,27 @@ func fieldOptUint16(row map[string]string, key string) *uint16 {
 	return &value
 }
 
+// fieldOptUint64 is fieldOptInt32 for a 64-bit unsigned field.
+func fieldOptUint64(row map[string]string, key string) *uint64 {
+	if row[key] == "" {
+		return nil
+	}
+	value := fieldUint(row, key)
+
+	return &value
+}
+
+// fieldOptEmptyFor reads seconds_empty: nil when the key is absent or the
+// server sent a negative number, which it does for a channel that holds a
+// client.
+func fieldOptEmptyFor(row map[string]string, key string) *time.Duration {
+	if row[key] == "" || fieldInt(row, key) < 0 {
+		return nil
+	}
+
+	return fieldOptDuration(row, key, time.Second)
+}
+
 // createdGroupID returns the id of the group a create or copy just made.
 //
 // ServerQuery answers servergroupadd with the new id alone. The voice protocol
