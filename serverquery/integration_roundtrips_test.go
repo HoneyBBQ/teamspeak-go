@@ -12,7 +12,6 @@ package serverquery_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -56,7 +55,9 @@ func listBansIfAny(ctx context.Context, t *testing.T, c *serverquery.Client) []t
 // and says which it removed. A ban of a connected client names its address as
 // well as its uid, and the voice clients of these tests share the runner's
 // address, so a rule left behind refuses every voice connect after it.
-func removeBansSince(ctx context.Context, c *serverquery.Client, before []teamspeak.BanEntry) ([]teamspeak.BanID, error) {
+func removeBansSince(
+	ctx context.Context, c *serverquery.Client, before []teamspeak.BanEntry,
+) ([]teamspeak.BanID, error) {
 	bans, err := c.ListBans(ctx, teamspeak.BanListOptions{})
 	if err != nil && !errors.Is(err, errcode.DatabaseEmptyResult) {
 		return nil, err
@@ -85,7 +86,7 @@ func removeBansSince(ctx context.Context, c *serverquery.Client, before []teamsp
 // finds what was made by comparing the list before and after, and removes all
 // of it, also when an assertion fails.
 //
-//nolint:gocognit // one scenario, step by step
+//nolint:gocognit,funlen // one scenario, step by step
 func TestQueryAdmin_BanClient(t *testing.T) {
 	forEachTransport(t, 1, func(t *testing.T, c *serverquery.Client, _ teamspeak.ServerFamily, _ string) {
 		ctx := adminCtx(t)
@@ -101,7 +102,7 @@ func TestQueryAdmin_BanClient(t *testing.T) {
 				return err
 			}
 			if len(left) != len(before) {
-				return fmt.Errorf("the ban list has %d entries, want the %d it started with", len(left), len(before))
+				t.Errorf("the ban list has %d entries, want the %d it started with", len(left), len(before))
 			}
 
 			return nil
@@ -540,8 +541,10 @@ func TestQueryAdmin_Log(t *testing.T) {
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
-		if page.FileSize == 0 || page.LastPosition == 0 {
-			t.Errorf("ViewLog = %+v, want a file size and a position", page)
+		// Read backwards from the end, a page that reaches the start of a short
+		// log stops at position 0 (measured on TS6), so only the size is checked.
+		if page.FileSize == 0 {
+			t.Errorf("ViewLog = %+v, want a file size", page)
 		}
 	})
 }

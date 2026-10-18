@@ -22,9 +22,9 @@ import (
 // eventWait is how long an event is waited for.
 const eventWait = 20 * time.Second
 
-// awaitEvent registers a handler through on and returns a function that waits
+// awaitMatching registers a handler through on and returns a function that waits
 // for the first event match accepts, failing the test when none arrives.
-func awaitEvent[T any](t *testing.T, on func(func(T)) func(), what string, match func(T) bool) func() T {
+func awaitMatching[T any](t *testing.T, on func(func(T)) func(), what string, match func(T) bool) func() T {
 	t.Helper()
 	got := make(chan T, 1)
 	remove := on(func(e T) {
@@ -75,7 +75,7 @@ func TestQueryEvents_MoveAndEnter(t *testing.T) {
 		}
 		nickname := "ts-go-ev-" + uniqueStamp()[:6]
 
-		entered := awaitEvent(t, c.OnClientEnter, "client enter", func(e teamspeak.ClientEnterEvent) bool {
+		entered := awaitMatching(t, c.OnClientEnter, "client enter", func(e teamspeak.ClientEnterEvent) bool {
 			return e.Nickname == nickname
 		})
 		voice := voiceClient(t, nickname)
@@ -95,7 +95,7 @@ func TestQueryEvents_MoveAndEnter(t *testing.T) {
 			t.Fatalf("MoveClient away: %v", err)
 		}
 
-		moved := awaitEvent(t, c.OnClientMoved, "client moved", func(e teamspeak.ClientMovedEvent) bool {
+		moved := awaitMatching(t, c.OnClientMoved, "client moved", func(e teamspeak.ClientMovedEvent) bool {
 			return e.ClientID == voice.ClientID() && e.TargetChannelID == me.ChannelID
 		})
 		err = c.MoveClient(ctx, voice.ClientID(), me.ChannelID, teamspeak.ClientMoveOptions{})
@@ -132,7 +132,7 @@ func TestQueryEvents_ChannelAndServerChanges(t *testing.T) {
 		cleanup(t, "the channel", func(ctx context.Context) error { return deleteChannelsNamed(ctx, c, name) })
 
 		var cid teamspeak.ChannelID
-		created := awaitEvent(t, c.OnChannelCreated, "channel created", func(e teamspeak.ChannelCreatedEvent) bool {
+		created := awaitMatching(t, c.OnChannelCreated, "channel created", func(e teamspeak.ChannelCreatedEvent) bool {
 			return e.Changes.Name != nil && *e.Changes.Name == name
 		})
 		cid, err = c.CreateChannel(ctx, teamspeak.ChannelCreateOptions{Name: name, Topic: new("t1"), IsPermanent: new(true)})
@@ -145,7 +145,7 @@ func TestQueryEvents_ChannelAndServerChanges(t *testing.T) {
 			t.Errorf("the created event = %+v, want channel %d with topic t1, permanent", made, cid)
 		}
 
-		edited := awaitEvent(t, c.OnChannelEdited, "channel edited",
+		edited := awaitMatching(t, c.OnChannelEdited, "channel edited",
 			func(e teamspeak.ChannelEditedEvent) bool { return e.ChannelID == cid })
 		err = c.EditChannel(ctx, cid, teamspeak.ChannelEditOptions{Topic: new("t2")})
 		if err != nil {
@@ -156,7 +156,7 @@ func TestQueryEvents_ChannelAndServerChanges(t *testing.T) {
 			t.Errorf("the edited event = %+v, want topic t2 with reason %v", edit, teamspeak.ReasonChannelEdit)
 		}
 
-		described := awaitEvent(t, c.OnChannelDescriptionChanged, "description changed",
+		described := awaitMatching(t, c.OnChannelDescriptionChanged, "description changed",
 			func(e teamspeak.ChannelDescriptionChangedEvent) bool { return e.ChannelID == cid })
 		err = c.EditChannel(ctx, cid, teamspeak.ChannelEditOptions{Description: new("text")})
 		if err != nil {
@@ -164,7 +164,7 @@ func TestQueryEvents_ChannelAndServerChanges(t *testing.T) {
 		}
 		described()
 
-		locked := awaitEvent(t, c.OnChannelPasswordChanged, "password changed",
+		locked := awaitMatching(t, c.OnChannelPasswordChanged, "password changed",
 			func(e teamspeak.ChannelPasswordChangedEvent) bool { return e.ChannelID == cid })
 		err = c.EditChannel(ctx, cid, teamspeak.ChannelEditOptions{Password: new("pw-ev")})
 		if err != nil {
@@ -172,7 +172,7 @@ func TestQueryEvents_ChannelAndServerChanges(t *testing.T) {
 		}
 		locked()
 
-		moved := awaitEvent(t, c.OnChannelMoved, "channel moved",
+		moved := awaitMatching(t, c.OnChannelMoved, "channel moved",
 			func(e teamspeak.ChannelMovedEvent) bool { return e.ChannelID == cid })
 		err = c.MoveChannel(ctx, cid, alpha, teamspeak.ChannelMoveOptions{})
 		if err != nil {
@@ -182,7 +182,7 @@ func TestQueryEvents_ChannelAndServerChanges(t *testing.T) {
 			t.Errorf("the moved event = %+v, want parent %d", move, alpha)
 		}
 
-		deleted := awaitEvent(t, c.OnChannelDeleted, "channel deleted",
+		deleted := awaitMatching(t, c.OnChannelDeleted, "channel deleted",
 			func(e teamspeak.ChannelDeletedEvent) bool { return e.ChannelID == cid })
 		err = c.DeleteChannel(ctx, cid, teamspeak.ChannelDeleteOptions{Force: true})
 		if err != nil {
@@ -190,7 +190,7 @@ func TestQueryEvents_ChannelAndServerChanges(t *testing.T) {
 		}
 		deleted()
 
-		renamed := awaitEvent(t, c.OnServerEdited, "server edited", func(e teamspeak.ServerEditedEvent) bool {
+		renamed := awaitMatching(t, c.OnServerEdited, "server edited", func(e teamspeak.ServerEditedEvent) bool {
 			_, ok := e.Changes[prop.VirtualServerName]
 
 			return ok
