@@ -501,6 +501,11 @@ func WithVersion(v versions.ClientVersion) Option {
 // called during that wait, or during the handshake, wins: Connect then returns
 // teamspeak.ErrNotConnected.
 //
+// When ctx ends the attempt, the error wraps ctx's error, so errors.Is finds
+// context.DeadlineExceeded or context.Canceled, and names what the attempt was
+// waiting for, such as "the server's answer to clientek". The same error reaches
+// the disconnected event and the trace's AttemptFailed.
+//
 // Connect does not wait for event handlers, so a handler may call it.
 func (c *Client) Connect(ctx context.Context) error {
 	return c.connect(ctx, true, 1)
@@ -1020,6 +1025,12 @@ func (c *Client) failConnectionLocked(err error) {
 		c.mu.Unlock()
 
 		return
+	}
+	// A context that ended the attempt says where it was waiting; errors.Is
+	// still finds the context's error.
+	if isContextEnd(err) && !c.attempt.claimed {
+		err = fmt.Errorf("%w while waiting for %s", err,
+			c.attempt.waiting(c.handler != nil && c.handler.ClientEkPending()))
 	}
 	// The report runs with the lock released: the AttemptFailed hook may read
 	// the client.
