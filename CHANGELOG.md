@@ -14,6 +14,12 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   `context.Canceled`; a comparison with `==` no longer does. The same error
   reaches the `disconnected` event and the trace's `AttemptFailed`.
 
+### Fixed
+
+- The live suite waits a moment after each SSH query session, because a
+  TeamSpeak 3 server still closing one drops the next connection before reading
+  anything, which a WebQuery request made straight after would see as `EOF`.
+
 ## v1.0.0-beta.9 (2026-10-18)
 
 ### Removed
