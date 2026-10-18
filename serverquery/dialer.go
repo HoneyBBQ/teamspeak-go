@@ -7,8 +7,8 @@ import (
 )
 
 // Dialer opens the connection a query client talks over. Build one with [TCP],
-// [SSH] or [Web]; the interface is sealed, so a transport cannot be supplied
-// from outside this package.
+// [SSH], [Web] or, for a carrier of your own, [Custom]; the interface is
+// sealed, so a Dialer cannot be implemented from outside this package.
 //
 // A Dialer is a description rather than a connection: it holds where to
 // connect and who to log in as, and opens a fresh connection every time, which
