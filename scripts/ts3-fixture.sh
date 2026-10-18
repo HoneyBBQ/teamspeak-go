@@ -11,7 +11,8 @@
 # Creates the channels the tests need (one password-protected), puts a password
 # on the server itself, grants the default server group the permissions they
 # exercise, relaxes anti-flood so a handful of rapid connections from one IP are
-# not banned, and writes an env file with the matching environment variables.
+# not banned, lifts the five-connections-per-address query limit, and writes an
+# env file with the matching environment variables.
 # The file goes to $TS3_FIXTURE_ENV, by default ts3-fixture.env under $TMPDIR (or /tmp), never
 # into the working tree; the last line printed is the path to source.
 #
@@ -19,6 +20,9 @@
 # it could not reach the server at all, because each command ended in `|| true`;
 # the suite then ran against an unprovisioned server and skipped its way to
 # green, which is how a protocol bug stayed invisible for months.
+#
+# TS3_QUERY_GUEST=1 marks a TeamSpeak 6 server (beta13 or later) that accepts
+# guest ServerQuery logins, so the suite also tests those.
 #
 # Both server generations serve raw ServerQuery, SSH and WebQuery (TS3 from
 # 3.12, TS6 from its first release), but TS3 has them off except raw: start it
@@ -288,8 +292,16 @@ run_commands() {
 # Note this is a *different* limit from the virtual-server antiflood set further
 # down: that one rate-limits the voice clients the tests connect as, this one
 # rate-limits this script.
+#
+# The same command raises the number of ServerQuery connections one address may
+# hold. Both server generations allow five
+# (serverinstance_serverquery_max_connections_per_ip), counted across raw, SSH
+# and HTTP together, and reset a sixth. The suite keeps a few open and opens
+# more beside them, so on a slow runner a connection the server has not yet
+# released can make one too many. It is an instance setting for this test
+# server only, and an administrator's to raise.
 run_commands <<'PROBE'
-instanceedit serverinstance_serverquery_flood_commands=1000 serverinstance_serverquery_flood_time=1 serverinstance_serverquery_ban_time=1
+instanceedit serverinstance_serverquery_flood_commands=1000 serverinstance_serverquery_flood_time=1 serverinstance_serverquery_ban_time=1 serverinstance_serverquery_max_connections_per_ip=100
 PROBE
 
 # A TS3 server prints no WebQuery api key, so one is made over the raw session.
@@ -447,8 +459,9 @@ export TEAMSPEAK_QUERY_SSH_USER=${TS3_QUERY_SSH_USER:-serveradmin}
 export TEAMSPEAK_QUERY_SSH_PASSWORD=${TS3_QUERY_SSH_PASSWORD:-${ADMIN_PW:-$HTTP_API_KEY}}"
 fi
 
-# Guest ServerQuery access is TeamSpeak 6 beta13 and later, on by default, and
-# TS3 has none, so the guest tests run only where TS3_QUERY_GUEST=1 says so.
+# TeamSpeak 6 beta13 and later accept a guest ServerQuery login without prior
+# setup; TS3 does not. The guest tests run only where TS3_QUERY_GUEST=1 says the
+# server offers one, and need the SSH or WebQuery endpoint provisioned above.
 if [ "${TS3_QUERY_GUEST:-}" = "1" ]; then
   QUERY_ENV="$QUERY_ENV
 export TEAMSPEAK_QUERY_GUEST=1"
