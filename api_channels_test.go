@@ -127,3 +127,45 @@ func TestCreateChannel_WithACidLooksNothingUp(t *testing.T) {
 		t.Errorf("id = %d, err = %v, sent %q", id, err, s.sent)
 	}
 }
+
+// Every setting Channel reads can be written, on create and on edit.
+func TestChannelOptions_SendTheCodecLimitAndBannerSettings(t *testing.T) {
+	var (
+		on, off = true, false
+		factor  = int32(4)
+		mode    = int32(2)
+		url     = "https://example.com/b.png"
+	)
+	want := []string{
+		"channel_codec_latency_factor=4", "channel_codec_is_unencrypted=1",
+		"channel_flag_maxclients_unlimited=0", "channel_flag_maxfamilyclients_unlimited=1",
+		"channel_flag_maxfamilyclients_inherited=0",
+		`channel_banner_gfx_url=https:\/\/example.com\/b.png`, "channel_banner_mode=2",
+	}
+	s := &script{replies: []reply{{rows: []map[string]string{{"cid": "9"}}}}}
+	_, err := NewCommands(s).CreateChannel(t.Context(), ChannelCreateOptions{
+		Name: "x", CodecLatencyFactor: &factor, IsUnencrypted: &on, IsMaxClientsUnlimited: &off,
+		IsMaxFamilyClientsUnlimited: &on, IsMaxFamilyClientsInherited: &off, BannerURL: &url, BannerMode: &mode,
+	})
+	if err != nil || len(s.sent) != 1 {
+		t.Fatalf("CreateChannel = %v, sent %v", err, s.sent)
+	}
+	create := s.sent[0]
+	edit := encoded(t, func(c *Commands) error {
+		return c.EditChannel(t.Context(), 5, ChannelEditOptions{
+			CodecLatencyFactor: &factor, IsUnencrypted: &on, IsMaxClientsUnlimited: &off,
+			IsMaxFamilyClientsUnlimited: &on, IsMaxFamilyClientsInherited: &off, BannerURL: &url, BannerMode: &mode,
+		})
+	})
+	for _, line := range []string{create, edit} {
+		for _, w := range want {
+			if !strings.Contains(line, w) {
+				t.Errorf("%q lacks %q", line, w)
+			}
+		}
+	}
+	bare := encoded(t, func(c *Commands) error { return c.EditChannel(t.Context(), 5, ChannelEditOptions{}) })
+	if strings.Contains(bare, "banner") {
+		t.Errorf("an unset banner was sent: %q", bare)
+	}
+}

@@ -380,6 +380,9 @@ func TestTrace_EveryFailureIsOneAttemptFailedWithItsPhase(t *testing.T) {
 			if !errors.Is(got.Err, err) && got.Err.Error() != err.Error() {
 				t.Errorf("AttemptFailed.Err = %v, Connect returned %v", got.Err, err)
 			}
+			if got.WaitingFor == "" {
+				t.Errorf("AttemptFailed.WaitingFor is empty")
+			}
 			if got.Attempt != 1 || got.Reconnect || got.Duration <= 0 {
 				t.Errorf("AttemptFailed = %+v", got)
 			}
@@ -401,6 +404,11 @@ func TestTrace_CtxDoneIsAnAttemptFailedInTheHandshake(t *testing.T) {
 	}
 	if got := rec.attemptFailed[0]; got.Phase != ConnectPhaseHandshake || !errors.Is(got.Err, context.DeadlineExceeded) {
 		t.Errorf("AttemptFailed = %+v", got)
+	}
+	// The hook carries the same words the error does.
+	if got := rec.attemptFailed[0].WaitingFor; got != "the server's first answer to init1" ||
+		!strings.Contains(err.Error(), "while waiting for "+got) {
+		t.Errorf("WaitingFor = %q, error %q", got, err)
 	}
 }
 
