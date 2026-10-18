@@ -328,31 +328,47 @@ func TestReconnect_StartsOverFromTheOptions(t *testing.T) {
 	transport.closeErr = errReset
 	_ = transport.Close()
 
-	select {
-	case second := <-d.opened:
-		var sent []string
-		deadline := time.After(eventWait)
-		for !containsSubstring(sent, "clientlist") {
-			select {
-			case line := <-second.sent:
-				sent = append(sent, line)
-				name, _, _ := strings.Cut(line, " ")
-				switch name {
-				case "version":
-					second.reply("version=3.13.8 build=1 platform=Linux", "error id=0 msg=ok")
-				case "whoami":
-					second.reply("client_id=11", "error id=0 msg=ok")
-				default:
-					second.reply("error id=0 msg=ok")
-				}
-			case <-deadline:
-				t.Fatalf("the reconnect never finished its handshake: %v", sent)
+	// The first connection can still be queued on d.opened: Connect took it
+	// from the dialer directly when the open had already happened.
+	second := nextConnection(t, d, transport)
+	var sent []string
+	deadline := time.After(eventWait)
+	for !containsSubstring(sent, "clientlist") {
+		select {
+		case line := <-second.sent:
+			sent = append(sent, line)
+			name, _, _ := strings.Cut(line, " ")
+			switch name {
+			case "version":
+				second.reply("version=3.13.8 build=1 platform=Linux", "error id=0 msg=ok")
+			case "whoami":
+				second.reply("client_id=11", "error id=0 msg=ok")
+			default:
+				second.reply("error id=0 msg=ok")
 			}
+		case <-deadline:
+			t.Fatalf("the reconnect never finished its handshake: %v", sent)
 		}
-		if !containsSubstring(sent, "use sid=1") || containsSubstring(sent, "sid=2") {
-			t.Errorf("the reconnect sent %v, want the configured server 1 and not the one Use chose", sent)
+	}
+	if !containsSubstring(sent, "use sid=1") || containsSubstring(sent, "sid=2") {
+		t.Errorf("the reconnect sent %v, want the configured server 1 and not the one Use chose", sent)
+	}
+}
+
+// nextConnection waits for a connection the client opens after first.
+func nextConnection(t *testing.T, d *fakeDialer, first *fakeTransport) *fakeTransport {
+	t.Helper()
+	deadline := time.After(eventWait)
+	for {
+		select {
+		case tr := <-d.opened:
+			if tr != first {
+				return tr
+			}
+		case <-deadline:
+			t.Fatal("the client did not reconnect")
+
+			return nil
 		}
-	case <-time.After(eventWait):
-		t.Fatal("the client did not reconnect")
 	}
 }
