@@ -56,6 +56,11 @@ type webDialer struct {
 // commands, and this transport answers `use` by addressing the server the
 // following requests name.
 //
+// An https:// baseURL works as it is, for a server that serves WebQuery over
+// HTTPS (port 10443 by default): the certificate is verified against the system
+// trust store. For a private CA or a self-signed certificate, supply a client
+// whose transport trusts it through [WebWith] and [WebOptions.Client].
+//
 // An empty apiKey is refused by [New] with [ErrInvalidConfig]: the server
 // treats a request without a key as a guest's, so sending one by accident, from
 // an unset variable, would be a silent downgrade. [WebGuest] is the explicit
