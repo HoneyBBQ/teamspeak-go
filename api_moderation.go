@@ -41,6 +41,9 @@ type BanEntry struct {
 	Duration time.Duration
 	// InvokerDatabaseID is the database id of who made the ban (invokercldbid).
 	InvokerDatabaseID ClientDBID
+	// Enforcements is how many times the ban has turned a client away
+	// (enforcements). TeamSpeak 3 and 6 both send it.
+	Enforcements uint64
 }
 
 func parseBan(row map[string]string) BanEntry {
@@ -57,6 +60,7 @@ func parseBan(row map[string]string) BanEntry {
 		InvokerName:       fieldStr(row, "invokername"),
 		InvokerUID:        UID(fieldStr(row, "invokeruid")),
 		Reason:            fieldStr(row, "reason"),
+		Enforcements:      fieldUint(row, "enforcements"),
 	}
 }
 

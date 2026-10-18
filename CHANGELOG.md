@@ -5,6 +5,21 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ## Unreleased
 
+### Added
+
+- `ChannelCreateOptions` and `ChannelEditOptions` can write what `Channel`
+  already reads: `BannerURL` and `BannerMode` (measured honoured on TeamSpeak 3
+  3.13.8 and TeamSpeak 6 beta13.1 over every query transport), and
+  `CodecLatencyFactor`, `IsUnencrypted`, `IsMaxClientsUnlimited`,
+  `IsMaxFamilyClientsUnlimited` and `IsMaxFamilyClientsInherited`.
+- `BanEntry.Enforcements`, how many times a ban turned a client away; both
+  servers send it.
+- `TempPassword.CreatorNickname` and `CreatorUID`, which the list always carried.
+- `client.AttemptFailedInfo.WaitingFor`, what the attempt was waiting for when
+  it ended, in the words of a cancelled `Connect`'s error.
+- `serverquery.Client.ServerVersion` returns the version string the server answered
+  the `version` command with, `""` before connecting.
+
 ### Changed
 
 - `client.Connect` names what the attempt was waiting for when the caller's

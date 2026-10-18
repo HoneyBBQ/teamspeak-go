@@ -155,6 +155,7 @@ field BanEntry.Reason string
 field BanEntry.ID BanID
 field BanEntry.Duration time.Duration
 field BanEntry.InvokerDatabaseID ClientDBID
+field BanEntry.Enforcements uint64
 type BanID uint64
 type BanListOptions struct
 field BanListOptions.Start int
@@ -252,6 +253,13 @@ field ChannelCreateOptions.Topic *string
 field ChannelCreateOptions.Description *string
 field ChannelCreateOptions.Password *string
 field ChannelCreateOptions.NamePhonetic *string
+field ChannelCreateOptions.CodecLatencyFactor *int32
+field ChannelCreateOptions.IsUnencrypted *bool
+field ChannelCreateOptions.IsMaxClientsUnlimited *bool
+field ChannelCreateOptions.IsMaxFamilyClientsUnlimited *bool
+field ChannelCreateOptions.IsMaxFamilyClientsInherited *bool
+field ChannelCreateOptions.BannerURL *string
+field ChannelCreateOptions.BannerMode *int32
 field ChannelCreateOptions.Name string
 field ChannelCreateOptions.ParentID ChannelID
 type ChannelCreatedEvent struct
@@ -288,6 +296,13 @@ field ChannelEditOptions.IsSemiPermanent *bool
 field ChannelEditOptions.IsDefault *bool
 field ChannelEditOptions.DeleteDelay *time.Duration
 field ChannelEditOptions.NamePhonetic *string
+field ChannelEditOptions.CodecLatencyFactor *int32
+field ChannelEditOptions.IsUnencrypted *bool
+field ChannelEditOptions.IsMaxClientsUnlimited *bool
+field ChannelEditOptions.IsMaxFamilyClientsUnlimited *bool
+field ChannelEditOptions.IsMaxFamilyClientsInherited *bool
+field ChannelEditOptions.BannerURL *string
+field ChannelEditOptions.BannerMode *int32
 type ChannelEditedEvent struct
 field ChannelEditedEvent.Changes ChannelChanges
 field ChannelEditedEvent.InvokerName string
@@ -1065,6 +1080,8 @@ field TempPassword.Ends time.Time
 field TempPassword.Password string
 field TempPassword.Description string
 field TempPassword.TargetChannelID ChannelID
+field TempPassword.CreatorNickname string
+field TempPassword.CreatorUID UID
 method (TempPassword) GoString() string
 method (TempPassword) LogValue() slog.Value
 method (TempPassword) String() string
