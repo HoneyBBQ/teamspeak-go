@@ -299,9 +299,14 @@ func (c *Commands) ListPermissions(ctx context.Context) ([]PermissionInfo, error
 	return out, nil
 }
 
-// GetPermissionIDByName resolves a permission name to its numeric id. The
-// second return value is false when the server knows no such permission; a
-// row without a permid fails with an error wrapping ErrNoData.
+// GetPermissionIDByName resolves a permission name to its numeric id.
+//
+// A name the server does not know is not an answer of "not found": the server
+// refuses it with 2562, "invalid permission ID", and that error is returned
+// (errcode.PermissionInvalidPermID), measured on TeamSpeak 3 3.13.8 over raw
+// ServerQuery and on 6 beta13.1 over WebQuery. The second return value is false
+// only when the server answers with no row at all, which neither was seen to
+// do; a row without a permid fails with an error wrapping ErrNoData.
 //
 // Needs an instance-level permission (b_serverinstance_*), which not even the
 // Server Admin group holds by default — expect error 2568 until it is granted.

@@ -172,6 +172,51 @@ func (c *Commands) KickClient(ctx context.Context, clid ClientID, reason Reason,
 	})
 }
 
+// KickClientsOptions are KickClients' optional parameters.
+type KickClientsOptions struct {
+	// ReasonMessage is shown to the clients; "" sends none.
+	ReasonMessage string
+	// ContinueOnError sends -continueonerror, so a client that cannot be
+	// kicked does not stop the ones after it. See KickClients for what the
+	// server then answers.
+	ContinueOnError bool
+}
+
+// KickClients kicks several clients in one command (clientkick, one clid row
+// each), from their channel (ReasonKickChannel) or from the server
+// (ReasonKickServer); any other reason is refused with ErrInvalidCommand.
+// Kicking none sends nothing.
+//
+// The server answers one status for the whole command and never one per
+// client, so the result is an error and nothing more. Measured on TeamSpeak 3
+// 3.13.8 and 6 beta13.1, over raw ServerQuery, SSH, WebQuery and the voice
+// protocol alike: without ContinueOnError the server kicks in order and stops at
+// the first id it cannot kick (unknown, or already gone), answering that
+// error, 512 for an unknown id: the clients before it were kicked and the ones
+// after it were not. With ContinueOnError it goes on past such an id and
+// answers success, even when no id could be kicked, so a failure is not
+// reported at all: list the clients to see who is left. An error in what the
+// ids share, the reason, still fails the command.
+func (c *Commands) KickClients(
+	ctx context.Context, clids []ClientID, reason Reason, opts KickClientsOptions,
+) error {
+	if len(clids) == 0 {
+		return nil
+	}
+
+	reasonParam := intArg("reasonid", int64(reason))
+	if reason != ReasonKickChannel && reason != ReasonKickServer {
+		reasonParam = invalidArg("a kick's reason is ReasonKickChannel or ReasonKickServer, not " + reason.String())
+	}
+
+	return c.exec(ctx, "clientkick", []param{
+		continueOnErrorArg(opts.ContinueOnError),
+		reasonParam,
+		optStrArg("reasonmsg", opts.ReasonMessage),
+		idRowsArg("clid", clids),
+	})
+}
+
 // ClientUpdateOptions changes our own client state. Only the fields you set are
 // sent.
 //
@@ -847,6 +892,46 @@ func (c *Commands) MoveClient(ctx context.Context, clid ClientID, channelID Chan
 	if opts.Password != "" {
 		params = append(params, strArg("cpw", opts.Password))
 	}
+
+	return c.exec(ctx, "clientmove", params, "cpw")
+}
+
+// MoveClientsOptions are MoveClients' optional parameters.
+type MoveClientsOptions struct {
+	// Password is the target channel's password, "" for none. Pass it as the
+	// user typed it: the client encodes it as its protocol requires.
+	Password string
+	// ContinueOnError sends -continueonerror, so a client that cannot be moved
+	// is left out and the others are moved. See MoveClients.
+	ContinueOnError bool
+}
+
+// MoveClients moves several clients to one channel in one command
+// (clientmove, one clid row each). Moving none sends nothing.
+//
+// The server answers one status for the whole command, so the result is an
+// error and nothing more. Measured on TeamSpeak 3 3.13.8 and 6 beta13.1, over
+// raw ServerQuery, SSH, WebQuery and the voice protocol alike: the server
+// checks every row first, so without ContinueOnError an unknown id (512) or a
+// client already in the channel (770) refuses the whole command and nobody is
+// moved. With ContinueOnError the rows that fail are left out, the others are
+// moved, and the answer is success even when every row failed, so a failure is
+// not reported: look at where the clients are. An unknown channel is refused
+// (768) either way.
+func (c *Commands) MoveClients(
+	ctx context.Context, clids []ClientID, channelID ChannelID, opts MoveClientsOptions,
+) error {
+	if len(clids) == 0 {
+		return nil
+	}
+	params := []param{
+		continueOnErrorArg(opts.ContinueOnError),
+		idArg("cid", channelID),
+	}
+	if opts.Password != "" {
+		params = append(params, strArg("cpw", opts.Password))
+	}
+	params = append(params, idRowsArg("clid", clids))
 
 	return c.exec(ctx, "clientmove", params, "cpw")
 }

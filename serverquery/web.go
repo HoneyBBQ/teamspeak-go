@@ -190,9 +190,22 @@ type webQuery struct {
 // on as the lines a raw connection would have sent: one per row, then the
 // error line that ends it.
 func (w *webQuery) WriteLine(ctx context.Context, line string) error {
-	cmd := wire.ParseCommand(line)
+	// A command with rows, name=a|name=b, goes as a JSON array with an object
+	// per row. The first row carries the parameters the rows share, as it does
+	// on the line, and the later rows only their own: measured on TeamSpeak 3
+	// and 6, which both read the array as the line.
+	segments := strings.Split(line, "|")
+	cmd := wire.ParseCommand(segments[0])
 	if cmd == nil {
 		return fmt.Errorf("%w: empty command line", errEmptyCommand)
+	}
+	var rows []map[string]string
+	for _, segment := range segments[1:] {
+		row := wire.ParseCommand(segment)
+		if row == nil {
+			return fmt.Errorf("%w: an empty row in %s", errEmptyCommand, cmd.Name)
+		}
+		rows = append(rows, row.Params)
 	}
 
 	// WebQuery has no `use`: the server refuses it, and the server a request
@@ -205,7 +218,7 @@ func (w *webQuery) WriteLine(ctx context.Context, line string) error {
 	path := w.prefix + "/" + cmd.Name
 	w.mu.Unlock()
 
-	answer, err := w.request(ctx, path, paramsBody(cmd.Params))
+	answer, err := w.request(ctx, path, paramsBody(cmd.Params, rows))
 	if err != nil {
 		return err
 	}
@@ -395,21 +408,35 @@ func valueText(value any) string {
 	}
 }
 
-// paramsBody renders a command's parameters as the JSON object WebQuery takes
-// them in. A parameter with no value is sent as an empty string, which is how
-// WebQuery spells a bare flag such as -groups.
-func paramsBody(params map[string]string) []byte {
-	doc := maps.Clone(params)
-	if doc == nil {
-		doc = map[string]string{}
+// paramsBody renders a command's parameters as the JSON WebQuery takes them
+// in: an object, or an array of objects when the command has rows after the
+// first, which is the row of the parameters. A parameter with no value is sent
+// as an empty string, which is how WebQuery spells a bare flag such as -groups.
+func paramsBody(params map[string]string, rows []map[string]string) []byte {
+	var doc any = nonNil(params)
+	if len(rows) > 0 {
+		all := make([]map[string]string, 0, len(rows)+1)
+		all = append(all, nonNil(params))
+		for _, row := range rows {
+			all = append(all, nonNil(row))
+		}
+		doc = all
 	}
 	body, err := json.Marshal(doc)
 	if err != nil {
-		// A map of strings cannot fail to marshal.
+		// Maps of strings cannot fail to marshal.
 		return []byte("{}")
 	}
 
 	return body
+}
+
+func nonNil(params map[string]string) map[string]string {
+	if params == nil {
+		return map[string]string{}
+	}
+
+	return maps.Clone(params)
 }
 
 // isDecimal reports whether s is a run of digits, which is what a server id or

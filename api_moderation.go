@@ -218,6 +218,53 @@ func (c *Commands) BanClient(ctx context.Context, clid ClientID, opts BanClientO
 	return banIDs(rows), nil
 }
 
+// BanClientsOptions are BanClients' optional parameters.
+type BanClientsOptions struct {
+	// Reason is shown to the banned clients; "" sends none.
+	Reason string
+	// Duration is how long the bans last, sent in whole seconds; 0 bans
+	// permanently, as for BanOptions.
+	Duration time.Duration
+	// ContinueOnError sends -continueonerror, so an id that cannot be banned is
+	// left out and the others are banned. See BanClients.
+	ContinueOnError bool
+}
+
+// BanClients bans several connected clients in one command (banclient, one
+// clid row each) and returns the id of every ban the server reported creating,
+// which BanClient explains: the ids can be fewer than the bans made, and are
+// none over the voice protocol. Banning none sends nothing.
+//
+// The server answers one status for the whole command and never one per
+// client. Measured on TeamSpeak 3 3.13.8 and 6 beta13.1, over raw ServerQuery,
+// SSH, WebQuery and the voice protocol alike: the server first checks that
+// every id is a connected client, and without ContinueOnError an unknown id
+// refuses the command with 512 and bans nobody. The bans then go in order; one
+// that fails midway (the same client listed twice, which the first ban
+// kicked) stops the rest with its error and the bans before it stay. With
+// ContinueOnError unknown ids are left out, the others are banned, and the
+// answer is success even when no id could be banned, so a failure is not
+// reported. Banning two clients through one address made three bans over
+// ServerQuery: a uid rule each and one rule on the address. A ban on the address
+// refuses every later connection from it: remove what a call made.
+func (c *Commands) BanClients(ctx context.Context, clids []ClientID, opts BanClientsOptions) ([]BanID, error) {
+	if len(clids) == 0 {
+		return nil, nil
+	}
+
+	rows, err := c.query(ctx, "banclient", []param{
+		continueOnErrorArg(opts.ContinueOnError),
+		banDurationArg(opts.Duration),
+		optStrArg("banreason", opts.Reason),
+		idRowsArg("clid", clids),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return banIDs(rows), nil
+}
+
 // DeleteBan removes a ban.
 func (c *Commands) DeleteBan(ctx context.Context, banID BanID) error {
 	return c.exec(ctx, "bandel", []param{idArg("banid", banID)})

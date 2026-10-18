@@ -3,6 +3,36 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- Several values in one command. `Commands.KickClients`, `MoveClients` and
+  `BanClients` act on several clients with one command; `AddClientsToServerGroup`
+  and `RemoveClientsFromServerGroup` change the members of a group; and the
+  permission batches (`AddChannelPermissions`, `AddChannelGroupPermissions`,
+  `AddChannelClientPermissions`, `AddClientPermissions`,
+  `AddServerGroupPermissions`, `AddServerGroupPermissionsByType` and the
+  `Delete...` twins) set or remove several permissions of one target. They send
+  `-continueonerror` where the server documents it, as the option
+  `ContinueOnError`. The server answers one status per command, never one per
+  item, so each returns an error (`BanClients` also the ids it was told of); what
+  was measured on TeamSpeak 3.13.8 and 6 beta13.1 about which items are applied
+  on a failure, and which error the flag leaves, is in each doc comment.
+  `BanClients` returns every ban id the server reports, none over the voice
+  protocol.
+
+### Fixed
+
+- A command with several rows (`ftdeletefile` with several names, `clientmute`
+  for several clients) went over WebQuery as one value with the rows run
+  together: the transport now sends an array of objects, the form both servers
+  read as the pipe-separated line.
+- The `GetPermissionIDByName` documentation said an unknown name gives a false
+  second result. The server refuses it with 2562, as on TeamSpeak 3 and 6 alike,
+  and that error is what is returned; the doc now says so. Behaviour is
+  unchanged.
+
 ## v1.0.0-beta.10 (2026-10-18)
 
 ### Added

@@ -469,6 +469,66 @@ func (c *Commands) RemoveClientFromServerGroup(
 	})
 }
 
+// ServerGroupMembersOptions are the optional parameters of
+// AddClientsToServerGroup and RemoveClientsFromServerGroup.
+type ServerGroupMembersOptions struct {
+	// ContinueOnError sends -continueonerror, so a client that cannot be added
+	// or removed does not stop the ones after it. See AddClientsToServerGroup.
+	ContinueOnError bool
+}
+
+// AddClientsToServerGroup adds several clients to a server group in one
+// command (servergroupaddclient, one cldbid row each). Adding none sends
+// nothing.
+//
+// The server answers one status for the whole command and never one per
+// client, so the result is an error and nothing more. Measured on TeamSpeak 3
+// 3.13.8 and 6 beta13.1, over raw ServerQuery, SSH, WebQuery and the voice
+// protocol alike: the clients are added in order. Without ContinueOnError the
+// first failure ends the command and is its answer: 512 for an unknown
+// database id, 2561 for a client already in the group. The clients before it
+// were added, the ones after it were not. With ContinueOnError every client that
+// can be added is, and the answer is the last error among the failures, or
+// success when none failed: with a duplicate before an unknown id the answer is
+// 512, with the unknown id first it is 2561. Which clients failed is not
+// reported; list the group's members.
+func (c *Commands) AddClientsToServerGroup(
+	ctx context.Context, serverGroupID ServerGroupID, clientDBIDs []ClientDBID, opts ServerGroupMembersOptions,
+) error {
+	if len(clientDBIDs) == 0 {
+		return nil
+	}
+
+	return c.exec(ctx, "servergroupaddclient", []param{
+		continueOnErrorArg(opts.ContinueOnError),
+		idArg("sgid", serverGroupID),
+		idRowsArg("cldbid", clientDBIDs),
+	})
+}
+
+// RemoveClientsFromServerGroup removes several clients from a server group in
+// one command (servergroupdelclient, one cldbid row each). Removing none sends
+// nothing.
+//
+// It answers as AddClientsToServerGroup does, measured the same way: without
+// ContinueOnError the first failure ends the command and the clients before it
+// were removed; with it every client that can be removed is, and the answer is
+// the last error among the failures. A client that is not in the group, and an
+// unknown database id, are both refused with 2563, "empty result set".
+func (c *Commands) RemoveClientsFromServerGroup(
+	ctx context.Context, serverGroupID ServerGroupID, clientDBIDs []ClientDBID, opts ServerGroupMembersOptions,
+) error {
+	if len(clientDBIDs) == 0 {
+		return nil
+	}
+
+	return c.exec(ctx, "servergroupdelclient", []param{
+		continueOnErrorArg(opts.ContinueOnError),
+		idArg("sgid", serverGroupID),
+		idRowsArg("cldbid", clientDBIDs),
+	})
+}
+
 // ServerGroupMember is one member of a server group.
 type ServerGroupMember struct {
 	// Nickname is the member's nickname (client_nickname); "" unless the list

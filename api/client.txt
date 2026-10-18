@@ -78,18 +78,26 @@ type Client struct
 method (Client) AddAPIKey(ctx context.Context, opts teamspeak.APIKeyOptions) (teamspeak.APIKeyCreated, error)
 method (Client) AddBan(ctx context.Context, opts teamspeak.BanOptions) (teamspeak.BanID, bool, error)
 method (Client) AddChannelClientPermission(ctx context.Context, cid teamspeak.ChannelID, clientDBID teamspeak.ClientDBID, perm teamspeak.Permission, value int32) error
+method (Client) AddChannelClientPermissions(ctx context.Context, cid teamspeak.ChannelID, clientDBID teamspeak.ClientDBID, perms []teamspeak.PermissionEntry, opts teamspeak.PermissionBatchOptions) error
 method (Client) AddChannelGroupPermission(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, perm teamspeak.Permission, value int32) error
+method (Client) AddChannelGroupPermissions(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, perms []teamspeak.PermissionEntry, opts teamspeak.PermissionBatchOptions) error
 method (Client) AddChannelPermission(ctx context.Context, cid teamspeak.ChannelID, perm teamspeak.Permission, value int32) error
+method (Client) AddChannelPermissions(ctx context.Context, cid teamspeak.ChannelID, perms []teamspeak.PermissionEntry, opts teamspeak.PermissionBatchOptions) error
 method (Client) AddClientPermission(ctx context.Context, clientDBID teamspeak.ClientDBID, perm teamspeak.Permission, value int32, opts teamspeak.ClientPermissionOptions) error
+method (Client) AddClientPermissions(ctx context.Context, clientDBID teamspeak.ClientDBID, perms []teamspeak.PermissionEntry, opts teamspeak.PermissionBatchOptions) error
 method (Client) AddClientToServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, clientDBID teamspeak.ClientDBID) error
+method (Client) AddClientsToServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, clientDBIDs []teamspeak.ClientDBID, opts teamspeak.ServerGroupMembersOptions) error
 method (Client) AddComplaint(ctx context.Context, targetDBID teamspeak.ClientDBID, message string) error
 method (Client) AddLog(ctx context.Context, level teamspeak.LogLevel, message string) error
 method (Client) AddPrivilegeKey(ctx context.Context, opts teamspeak.PrivilegeKeyOptions) (string, error)
 method (Client) AddQueryLogin(ctx context.Context, name string, opts teamspeak.QueryLoginOptions) (teamspeak.QueryLoginCreated, error)
 method (Client) AddServerGroupPermission(ctx context.Context, serverGroupID teamspeak.ServerGroupID, perm teamspeak.Permission, value int32, opts teamspeak.ServerGroupPermissionOptions) error
 method (Client) AddServerGroupPermissionByType(ctx context.Context, groups teamspeak.GroupAutoUpdateType, perm teamspeak.Permission, value int32, opts teamspeak.ServerGroupPermissionOptions) error
+method (Client) AddServerGroupPermissions(ctx context.Context, serverGroupID teamspeak.ServerGroupID, perms []teamspeak.PermissionEntry, opts teamspeak.PermissionBatchOptions) error
+method (Client) AddServerGroupPermissionsByType(ctx context.Context, groups teamspeak.GroupAutoUpdateType, perms []teamspeak.PermissionEntry) error
 method (Client) AddTempPassword(ctx context.Context, opts teamspeak.TempPasswordOptions) error
 method (Client) BanClient(ctx context.Context, clid teamspeak.ClientID, opts teamspeak.BanClientOptions) ([]teamspeak.BanID, error)
+method (Client) BanClients(ctx context.Context, clids []teamspeak.ClientID, opts teamspeak.BanClientsOptions) ([]teamspeak.BanID, error)
 method (*Client) ChannelID() teamspeak.ChannelID
 method (*Client) ClientID() teamspeak.ClientID
 method (Client) ClosePrivateChat(ctx context.Context, clid teamspeak.ClientID) error
@@ -108,11 +116,15 @@ method (Client) DeleteAllComplaints(ctx context.Context, targetDBID teamspeak.Cl
 method (Client) DeleteBan(ctx context.Context, banID teamspeak.BanID) error
 method (Client) DeleteChannel(ctx context.Context, cid teamspeak.ChannelID, opts teamspeak.ChannelDeleteOptions) error
 method (Client) DeleteChannelClientPermission(ctx context.Context, cid teamspeak.ChannelID, clientDBID teamspeak.ClientDBID, perm teamspeak.Permission) error
+method (Client) DeleteChannelClientPermissions(ctx context.Context, cid teamspeak.ChannelID, clientDBID teamspeak.ClientDBID, perms []teamspeak.Permission) error
 method (Client) DeleteChannelGroup(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, opts teamspeak.GroupDeleteOptions) error
 method (Client) DeleteChannelGroupPermission(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, perm teamspeak.Permission) error
+method (Client) DeleteChannelGroupPermissions(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, perms []teamspeak.Permission, opts teamspeak.PermissionBatchOptions) error
 method (Client) DeleteChannelPermission(ctx context.Context, cid teamspeak.ChannelID, perm teamspeak.Permission) error
+method (Client) DeleteChannelPermissions(ctx context.Context, cid teamspeak.ChannelID, perms []teamspeak.Permission) error
 method (Client) DeleteClientDatabase(ctx context.Context, clientDBID teamspeak.ClientDBID) error
 method (Client) DeleteClientPermission(ctx context.Context, clientDBID teamspeak.ClientDBID, perm teamspeak.Permission) error
+method (Client) DeleteClientPermissions(ctx context.Context, clientDBID teamspeak.ClientDBID, perms []teamspeak.Permission) error
 method (Client) DeleteComplaint(ctx context.Context, targetDBID teamspeak.ClientDBID, fromDBID teamspeak.ClientDBID) error
 method (Client) DeleteCustomProperty(ctx context.Context, clientDBID teamspeak.ClientDBID, ident string) error
 method (Client) DeleteFile(ctx context.Context, channelID teamspeak.ChannelID, paths []string, opts teamspeak.FileOptions) error
@@ -123,6 +135,8 @@ method (Client) DeleteServer(ctx context.Context, id teamspeak.ServerID, opts te
 method (Client) DeleteServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, opts teamspeak.GroupDeleteOptions) error
 method (Client) DeleteServerGroupPermission(ctx context.Context, serverGroupID teamspeak.ServerGroupID, perm teamspeak.Permission) error
 method (Client) DeleteServerGroupPermissionByType(ctx context.Context, groups teamspeak.GroupAutoUpdateType, perm teamspeak.Permission) error
+method (Client) DeleteServerGroupPermissions(ctx context.Context, serverGroupID teamspeak.ServerGroupID, perms []teamspeak.Permission, opts teamspeak.PermissionBatchOptions) error
+method (Client) DeleteServerGroupPermissionsByType(ctx context.Context, groups teamspeak.GroupAutoUpdateType, perms []teamspeak.Permission) error
 method (Client) DeleteTempPassword(ctx context.Context, password string) error
 method (Client) DeployServerSnapshot(ctx context.Context, snapshot teamspeak.ServerSnapshot, opts teamspeak.SnapshotDeployOptions) ([]teamspeak.ChannelMapping, error)
 method (*Client) Disconnect(ctx context.Context) error
@@ -173,6 +187,7 @@ method (Client) InitFileDownload(ctx context.Context, channelID teamspeak.Channe
 method (Client) InitFileUpload(ctx context.Context, channelID teamspeak.ChannelID, path string, size uint64, opts teamspeak.FileUploadOptions) (*teamspeak.FileUploadInfo, error)
 method (Client) IterateClientDatabase(ctx context.Context, opts teamspeak.PagingOptions) iter.Seq2[teamspeak.ClientDatabaseEntry, error]
 method (Client) KickClient(ctx context.Context, clid teamspeak.ClientID, reason teamspeak.Reason, opts teamspeak.ClientKickOptions) error
+method (Client) KickClients(ctx context.Context, clids []teamspeak.ClientID, reason teamspeak.Reason, opts teamspeak.KickClientsOptions) error
 method (Client) ListAPIKeys(ctx context.Context, opts teamspeak.APIKeyListOptions) ([]teamspeak.APIKey, error)
 method (Client) ListActiveTransfers(ctx context.Context) ([]teamspeak.ActiveTransfer, error)
 method (Client) ListBans(ctx context.Context, opts teamspeak.BanListOptions) ([]teamspeak.BanEntry, error)
@@ -201,6 +216,7 @@ method (Client) ListTempPasswords(ctx context.Context) ([]teamspeak.TempPassword
 method (*Client) LogValue() slog.Value
 method (Client) MoveChannel(ctx context.Context, cid teamspeak.ChannelID, parentID teamspeak.ChannelID, opts teamspeak.ChannelMoveOptions) error
 method (Client) MoveClient(ctx context.Context, clid teamspeak.ClientID, channelID teamspeak.ChannelID, opts teamspeak.ClientMoveOptions) error
+method (Client) MoveClients(ctx context.Context, clids []teamspeak.ClientID, channelID teamspeak.ChannelID, opts teamspeak.MoveClientsOptions) error
 method (*Client) MuteClients(ctx context.Context, clientIDs []teamspeak.ClientID) error
 method (*Client) OnChannelCreated(handler func(ChannelCreatedEvent)) func()
 method (*Client) OnChannelDeleted(handler func(ChannelDeletedEvent)) func()
@@ -233,6 +249,7 @@ method (*Client) OnVoiceData(handler func(VoiceDataEvent)) func()
 method (Client) PokeClient(ctx context.Context, clid teamspeak.ClientID, message string) error
 method (Client) RemoveAvatar(ctx context.Context) (bool, error)
 method (Client) RemoveClientFromServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, clientDBID teamspeak.ClientDBID) error
+method (Client) RemoveClientsFromServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, clientDBIDs []teamspeak.ClientDBID, opts teamspeak.ServerGroupMembersOptions) error
 method (Client) RemoveIcon(ctx context.Context, id teamspeak.IconID) error
 method (Client) RenameChannelGroup(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, name string) error
 method (Client) RenameFile(ctx context.Context, channelID teamspeak.ChannelID, oldName string, newName string, opts teamspeak.FileRenameOptions) error
