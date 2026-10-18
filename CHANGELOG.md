@@ -59,6 +59,8 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ### Fixed
 
+- The `CreateDirectory` documentation no longer says it creates missing
+  parents: both servers refuse a path under a missing parent with 2052.
 - The live suite waits a moment after each SSH query session, because a
   TeamSpeak 3 server still closing one drops the next connection before reading
   anything, which a WebQuery request made straight after would see as `EOF`.

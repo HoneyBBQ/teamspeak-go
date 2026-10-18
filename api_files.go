@@ -111,7 +111,9 @@ func (c *Commands) DeleteFile(ctx context.Context, channelID ChannelID, paths []
 	}, "cpw")
 }
 
-// CreateDirectory creates a directory, including any missing parents.
+// CreateDirectory creates a directory. The parent must exist: a path under a
+// missing one is refused with 2052, "file input/output error", on TeamSpeak 3
+// and 6.
 func (c *Commands) CreateDirectory(ctx context.Context, channelID ChannelID, dirname string, opts FileOptions) error {
 	return c.exec(ctx, "ftcreatedir", []param{
 		idArg("cid", channelID),
