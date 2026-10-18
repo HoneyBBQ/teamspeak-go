@@ -523,6 +523,7 @@ type batchHolder struct {
 
 // batchHolders makes the scratch holders and returns one batchHolder for each
 // of the five commands' targets.
+//
 //nolint:funlen // five holders, one after another
 func batchHolders(t *testing.T, c *serverquery.Client, join, subscribe teamspeak.Permission) []batchHolder {
 	t.Helper()

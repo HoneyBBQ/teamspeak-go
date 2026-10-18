@@ -18,19 +18,22 @@ import (
 // set is not an error. The server answers one status for the command and none
 // per permission, so the result is an error and nothing more.
 //
-// An error found while applying is another matter, and the flag matters there.
-// Measured on TeamSpeak 3 3.13.8, over raw ServerQuery and the voice protocol
-// alike, for AddChannelPermissions, AddClientPermissions and
-// AddChannelClientPermissions, with one permission locked by an
-// i_needed_modify_power_* permission of the caller's group above the caller's
-// power (2570, "insufficient permission modify power"): the rows are applied
-// in order.
-// Without ContinueOnError the first row that fails ends the command, so rows
-// before it are applied and rows after it are not; with it the rows that can
-// be applied are, and the answer is the error of a row that failed (one row
-// failed in every case measured, so which of several is not known). The
-// same was not measured for the group batches, whose accounts failed on every
-// row, nor on TeamSpeak 6.
+// An error found while applying is another matter, and there the rows are
+// applied in order. Measured on TeamSpeak 3 3.13.8 and 6 beta13.1 for every
+// batch but the by-type ones, over raw ServerQuery (TeamSpeak 3), SSH,
+// WebQuery and the voice protocol, with one permission locked by an
+// i_needed_modify_power_* of the caller's group above the caller's power (2570,
+// "insufficient permission modify power") and one free: the answer is that
+// error in every case, and without ContinueOnError the first row that fails
+// ends the command, so the rows before it are applied and the rows after it
+// are not. With ContinueOnError the rows that fail are skipped and the others
+// applied. Only the command's own error is returned, never which row it was
+// about. Only one row failed in each case measured, so which error is returned
+// when several fail is not known for these commands. The flag does nothing on
+// DeleteChannelPermissions, DeleteChannelClientPermissions and
+// DeleteClientPermissions, whose commands the server documents without it. The
+// by-type batches need an instance permission no ordinary account holds, so
+// the case could not be reached for them.
 //
 // Rows may name a permission by id in one row and by name in the next
 // (measured on TeamSpeak 3 over raw ServerQuery).
@@ -39,9 +42,9 @@ import (
 // whose command takes -continueonerror.
 type PermissionBatchOptions struct {
 	// ContinueOnError sends -continueonerror, which the server's documentation
-	// lists for the command: rows that fail for want of permission modify power
-	// no longer stop the ones after them. See the notes on the permission
-	// batches for what was measured.
+	// lists for the command: a row that fails for want of permission modify
+	// power is skipped and the ones after it are applied. See the notes on the
+	// permission batches for what was measured.
 	ContinueOnError bool
 }
 
