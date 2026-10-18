@@ -126,8 +126,26 @@ func sshVars(t *testing.T) (string, string, string) {
 			envSSHHost, envSSHPort, envSSHUser, envSSHPass)
 	}
 
+	// Registered before the test opens its session, so it runs after the
+	// session is closed.
+	t.Cleanup(sshTeardown)
+
 	return host + ":" + port, user, password
 }
+
+// sshTeardownTime is how long a TeamSpeak 3 server needs to finish closing an
+// SSH query session.
+const sshTeardownTime = 50 * time.Millisecond
+
+// sshTeardown waits out the end of an SSH session. A TeamSpeak 3 server that is
+// still closing one accepts the next connection, whatever its transport, and
+// closes it at once with nothing read, which a client reports as EOF before any
+// response (measured on 3.13.8: 4 to 14 requests in 100 sent straight after an
+// SSH close, none from 3 ms on). The server logs "Bad file descriptor" for them.
+// TeamSpeak 6 and a raw session's end do not do it. The server drops the
+// connection, so the suite waits rather than retrying: a retry cannot know the
+// command was not run.
+func sshTeardown() { time.Sleep(sshTeardownTime) }
 
 // assertCoreCommands runs the commands every transport serves, against the
 // server the caller opened: the test is about the transport and the session,
