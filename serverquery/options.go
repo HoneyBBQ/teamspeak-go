@@ -33,20 +33,6 @@ const (
 	CategoryBans Category = "bans"
 )
 
-// WithLogin sets the query account to log in with, as the raw protocol's
-// `login` command takes it.
-//
-// It applies only to [TCP]. An SSH session is already the query account, and a
-// WebQuery api key is its own login, so New returns ErrInvalidConfig if this is
-// set for either.
-//
-// Experimental: this package may change in a minor release.
-func WithLogin(name, password string) Option {
-	return optionFunc(func(c *Client) {
-		c.login = &login{name: name, password: password}
-	})
-}
-
 // WithServer selects the virtual server to address by id, as `use sid=N` does.
 // Without it the client selects no server: over TCP and SSH that addresses the
 // instance, which is enough for the instance-wide commands and not for the

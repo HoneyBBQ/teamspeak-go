@@ -51,8 +51,8 @@ type webDialer struct {
 // "http://127.0.0.1:10080", authenticating with apiKey.
 //
 // TeamSpeak 3 (3.12 and later, with `http` in its query_protocols) and
-// TeamSpeak 6 serve it. The api key replaces the query login, so
-// [WithLogin] is refused here; the server refuses `login` and `use` as
+// TeamSpeak 6 serve it. The api key replaces the query login, so there is
+// none to give; the server refuses `login` and `use` as
 // commands, and this transport answers `use` by addressing the server the
 // following requests name.
 //
@@ -126,9 +126,9 @@ func (d webDialer) SupportsNotifications() bool { return false }
 // String names the transport by its base URL, never the api key.
 func (d webDialer) String() string { return "web " + d.baseURL }
 
-// needsLogin reports that the query login is not a command here: the api key
+// credentials reports that there is no login command here: the api key
 // is the login.
-func (d webDialer) needsLogin() bool { return false }
+func (d webDialer) credentials() *login { return nil }
 
 // needsQuit reports that there is no session to end: WebQuery has none, and
 // refuses `quit` with an out-of-scope error.

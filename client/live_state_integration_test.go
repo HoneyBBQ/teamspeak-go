@@ -136,9 +136,8 @@ func requireAdmin(t *testing.T) *serverquery.Client {
 	var opts []serverquery.Option
 	switch {
 	case os.Getenv("TEAMSPEAK_QUERY_KIND") == "tcp" && os.Getenv("TEAMSPEAK_QUERY_HOST") != "":
-		dialer = serverquery.TCP(os.Getenv("TEAMSPEAK_QUERY_HOST") + ":" + os.Getenv("TEAMSPEAK_QUERY_PORT"))
-		opts = append(opts, serverquery.WithLogin(
-			os.Getenv("TEAMSPEAK_QUERY_LOGIN_NAME"), os.Getenv("TEAMSPEAK_QUERY_LOGIN_PASSWORD")))
+		dialer = serverquery.TCPLogin(os.Getenv("TEAMSPEAK_QUERY_HOST")+":"+os.Getenv("TEAMSPEAK_QUERY_PORT"),
+			os.Getenv("TEAMSPEAK_QUERY_LOGIN_NAME"), os.Getenv("TEAMSPEAK_QUERY_LOGIN_PASSWORD"))
 	case os.Getenv("TEAMSPEAK_QUERY_KIND") == "ssh" && os.Getenv("TEAMSPEAK_QUERY_SSH_HOST") != "":
 		// The host key is verified: against the caller's known_hosts file, or
 		// else against the key the server presents.

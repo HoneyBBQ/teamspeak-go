@@ -21,10 +21,10 @@ type Dialer interface {
 	// String names the transport and where it points, for a log line. It
 	// never includes a password.
 	String() string
-	// needsLogin reports whether the query login is a command on this
-	// transport. It is the raw protocol's, where SSH logs in as the query
-	// account and WebQuery's api key is the login.
-	needsLogin() bool
+	// credentials returns the query login to send as a command once the
+	// connection is open, or nil for none. Only the raw protocol has one: SSH
+	// logs in as the query account and WebQuery's api key is the login.
+	credentials() *login
 	// needsQuit reports whether the session ends with a `quit` command. The
 	// transports that hold a session have one; WebQuery, which has none, is
 	// refused it.

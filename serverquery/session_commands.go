@@ -16,7 +16,7 @@ import (
 // here, mid-session.
 //
 // They act on the connection that is open and nothing else. The options a
-// reconnect starts from — WithLogin, WithServer, WithEvents — are not changed
+// reconnect starts from — the login of [TCPLogin], WithServer, WithEvents — are not changed
 // by them, so a reconnect does not repeat a Login, a Use or a
 // RegisterNotifications made by hand: it starts over from the options. A
 // caller that wants the new state to survive a drop sets it as the options.
@@ -56,7 +56,7 @@ type UseOptions struct {
 }
 
 // Login logs the connection in as a query account, with the raw protocol's
-// `login`. Connect runs the same command from WithLogin.
+// `login`. Connect runs the same command for a [TCPLogin] dialer.
 //
 // The server answers a wrong name or password with 520, and an account that may
 // not log in with 2568. Over SSH the session is logged in already, and over

@@ -29,7 +29,10 @@ type TCPOptions struct {
 // 3 serves it.
 type tcpDialer struct {
 	dial func(ctx context.Context, addr string) (net.Conn, error)
-	addr string
+	// account is the query login sent after the connection opens; nil sends
+	// none.
+	account *login
+	addr    string
 }
 
 // TCP returns a Dialer for the raw ServerQuery protocol at addr, a host:port
@@ -37,12 +40,36 @@ type tcpDialer struct {
 //
 // It is TeamSpeak 3's transport: TeamSpeak 6 dropped raw ServerQuery for
 // WebQuery and SSH. Unless the address is in the server's query allowlist, the
-// session starts unauthenticated, so [WithLogin] is needed before any command
-// that requires a query account.
+// session starts unauthenticated, and most commands need a query account: use
+// [TCPLogin] to log in.
 //
 // Experimental: this package may change in a minor release.
 func TCP(addr string) Dialer {
 	return TCPWith(addr, TCPOptions{})
+}
+
+// TCPLogin returns a Dialer for the raw protocol at addr that logs in as name
+// with password, with the `login` command, every time it connects — a
+// reconnect included. The credentials are positional as [SSH] and [Web] take
+// theirs.
+//
+// An empty name is refused by [New] with [ErrInvalidConfig]. The password never
+// appears in [Dialer.String].
+//
+// Experimental: this package may change in a minor release.
+func TCPLogin(addr, name, password string) Dialer {
+	return TCPLoginWith(addr, name, password, TCPOptions{})
+}
+
+// TCPLoginWith is [TCPLogin] with options applied; it is [TCPLogin] when
+// options is the zero value.
+//
+// Experimental: this package may change in a minor release.
+func TCPLoginWith(addr, name, password string, options TCPOptions) Dialer {
+	d := tcpWith(addr, options)
+	d.account = &login{name: name, password: password}
+
+	return d
 }
 
 // TCPWith returns a raw-protocol dialer with options applied; it is [TCP] when
@@ -51,6 +78,10 @@ func TCP(addr string) Dialer {
 //
 // Experimental: this package may change in a minor release.
 func TCPWith(addr string, options TCPOptions) Dialer {
+	return tcpWith(addr, options)
+}
+
+func tcpWith(addr string, options TCPOptions) tcpDialer {
 	dial := options.Dial
 	if dial == nil {
 		dial = defaultTCPDial
@@ -72,15 +103,21 @@ func (d tcpDialer) SupportsNotifications() bool { return true }
 
 func (d tcpDialer) String() string { return "tcp " + d.addr }
 
-// needsLogin reports that the query login is a command here.
-func (d tcpDialer) needsLogin() bool { return true }
+// credentials returns the login to send, nil for a dialer made without one.
+func (d tcpDialer) credentials() *login { return d.account }
 
 // needsQuit reports that the session ends with a `quit` command.
 func (d tcpDialer) needsQuit() bool { return true }
 
-// validate accepts the dialer: there is no host key to check over raw TCP, and
-// no configuration it could be missing.
-func (d tcpDialer) validate() error { return nil }
+// validate refuses a login with no name; there is no host key to check over
+// raw TCP and nothing else it could be missing.
+func (d tcpDialer) validate() error {
+	if d.account != nil && d.account.name == "" {
+		return fmt.Errorf("%w: TCPLogin needs a login name", ErrInvalidConfig)
+	}
+
+	return nil
+}
 
 func (d tcpDialer) open(ctx context.Context) (engine.Transport, error) {
 	conn, err := d.dial(ctx, d.addr)

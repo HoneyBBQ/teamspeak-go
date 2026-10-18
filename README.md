@@ -524,8 +524,8 @@ read the changelog before depending on it.
 ```go
 import "github.com/honeybbq/teamspeak-go/serverquery"
 
-c, err := serverquery.New(serverquery.TCP("127.0.0.1:10011"),
-	serverquery.WithLogin("serveradmin", password),
+c, err := serverquery.New(
+	serverquery.TCPLogin("127.0.0.1:10011", "serveradmin", password),
 	serverquery.WithServer(1),
 	serverquery.WithNickname("bot"),
 )
@@ -547,9 +547,9 @@ which one a program can use:
 
 | Transport | Where | Server | Login | Events |
 |---|---|---|---|---|
-| `TCP(addr)` | 10011 | TeamSpeak 3 only | `WithLogin` | yes |
-| `SSHWith(addr, user, password, SSHOptions{...})` | 10022 | TeamSpeak 3 (3.3 and later) and 6, off by default | the SSH login; `WithLogin` is refused | yes |
-| `Web(baseURL, apiKey)` | 10080 | TeamSpeak 3 (3.12 and later) and 6 | the api key; `WithLogin` is refused | **none** |
+| `TCPLogin(addr, name, password)` (`TCP(addr)` for none) | 10011 | TeamSpeak 3 only | the `login` command | yes |
+| `SSHWith(addr, user, password, SSHOptions{...})` | 10022 | TeamSpeak 3 (3.3 and later) and 6, off by default | the SSH login | yes |
+| `Web(baseURL, apiKey)` | 10080 | TeamSpeak 3 (3.12 and later) and 6 | the api key | **none** |
 
 TeamSpeak 6 dropped raw ServerQuery, so a TS6 server has no 10011 to connect
 to. TeamSpeak 3 serves SSH and WebQuery as well, but only the raw port is on

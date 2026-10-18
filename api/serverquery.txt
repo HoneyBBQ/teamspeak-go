@@ -23,6 +23,8 @@ func SSHGuest(addr string) Dialer
 func SSHGuestWith(addr string, options SSHOptions) Dialer
 func SSHWith(addr string, user string, password string, options SSHOptions) Dialer
 func TCP(addr string) Dialer
+func TCPLogin(addr string, name string, password string) Dialer
+func TCPLoginWith(addr string, name string, password string, options TCPOptions) Dialer
 func TCPWith(addr string, options TCPOptions) Dialer
 func Web(baseURL string, apiKey string) Dialer
 func WebGuest(baseURL string) Dialer
@@ -31,7 +33,6 @@ func WebWith(baseURL string, apiKey string, options WebOptions) Dialer
 func WithCommandMiddleware(mw ...teamspeak.CommandMiddleware) Option
 func WithEvents(categories ...Category) Option
 func WithLogger(logger *slog.Logger) Option
-func WithLogin(name string, password string) Option
 func WithNickname(nickname string) Option
 func WithReconnect(options teamspeak.ReconnectOptions) Option
 func WithServer(id teamspeak.ServerID) Option

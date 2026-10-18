@@ -5,8 +5,8 @@
 // Create a client with [New] and a Dialer from [TCP], [SSH] or [Web], then
 // [Client.Connect]:
 //
-//	c, err := serverquery.New(serverquery.TCP("127.0.0.1:10011"),
-//		serverquery.WithLogin("serveradmin", password),
+//	c, err := serverquery.New(
+//		serverquery.TCPLogin("127.0.0.1:10011", "serveradmin", password),
 //		serverquery.WithServer(1))
 //	err = c.Connect(ctx)
 //	defer c.Disconnect(context.WithoutCancel(ctx))
@@ -22,7 +22,7 @@
 // things:
 //
 //   - [TCP] is the raw protocol, on port 10011, which only TeamSpeak 3 serves.
-//     It needs `login` unless the address is already allowlisted, and it
+//     It needs `login` ([TCPLogin]) unless the address is already allowlisted, and it
 //     delivers notifications.
 //   - [SSH] carries the same session on port 10022. TeamSpeak 3 (3.3 and later)
 //     and TeamSpeak 6 both serve it, off by default: a TS3 server needs
