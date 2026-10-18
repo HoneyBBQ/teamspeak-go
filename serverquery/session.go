@@ -103,6 +103,17 @@ func (c *Client) ServerFamily() teamspeak.ServerFamily {
 	return c.family
 }
 
+// ServerVersion reports the version string the server answered the version
+// command with, such as "3.13.8 [Build: 1655727713]"; "" before connecting.
+//
+// Experimental: this package may change in a minor release.
+func (c *Client) ServerVersion() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.version
+}
+
 // String describes the client by its transport and status. It never includes
 // a password or an api key: the dialer's own String omits both.
 //
@@ -316,7 +327,7 @@ func (c *Client) handshake(ctx context.Context, eng *engine.Client, opts handsha
 		return err
 	}
 
-	family, err := c.readVersion(ctx, eng)
+	family, version, err := c.readVersion(ctx, eng)
 	if err != nil {
 		return c.wrapHandshake("version", err)
 	}
@@ -335,6 +346,7 @@ func (c *Client) handshake(ctx context.Context, eng *engine.Client, opts handsha
 
 	c.mu.Lock()
 	c.family = family
+	c.version = version
 	c.mu.Unlock()
 
 	return nil
@@ -400,17 +412,17 @@ func (c *Client) wrapHandshake(step string, err error) error {
 }
 
 // readVersion asks the server what it is and returns the family its version
-// names.
-func (c *Client) readVersion(ctx context.Context, eng *engine.Client) (teamspeak.ServerFamily, error) {
+// names, and the version as the server wrote it.
+func (c *Client) readVersion(ctx context.Context, eng *engine.Client) (teamspeak.ServerFamily, string, error) {
 	rows, err := eng.Exec(ctx, "version")
 	if err != nil {
-		return teamspeak.ServerFamilyUnknown, err
+		return teamspeak.ServerFamilyUnknown, "", err
 	}
 	if len(rows) == 0 {
-		return teamspeak.ServerFamilyUnknown, nil
+		return teamspeak.ServerFamilyUnknown, "", nil
 	}
 
-	return teamspeak.ServerFamilyForVersion(rows[0]["version"]), nil
+	return teamspeak.ServerFamilyForVersion(rows[0]["version"]), rows[0]["version"], nil
 }
 
 // readSelf records which client this connection is. The self-move
