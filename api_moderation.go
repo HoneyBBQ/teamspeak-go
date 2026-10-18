@@ -197,9 +197,14 @@ type BanClientOptions struct {
 // BanClient bans a connected client and returns the id of every ban the
 // server reported creating. The server bans the client's uid and IP address,
 // and its MyTeamSpeak id when it has one: over ServerQuery it answers one banid
-// each, two or three in all. Over the voice protocol TeamSpeak 3 and 6 answer
-// nothing, measured, so the result is empty though the bans are made;
-// ListBans finds their ids.
+// each: measured on TeamSpeak 3 3.13.8 and 6 beta13.1, two (the uid and the
+// address), and none for a MyTeamSpeak id when the client has none. TeamSpeak 6
+// has answered with no banid at all, though both bans were made (once in about
+// a hundred calls over SSH and WebQuery). Over the voice protocol both servers
+// answer nothing, so the result is empty though the bans are made. An empty
+// result therefore does not mean no ban: ListBans finds what was made, and a
+// caller that must undo it lists the bans before and after rather than relying
+// on the ids, since a ban on the address refuses every later connection from it.
 func (c *Commands) BanClient(ctx context.Context, clid ClientID, opts BanClientOptions) ([]BanID, error) {
 	rows, err := c.query(ctx, "banclient", []param{
 		idArg("clid", clid),
