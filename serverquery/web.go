@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -15,6 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/errcode"
 	engine "github.com/honeybbq/teamspeak-go/internal/serverquery"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
@@ -313,18 +316,97 @@ func (w *webQuery) request(ctx context.Context, path string, body []byte) (*webA
 	// A number keeps the digits the server sent rather than becoming a float:
 	// an id is read back as text, and 1e+06 is not one.
 	decoder.UseNumber()
-	err = decoder.Decode(&answer)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s answered HTTP %d, not WebQuery JSON: %w", ErrDial, path, resp.StatusCode, err)
+	decodeErr := decoder.Decode(&answer)
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, httpFailure(path, resp.StatusCode, &answer, decodeErr)
 	}
-	// WebQuery answers HTTP 200 for most refusals and 400 for some, and a
-	// wrong key is 401; the status code inside the body is what decides, so a
-	// missing one means this is not a WebQuery answer at all.
+	if decodeErr != nil {
+		return nil, fmt.Errorf("%w: %s answered HTTP %d, not WebQuery JSON: %w", ErrDial, path, resp.StatusCode, decodeErr)
+	}
+	// The status code inside the body is what decides, so a missing one means
+	// this is not a WebQuery answer at all.
 	if answer.Status.Code == nil {
 		return nil, fmt.Errorf("%w: %s answered HTTP %d with no command status", ErrDial, path, resp.StatusCode)
 	}
 
 	return &answer, nil
+}
+
+// httpFailure is the error for an answer whose HTTP status is not 2xx. WebQuery
+// answers a refusal with 400 or 401 and a body that says why, and the body's
+// status is kept as the server's own error, so a caller matching its code still
+// does. An answer that is not WebQuery's, such as a proxy's 502, is also an
+// [ErrDial].
+func httpFailure(path string, status int, answer *webAnswer, decodeErr error) error {
+	failure := &WebQueryHTTPError{Status: status}
+	if decodeErr == nil && answer.Status.Code != nil {
+		code, err := answer.Status.Code.Int64()
+		if err == nil && code >= 0 && code <= math.MaxUint32 {
+			failure.Code = errcode.Code(code)
+			failure.Message = answer.Status.Message
+			failure.ExtraMessage = answer.Status.ExtraMessage
+			failure.hasCode = true
+		}
+	}
+	if failure.hasCode {
+		return fmt.Errorf("%s: %w", path, failure)
+	}
+
+	return fmt.Errorf("%w: %s: %w", ErrDial, path, failure)
+}
+
+// WebQueryHTTPError is a WebQuery request the server answered with an HTTP
+// status outside 2xx. Match it with errors.As.
+//
+// WebQuery answers most refusals with 200 and the code in the body, which is a
+// [*teamspeak.ServerError] as on every transport. It answers some with an HTTP
+// error as well: 401 for a wrong, missing or out-of-scope api key, and 400 for
+// a body it cannot read. When the body carries the server's status, the error
+// holds it as Code, Message and ExtraMessage, and wraps the same
+// [*teamspeak.ServerError], so errors.Is on an [errcode.Code] and errors.As to
+// a [*teamspeak.ServerError] match as they do for a 200. An answer with no
+// WebQuery body, such as a proxy's 502 or 404, has only Status, and the error
+// also wraps [ErrDial].
+//
+// Experimental: this package may change in a minor release.
+type WebQueryHTTPError struct {
+	// Message is the status message of the body, "" when it carried none.
+	Message string
+	// ExtraMessage is the body's extra_message, "" when it carried none.
+	ExtraMessage string
+	// Status is the HTTP status code of the answer.
+	Status int
+	// Code is the server's error code from the body. It is meaningful only when
+	// HasCode reports true.
+	Code    errcode.Code
+	hasCode bool
+}
+
+// HasCode reports whether the answer carried a WebQuery status, which Code,
+// Message and ExtraMessage then hold.
+func (e *WebQueryHTTPError) HasCode() bool { return e.hasCode }
+
+// Error describes the status and, when there is one, the server's refusal.
+func (e *WebQueryHTTPError) Error() string {
+	text := fmt.Sprintf("WebQuery answered HTTP %d", e.Status)
+	if e.hasCode {
+		text += ": " + e.serverError().Error()
+	}
+
+	return text
+}
+
+// Unwrap returns the server's error when the body carried one.
+func (e *WebQueryHTTPError) Unwrap() error {
+	if !e.hasCode {
+		return nil
+	}
+
+	return e.serverError()
+}
+
+func (e *WebQueryHTTPError) serverError() *teamspeak.ServerError {
+	return &teamspeak.ServerError{Code: e.Code, Message: e.Message, ExtraMessage: e.ExtraMessage}
 }
 
 // push hands an answer's rows and its error line to the reader, in that order.

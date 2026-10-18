@@ -42,6 +42,22 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 - `Commands.ListFilesRecursive` lists a directory and every directory under it
   and returns each entry with its full path (`FileTreeEntry`); `MaxDepth` bounds
   the walk as `find -maxdepth` does.
+- `serverquery.Custom` makes a `Dialer` from a function that opens a
+  `serverquery.Transport`, the three-method line carrier (`WriteLine`,
+  `ReadLine`, `Close`) the client already ran over, so a tunnel, a proxy or an
+  in-memory pipe can carry a session. The client sends no login over it and
+  `quit` on Disconnect; a nil open function is `ErrInvalidConfig` and one that
+  fails is `ErrDial` wrapping its error. Measured on TeamSpeak 3.13.8 over a
+  caller's TCP connection, and on 3.13.8 and 6 beta13.1 over a caller's own
+  WebQuery transport.
+- `serverquery.WebQueryHTTPError` (`Status`, and `Code`, `Message` and
+  `ExtraMessage` when the body has a WebQuery status) is what the web dialer
+  returns for an answer with an HTTP status outside 2xx, found with
+  `errors.As`. Measured: 401 with code 5122 for a wrong key, 5120 outside the
+  guest scope, 5124 for a refused guest, on both servers. It wraps the same
+  `*teamspeak.ServerError` as before, so matching a code or `ErrNoGuestAccess`
+  is unchanged; an answer with no WebQuery body (a proxy's 502) has only the
+  status and still wraps `ErrDial`.
 
 ## v1.0.0-beta.10 (2026-10-18)
 
