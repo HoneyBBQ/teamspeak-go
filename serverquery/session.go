@@ -719,7 +719,8 @@ func (c *Client) handleClientEnter(cmd *wire.Command) {
 
 	// The event's record is its own: the last handler gets the event itself, and
 	// must not be able to edit the client list through it.
-	evt := teamspeak.ClientEnterEvent{ClientEntry: entry.Clone()}
+	from, reason := servernotify.ClientEnterOrigin(cmd.Params)
+	evt := teamspeak.ClientEnterEvent{ClientEntry: entry.Clone(), FromChannelID: from, Reason: reason}
 	c.events.Push(func() {
 		c.subs.clientEnter.Deliver(c.logger, "ClientEnterEvent", evt, cloneEnterEvent)
 	})

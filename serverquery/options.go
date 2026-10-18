@@ -31,6 +31,12 @@ const (
 	// CategoryBans is "bans": ban events. Accepted on TeamSpeak 6 and refused
 	// on TeamSpeak 3, so it is opt-in.
 	CategoryBans Category = "bans"
+	// CategoryTokenUsed is "tokenused": a client redeemed a privilege key. Both
+	// TeamSpeak 3.13.8 and 6.0.0-beta13.1 accept it and then send
+	// notifytokenused with the client, the key and its two ids. The key is a
+	// credential, so the notification stays a NotificationEvent and the category
+	// is never registered by default: name it in WithEvents to receive it.
+	CategoryTokenUsed Category = "tokenused"
 )
 
 // WithServer selects the virtual server to address by id, as `use sid=N` does.

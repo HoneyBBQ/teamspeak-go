@@ -498,3 +498,71 @@ func TestClientDescriptionDoesNotRaceARename(t *testing.T) {
 		t.Errorf("String() = %s, want the latest nickname", got)
 	}
 }
+
+// Recorded from TeamSpeak 6.0.0-beta13.1: the enter event carries where the
+// client came from and why it came into view, apart from the client's record.
+func TestHandleClientEnterView_CarriesTheOriginAndReason(t *testing.T) {
+	c := newTestClient(t)
+	entered := make(chan ClientEnterEvent, 2)
+	c.OnClientEnter(func(e ClientEnterEvent) { entered <- e })
+
+	c.handleClientEnterView(c.handler, wire.ParseCommand(
+		"notifycliententerview cfid=0 ctid=6 reasonid=2 clid=12 client_nickname=ProbeA client_type=0"+
+			" client_servergroups=8 client_unique_identifier=u client_talk_request=1792335264"))
+	c.handleClientEnterView(c.handler, wire.ParseCommand(
+		"notifycliententerview cfid=1 ctid=6 reasonid=1 clid=13 client_nickname=ProbeB client_type=0"))
+
+	first, second := <-entered, <-entered
+	if first.FromChannelID != 0 || first.Reason != teamspeak.ReasonSubscription || first.ChannelID != 6 {
+		t.Errorf("subscription enter = from %d, %v, channel %d", first.FromChannelID, first.Reason, first.ChannelID)
+	}
+	if !first.TalkRequestedAt.Equal(time.Unix(1792335264, 0)) {
+		t.Errorf("TalkRequestedAt = %v", first.TalkRequestedAt)
+	}
+	if second.FromChannelID != 1 || second.Reason != teamspeak.ReasonMoved {
+		t.Errorf("moved enter = from %d, %v", second.FromChannelID, second.Reason)
+	}
+	c.mu.Lock()
+	stored := c.clients[12]
+	c.mu.Unlock()
+	if stored.ID != 12 || !stored.TalkRequestedAt.Equal(time.Unix(1792335264, 0)) {
+		t.Errorf("the roster holds %+v", stored)
+	}
+}
+
+func TestHandleClientMovedAndLeft_CarryTheChannels(t *testing.T) {
+	c := newTestClient(t)
+	moved := make(chan ClientMovedEvent, 1)
+	left := make(chan ClientLeaveEvent, 1)
+	c.OnClientMoved(func(e ClientMovedEvent) { moved <- e })
+	c.OnClientLeave(func(e ClientLeaveEvent) { left <- e })
+
+	c.handleClientMoved(c.handler, wire.ParseCommand(
+		"notifyclientmoved cfid=1 clid=13 ctid=6 reasonid=1 invokerid=11 invokername=a invokeruid=u"))
+	c.handleClientLeftView(c.handler, wire.ParseCommand(
+		"notifyclientleftview cfid=6 clid=13 ctid=0 reasonid=8 reasonmsg=Shutdown"))
+
+	if m := <-moved; m.FromChannelID != 1 || m.TargetChannelID != 6 {
+		t.Errorf("move = %+v", m)
+	}
+	if l := <-left; l.FromChannelID != 6 || l.TargetChannelID != 0 {
+		t.Errorf("leave = %+v", l)
+	}
+}
+
+func TestOnClientChatClosed_Delivers(t *testing.T) {
+	c := newTestClient(t)
+	closed := make(chan ClientChatClosedEvent, 1)
+	c.OnClientChatClosed(func(e ClientChatClosedEvent) { closed <- e })
+
+	c.handleNotification(c.handler, wire.ParseCommand("notifyclientchatclosed clid=34 cluid=Xuf5umNYOFZET4cIpdhfqE1qbpA="))
+
+	select {
+	case e := <-closed:
+		if e.ClientID != 34 || e.UID != "Xuf5umNYOFZET4cIpdhfqE1qbpA=" {
+			t.Errorf("event = %+v", e)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("OnClientChatClosed not called")
+	}
+}

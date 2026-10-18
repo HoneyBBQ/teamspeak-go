@@ -57,6 +57,19 @@ type VirtualServer struct {
 	// Autostart reports a server that starts with the instance
 	// (virtualserver_autostart); false with ServerListOptions.Short.
 	Autostart bool
+	// UUID is the server's uuid (virtualserver_uuid); empty when the server
+	// sends none: TeamSpeak 6 does, TeamSpeak 3 does not.
+	UUID string
+	// GuestCanCreateChannels reports whether guests may create channels
+	// (guest_can_create_channels); nil when the server sends none, as
+	// TeamSpeak 3 does not.
+	GuestCanCreateChannels *bool
+	// GuestCanCreateHomebase reports whether guests may create a homebase
+	// (guest_can_create_homebase); nil when the server sends none.
+	GuestCanCreateHomebase *bool
+	// WeblistEnabled reports whether the server is listed on the web server
+	// list (virtualserver_weblist_enabled); nil when the server sends none.
+	WeblistEnabled *bool
 }
 
 func parseVirtualServer(row map[string]string) VirtualServer {
@@ -72,6 +85,11 @@ func parseVirtualServer(row map[string]string) VirtualServer {
 		QueryClientsOnline: fieldInt32(row, "virtualserver_queryclientsonline"),
 		MaxClients:         fieldInt32(row, "virtualserver_maxclients"),
 		Autostart:          fieldBool(row, "virtualserver_autostart"),
+
+		UUID:                   fieldStr(row, "virtualserver_uuid"),
+		GuestCanCreateChannels: fieldOptBool(row, "guest_can_create_channels"),
+		GuestCanCreateHomebase: fieldOptBool(row, "guest_can_create_homebase"),
+		WeblistEnabled:         fieldOptBool(row, "virtualserver_weblist_enabled"),
 	}
 }
 

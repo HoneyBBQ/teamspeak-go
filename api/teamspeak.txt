@@ -205,6 +205,9 @@ field Channel.NamePhonetic string
 field Channel.IsForcedSilence *bool
 field Channel.BannerURL string
 field Channel.BannerMode *int32
+field Channel.EmptyFor *time.Duration
+field Channel.StorageQuota *uint64
+field Channel.FilePath string
 method (Channel) Clone() Channel
 type ChannelChanges struct
 field ChannelChanges.UID *ChannelUID
@@ -236,6 +239,9 @@ field ChannelChanges.NamePhonetic *string
 field ChannelChanges.IsForcedSilence *bool
 field ChannelChanges.BannerURL *string
 field ChannelChanges.BannerMode *int32
+field ChannelChanges.EmptyFor *time.Duration
+field ChannelChanges.StorageQuota *uint64
+field ChannelChanges.FilePath *string
 method (ChannelChanges) Apply(ch Channel) Channel
 type ChannelCreateOptions struct
 field ChannelCreateOptions.Order *ChannelID
@@ -390,6 +396,7 @@ field ClientChanges.IsChannelCommander *bool
 field ClientChanges.IsPrioritySpeaker *bool
 field ClientChanges.TalkPower *int32
 field ClientChanges.IsRequestingTalk *bool
+field ClientChanges.TalkRequestedAt *time.Time
 field ClientChanges.TalkRequestMessage *string
 field ClientChanges.Description *string
 field ClientChanges.MetaData *string
@@ -419,6 +426,9 @@ field ClientChannelGroupChangedEvent.ChannelGroupID ChannelGroupID
 field ClientChannelGroupChangedEvent.ChannelGroupInheritedChannelID ChannelID
 field ClientChannelGroupChangedEvent.ClientID ClientID
 field ClientChannelGroupChangedEvent.InvokerID ClientID
+type ClientChatClosedEvent struct
+field ClientChatClosedEvent.UID UID
+field ClientChatClosedEvent.ClientID ClientID
 type ClientChatComposingEvent struct
 field ClientChatComposingEvent.UID UID
 field ClientChatComposingEvent.ClientID ClientID
@@ -448,8 +458,15 @@ field ClientDatabaseEntry.Description string
 field ClientDatabaseEntry.LastIP string
 field ClientDatabaseEntry.DatabaseID ClientDBID
 field ClientDatabaseEntry.TotalConnections uint64
+field ClientDatabaseEntry.LoginName string
+field ClientDatabaseEntry.AvatarHash string
+field ClientDatabaseEntry.TotalBytesUploaded *uint64
+field ClientDatabaseEntry.TotalBytesDownloaded *uint64
+field ClientDatabaseEntry.MonthBytesUploaded *uint64
+field ClientDatabaseEntry.MonthBytesDownloaded *uint64
 type ClientDatabaseName struct
 field ClientDatabaseName.Name string
+field ClientDatabaseName.UID UID
 field ClientDatabaseName.DatabaseID ClientDBID
 type ClientDatabasePageOptions struct
 field ClientDatabasePageOptions.Start int
@@ -459,6 +476,8 @@ field ClientEditOptions.Description *string
 field ClientEditOptions.IsTalker *bool
 type ClientEnterEvent struct
 embed ClientEnterEvent ClientEntry
+field ClientEnterEvent.FromChannelID ChannelID
+field ClientEnterEvent.Reason Reason
 method (ClientEnterEvent) Clone() ClientEnterEvent
 type ClientEntry struct
 field ClientEntry.Created time.Time
@@ -485,6 +504,7 @@ field ClientEntry.IsChannelCommander *bool
 field ClientEntry.IsPrioritySpeaker *bool
 field ClientEntry.TalkPower *int32
 field ClientEntry.IsRequestingTalk *bool
+field ClientEntry.TalkRequestedAt time.Time
 field ClientEntry.TalkRequestMessage string
 field ClientEntry.Description string
 field ClientEntry.MetaData string
@@ -521,6 +541,8 @@ field ClientLeaveEvent.InvokerUID UID
 field ClientLeaveEvent.Reason Reason
 field ClientLeaveEvent.ClientID ClientID
 field ClientLeaveEvent.InvokerID ClientID
+field ClientLeaveEvent.FromChannelID ChannelID
+field ClientLeaveEvent.TargetChannelID ChannelID
 type ClientListOptions struct
 field ClientListOptions.OmitUID bool
 field ClientListOptions.Away bool
@@ -544,6 +566,7 @@ field ClientMovedEvent.InvokerName string
 field ClientMovedEvent.InvokerUID UID
 field ClientMovedEvent.ReasonMessage string
 field ClientMovedEvent.TargetChannelID ChannelID
+field ClientMovedEvent.FromChannelID ChannelID
 field ClientMovedEvent.Reason Reason
 field ClientMovedEvent.ClientID ClientID
 field ClientMovedEvent.InvokerID ClientID
@@ -563,6 +586,11 @@ type ClientServerGroupRemovedEvent struct
 embed ClientServerGroupRemovedEvent ClientServerGroupChange
 type ClientType int
 method (ClientType) String() string
+type ClientUIDInfo struct
+field ClientUIDInfo.UID UID
+field ClientUIDInfo.Nickname string
+field ClientUIDInfo.MyTSID string
+field ClientUIDInfo.ClientID ClientID
 type ClientUpdateOptions struct
 field ClientUpdateOptions.Nickname *string
 field ClientUpdateOptions.NicknamePhonetic *string
@@ -657,6 +685,7 @@ method (*Commands) GetClientNameByDBID(ctx context.Context, clientDBID ClientDBI
 method (*Commands) GetClientNameByUID(ctx context.Context, uid UID) (ClientDatabaseName, error)
 method (*Commands) GetClientProperties(ctx context.Context, clid ClientID) (Properties, error)
 method (*Commands) GetClientUIDByID(ctx context.Context, clid ClientID) (UID, error)
+method (*Commands) GetClientUIDInfoByID(ctx context.Context, clid ClientID) (ClientUIDInfo, error)
 method (*Commands) GetConnectionInfo(ctx context.Context) (ServerConnectionInfo, error)
 method (*Commands) GetFileInfo(ctx context.Context, channelID ChannelID, path string, opts FileOptions) (FileEntry, error)
 method (*Commands) GetHostInfo(ctx context.Context) (Properties, error)
@@ -1079,6 +1108,7 @@ field TempPassword.Starts time.Time
 field TempPassword.Ends time.Time
 field TempPassword.Password string
 field TempPassword.Description string
+field TempPassword.TargetChannelPassword string
 field TempPassword.TargetChannelID ChannelID
 field TempPassword.CreatorNickname string
 field TempPassword.CreatorUID UID
@@ -1114,6 +1144,10 @@ field VirtualServer.QueryClientsOnline int32
 field VirtualServer.MaxClients int32
 field VirtualServer.Port uint16
 field VirtualServer.Autostart bool
+field VirtualServer.UUID string
+field VirtualServer.GuestCanCreateChannels *bool
+field VirtualServer.GuestCanCreateHomebase *bool
+field VirtualServer.WeblistEnabled *bool
 type VoiceDataEvent struct
 field VoiceDataEvent.Data []byte
 field VoiceDataEvent.ClientID ClientID
@@ -1129,3 +1163,5 @@ field WhoAmI.ChannelID ChannelID
 field WhoAmI.DatabaseID ClientDBID
 field WhoAmI.ServerPort uint16
 field WhoAmI.ClientID ClientID
+field WhoAmI.ServerUUID string
+field WhoAmI.OriginServerID ServerID

@@ -6,6 +6,7 @@ const CategoryServer Category = "server"
 const CategoryTextChannel Category = "textchannel"
 const CategoryTextPrivate Category = "textprivate"
 const CategoryTextServer Category = "textserver"
+const CategoryTokenUsed Category = "tokenused"
 var ErrAuth error
 var ErrDial error
 var ErrHostKey error
@@ -111,6 +112,7 @@ method (Client) GetClientNameByDBID(ctx context.Context, clientDBID teamspeak.Cl
 method (Client) GetClientNameByUID(ctx context.Context, uid teamspeak.UID) (teamspeak.ClientDatabaseName, error)
 method (Client) GetClientProperties(ctx context.Context, clid teamspeak.ClientID) (teamspeak.Properties, error)
 method (Client) GetClientUIDByID(ctx context.Context, clid teamspeak.ClientID) (teamspeak.UID, error)
+method (Client) GetClientUIDInfoByID(ctx context.Context, clid teamspeak.ClientID) (teamspeak.ClientUIDInfo, error)
 method (Client) GetConnectionInfo(ctx context.Context) (teamspeak.ServerConnectionInfo, error)
 method (Client) GetFileInfo(ctx context.Context, channelID teamspeak.ChannelID, path string, opts teamspeak.FileOptions) (teamspeak.FileEntry, error)
 method (Client) GetHostInfo(ctx context.Context) (teamspeak.Properties, error)

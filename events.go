@@ -7,7 +7,8 @@ package teamspeak
 // ChannelCreatedEvent, ChannelEditedEvent, ChannelMovedEvent,
 // ChannelDeletedEvent, ChannelDescriptionChangedEvent,
 // ChannelPasswordChangedEvent, ServerEditedEvent, ChannelSubscribedEvent,
-// ChannelUnsubscribedEvent, PluginCommandEvent or ClientChatComposingEvent.
+// ChannelUnsubscribedEvent, PluginCommandEvent, ClientChatComposingEvent or
+// ClientChatClosedEvent.
 // Code that receives events of any kind tells them apart with a type switch.
 //
 // The set is closed — the method is unexported — because a client delivers
@@ -44,6 +45,7 @@ func (ChannelSubscribedEvent) serverEvent()         {}
 func (ChannelUnsubscribedEvent) serverEvent()       {}
 func (PluginCommandEvent) serverEvent()             {}
 func (ClientChatComposingEvent) serverEvent()       {}
+func (ClientChatClosedEvent) serverEvent()          {}
 
 // ClientEnterEvent is emitted when a client enters view
 // (notifycliententerview): on connecting, for everyone already there, and
@@ -64,8 +66,22 @@ func (ClientChatComposingEvent) serverEvent()       {}
 // event's own (evt.Nickname). It is a struct of its own rather than ClientEntry
 // itself so that ClientEntry stays a plain description of a client, which also
 // answers a client list, and only the event is an Event.
+//
+// FromChannelID and Reason are the event's own, not the client's: the server
+// sends them with the enter notification (cfid and reasonid) and they describe
+// this entry into view only.
 type ClientEnterEvent struct {
 	ClientEntry
+
+	// FromChannelID is the channel the client came from (cfid). It is 0 when the
+	// client connected, which both TeamSpeak 3 and 6 send as cfid 0, and when
+	// the server sends none.
+	FromChannelID ChannelID
+	// Reason is why the client came into view (reasonid): ReasonNone when it
+	// connected, ReasonSubscription when it was already on the server and came
+	// into view by this client moving into its channel. Measured on TeamSpeak
+	// 3.13.8 and 6.0.0-beta13.1; both send cfid 0 with it.
+	Reason Reason
 }
 
 // Clone returns a copy of the event whose record shares no memory with e's; see
@@ -131,6 +147,10 @@ type ClientMovedEvent struct {
 	ReasonMessage string
 	// TargetChannelID is the channel the client moved to (ctid).
 	TargetChannelID ChannelID
+	// FromChannelID is the channel the client moved from (cfid). It is 0 when
+	// the server sends none: TeamSpeak 3.13.8 does not on a move, TeamSpeak
+	// 6.0.0-beta13.1 does.
+	FromChannelID ChannelID
 	// Reason is why it moved (reasonid): ReasonMoved for a move by someone,
 	// ReasonKickChannel for a channel kick, ReasonNone for its own.
 	Reason Reason
@@ -178,6 +198,13 @@ type ClientLeaveEvent struct {
 	ClientID ClientID
 	// InvokerID is the client id of who kicked or banned the client (invokerid).
 	InvokerID ClientID
+	// FromChannelID is the channel the client was in (cfid), 0 when the server
+	// sends none. Both TeamSpeak 3.13.8 and 6.0.0-beta13.1 send it.
+	FromChannelID ChannelID
+	// TargetChannelID is the channel the client went to (ctid): 0 when it left
+	// the server, and the channel it moved into when it left view by moving
+	// out of the channels this client is subscribed to.
+	TargetChannelID ChannelID
 }
 
 // KickedEvent is the connected client being kicked from its channel or the server.
@@ -479,5 +506,16 @@ type ClientChatComposingEvent struct {
 	// UID is the typing client's identity (cluid).
 	UID UID
 	// ClientID is the typing client (clid).
+	ClientID ClientID
+}
+
+// ClientChatClosedEvent is emitted when a client closes its private chat with
+// this client (notifyclientchatclosed), sent with ClosePrivateChat. The server
+// sends it only after that client has sent this one a private message. Only the
+// voice client delivers it.
+type ClientChatClosedEvent struct {
+	// UID is the closing client's identity (cluid).
+	UID UID
+	// ClientID is the closing client (clid).
 	ClientID ClientID
 }

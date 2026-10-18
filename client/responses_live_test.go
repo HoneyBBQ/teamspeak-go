@@ -45,9 +45,12 @@ func TestLive_ClientLookupsAnswerWithTheirData(t *testing.T) {
 	requireNoErr(t, err)
 
 	want := teamspeak.ClientDatabaseName{DatabaseID: dbid, Name: nickname}
-	if gotUID != uid || gotDBID != dbid || byDBID != want || byUID != want {
-		t.Errorf("lookups = uid %q dbid %d names %+v/%+v, want %q %d %+v",
-			gotUID, gotDBID, byDBID, byUID, uid, dbid, want)
+	// The lookup by database id answers the uid as well; the one by uid was
+	// asked it.
+	wantByDBID := teamspeak.ClientDatabaseName{DatabaseID: dbid, Name: nickname, UID: uid}
+	if gotUID != uid || gotDBID != dbid || byDBID != wantByDBID || byUID != want {
+		t.Errorf("lookups = uid %q dbid %d names %+v/%+v, want %q %d %+v/%+v",
+			gotUID, gotDBID, byDBID, byUID, uid, dbid, wantByDBID, want)
 	}
 	if !slices.ContainsFunc(ids, func(m teamspeak.ClientMatch) bool { return m.ID == clid && m.Nickname == nickname }) {
 		t.Errorf("GetClientIDs = %v, want it to contain %d", ids, clid)

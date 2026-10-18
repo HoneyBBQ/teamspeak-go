@@ -27,6 +27,12 @@ const (
 	// BanList is notifybanlist: reply to banlist: one row per ban rule on the
 	// virtual server.
 	BanList = "notifybanlist"
+	// BanUpdate is notifybanupdate: a ban rule was added or removed, sent to a
+	// ServerQuery client registered for the bans category (TeamSpeak 6 only).
+	// op=add carries the whole rule as banlist reports it; op=del carries banid
+	// alone; op=delall carries neither: every ban was removed. Measured on
+	// TeamSpeak 6.0.0-beta13.1 over SSH.
+	BanUpdate = "notifybanupdate"
 	// ChannelChanged is notifychannelchanged: a channel's properties changed and
 	// this client should fetch them again.
 	ChannelChanged = "notifychannelchanged"

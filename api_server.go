@@ -243,6 +243,14 @@ type WhoAmI struct {
 	ServerPort uint16
 	// ClientID is this connection's client id (client_id).
 	ClientID ClientID
+	// ServerUUID is the virtual server's uuid (virtualserver_uuid); empty when
+	// the server sends none: TeamSpeak 6 does, TeamSpeak 3 does not.
+	ServerUUID string
+	// OriginServerID is the id of the server this connection's account
+	// originates from (client_origin_server_id); 0 for a connection that is not
+	// from another server, which is what both TeamSpeak 3.13.8 and 6.0.0-beta13.1
+	// sent.
+	OriginServerID ServerID
 }
 
 // WhoAmI returns which server and client this connection is, as the server sees
@@ -264,6 +272,9 @@ func (c *Commands) WhoAmI(ctx context.Context) (WhoAmI, error) {
 		DatabaseID:   ClientDBID(fieldUint(row, "client_database_id")),
 		LoginName:    fieldStr(row, "client_login_name"),
 		UID:          UID(fieldStr(row, "client_unique_identifier")),
+
+		ServerUUID:     fieldStr(row, "virtualserver_uuid"),
+		OriginServerID: ServerID(fieldUint(row, "client_origin_server_id")),
 	}, nil
 }
 
@@ -667,9 +678,10 @@ func (c *Commands) DeleteServerGroupPermissionByType(
 
 // TempPassword is a temporary server password.
 //
-// String, GoString and LogValue redact the password, so the value can reach fmt
-// and log/slog safely. encoding/json does not: the password is the caller's own
-// data, which they may need to store, so json.Marshal includes it.
+// String, GoString and LogValue redact the password and the target channel's
+// password, so the value can reach fmt and log/slog safely. encoding/json does
+// not: they are the caller's own data, which they may need to store, so
+// json.Marshal includes them.
 type TempPassword struct {
 	// Starts is when the password becomes valid.
 	Starts time.Time
@@ -679,6 +691,10 @@ type TempPassword struct {
 	Password string
 	// Description is the password's description (desc).
 	Description string
+	// TargetChannelPassword is the password of the target channel (tcpw), in
+	// cleartext as the list gives it, "" for none. Like Password it is a secret:
+	// String, GoString and LogValue leave it out, and encoding/json does not.
+	TargetChannelPassword string
 	// TargetChannelID is the channel a client joining with the password lands
 	// in, or 0 for the default channel.
 	TargetChannelID ChannelID
@@ -724,9 +740,11 @@ func (c *Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error
 			Description:     fieldStr(row, "desc"),
 			Starts:          fieldTime(row, "start"),
 			Ends:            fieldTime(row, "end"),
-			TargetChannelID: ChannelID(fieldUint(row, "tcid")),
 			CreatorNickname: fieldStr(row, "nickname"),
 			CreatorUID:      UID(fieldStr(row, "uid")),
+
+			TargetChannelPassword: fieldStr(row, "tcpw"),
+			TargetChannelID:       ChannelID(fieldUint(row, "tcid")),
 		})
 	}
 

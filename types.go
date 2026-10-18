@@ -98,6 +98,11 @@ type ClientEntry struct {
 	// (client_talk_request; the server sends the time of the request, any
 	// nonzero value is true). No list brings it.
 	IsRequestingTalk *bool
+	// TalkRequestedAt is when the client asked for talk power, the time
+	// client_talk_request carries (whole seconds on both TeamSpeak 3 and 6);
+	// the zero time when it is not asking, or when the answer did not carry
+	// the field. No list brings it.
+	TalkRequestedAt time.Time
 	// TalkRequestMessage is the message sent with a talk request
 	// (client_talk_request_msg). No list brings it.
 	TalkRequestMessage string

@@ -190,6 +190,16 @@ func TestClientChatComposing(t *testing.T) {
 	}
 }
 
+func TestClientChatClosed(t *testing.T) {
+	evt, ok := servernotify.ClientChatClosed(row("notifyclientchatclosed clid=34 cluid=Xuf5umNYOFZET4cIpdhfqE1qbpA="))
+	if !ok || evt.ClientID != 34 || evt.UID != "Xuf5umNYOFZET4cIpdhfqE1qbpA=" {
+		t.Errorf("event = %+v, %v", evt, ok)
+	}
+	if _, ok := servernotify.ClientChatClosed(row("notifyclientchatclosed cluid=x")); ok {
+		t.Error("a row naming no client was read")
+	}
+}
+
 func TestChannelChanges_ReadsEveryRecordField(t *testing.T) {
 	got := servernotify.ChannelChanges(row("x cid=1 pid=4 channel_unique_identifier=u channel_name=n" +
 		" channel_topic= channel_description=d" +
@@ -200,7 +210,8 @@ func TestChannelChanges_ReadsEveryRecordField(t *testing.T) {
 		" channel_flag_maxclients_unlimited=1 channel_flag_maxfamilyclients_unlimited=0" +
 		" channel_flag_maxfamilyclients_inherited=1" +
 		" channel_delete_delay=30 channel_name_phonetic=p channel_forced_silence=1" +
-		" channel_banner_gfx_url=u channel_banner_mode=2"))
+		" channel_banner_gfx_url=u channel_banner_mode=2 channel_storage_quota=4294967295" +
+		" channel_filepath=files/virtualserver_1/channel_6"))
 	if got.Topic == nil || *got.Topic != "" {
 		t.Error("an empty value is a change to empty")
 	}
@@ -209,6 +220,10 @@ func TestChannelChanges_ReadsEveryRecordField(t *testing.T) {
 	}
 	v := reflect.ValueOf(got)
 	for i := range v.NumField() {
+		// seconds_empty is no property of a channel notification.
+		if v.Type().Field(i).Name == "EmptyFor" {
+			continue
+		}
 		if v.Field(i).IsNil() {
 			t.Errorf("%s was not read", v.Type().Field(i).Name)
 		}
@@ -219,6 +234,9 @@ func TestChannelChanges_ReadsEveryRecordField(t *testing.T) {
 	}
 	cv := reflect.ValueOf(cloned)
 	for i := range v.NumField() {
+		if v.Type().Field(i).Name == "EmptyFor" {
+			continue
+		}
 		if cv.Field(i).Pointer() == v.Field(i).Pointer() {
 			t.Errorf("the clone shares %s", v.Type().Field(i).Name)
 		}

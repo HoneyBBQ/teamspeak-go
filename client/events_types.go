@@ -88,6 +88,9 @@ type PluginCommandEvent = teamspeak.PluginCommandEvent
 // ClientChatComposingEvent is teamspeak.ClientChatComposingEvent.
 type ClientChatComposingEvent = teamspeak.ClientChatComposingEvent
 
+// ClientChatClosedEvent is teamspeak.ClientChatClosedEvent.
+type ClientChatClosedEvent = teamspeak.ClientChatClosedEvent
+
 // Status is teamspeak.Status: the state of a client's connection.
 type Status = teamspeak.Status
 

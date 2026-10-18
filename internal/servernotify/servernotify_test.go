@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/internal/servernotify"
@@ -371,5 +372,67 @@ func TestClientEnter_ClampsAndLeavesOutNumbers(t *testing.T) {
 	}
 	if got := servernotify.ClientEnter(map[string]string{"clid": "1", "client_talk_power": ""}); got.TalkPower != nil {
 		t.Errorf("an empty value read as %d, want unset", *got.TalkPower)
+	}
+}
+
+// Recorded from TeamSpeak 3.13.8 and 6.0.0-beta13.1.
+func TestClientEnterOrigin(t *testing.T) {
+	for _, tc := range []struct {
+		line   string
+		from   teamspeak.ChannelID
+		reason teamspeak.Reason
+	}{
+		// Connecting.
+		{"notifycliententerview cfid=0 ctid=1 reasonid=0 clid=34", 0, teamspeak.ReasonNone},
+		// Coming into view through a subscribed channel.
+		{"notifycliententerview cfid=0 ctid=7 reasonid=2 clid=34", 0, teamspeak.ReasonSubscription},
+		{"notifycliententerview cfid=3 ctid=7 reasonid=1 clid=34", 3, teamspeak.ReasonMoved},
+		{"notifycliententerview ctid=7 clid=34", 0, teamspeak.ReasonNone},
+	} {
+		from, reason := servernotify.ClientEnterOrigin(row(tc.line))
+		if from != tc.from || reason != tc.reason {
+			t.Errorf("%q = %d, %v; want %d, %v", tc.line, from, reason, tc.from, tc.reason)
+		}
+	}
+}
+
+// TeamSpeak 6.0.0-beta13.1 names the channel a move came from; 3.13.8 does not.
+func TestClientMoved_ReadsTheChannelItCameFrom(t *testing.T) {
+	ts6 := servernotify.ClientMoved(row(
+		"notifyclientmoved cfid=6 clid=13 ctid=1 reasonid=4 reasonmsg=probe invokerid=11 invokername=a invokeruid=u"))
+	if ts6.FromChannelID != 6 || ts6.TargetChannelID != 1 {
+		t.Errorf("TeamSpeak 6 move = %+v", ts6)
+	}
+	ts3 := servernotify.ClientMoved(row(
+		"notifyclientmoved clid=35 ctid=7 invokerid=33 invokername=a invokeruid=u reasonid=1"))
+	if ts3.FromChannelID != 0 || ts3.TargetChannelID != 7 {
+		t.Errorf("TeamSpeak 3 move = %+v", ts3)
+	}
+}
+
+// Both servers send cfid on a leave, and ctid 0 for a disconnect.
+func TestClientLeave_ReadsTheChannelsItNames(t *testing.T) {
+	got := servernotify.ClientLeave(row("notifyclientleftview cfid=7 ctid=0 reasonid=8 reasonmsg=Shutdown clid=35"))
+	if got.FromChannelID != 7 || got.TargetChannelID != 0 || got.Reason != teamspeak.ReasonDisconnect {
+		t.Errorf("disconnect = %+v", got)
+	}
+	got = servernotify.ClientLeave(row("notifyclientleftview cfid=1 ctid=9 reasonid=2 clid=35"))
+	if got.FromChannelID != 1 || got.TargetChannelID != 9 {
+		t.Errorf("out of view = %+v", got)
+	}
+}
+
+func TestClientEnter_ReadsTheTalkRequestTime(t *testing.T) {
+	got := servernotify.ClientEnter(map[string]string{"clid": "4", "client_talk_request": "1792335264"})
+	if !got.TalkRequestedAt.Equal(time.Unix(1792335264, 0)) || got.IsRequestingTalk == nil || !*got.IsRequestingTalk {
+		t.Errorf("enter = %v %v", got.TalkRequestedAt, got.IsRequestingTalk)
+	}
+	none := servernotify.ClientEnter(map[string]string{"clid": "4", "client_talk_request": "0"})
+	if !none.TalkRequestedAt.IsZero() {
+		t.Errorf("a request of 0 = %v, want the zero time", none.TalkRequestedAt)
+	}
+	update := servernotify.ClientChanges(map[string]string{"client_talk_request": "1792335264"})
+	if update.TalkRequestedAt == nil || !update.TalkRequestedAt.Equal(time.Unix(1792335264, 0)) {
+		t.Errorf("update = %v", update.TalkRequestedAt)
 	}
 }

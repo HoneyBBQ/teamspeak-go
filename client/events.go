@@ -228,6 +228,17 @@ func (c *Client) OnClientChatComposing(handler func(ClientChatComposingEvent)) f
 	return c.onChatComposing.Add(handler)
 }
 
+// OnClientChatClosed registers a handler for a client closing its private chat
+// with this client, which Commands.ClosePrivateChat sends. Only the target is
+// told, and only when the closing client has sent it a private message. Only a
+// voice connection hears it. It returns a function that removes the handler.
+//
+// A panic in handler is recovered and logged at Error with the event type;
+// the other handlers and later events are still delivered.
+func (c *Client) OnClientChatClosed(handler func(ClientChatClosedEvent)) func() {
+	return c.onChatClosed.Add(handler)
+}
+
 // OnKicked registers a handler for this client being kicked from its channel
 // or the server. A kick from the server also ends the connection, which
 // OnDisconnected reports with a *RemovedError. It returns a function that
@@ -471,6 +482,8 @@ func (c *Client) dispatchChannelEvent(evt Event) {
 		c.onPluginCommand.Deliver(c.logger, eventbus.EventName(e), e, nil)
 	case ClientChatComposingEvent:
 		c.onChatComposing.Deliver(c.logger, eventbus.EventName(e), e, nil)
+	case ClientChatClosedEvent:
+		c.onChatClosed.Deliver(c.logger, eventbus.EventName(e), e, nil)
 	}
 }
 
@@ -506,6 +519,7 @@ func cloneChanges(c teamspeak.ClientChanges) teamspeak.ClientChanges {
 	c.IsPrioritySpeaker = clonePtr(c.IsPrioritySpeaker)
 	c.TalkPower = clonePtr(c.TalkPower)
 	c.IsRequestingTalk = clonePtr(c.IsRequestingTalk)
+	c.TalkRequestedAt = clonePtr(c.TalkRequestedAt)
 	c.TalkRequestMessage = clonePtr(c.TalkRequestMessage)
 	c.Description = clonePtr(c.Description)
 	c.MetaData = clonePtr(c.MetaData)
