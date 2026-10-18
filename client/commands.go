@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -312,13 +313,45 @@ func (c *Client) handlePacket(h *transport.PacketHandler, p *transport.Packet) {
 
 // handleInit1 answers a step of the Init1 exchange. Once the shared secret
 // exists the exchange is over, and a late or replayed Init1 is ignored.
+//
+// The puzzle is the one step that takes time, up to seconds when a flooded
+// server asks for a lot, so it is solved on a goroutine of its own and the
+// connection goes on receiving meanwhile. Closing the connection, which is
+// what cancelling Connect does, stops the solve.
 func (c *Client) handleInit1(h *transport.PacketHandler, data []byte) {
 	if h.TsCrypt.InitComplete() {
 		return
 	}
-	response, err := handshake.ProcessInit1(h.TsCrypt, data)
+	if handshake.IsPuzzleStep(data) {
+		// A copy: the packet's bytes are not the solver's to keep.
+		go c.answerInit1(h, bytes.Clone(data))
+
+		return
+	}
+	c.answerInit1(h, data)
+}
+
+// answerInit1 answers one Init1 step on handler h, and ends the attempt if the
+// step cannot be answered.
+func (c *Client) answerInit1(h *transport.PacketHandler, data []byte) {
+	// Cancelled when h closes: the attempt ended, for whatever reason.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-h.Done():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	response, err := handshake.ProcessInit1(ctx, h.TsCrypt, data)
 	if err != nil {
-		c.failHandshake(h, err)
+		// An attempt that ended did so for its own reason; the abandoned
+		// solve has nothing more to report.
+		if ctx.Err() == nil {
+			c.failHandshake(h, err)
+		}
 
 		return
 	}

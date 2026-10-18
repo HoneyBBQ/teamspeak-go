@@ -2,6 +2,7 @@ package handshake_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -52,7 +53,7 @@ func TestStartInit1(t *testing.T) {
 
 func TestProcessInit1Start_RestartByte(t *testing.T) {
 	tc := newTestCrypt(t)
-	out, err := handshake.ProcessInit1(tc, []byte{0x7F})
+	out, err := handshake.ProcessInit1(context.Background(), tc, []byte{0x7F})
 	if err != nil {
 		t.Fatalf("ProcessInit1: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestProcessInit1Step0(t *testing.T) {
 	// bytes 9-12: tsRand (LittleEndian) — will be echoed back BigEndian at output offset 17
 	binary.LittleEndian.PutUint32(input[9:13], 0xDEADBEEF)
 
-	out, err := handshake.ProcessInit1(tc, input)
+	out, err := handshake.ProcessInit1(context.Background(), tc, input)
 	if err != nil {
 		t.Fatalf("ProcessInit1: %v", err)
 	}
@@ -105,7 +106,7 @@ func TestProcessInit1Step0(t *testing.T) {
 
 func TestProcessInit1Step0_WrongLength(t *testing.T) {
 	tc := newTestCrypt(t)
-	out, err := handshake.ProcessInit1(tc, []byte{0x00, 0x01}) // only 2 bytes
+	out, err := handshake.ProcessInit1(context.Background(), tc, []byte{0x00, 0x01}) // only 2 bytes
 	if out != nil {
 		t.Error("expected nil output for wrong-length step 0")
 	}
@@ -125,7 +126,7 @@ func TestProcessInit1Step1(t *testing.T) {
 		input[i] = byte(i)
 	}
 
-	out, err := handshake.ProcessInit1(tc, input)
+	out, err := handshake.ProcessInit1(context.Background(), tc, input)
 	if err != nil {
 		t.Fatalf("ProcessInit1: %v", err)
 	}
@@ -150,7 +151,7 @@ func TestProcessInit1Step1(t *testing.T) {
 
 func TestProcessInit1Step1_WrongLength(t *testing.T) {
 	tc := newTestCrypt(t)
-	out, err := handshake.ProcessInit1(tc, []byte{0x01}) // only 1 byte
+	out, err := handshake.ProcessInit1(context.Background(), tc, []byte{0x01}) // only 1 byte
 	if out != nil {
 		t.Error("expected nil output for wrong-length step 1")
 	}
@@ -166,7 +167,7 @@ func TestProcessInit1Step2(t *testing.T) {
 	input := make([]byte, 25)
 	input[0] = 0x02
 
-	out, err := handshake.ProcessInit1(tc, input)
+	out, err := handshake.ProcessInit1(context.Background(), tc, input)
 	if err != nil {
 		t.Fatalf("ProcessInit1: %v", err)
 	}
@@ -195,7 +196,7 @@ func TestProcessInit1Step2(t *testing.T) {
 
 func TestProcessInit1Step2_WrongLength(t *testing.T) {
 	tc := newTestCrypt(t)
-	out, err := handshake.ProcessInit1(tc, []byte{0x02, 0x00}) // too short
+	out, err := handshake.ProcessInit1(context.Background(), tc, []byte{0x02, 0x00}) // too short
 	if out != nil {
 		t.Error("expected nil output for wrong-length step 2")
 	}
@@ -226,7 +227,7 @@ func TestProcessInit1Step3_Level0(t *testing.T) {
 	tc := newTestCrypt(t)
 	input := buildStep3Input()
 
-	out, err := handshake.ProcessInit1(tc, input)
+	out, err := handshake.ProcessInit1(context.Background(), tc, input)
 	if err != nil {
 		t.Fatalf("ProcessInit1: %v", err)
 	}
@@ -256,8 +257,8 @@ func TestProcessInit1Step3_Level0(t *testing.T) {
 func assertStep3ClientInitIV(t *testing.T, tc *crypto.Crypt, out []byte) {
 	t.Helper()
 
-	if len(tc.AlphaTmp) != 10 {
-		t.Errorf("expected AlphaTmp length 10, got %d", len(tc.AlphaTmp))
+	if len(tc.Alpha()) != 10 {
+		t.Errorf("expected AlphaTmp length 10, got %d", len(tc.Alpha()))
 	}
 
 	cmdPart := string(out[5+232+64:])
@@ -286,7 +287,7 @@ func assertStep3ClientInitIV(t *testing.T, tc *crypto.Crypt, out []byte) {
 
 func TestProcessInit1Step3_WrongLength(t *testing.T) {
 	tc := newTestCrypt(t)
-	out, err := handshake.ProcessInit1(tc, []byte{0x03, 0x00}) // too short
+	out, err := handshake.ProcessInit1(context.Background(), tc, []byte{0x03, 0x00}) // too short
 	if out != nil {
 		t.Error("expected nil output for wrong-length step 3")
 	}
@@ -298,9 +299,9 @@ func TestProcessInit1Step3_WrongLength(t *testing.T) {
 func TestProcessInit1Step3_LevelOutOfRange(t *testing.T) {
 	tc := newTestCrypt(t)
 	input := buildStep3Input()
-	// Set level = 2000000 (exceeds MaxRSAChallengeLevel)
-	binary.BigEndian.PutUint32(input[1+128:1+132], 2000000)
-	out, err := handshake.ProcessInit1(tc, input)
+	// Set level = 2^32-1 (exceeds MaxRSAChallengeLevel)
+	binary.BigEndian.PutUint32(input[1+128:1+132], 0xffffffff)
+	out, err := handshake.ProcessInit1(context.Background(), tc, input)
 	if out != nil {
 		t.Error("expected nil output for RSA level out of range")
 	}
@@ -313,7 +314,7 @@ func TestProcessInit1Step3_LevelOutOfRange(t *testing.T) {
 // connection attempt on one would let anyone who can reach the port, or a
 // datagram left over from the previous handshake, kill the attempt.
 func TestProcessInit1UnknownStepIsIgnored(t *testing.T) {
-	out, err := handshake.ProcessInit1(newTestCrypt(t), []byte{0x05})
+	out, err := handshake.ProcessInit1(context.Background(), newTestCrypt(t), []byte{0x05})
 	if out != nil || err != nil {
 		t.Errorf("ProcessInit1(unknown step) = %x, %v, want nothing and no error", out, err)
 	}
@@ -321,7 +322,7 @@ func TestProcessInit1UnknownStepIsIgnored(t *testing.T) {
 
 // nil is data like any other: no data is malformed, not a request to start.
 func TestProcessInit1_NilDataIsMalformed(t *testing.T) {
-	out, err := handshake.ProcessInit1(newTestCrypt(t), nil)
+	out, err := handshake.ProcessInit1(context.Background(), newTestCrypt(t), nil)
 	if !errors.Is(err, handshake.ErrMalformedInit1) || out != nil {
 		t.Errorf("ProcessInit1(nil) = %x, %v, want ErrMalformedInit1", out, err)
 	}
@@ -342,21 +343,21 @@ func rsaChallenge(seed byte) []byte {
 // answer without choosing a new alpha; a different one gets no answer.
 func TestProcessInit1_AnswersOneRSAChallenge(t *testing.T) {
 	tc := newTestCrypt(t)
-	first, err := handshake.ProcessInit1(tc, rsaChallenge(3))
+	first, err := handshake.ProcessInit1(context.Background(), tc, rsaChallenge(3))
 	if err != nil || first == nil {
 		t.Fatalf("first challenge: %v, %v", first, err)
 	}
-	alpha := bytes.Clone(tc.AlphaTmp)
+	alpha := bytes.Clone(tc.Alpha())
 
-	again, err := handshake.ProcessInit1(tc, rsaChallenge(3))
+	again, err := handshake.ProcessInit1(context.Background(), tc, rsaChallenge(3))
 	if err != nil || !bytes.Equal(again, first) {
 		t.Fatalf("repeated challenge: err %v, same answer %v", err, bytes.Equal(again, first))
 	}
-	other, err := handshake.ProcessInit1(tc, rsaChallenge(5))
+	other, err := handshake.ProcessInit1(context.Background(), tc, rsaChallenge(5))
 	if err != nil || other != nil {
 		t.Fatalf("different challenge = %v, %v; want no answer", other, err)
 	}
-	if !bytes.Equal(tc.AlphaTmp, alpha) {
+	if !bytes.Equal(tc.Alpha(), alpha) {
 		t.Error("a later challenge changed AlphaTmp")
 	}
 }

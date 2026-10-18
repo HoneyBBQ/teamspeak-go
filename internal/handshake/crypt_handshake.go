@@ -5,6 +5,7 @@ package handshake
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
@@ -38,10 +39,15 @@ func StartInit1() ([]byte, error) {
 // ProcessInit1 returns the client's answer to the server's Init1 packet data.
 //
 // One RSA challenge is answered per connection, whose Crypt is its own: each
-// costs up to a second of squarings, and a second answer would choose a new
-// alpha behind the clientinitiv already sent. The same challenge again means
-// the answer was lost, and gets the same answer without solving anything; a
-// different one gets none, a nil answer with a nil error.
+// costs up to a second or more of squarings, and a second answer would choose a
+// new alpha behind the clientinitiv already sent. The same challenge again
+// means the answer was lost, and gets the same answer without solving anything;
+// a different one gets none, a nil answer with a nil error, and so does any
+// challenge that arrives while one is being solved. The solve stops when ctx is
+// done, and returns its cause; a puzzle above crypto.MaxRSAChallengeLevel is
+// refused with an error wrapping crypto.ErrPuzzleTooHard. The puzzle is the
+// only step that takes time, so a caller that must keep reading packets
+// meanwhile runs it, found by IsPuzzleStep, in a goroutine of its own.
 //
 // An unknown step is answered with none, as the other client does: Init1 is
 // unauthenticated, so anyone who can reach the port can send one, and a
@@ -50,7 +56,7 @@ func StartInit1() ([]byte, error) {
 // wrong length, an RSA puzzle out of range — is an error wrapping
 // ErrMalformedInit1 or the puzzle's own error, never a panic: the bytes come
 // from the network. StartInit1, not ProcessInit1, opens the exchange.
-func ProcessInit1(tc *crypto.Crypt, data []byte) ([]byte, error) {
+func ProcessInit1(ctx context.Context, tc *crypto.Crypt, data []byte) ([]byte, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("%w: empty", ErrMalformedInit1)
 	}
@@ -66,7 +72,7 @@ func ProcessInit1(tc *crypto.Crypt, data []byte) ([]byte, error) {
 	case 2:
 		return buildInit1Step3Packet(data)
 	case 3:
-		return buildInit1Step4Packet(tc, data)
+		return buildInit1Step4Packet(ctx, tc, data)
 	default:
 		return nil, nil
 	}
@@ -129,40 +135,59 @@ func buildInit1Step3Packet(data []byte) ([]byte, error) {
 	return sendData, nil
 }
 
-func buildInit1Step4Packet(tc *crypto.Crypt, data []byte) ([]byte, error) {
+// IsPuzzleStep reports whether data is the server's RSA puzzle, the one Init1
+// step that takes time to answer.
+func IsPuzzleStep(data []byte) bool {
+	return len(data) > 0 && data[0] == 0x03
+}
+
+func buildInit1Step4Packet(ctx context.Context, tc *crypto.Crypt, data []byte) ([]byte, error) {
 	if want := initTypeLen + 64 + 64 + 4 + 100; len(data) != want {
 		return nil, wrongLength(3, len(data), want)
 	}
-	if tc.RSAChallenge != nil {
-		if !bytes.Equal(tc.RSAChallenge, data) {
-			return nil, nil
-		}
-
-		return bytes.Clone(tc.RSAAnswer), nil
+	answer, solve := tc.ClaimPuzzle(data)
+	if !solve {
+		return answer, nil
 	}
+	answered := false
+	defer func() {
+		if !answered {
+			tc.AbandonPuzzle()
+		}
+	}()
+
 	// Read as unsigned and compared before narrowing, so a level near 2^32
 	// cannot wrap into range on a 32-bit int.
 	rawLevel := binary.BigEndian.Uint32(data[1+128 : 1+128+4])
 	if rawLevel > crypto.MaxRSAChallengeLevel {
-		return nil, fmt.Errorf("%w: RSA challenge level %d is above %d",
-			ErrMalformedInit1, rawLevel, crypto.MaxRSAChallengeLevel)
+		return nil, fmt.Errorf("%w: %d squarings asked, at most %d",
+			crypto.ErrPuzzleTooHard, rawLevel, crypto.MaxRSAChallengeLevel)
 	}
+	level := int(rawLevel)
 	solveStart := time.Now()
-	y, err := tc.SolveRsaChallenge(data, 1, int(rawLevel))
+	y, err := tc.SolveRsaChallenge(ctx, data, 1, level)
 	if err != nil {
 		return nil, err
 	}
-	tc.PuzzleLevel = int(rawLevel)
-	tc.PuzzleDuration = time.Since(solveStart)
+	duration := time.Since(solveStart)
 
-	tc.AlphaTmp = make([]byte, 10)
-	_, err = rand.Read(tc.AlphaTmp)
+	alpha := make([]byte, 10)
+	_, err = rand.Read(alpha)
 	if err != nil {
 		return nil, err
 	}
+	sendData := clientInitIV(tc, data, y, alpha)
+	tc.FinishPuzzle(data, sendData, alpha, level, duration)
+	answered = true
 
+	return bytes.Clone(sendData), nil
+}
+
+// clientInitIV is the Init1 step 4 packet: the challenge echoed, its answer y,
+// and the clientinitiv command carrying alpha.
+func clientInitIV(tc *crypto.Crypt, data, y, alpha []byte) []byte {
 	cmd := wire.BuildCommandOrdered("clientinitiv", [][2]string{
-		{"alpha", base64.StdEncoding.EncodeToString(tc.AlphaTmp)},
+		{"alpha", base64.StdEncoding.EncodeToString(alpha)},
 		{"omega", tc.Identity.PublicKey()},
 		{"ot", "1"},
 		{"ip", ""},
@@ -175,8 +200,6 @@ func buildInit1Step4Packet(tc *crypto.Crypt, data []byte) ([]byte, error) {
 	copy(sendData[5:5+232], data[1:1+232])
 	copy(sendData[5+232:5+232+64], y)
 	copy(sendData[5+232+64:], cmdBytes)
-	tc.RSAChallenge = bytes.Clone(data)
-	tc.RSAAnswer = bytes.Clone(sendData)
 
-	return sendData, nil
+	return sendData
 }
