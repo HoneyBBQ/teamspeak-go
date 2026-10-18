@@ -549,7 +549,7 @@ which one a program can use:
 |---|---|---|---|---|
 | `TCPLogin(addr, name, password)` (`TCP(addr)` for none) | 10011 | TeamSpeak 3 only | the `login` command | yes |
 | `SSHWith(addr, user, password, SSHOptions{...})` | 10022 | TeamSpeak 3 (3.3 and later) and 6, off by default | the SSH login | yes |
-| `Web(baseURL, apiKey)` | 10080 | TeamSpeak 3 (3.12 and later) and 6 | the api key | **none** |
+| `Web(baseURL, apiKey)` | 10080 (HTTP), 10443 (HTTPS) | TeamSpeak 3 (3.12 and later) and 6 | the api key | **none** |
 
 TeamSpeak 6 dropped raw ServerQuery, so a TS6 server has no 10011 to connect
 to. TeamSpeak 3 serves SSH and WebQuery as well, but only the raw port is on
