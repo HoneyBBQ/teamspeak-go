@@ -1095,6 +1095,12 @@ func (h *PacketHandler) resendLoop() {
 	}
 }
 
+// ClientEkPending reports whether clientek, sent under the dummy key, has not
+// been acknowledged yet.
+func (h *PacketHandler) ClientEkPending() bool {
+	return h.clientEkID.Load() >= 0
+}
+
 // ReceivedFinalInitAck stops resending the last Init1 packet the client sent.
 // Until it is called, the latest step stays pending whatever the server sends
 // in between: a step the client does not answer, an unknown one or a second

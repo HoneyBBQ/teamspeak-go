@@ -3,6 +3,17 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Changed
+
+- `client.Connect` names what the attempt was waiting for when the caller's
+  context ends it, such as `context deadline exceeded while waiting for the
+  server's answer to clientek`, where a TeamSpeak 6 server sometimes never
+  answers the key exchange. `errors.Is` still finds `context.DeadlineExceeded` or
+  `context.Canceled`; a comparison with `==` no longer does. The same error
+  reaches the `disconnected` event and the trace's `AttemptFailed`.
+
 ## v1.0.0-beta.9 (2026-10-18)
 
 ### Removed

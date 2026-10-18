@@ -323,6 +323,7 @@ func (c *Client) handleInit1(h *transport.PacketHandler, data []byte) {
 		return
 	}
 	if handshake.IsPuzzleStep(data) {
+		c.setStage(h, stagePuzzleSolve, -1)
 		// A copy: the packet's bytes are not the solver's to keep.
 		go c.answerInit1(h, bytes.Clone(data))
 
@@ -363,7 +364,29 @@ func (c *Client) answerInit1(h *transport.PacketHandler, data []byte) {
 	err = h.SendPacket(byte(transport.PacketTypeInit1), response, 0)
 	if err != nil {
 		c.logger.Warn("failed to send init1 response", slog.Any("error", err))
+
+		return
 	}
+	switch {
+	case handshake.IsPuzzleStep(data):
+		c.setStage(h, stagePuzzleAnswer, -1)
+	case len(data) > 0 && data[0] != 0x7F:
+		c.setStage(h, stageInit1, int(data[0]))
+	default:
+		c.setStage(h, stageInit1, -1)
+	}
+}
+
+// setStage records the step of the key exchange h's attempt has reached, for
+// the error of an attempt that stalls there.
+func (c *Client) setStage(h *transport.PacketHandler, stage handshakeStage, step int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.handler != h || c.status != StatusConnecting {
+		return
+	}
+	c.attempt.stage = stage
+	c.attempt.init1Step = step
 }
 
 // failHandshake ends a connection attempt whose handshake cannot go on, with a
