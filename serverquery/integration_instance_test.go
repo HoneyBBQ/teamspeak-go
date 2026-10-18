@@ -58,7 +58,13 @@ func serverStatus(ctx context.Context, t *testing.T, c *serverquery.Client, id t
 // one the fixture provisioned.
 func TestInstanceLifecycle_SecondServer(t *testing.T) {
 	allowDestructive(t, "TEAMSPEAK_QUERY_DESTRUCTIVE")
-	forEachTransport(t, 0, func(t *testing.T, c *serverquery.Client, _ teamspeak.ServerFamily, _ string) {
+	forEachTransport(t, 0, func(t *testing.T, c *serverquery.Client, family teamspeak.ServerFamily, transport string) {
+		if transport == "web" && family == teamspeak.ServerFamilyTS3 {
+			// Measured on 3.13.8: StopServer of server 1 is answered with
+			// success, the server stays "online virtual", and stopping it again
+			// is answered with success too.
+			t.Skip("TeamSpeak 3's WebQuery does not stop a virtual server")
+		}
 		ctx := adminCtx(t)
 		servers, err := c.ListServers(ctx, teamspeak.ServerListOptions{Short: true})
 		if err != nil || len(servers) == 0 {
