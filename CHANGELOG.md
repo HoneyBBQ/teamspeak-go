@@ -32,6 +32,16 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   second result. The server refuses it with 2562, as on TeamSpeak 3 and 6 alike,
   and that error is what is returned; the doc now says so. Behaviour is
   unchanged.
+- `Commands.UploadFile` and `DownloadFile` transfer a file in one call: they
+  negotiate with `InitFileUpload` / `InitFileDownload` and move the bytes with
+  `UploadFileData` / `DownloadFileData`, so the voice client and the ServerQuery
+  client both have them. `DownloadFile` returns the bytes and refuses a file
+  over `DownloadFileOptions.MaxSize` (64 MiB by default) before fetching it.
+  Measured on TeamSpeak 3.13.8 and 6 beta13.1 over raw ServerQuery, SSH and the
+  voice protocol; WebQuery refuses the negotiation with 5120.
+- `Commands.ListFilesRecursive` lists a directory and every directory under it
+  and returns each entry with its full path (`FileTreeEntry`); `MaxDepth` bounds
+  the walk as `find -maxdepth` does.
 
 ## v1.0.0-beta.10 (2026-10-18)
 
