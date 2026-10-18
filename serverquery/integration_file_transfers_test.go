@@ -131,7 +131,7 @@ func runFileTransfers(t *testing.T, actor fileClient, c *serverquery.Client) {
 	}
 
 	assertRecursiveBounds(ctx, t, actor, cid)
-	assertTransferRefusals(ctx, t, actor, cid)
+	assertTransferRefusals(ctx, t, actor, c, cid)
 }
 
 // assertRecursiveBounds checks MaxDepth and a listing that starts below the top.
@@ -162,7 +162,9 @@ func assertRecursiveBounds(ctx context.Context, t *testing.T, actor fileClient, 
 }
 
 // assertTransferRefusals checks what the calls do when the server or the limit says no.
-func assertTransferRefusals(ctx context.Context, t *testing.T, actor fileClient, cid teamspeak.ChannelID) {
+func assertTransferRefusals(
+	ctx context.Context, t *testing.T, actor fileClient, c *serverquery.Client, cid teamspeak.ChannelID,
+) {
 	t.Helper()
 	// A file that is there is refused without Overwrite, as the server says.
 	err := actor.UploadFile(ctx, transferHost, cid, "/top.txt", []byte("again"), teamspeak.UploadFileOptions{})
@@ -173,6 +175,14 @@ func assertTransferRefusals(ctx context.Context, t *testing.T, actor fileClient,
 	_, err = actor.DownloadFile(ctx, transferHost, cid, "/docs/a.bin", teamspeak.DownloadFileOptions{MaxSize: 1000})
 	if !errors.Is(err, teamspeak.ErrFileTransfer) {
 		t.Errorf("DownloadFile over the limit: %v, want ErrFileTransfer", err)
+	}
+	// The refused download left no transfer behind on the server.
+	active, err := c.ListActiveTransfers(ctx)
+	if err != nil && !errors.Is(err, errcode.DatabaseEmptyResult) && serverCode(err) != 5120 {
+		t.Fatalf("ListActiveTransfers: %v", err)
+	}
+	if len(active) != 0 {
+		t.Errorf("after the refusals the server lists active transfers %+v, want none", active)
 	}
 	_, err = actor.DownloadFile(ctx, transferHost, cid, "/nothing.txt", teamspeak.DownloadFileOptions{})
 	if err == nil {

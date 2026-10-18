@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -398,8 +399,9 @@ type DownloadFileOptions struct {
 // or a transfer to resume, call the two yourself with a writer of your own.
 //
 // A file larger than MaxSize fails with an error wrapping ErrFileTransfer
-// before any byte is fetched. A refusal is the server's error as
-// InitFileDownload returns it, and a transfer error wraps ErrFileTransfer.
+// before any byte is fetched, and the transfer the server had prepared is
+// stopped, so none is left listed as active. A refusal is the server's error
+// as InitFileDownload returns it, and a transfer error wraps ErrFileTransfer.
 // WebQuery refuses the negotiation as for UploadFile.
 func (c *Commands) DownloadFile(
 	ctx context.Context, host string, channelID ChannelID, path string, opts DownloadFileOptions,
@@ -413,12 +415,21 @@ func (c *Commands) DownloadFile(
 		limit = defaultDownloadFileLimit
 	}
 	if info.Size > limit {
+		// The server holds the negotiated transfer, and lists it among the
+		// active ones, until it is used or stopped: a refusal that left it
+		// would leave a transfer nobody is going to dial.
+		_ = c.StopFileTransfer(context.WithoutCancel(ctx), info.ServerFileTransferID, FileTransferStopOptions{})
+
 		return nil, fmt.Errorf("%w: %s is %d bytes, over the %d the call holds in memory",
 			ErrFileTransfer, path, info.Size, limit)
 	}
 
 	var buf bytes.Buffer
-	buf.Grow(int(info.Size)) //nolint:gosec // bounded by limit, which is in memory by the caller's choice
+	// Sized up front when the announcement is a size a buffer can have; a
+	// larger one the caller allowed still grows as the bytes come.
+	if info.Size <= math.MaxInt32 {
+		buf.Grow(int(info.Size))
+	}
 	err = DownloadFileData(ctx, transferAddress(host, info.IP), info, &buf, opts.Transfer)
 	if err != nil {
 		return nil, err

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"testing"
 
 	"github.com/honeybbq/teamspeak-go"
@@ -20,12 +21,15 @@ const testKey = "itRNdsIOvcBiBg/Xj4Ge51ZSrsShHuid"
 type transferServer struct {
 	t      *testing.T
 	dialed []string
+	sent   []string
 	serve  func(conn net.Conn)
 	rows   map[string][]map[string]string
 	errs   map[string]error
 }
 
 func (s *transferServer) Send(_ context.Context, req teamspeak.Request) ([]map[string]string, error) {
+	s.sent = append(s.sent, req.Command())
+
 	return s.rows[req.Command()], s.errs[req.Command()]
 }
 
@@ -136,6 +140,10 @@ func TestDownloadFile_RefusesAFileOverTheLimitBeforeDialling(t *testing.T) {
 		teamspeak.DownloadFileOptions{MaxSize: 99, Transfer: teamspeak.FileTransferOptions{Dialer: srv}})
 	if !errors.Is(err, teamspeak.ErrFileTransfer) || got != nil || len(srv.dialed) != 0 {
 		t.Errorf("got %q, %v, dialed %v, want ErrFileTransfer and no dial", got, err, srv.dialed)
+	}
+	// The transfer the server prepared is stopped, not left listed as active.
+	if want := []string{"ftinitdownload", "ftstop"}; !slices.Equal(srv.sent, want) {
+		t.Errorf("commands = %v, want %v", srv.sent, want)
 	}
 }
 
