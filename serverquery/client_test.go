@@ -1019,3 +1019,27 @@ func TestNoEventsTransport_ChannelHandlersAreInert(t *testing.T) {
 		t.Errorf("warned = %v", c.warned)
 	}
 }
+
+// The version the server answered with is kept as written, next to the family
+// read from it.
+func TestServerVersion_IsTheVersionTheServerAnswered(t *testing.T) {
+	d := newFakeDialer(true)
+	c := newClient(t, d)
+	if got := c.ServerVersion(); got != "" {
+		t.Errorf("ServerVersion before Connect = %q, want empty", got)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- c.Connect(context.Background()) }()
+	d.answer(t)
+	err := <-done
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if got := c.ServerVersion(); got != "3.13.8" {
+		t.Errorf("ServerVersion = %q, want 3.13.8", got)
+	}
+	if got := c.ServerFamily(); got != teamspeak.ServerFamilyTS3 {
+		t.Errorf("ServerFamily = %v, want TS3", got)
+	}
+}

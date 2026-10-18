@@ -165,6 +165,9 @@ func assertCoreCommands(t *testing.T, c *serverquery.Client, family teamspeak.Se
 	if got := c.ServerFamily(); got != family {
 		t.Errorf("ServerFamily = %v, want %v", got, family)
 	}
+	if got := c.ServerVersion(); got != version.Version {
+		t.Errorf("ServerVersion = %q, want the version command's %q", got, version.Version)
+	}
 
 	who, err := c.WhoAmI(ctx)
 	if err != nil {

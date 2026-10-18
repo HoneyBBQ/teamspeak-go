@@ -191,6 +191,7 @@ method (Client) SendPluginCommand(ctx context.Context, name string, data string,
 method (Client) SendPrivateMessage(ctx context.Context, clid teamspeak.ClientID, message string) error
 method (Client) SendServerMessage(ctx context.Context, message string) error
 method (*Client) ServerFamily() teamspeak.ServerFamily
+method (*Client) ServerVersion() string
 method (Client) SetChannelGroupIcon(ctx context.Context, cgid teamspeak.ChannelGroupID, icon teamspeak.IconID) error
 method (Client) SetChannelIcon(ctx context.Context, cid teamspeak.ChannelID, icon teamspeak.IconID) error
 method (Client) SetClientChannelGroup(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, channelID teamspeak.ChannelID, clientDBID teamspeak.ClientDBID) error

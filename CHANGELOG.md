@@ -17,6 +17,8 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 - `TempPassword.CreatorNickname` and `CreatorUID`, which the list always carried.
 - `client.AttemptFailedInfo.WaitingFor`, what the attempt was waiting for when
   it ended, in the words of a cancelled `Connect`'s error.
+- `serverquery.Client.ServerVersion` returns the version string the server answered
+  the `version` command with, `""` before connecting.
 
 ### Changed
 

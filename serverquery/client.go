@@ -38,6 +38,7 @@ type Client struct {
 	nickname         string
 	selfNickname     string
 	family           teamspeak.ServerFamily
+	version          string
 	categories       []Category
 	cmdMiddlewares   []teamspeak.CommandMiddleware
 	subs             subscribers
