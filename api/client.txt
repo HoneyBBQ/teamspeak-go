@@ -142,6 +142,7 @@ method (Client) DeployServerSnapshot(ctx context.Context, snapshot teamspeak.Ser
 method (*Client) Disconnect(ctx context.Context) error
 method (*Client) DisconnectWithMessage(ctx context.Context, message string) error
 method (*Client) DownloadAvatar(ctx context.Context, uid teamspeak.UID, opts teamspeak.FileTransferOptions) ([]byte, bool, error)
+method (Client) DownloadFile(ctx context.Context, host string, channelID teamspeak.ChannelID, path string, opts teamspeak.DownloadFileOptions) ([]byte, error)
 method (*Client) DownloadIcon(ctx context.Context, id teamspeak.IconID, opts teamspeak.FileTransferOptions) ([]byte, bool, error)
 method (Client) EditChannel(ctx context.Context, cid teamspeak.ChannelID, opts teamspeak.ChannelEditOptions) error
 method (Client) EditClient(ctx context.Context, clid teamspeak.ClientID, opts teamspeak.ClientEditOptions) error
@@ -204,6 +205,7 @@ method (Client) ListClients(ctx context.Context, options teamspeak.ClientListOpt
 method (Client) ListComplaints(ctx context.Context, opts teamspeak.ComplaintListOptions) ([]teamspeak.Complaint, error)
 method (Client) ListCustomProperties(ctx context.Context, clientDBID teamspeak.ClientDBID) ([]teamspeak.CustomProperty, error)
 method (Client) ListFiles(ctx context.Context, channelID teamspeak.ChannelID, path string, opts teamspeak.FileOptions) ([]teamspeak.FileEntry, error)
+method (Client) ListFilesRecursive(ctx context.Context, channelID teamspeak.ChannelID, path string, opts teamspeak.RecursiveFilesOptions) ([]teamspeak.FileTreeEntry, error)
 method (Client) ListMessages(ctx context.Context, _ teamspeak.MessageListOptions) ([]teamspeak.OfflineMessage, error)
 method (Client) ListPermissions(ctx context.Context) ([]teamspeak.PermissionInfo, error)
 method (Client) ListPrivilegeKeys(ctx context.Context) ([]teamspeak.PrivilegeKey, error)
@@ -290,6 +292,7 @@ method (*Client) UnsubscribeChannel(ctx context.Context, cid teamspeak.ChannelID
 method (Client) UpdateClient(ctx context.Context, opts teamspeak.ClientUpdateOptions) error
 method (Client) UpdateMessageFlag(ctx context.Context, messageID teamspeak.MessageID, flags teamspeak.MessageFlags) error
 method (*Client) UploadAvatar(ctx context.Context, data []byte, opts teamspeak.FileTransferOptions) (string, error)
+method (Client) UploadFile(ctx context.Context, host string, channelID teamspeak.ChannelID, path string, data []byte, opts teamspeak.UploadFileOptions) error
 method (*Client) UploadIcon(ctx context.Context, data []byte, opts teamspeak.FileTransferOptions) (teamspeak.IconID, error)
 method (Client) UsePrivilegeKey(ctx context.Context, token string) error
 method (*Client) VerifyChannelPassword(ctx context.Context, cid teamspeak.ChannelID, password string) (bool, error)

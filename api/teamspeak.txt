@@ -682,6 +682,7 @@ method (*Commands) DeleteServerGroupPermissions(ctx context.Context, serverGroup
 method (*Commands) DeleteServerGroupPermissionsByType(ctx context.Context, groups GroupAutoUpdateType, perms []Permission) error
 method (*Commands) DeleteTempPassword(ctx context.Context, password string) error
 method (*Commands) DeployServerSnapshot(ctx context.Context, snapshot ServerSnapshot, opts SnapshotDeployOptions) ([]ChannelMapping, error)
+method (*Commands) DownloadFile(ctx context.Context, host string, channelID ChannelID, path string, opts DownloadFileOptions) ([]byte, error)
 method (*Commands) EditChannel(ctx context.Context, cid ChannelID, opts ChannelEditOptions) error
 method (*Commands) EditClient(ctx context.Context, clid ClientID, opts ClientEditOptions) error
 method (*Commands) EditClientDatabase(ctx context.Context, clientDBID ClientDBID, opts ClientDatabaseEditOptions) error
@@ -737,6 +738,7 @@ method (*Commands) ListClients(ctx context.Context, options ClientListOptions) (
 method (*Commands) ListComplaints(ctx context.Context, opts ComplaintListOptions) ([]Complaint, error)
 method (*Commands) ListCustomProperties(ctx context.Context, clientDBID ClientDBID) ([]CustomProperty, error)
 method (*Commands) ListFiles(ctx context.Context, channelID ChannelID, path string, opts FileOptions) ([]FileEntry, error)
+method (*Commands) ListFilesRecursive(ctx context.Context, channelID ChannelID, path string, opts RecursiveFilesOptions) ([]FileTreeEntry, error)
 method (*Commands) ListMessages(ctx context.Context, _ MessageListOptions) ([]OfflineMessage, error)
 method (*Commands) ListPermissions(ctx context.Context) ([]PermissionInfo, error)
 method (*Commands) ListPrivilegeKeys(ctx context.Context) ([]PrivilegeKey, error)
@@ -779,6 +781,7 @@ method (*Commands) StopInstance(ctx context.Context, opts InstanceStopOptions) e
 method (*Commands) StopServer(ctx context.Context, id ServerID, opts ServerStopOptions) error
 method (*Commands) UpdateClient(ctx context.Context, opts ClientUpdateOptions) error
 method (*Commands) UpdateMessageFlag(ctx context.Context, messageID MessageID, flags MessageFlags) error
+method (*Commands) UploadFile(ctx context.Context, host string, channelID ChannelID, path string, data []byte, opts UploadFileOptions) error
 method (*Commands) UsePrivilegeKey(ctx context.Context, token string) error
 method (*Commands) ViewLog(ctx context.Context, opts LogViewOptions) (LogPage, error)
 method (*Commands) WhoAmI(ctx context.Context) (WhoAmI, error)
@@ -812,6 +815,10 @@ field CustomPropertyMatch.DatabaseID ClientDBID
 type DisconnectedEvent struct
 field DisconnectedEvent.Err error
 field DisconnectedEvent.WillReconnect bool
+type DownloadFileOptions struct
+field DownloadFileOptions.Transfer FileTransferOptions
+field DownloadFileOptions.Password string
+field DownloadFileOptions.MaxSize uint64
 type Event interface
 sealed Event
 type Executor interface
@@ -874,6 +881,9 @@ field FileTransferTrace.DialDone func(FileTransferDialDoneInfo)
 field FileTransferTrace.Progress func(FileTransferProgressInfo)
 field FileTransferTrace.Done func(FileTransferDoneInfo)
 field FileTransferTrace.Failed func(FileTransferFailedInfo)
+type FileTreeEntry struct
+embed FileTreeEntry FileEntry
+field FileTreeEntry.Path string
 type FileUploadInfo struct
 field FileUploadInfo.FileTransferKey string
 field FileUploadInfo.SeekPosition uint64
@@ -1034,6 +1044,9 @@ method (Reason) String() string
 type ReconnectOptions struct
 field ReconnectOptions.ShouldRetry ShouldRetryFunc
 field ReconnectOptions.Backoff BackoffPolicy
+type RecursiveFilesOptions struct
+field RecursiveFilesOptions.Password string
+field RecursiveFilesOptions.MaxDepth int
 type Request struct
 method (Request) Command() string
 method (Request) GoString() string
@@ -1163,6 +1176,10 @@ field TextMessageEvent.InvokerID ClientID
 type TextMessageTarget int
 method (TextMessageTarget) String() string
 type UID string
+type UploadFileOptions struct
+field UploadFileOptions.Transfer FileTransferOptions
+field UploadFileOptions.Password string
+field UploadFileOptions.Overwrite bool
 type VirtualServer struct
 field VirtualServer.Name string
 field VirtualServer.Status string
