@@ -75,13 +75,14 @@ func init() { //nolint:gochecknoinits // see above
 // transport's rule for password parameters; an empty password is sent as is,
 // since it means "no password" in every encoding.
 //
-// A list parameter is written last, as a row group: key=value per value,
-// separated by pipes, the other parameters applying to every row.
+// A list parameter is written last, as a row group: key=value per value (a
+// table has several keys per row), separated by pipes, the other parameters
+// applying to every row.
 func (r Request) encode(encodePassword func(password string) string) string {
 	out := make([][2]string, 0, len(r.params))
 	var group *param
 	for i, p := range r.params {
-		if p.rows != nil {
+		if p.rows != nil || p.table != nil {
 			group = &r.params[i]
 
 			continue
@@ -108,12 +109,31 @@ func (r Request) encode(encodePassword func(password string) string) string {
 	if group == nil {
 		return line
 	}
-	rows := make([]string, len(group.rows))
-	for i, value := range group.rows {
-		rows[i] = group.Key + "=" + wire.Escape(value)
+	var rows []string
+	if group.table != nil {
+		rows = make([]string, len(group.table))
+		for i, row := range group.table {
+			rows[i] = rowText(row)
+		}
+	} else {
+		rows = make([]string, len(group.rows))
+		for i, value := range group.rows {
+			rows[i] = group.Key + "=" + wire.Escape(value)
+		}
 	}
 
 	return line + " " + strings.Join(rows, "|")
+}
+
+// rowText renders one row of a table parameter: its keys in order, as
+// key=value separated by spaces.
+func rowText(row [][2]string) string {
+	parts := make([]string, len(row))
+	for i, kv := range row {
+		parts[i] = kv[0] + "=" + wire.Escape(kv[1])
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func (r Request) isPassword(key string) bool {

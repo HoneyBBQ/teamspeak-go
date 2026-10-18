@@ -19,6 +19,11 @@ type param struct {
 	// rows, when set, makes the parameter a row group: one key=value per
 	// value, separated by pipes, as the server takes a list (name=/a|name=/b).
 	rows []string
+	// table, when set, makes the parameter a row group whose rows each carry
+	// several keys (permsid=a permvalue=1|permsid=b permvalue=2), as the
+	// permission batches take them. A row repeats every key it needs: the
+	// server reads nothing from the row before.
+	table [][][2]string
 	// err is why the parameter cannot be encoded. The command carrying it is
 	// refused before anything is sent: sending it without the parameter would
 	// mean something else — a ban without its duration is permanent.
@@ -525,4 +530,39 @@ func rowsArg(key string, values []string) param {
 	}
 
 	return param{Key: key, rows: values}
+}
+
+// tableArg encodes rows of several keys each, separated by pipes. A row with
+// no key, or no rows, is refused.
+func tableArg(rows [][][2]string) param {
+	if len(rows) == 0 {
+		return invalidArg("an empty list")
+	}
+	for _, row := range rows {
+		if len(row) == 0 {
+			return invalidArg("an empty row")
+		}
+	}
+
+	return param{table: rows}
+}
+
+// continueOnErrorArg encodes -continueonerror, the switch the commands that take
+// several rows have: present when on, absent otherwise.
+func continueOnErrorArg(on bool) param {
+	if !on {
+		return param{Key: "-continueonerror"}
+	}
+
+	return strArg("-continueonerror", "1")
+}
+
+// idRowsArg encodes a list of ids as rows of one key.
+func idRowsArg[T unsigned](key string, ids []T) param {
+	values := make([]string, len(ids))
+	for i, id := range ids {
+		values[i] = strconv.FormatUint(uint64(id), 10)
+	}
+
+	return rowsArg(key, values)
 }
