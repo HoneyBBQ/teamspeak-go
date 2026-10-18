@@ -59,6 +59,28 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   is unchanged; an answer with no WebQuery body (a proxy's 502) has only the
   status and still wraps `ErrDial`.
 
+- A ServerQuery client no longer loses the rows of an answer that TeamSpeak 6
+  writes after the `error` line over SSH, and no longer hands them to the next
+  command. Measured on TeamSpeak 6 beta13.1, about one `channelcreate` in ten
+  and one `servergroupadd` in eight were answered that way (a quarter of the
+  creates while other sessions were creating channels, and with them one
+  command in five was given a stray row as its own answer), as were `banclient`
+  answers when events were registered and, rarely, a `clientlist`. The row
+  follows the `error` line by well under a millisecond, on the same stream:
+  nothing arrives on the SSH session's stderr. TeamSpeak 3 never did it, over
+  raw TCP or SSH, and WebQuery answers whole.
+
+  Now, for the commands that return what they made (channels, groups, bans,
+  privilege keys, API keys, virtual servers) and for reads (`...list`,
+  `...info`, `get...`, `whoami`, `version`), a successful answer that has no
+  rows yet is held for up to 250 ms, and one with rows is held until they stop
+  (25 ms), and nothing is sent in the meantime, so the rows are attributed to
+  their own command. A create whose row still has not come resolves as before,
+  and that row, should it arrive later, is dropped instead of becoming the next
+  command's answer. Ids of a successful `BanClient` that the server did not
+  send at all are still not recovered: a ban has no field that ties it to the
+  call, so its documentation says the result may be empty.
+
 ## v1.0.0-beta.10 (2026-10-18)
 
 ### Added

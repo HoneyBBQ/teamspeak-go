@@ -529,3 +529,194 @@ func TestClient_DoesNotNudgeATransportThatIsNotANudger(t *testing.T) {
 		_ = c.Close()
 	})
 }
+
+func TestClient_GivesACreateTheRowThatFollowedItsErrorLine(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tr := newFakeTransport()
+		c := serverquery.New(tr)
+		defer func() { _ = c.Close() }()
+
+		created := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "channelcreate channel_name=a") })
+		<-tr.sentCh
+		tr.receive("error id=0 msg=ok")
+		synctest.Wait()
+		// The next command waits for the answer to be complete.
+		next := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "whoami") })
+		synctest.Wait()
+		select {
+		case line := <-tr.sentCh:
+			t.Fatalf("%q was sent before the create's answer was complete", line)
+		default:
+		}
+		tr.receive("cid=7")
+		if a := await(t, created); a.err != nil || !reflect.DeepEqual(a.value, []map[string]string{{"cid": "7"}}) {
+			t.Fatalf("create: %v, %v", a.value, a.err)
+		}
+		<-tr.sentCh
+		tr.receive("client_id=3", "error id=0 msg=ok")
+		if a := await(t, next); a.err != nil || !reflect.DeepEqual(a.value, []map[string]string{{"client_id": "3"}}) {
+			t.Fatalf("whoami: %v, %v", a.value, a.err)
+		}
+	})
+}
+
+func TestClient_DoesNotHandALateRowThatMissedItsGraceToTheNextCommand(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tr := newFakeTransport()
+		c := serverquery.New(tr)
+		defer func() { _ = c.Close() }()
+
+		created := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "channelcreate channel_name=a") })
+		<-tr.sentCh
+		tr.receive("error id=0 msg=ok")
+		time.Sleep(300 * time.Millisecond)
+		if a := await(t, created); a.err != nil || len(a.value) != 0 {
+			t.Fatalf("create: %v, %v", a.value, a.err)
+		}
+		next := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "whoami") })
+		<-tr.sentCh
+		tr.receive("cid=7", "client_id=3", "error id=0 msg=ok")
+		if a := await(t, next); a.err != nil || !reflect.DeepEqual(a.value, []map[string]string{{"client_id": "3"}}) {
+			t.Fatalf("whoami: %v, %v", a.value, a.err)
+		}
+	})
+}
+
+func TestClient_AnswersAtOnceWhenTheRowCameFirstOrTheCommandMakesNothing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tr := newFakeTransport()
+		c := serverquery.New(tr)
+		defer func() { _ = c.Close() }()
+
+		a1 := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "banadd ip=1.2.3.4") })
+		<-tr.sentCh
+		tr.receive("banid=9", "error id=0 msg=ok")
+		if a := await(t, a1); a.err != nil || !reflect.DeepEqual(a.value, []map[string]string{{"banid": "9"}}) {
+			t.Fatalf("banadd: %v, %v", a.value, a.err)
+		}
+		a2 := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "clientlist") })
+		<-tr.sentCh
+		tr.receive("error id=0 msg=ok")
+		if a := await(t, a2); a.err != nil || len(a.value) != 0 {
+			t.Fatalf("clientlist: %v, %v", a.value, a.err)
+		}
+		a3 := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "channelcreate channel_name=a") })
+		<-tr.sentCh
+		tr.receive("error id=2568 msg=insufficient\\sclient\\spermissions")
+		if a := await(t, a3); a.err == nil {
+			t.Fatal("a refusal was swallowed")
+		}
+	})
+}
+
+func TestClient_KeepsEveryBanIDOfABanClientWhereverTheErrorLineFalls(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tr := newFakeTransport()
+		c := serverquery.New(tr)
+		defer func() { _ = c.Close() }()
+
+		all := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "banclient clid=1|clid=2") })
+		<-tr.sentCh
+		tr.receive("error id=0 msg=ok")
+		synctest.Wait()
+		for _, id := range []string{"4", "5", "6"} {
+			tr.receive("banid=" + id)
+			time.Sleep(5 * time.Millisecond)
+		}
+		time.Sleep(30 * time.Millisecond)
+		want := []map[string]string{{"banid": "4"}, {"banid": "5"}, {"banid": "6"}}
+		if a := await(t, all); a.err != nil || !reflect.DeepEqual(a.value, want) {
+			t.Fatalf("banclient: %v, %v", a.value, a.err)
+		}
+
+		split := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "banclient clid=1") })
+		<-tr.sentCh
+		tr.receive("banid=7", "error id=0 msg=ok")
+		time.Sleep(2 * time.Millisecond)
+		tr.receive("banid=8")
+		time.Sleep(30 * time.Millisecond)
+		want = []map[string]string{{"banid": "7"}, {"banid": "8"}}
+		if a := await(t, split); a.err != nil || !reflect.DeepEqual(a.value, want) {
+			t.Fatalf("split banclient: %v, %v", a.value, a.err)
+		}
+	})
+}
+
+func TestClient_GivesAReadTheRowsThatFollowedItsErrorLine(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tr := newFakeTransport()
+		c := serverquery.New(tr)
+		defer func() { _ = c.Close() }()
+
+		listed := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "clientlist") })
+		<-tr.sentCh
+		tr.receive("error id=0 msg=ok")
+		synctest.Wait()
+		next := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "whoami") })
+		synctest.Wait()
+		select {
+		case line := <-tr.sentCh:
+			t.Fatalf("%q was sent before the read's answer was complete", line)
+		default:
+		}
+		tr.receive("clid=1|clid=2")
+		time.Sleep(30 * time.Millisecond)
+		want := []map[string]string{{"clid": "1"}, {"clid": "2"}}
+		if a := await(t, listed); a.err != nil || !reflect.DeepEqual(a.value, want) {
+			t.Fatalf("clientlist: %v, %v", a.value, a.err)
+		}
+		<-tr.sentCh
+		tr.receive("client_id=3", "error id=0 msg=ok")
+		if a := await(t, next); a.err != nil || !reflect.DeepEqual(a.value, []map[string]string{{"client_id": "3"}}) {
+			t.Fatalf("whoami: %v, %v", a.value, a.err)
+		}
+	})
+}
+
+func TestClient_AGivenUpHeldAnswerDoesNotSwallowTheNextErrorLine(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tr := newFakeTransport()
+		c := serverquery.New(tr)
+		defer func() { _ = c.Close() }()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		created := run(func() ([]map[string]string, error) { return c.Exec(ctx, "channelcreate channel_name=a") })
+		<-tr.sentCh
+		tr.receive("error id=0 msg=ok")
+		synctest.Wait()
+		cancel()
+		if a := await(t, created); a.err == nil {
+			t.Fatal("a cancelled create reported success")
+		}
+		next := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "whoami") })
+		<-tr.sentCh
+		tr.receive("client_id=3", "error id=0 msg=ok")
+		if a := await(t, next); a.err != nil || len(a.value) != 1 {
+			t.Fatalf("whoami: %v, %v", a.value, a.err)
+		}
+	})
+}
+
+func TestClient_AStrayKeyNeverDropsTheRowOfACreateOfTheSameKind(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		tr := newFakeTransport()
+		c := serverquery.New(tr)
+		defer func() { _ = c.Close() }()
+
+		// A create whose row never comes.
+		first := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "channelcreate channel_name=a") })
+		<-tr.sentCh
+		tr.receive("error id=0 msg=ok")
+		time.Sleep(300 * time.Millisecond)
+		if a := await(t, first); a.err != nil || len(a.value) != 0 {
+			t.Fatalf("first create: %v, %v", a.value, a.err)
+		}
+		// The next create of the same kind gets its row promptly: it is its own.
+		second := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "channelcreate channel_name=b") })
+		<-tr.sentCh
+		tr.receive("cid=9", "error id=0 msg=ok")
+		if a := await(t, second); a.err != nil || !reflect.DeepEqual(a.value, []map[string]string{{"cid": "9"}}) {
+			t.Fatalf("second create: %v, %v", a.value, a.err)
+		}
+	})
+}
