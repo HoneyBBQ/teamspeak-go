@@ -366,10 +366,16 @@ func (c *Commands) GetServerIDByPort(ctx context.Context, port uint16) (ServerID
 // groupType is always sent, for the reason CreateChannelGroup gives: the
 // server's default is GroupRegular, but the zero GroupType is GroupTemplate.
 //
-// When the answer names no group, the new one is looked up in the group list by
-// its exact name and type; see createdGroupID for why that is unambiguous. The
-// error wraps ErrNoData only when nothing matches, and then the group may
-// still have been created.
+// TeamSpeak 6 6.0.0-beta13.1 over WebQuery answers a create without its id, in a
+// share of the creates, while a Server Admin voice client is connected: the
+// server writes the id after its status, so the HTTP answer has no body. The
+// group exists then. When the answer names no group, it is looked up in the
+// group list by its exact name and type, which is exact because the server
+// keeps a group's name and type unique. The one gap is another client renaming
+// or deleting the group between the create and the lookup. The error wraps
+// ErrNoData only when nothing matches, and then the group may still have been
+// created. See the "Server behaviour the SDK works around" section of the
+// serverquery package documentation.
 func (c *Commands) CreateServerGroup(ctx context.Context, name string, groupType GroupType) (ServerGroupID, error) {
 	rows, err := c.query(ctx, "servergroupadd", []param{
 		strArg("name", name),
@@ -383,10 +389,10 @@ func (c *Commands) CreateServerGroup(ctx context.Context, name string, groupType
 }
 
 // createdServerGroup returns the id of the server group a create or copy just
-// made. When the answer names none — TeamSpeak 6's WebQuery sometimes answers a
-// success with no body — the group is looked up in the group list by its exact
-// name and type, which is unambiguous because a server refuses a second group
-// of the same name and type. The error wraps ErrNoData only when nothing
+// made. When the answer names none — TeamSpeak 6's WebQuery does so while a
+// Server Admin voice client is connected — the group is looked up in the group
+// list by its exact name and type, which is unambiguous because a server
+// refuses a second group of the same name and type. The error wraps ErrNoData only when nothing
 // matches.
 func (c *Commands) createdServerGroup(
 	ctx context.Context, rows []map[string]string, name string, groupType GroupType,

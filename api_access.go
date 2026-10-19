@@ -139,8 +139,9 @@ type APIKeyOptions struct {
 // answer.
 //
 // An error wrapping ErrNoData means the key was created, but its secret is
-// lost: TeamSpeak 6's WebQuery has been seen answering a successful create
-// with no body, and the server never lists the secret. Do not retry blindly.
+// lost: TeamSpeak 6's WebQuery answers a successful create with no body while
+// a Server Admin voice client is connected (6.0.0-beta13.1), and the server
+// never lists the secret. Do not retry blindly.
 // Find the key with ListAPIKeys and remove it with DeleteAPIKey, then create
 // another.
 func (c *Commands) AddAPIKey(ctx context.Context, opts APIKeyOptions) (APIKeyCreated, error) {

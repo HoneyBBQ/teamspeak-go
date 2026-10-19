@@ -79,10 +79,16 @@ func (c *Commands) ListChannelGroups(ctx context.Context, _ ChannelGroupListOpti
 // silently meant "regular" when omitted and "template" when zero would be a
 // trap.
 //
-// When the answer names no group, the new one is looked up in the group list by
-// its exact name and type; see createdGroupID for why that is unambiguous. The
-// error wraps ErrNoData only when nothing matches, and then the group may
-// still have been created.
+// TeamSpeak 6 6.0.0-beta13.1 over WebQuery answers a create without its id, in a
+// share of the creates, while a Server Admin voice client is connected: the
+// server writes the id after its status, so the HTTP answer has no body. The
+// group exists then. When the answer names no group, it is looked up in the
+// group list by its exact name and type, which is exact because the server
+// keeps a group's name and type unique. The one gap is another client renaming
+// or deleting the group between the create and the lookup. The error wraps
+// ErrNoData only when nothing matches, and then the group may still have been
+// created. See the "Server behaviour the SDK works around" section of the
+// serverquery package documentation.
 func (c *Commands) CreateChannelGroup(ctx context.Context, name string, groupType GroupType) (ChannelGroupID, error) {
 	rows, err := c.query(ctx, "channelgroupadd", []param{
 		strArg("name", name),
@@ -632,7 +638,8 @@ func (c *Commands) addKey(ctx context.Context, command string, opts PrivilegeKey
 // generated it. A CustomSet is sent as tokencustomset.
 //
 // An error wrapping ErrNoData means the key was created: TeamSpeak 6's WebQuery
-// has been seen answering a successful create with no body. Keys with the same
+// answers a successful create with no body while a Server Admin voice client is
+// connected (6.0.0-beta13.1). Keys with the same
 // settings cannot be told apart in the list, so nothing here looks one up; do
 // not retry blindly, or a second key results. Find the key with
 // ListPrivilegeKeys and remove the extra with DeletePrivilegeKey.

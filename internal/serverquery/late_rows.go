@@ -8,10 +8,12 @@ import (
 // lateRows are the commands whose answer carries the row that names what they
 // made, and what that row is known by.
 //
-// TeamSpeak 6 over SSH has been measured to write that row after the command's
-// error line, a fraction of a millisecond later, in a share of the answers. A
-// client that takes the error line for the end of the answer loses the row and,
-// worse, hands it to whichever command is sent next.
+// TeamSpeak 6 over SSH has been measured (6.0.0-beta13.1) to write that row
+// after the command's error line, a fraction of a millisecond later, in a share
+// of the answers. A client that takes the error line for the end of the answer
+// loses the row and, worse, hands it to whichever command is sent next. Holding
+// the answer briefly is harmless on a server that writes the row first. See
+// the "Server behaviour the SDK works around" section of the serverquery package documentation.
 var lateRows = map[string]lateRow{
 	"channelcreate":    {keys: []string{"cid"}},
 	"servergroupadd":   {keys: []string{"sgid"}},
