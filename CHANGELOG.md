@@ -7,6 +7,7 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ### Changed
 
+- Docs: the README, the contributing guide and the `client` package comment describe the library as an independent implementation instead of a clean-room one. The README's disclaimer says it implements the client side only.
 - The serverquery package documentation lists the server behaviour the SDK
   works around, with the server version each was measured on, where the code
   is, what tests pin it and when it can go. It now says when TeamSpeak 6's
