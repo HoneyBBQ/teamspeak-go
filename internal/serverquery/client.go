@@ -60,11 +60,16 @@ type Transport interface {
 // On TeamSpeak 6 over SSH the server may keep the last line of a reply,
 // usually "error id=0 msg=ok", until the client writes again. An empty line
 // releases it, and the server answers an empty line with nothing. This was
-// measured on TeamSpeak 6 and only over SSH: raw TCP and WebQuery do not show
-// it, so only the SSH transport implements this. While a command is
-// outstanding the client calls Nudge once it has waited nudgeAfter, then every
-// nudgeEvery, until its answer is complete or it ends by timeout, cancel or
-// close. Nudge writes the bare line terminator and adds no reply line.
+// measured on TeamSpeak 6 (6.0.0-beta13.1) and only over SSH: raw TCP and
+// WebQuery do not show it, so only the SSH transport implements this. The
+// empty line is harmless on a server that holds nothing back. See the "Server
+// behaviour the SDK works around" section of the serverquery package
+// documentation.
+//
+// While a command is outstanding the client calls Nudge once it has waited
+// nudgeAfter, then every nudgeEvery, until its answer is complete or it ends by
+// timeout, cancel or close. Nudge writes the bare line terminator and adds no
+// reply line.
 type Nudger interface {
 	Nudge() error
 }

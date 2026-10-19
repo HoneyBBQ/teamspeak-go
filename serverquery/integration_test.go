@@ -144,7 +144,8 @@ const sshTeardownTime = 50 * time.Millisecond
 // SSH close, none from 3 ms on). The server logs "Bad file descriptor" for them.
 // TeamSpeak 6 and a raw session's end do not do it. The server drops the
 // connection, so the suite waits rather than retrying: a retry cannot know the
-// command was not run.
+// command was not run. The SDK does nothing for it. See the "Server behaviour
+// the SDK works around" section of the serverquery package documentation.
 func sshTeardown() { time.Sleep(sshTeardownTime) }
 
 // assertCoreCommands runs the commands every transport serves, against the

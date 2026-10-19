@@ -166,6 +166,12 @@ type FileTransferStopOptions struct {
 }
 
 // StopFileTransfer cancels a running transfer.
+//
+// Stop only your own transfers: TeamSpeak 6 6.0.0-beta13.1 crashes on a
+// ServerQuery ftstop for a transfer that is not the connection's own (one that
+// does not exist, or another client's), and nothing here guards against it.
+// See the "Server behaviour the SDK works around" section of the
+// serverquery package documentation.
 func (c *Commands) StopFileTransfer(
 	ctx context.Context, serverFileTransferID ServerFileTransferID, opts FileTransferStopOptions,
 ) error {

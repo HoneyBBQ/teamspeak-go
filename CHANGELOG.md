@@ -3,6 +3,22 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Changed
+
+- The serverquery package documentation lists the server behaviour the SDK
+  works around, with the server version each was measured on, where the code
+  is, what tests pin it and when it can go. It now says when TeamSpeak 6's
+  WebQuery answers a create without its id (a Server Admin voice client is
+  connected), why the lookup by name that follows is exact, and its one gap.
+  The doc comments of `CreateChannel`, `CreateServerGroup`,
+  `CreateChannelGroup`, `CopyServerGroup`, `CopyChannelGroup` and `ErrNoData`
+  say the same.
+- `StopFileTransfer` and the package documentation say that TeamSpeak 6
+  crashes on `ftstop` for any transfer that is not the connection's own, not
+  only one that does not exist.
+
 ## v1.0.0-beta.11 (2026-10-18)
 
 ### Added

@@ -26,12 +26,13 @@ var ErrNotConnected = errors.New("not connected")
 //
 // From a command that creates something, this error means the command took
 // effect: the object exists, and the server only left its id out of the
-// answer, which TeamSpeak 6's WebQuery has been seen to do. Do not retry such a
-// command blindly, or it creates a second object or fails as a duplicate.
-// CreateChannel, CreateServerGroup, CreateChannelGroup, CopyServerGroup and
-// CopyChannelGroup look the new object up themselves, and return this error
-// only when nothing matches; AddPrivilegeKey and AddAPIKey cannot, and return
-// it with the object created.
+// answer, which TeamSpeak 6's WebQuery does while a Server Admin voice client is
+// connected (6.0.0-beta13.1). Do not retry such a command blindly, or it
+// creates a second object or fails as a duplicate. CreateChannel,
+// CreateServerGroup, CreateChannelGroup, CopyServerGroup and CopyChannelGroup
+// look the new object up by its unique name first, and return this error only
+// when nothing matches; AddPrivilegeKey and AddAPIKey cannot, and return it with
+// the object created.
 var ErrNoData = errors.New("the server answered with no data")
 
 // ErrFileTransfer reports a file transfer that failed: dialling the transfer

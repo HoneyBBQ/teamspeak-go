@@ -256,12 +256,16 @@ type ChannelCreateOptions struct {
 
 // CreateChannel creates a channel and returns the id the server assigned.
 //
-// TeamSpeak 6's WebQuery has been seen answering a channelcreate that had
-// succeeded with status ok and no body at all: no cid. The channel existed,
-// and a retry would fail with a duplicate name. So when the answer carries no
-// cid, the new channel is looked up by its exact name under the same parent
-// (channellist), which is safe because a server refuses duplicate names under
-// one parent. The error wraps ErrNoData only when no channel matches.
+// TeamSpeak 6 6.0.0-beta13.1 over WebQuery answers a channelcreate without its
+// cid, in a share of the creates, while a Server Admin voice client is
+// connected: the server writes the id after its status, so the HTTP answer has
+// no body. The channel exists then, and a retry would fail with a duplicate
+// name. When the answer carries no cid, the channel is looked up by its exact
+// name under the same parent (channellist), which is exact because the server
+// keeps names unique among siblings. The one gap is another client renaming or
+// deleting the channel between the create and the lookup. The error wraps
+// ErrNoData only when no channel matches. See the "Server behaviour the SDK
+// works around" section of the serverquery package documentation.
 func (c *Commands) CreateChannel(ctx context.Context, opts ChannelCreateOptions) (ChannelID, error) {
 	params := []param{
 		strArg("channel_name", opts.Name),

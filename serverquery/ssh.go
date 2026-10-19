@@ -97,8 +97,9 @@ type sshDialer struct {
 // [TCPLogin] to combine it with.
 //
 // A TeamSpeak 6 server may hold back the end of a reply until the client writes
-// again; this transport handles that itself, by writing an empty line while a
-// command waits.
+// again (measured on 6.0.0-beta13.1); this transport handles that itself, by
+// writing an empty line while a command waits. See the "Server behaviour the SDK
+// works around" section of the package documentation.
 //
 // The host key has to be checked, and this constructor takes no policy for it,
 // so it always produces a dialer that [New] refuses. Use [SSHWith] with
@@ -308,7 +309,9 @@ func (d sshDialer) dial(ctx context.Context, addr string) (SSHConn, error) {
 		// callback type is named, and validate has already refused a dialer
 		// without one.
 		HostKeyCallback: hostKeyCallback(addr, d.hostKeyCheck),
-		// TeamSpeak 3 signs with rsa-sha2-512 and the library asks for 256.
+		// TeamSpeak 3 (3.13.8) signs with rsa-sha2-512 and the library asks for
+		// 256; see the "Server behaviour the SDK works around" section of the
+		// package documentation.
 		HostKeyAlgorithms: sshalgo.HostKeyAlgorithms(),
 	}
 	client, err := dialSSH(ctx, addr, config)

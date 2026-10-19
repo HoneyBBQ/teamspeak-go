@@ -429,8 +429,10 @@ func fieldOptEmptyFor(row map[string]string, key string) *time.Duration {
 // the id returned may be theirs rather than the one just made. That is a limit
 // of what the notification reports, not of this function.
 //
-// TeamSpeak 6's WebQuery has also been seen answering a successful create with
-// status ok and no body at all, so there are no rows. The callers then look the
+// TeamSpeak 6's WebQuery also answers a successful create with status ok and no
+// body at all in some conditions (see the "Server behaviour the SDK works
+// around" section of the serverquery package documentation), so there are no
+// rows. The callers then look the
 // group up in the group list (createdServerGroup, createdChannelGroup): a
 // server refuses a second group of the same name and type, so the one group
 // with the requested name and type is the one just made, though a group of
