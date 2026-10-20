@@ -155,11 +155,17 @@ func TestHandlerDropsUnencryptedCommandsAfterCryptoInit(t *testing.T) {
 	}
 }
 
-// sealReal seals a server command with the session key of tc for generation
-// gen, as the server would.
-func sealReal(t *testing.T, tc *crypto.Crypt, id uint16, gen uint32, payload []byte) []byte {
+// sealRealPacket seals a server packet with the session key of tc for
+// generation gen, as the server would.
+func sealRealPacket(
+	t *testing.T,
+	tc *crypto.Crypt,
+	id uint16,
+	gen uint32,
+	typeFlagged byte,
+	payload []byte,
+) []byte {
 	t.Helper()
-	typeFlagged := byte(PacketTypeCommand) | byte(PacketFlagNewProtocol)
 	header := make([]byte, 3)
 	binary.BigEndian.PutUint16(header, id)
 	header[2] = typeFlagged
@@ -174,6 +180,21 @@ func sealReal(t *testing.T, tc *crypto.Crypt, id uint16, gen uint32, payload []b
 	}
 
 	return append(append(append([]byte{}, mac...), header...), ciphertext...)
+}
+
+// sealReal seals a server command with the session key of tc for generation
+// gen, as the server would.
+func sealReal(t *testing.T, tc *crypto.Crypt, id uint16, gen uint32, payload []byte) []byte {
+	t.Helper()
+
+	return sealRealPacket(
+		t,
+		tc,
+		id,
+		gen,
+		byte(PacketTypeCommand)|byte(PacketFlagNewProtocol),
+		payload,
+	)
 }
 
 // A packet recorded in one generation and replayed once the 16-bit id has
@@ -195,6 +216,93 @@ func TestHandlerRefusesAPacketOfAnotherGeneration(t *testing.T) {
 	if *delivered != 1 {
 		t.Fatalf("delivered %d packets of the current generation, want 1", *delivered)
 	}
+}
+
+// Voice, whisper, ping and pong have separate 16-bit packet id streams. Their
+// ids can wrap without the command stream wrapping, but the packet key still
+// moves to the next generation, so each stream has to follow its own wrap.
+func TestHandlerDecryptsNonCommandPacketsAcrossTheGenerationWrap(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		pType PacketType
+	}{
+		{"voice", PacketTypeVoice},
+		{"whisper", PacketTypeVoiceWhisper},
+		{"pong", PacketTypePong},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, delivered := newFuzzHandler(t, true)
+			payload := []byte{0, 1, 0, 2, 0, 4, 1}
+
+			h.handleRawPacket(sealRealPacket(
+				t, h.TsCrypt, 65535, 0, byte(tc.pType), payload,
+			))
+			if *delivered != 1 {
+				t.Fatalf("delivered the last packet of generation 0: got %d, want 1", *delivered)
+			}
+
+			h.handleRawPacket(sealRealPacket(
+				t, h.TsCrypt, 0, 1, byte(tc.pType), payload,
+			))
+			if *delivered != 2 {
+				t.Fatalf("delivered first packet of generation 1: got %d, want 2", *delivered)
+			}
+		})
+	}
+
+	t.Run("ping", func(t *testing.T) {
+		h, _ := newFuzzHandler(t, true)
+		conn := &countingConn{}
+		h.conn = conn
+
+		h.handleRawPacket(sealRealPacket(
+			t, h.TsCrypt, 65535, 0, byte(PacketTypePing), nil,
+		))
+		h.handleRawPacket(sealRealPacket(
+			t, h.TsCrypt, 0, 1, byte(PacketTypePing), nil,
+		))
+		if conn.writes != 2 {
+			t.Fatalf("answered %d wrapped pings, want 2", conn.writes)
+		}
+	})
+
+	t.Run("wrong generation does not advance", func(t *testing.T) {
+		h, delivered := newFuzzHandler(t, true)
+		payload := []byte{0, 1, 0, 2, 0, 4, 1}
+
+		h.handleRawPacket(sealRealPacket(
+			t, h.TsCrypt, 65535, 0, byte(PacketTypeVoice), payload,
+		))
+		h.handleRawPacket(sealRealPacket(
+			t, h.TsCrypt, 0, 0, byte(PacketTypeVoice), payload,
+		))
+		if *delivered != 1 {
+			t.Fatalf("accepted a voice packet under the old generation: got %d delivered, want 1", *delivered)
+		}
+
+		h.handleRawPacket(sealRealPacket(
+			t, h.TsCrypt, 0, 1, byte(PacketTypeVoice), payload,
+		))
+		if *delivered != 2 {
+			t.Fatalf("the failed old-generation packet prevented the next generation: got %d delivered, want 2", *delivered)
+		}
+	})
+
+	t.Run("streams advance independently", func(t *testing.T) {
+		h, delivered := newFuzzHandler(t, true)
+		h.recvWindowVoice.Advance(1 << 16)
+		payload := []byte{0, 1, 0, 2, 0, 4, 1}
+
+		h.handleRawPacket(sealRealPacket(
+			t, h.TsCrypt, 7, 0, byte(PacketTypeVoiceWhisper), payload,
+		))
+		h.handleRawPacket(sealRealPacket(
+			t, h.TsCrypt, 7, 1, byte(PacketTypeVoice), payload,
+		))
+		if *delivered != 2 {
+			t.Fatalf("delivered %d independently wrapped streams, want 2", *delivered)
+		}
+	})
 }
 
 // countingConn counts the datagrams written to it.

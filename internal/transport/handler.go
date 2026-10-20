@@ -133,15 +133,19 @@ type PacketHandler struct {
 	stats *connStats
 	// closeCause is why the handler closed itself, reported to OnClosed; nil
 	// for a Close from outside. Guarded by lifecycleMu.
-	closeCause           error
-	commandQueue         map[uint16]*Packet
-	commandLowQueue      map[uint16]*Packet
-	stopCh               chan struct{}
-	recvWindowCommand    *GenerationWindow
-	recvWindowCommandLow *GenerationWindow
-	sendWindowCommand    *GenerationWindow
-	sendWindowCommandLow *GenerationWindow
-	ackManager           map[uint32]*resendPacket
+	closeCause             error
+	commandQueue           map[uint16]*Packet
+	commandLowQueue        map[uint16]*Packet
+	stopCh                 chan struct{}
+	recvWindowCommand      *GenerationWindow
+	recvWindowCommandLow   *GenerationWindow
+	recvWindowVoice        *GenerationWindow
+	recvWindowVoiceWhisper *GenerationWindow
+	recvWindowPing         *GenerationWindow
+	recvWindowPong         *GenerationWindow
+	sendWindowCommand      *GenerationWindow
+	sendWindowCommandLow   *GenerationWindow
+	ackManager             map[uint32]*resendPacket
 	// initPacketCheck is the last Init1 packet the client sent, resent until
 	// the handshake's final acknowledgement. Init1 packets are not acknowledged
 	// one by one: each step the client sends replaces it, and only
@@ -206,20 +210,24 @@ func NewPacketHandler(tsCrypt *crypto.Crypt, logger *slog.Logger) *PacketHandler
 	}
 
 	h := &PacketHandler{
-		readerDone:           make(chan struct{}),
-		TsCrypt:              tsCrypt,
-		logger:               logger,
-		ackManager:           make(map[uint32]*resendPacket),
-		stats:                newConnStats(),
-		packetProcessCh:      make(chan *pooledBuffer, packetProcessQueueSize),
-		stopCh:               make(chan struct{}),
-		recvWindowCommand:    NewGenerationWindow(1<<16, ReceivePacketWindowSize),
-		recvWindowCommandLow: NewGenerationWindow(1<<16, ReceivePacketWindowSize),
-		sendWindowCommand:    NewGenerationWindow(1<<16, ReceivePacketWindowSize),
-		sendWindowCommandLow: NewGenerationWindow(1<<16, ReceivePacketWindowSize),
-		commandQueue:         make(map[uint16]*Packet),
-		commandLowQueue:      make(map[uint16]*Packet),
-		lastMessageReceived:  time.Now(),
+		readerDone:             make(chan struct{}),
+		TsCrypt:                tsCrypt,
+		logger:                 logger,
+		ackManager:             make(map[uint32]*resendPacket),
+		stats:                  newConnStats(),
+		packetProcessCh:        make(chan *pooledBuffer, packetProcessQueueSize),
+		stopCh:                 make(chan struct{}),
+		recvWindowCommand:      NewGenerationWindow(1<<16, ReceivePacketWindowSize),
+		recvWindowCommandLow:   NewGenerationWindow(1<<16, ReceivePacketWindowSize),
+		recvWindowVoice:        NewGenerationWindow(1<<16, ReceivePacketWindowSize),
+		recvWindowVoiceWhisper: NewGenerationWindow(1<<16, ReceivePacketWindowSize),
+		recvWindowPing:         NewGenerationWindow(1<<16, ReceivePacketWindowSize),
+		recvWindowPong:         NewGenerationWindow(1<<16, ReceivePacketWindowSize),
+		sendWindowCommand:      NewGenerationWindow(1<<16, ReceivePacketWindowSize),
+		sendWindowCommandLow:   NewGenerationWindow(1<<16, ReceivePacketWindowSize),
+		commandQueue:           make(map[uint16]*Packet),
+		commandLowQueue:        make(map[uint16]*Packet),
+		lastMessageReceived:    time.Now(),
 	}
 	h.clientEkID.Store(-1)
 
@@ -520,6 +528,7 @@ func (h *PacketHandler) handleRawPacket(raw []byte) {
 	if !ok {
 		return
 	}
+	h.advanceReceiveGeneration(p)
 	// Only a packet that authenticates counts as hearing from the server;
 	// noise must not keep a dead connection from timing out.
 	h.markMessageReceived()
@@ -652,14 +661,42 @@ func (h *PacketHandler) resolvePacketGeneration(p *Packet) uint32 {
 		gen = h.sendWindowCommand.GetGeneration(int(p.ID))
 	case PacketTypeAckLow:
 		gen = h.sendWindowCommandLow.GetGeneration(int(p.ID))
-	case PacketTypeVoice, PacketTypeVoiceWhisper, PacketTypePing, PacketTypePong, PacketTypeInit1:
-		// No generation tracking for these packet types.
+	case PacketTypeVoice:
+		gen = h.recvWindowVoice.GetGeneration(int(p.ID))
+	case PacketTypeVoiceWhisper:
+		gen = h.recvWindowVoiceWhisper.GetGeneration(int(p.ID))
+	case PacketTypePing:
+		gen = h.recvWindowPing.GetGeneration(int(p.ID))
+	case PacketTypePong:
+		gen = h.recvWindowPong.GetGeneration(int(p.ID))
+	case PacketTypeInit1:
+		// Init1 belongs to the handshake and has no generated key.
 	default:
 		// Unknown packet type, keep generation as zero.
 	}
 	h.mu.Unlock()
 
 	return gen
+}
+
+// advanceReceiveGeneration follows the packet id of an authenticated,
+// non-command packet. Voice has no retransmission or acknowledgement window,
+// but its 16-bit id still wraps and changes the generation used by the
+// encryption key.
+func (h *PacketHandler) advanceReceiveGeneration(p *Packet) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	switch p.Type() {
+	case PacketTypeVoice:
+		h.recvWindowVoice.AdvanceAfter(int(p.ID))
+	case PacketTypeVoiceWhisper:
+		h.recvWindowVoiceWhisper.AdvanceAfter(int(p.ID))
+	case PacketTypePing:
+		h.recvWindowPing.AdvanceAfter(int(p.ID))
+	case PacketTypePong:
+		h.recvWindowPong.AdvanceAfter(int(p.ID))
+	}
 }
 
 func (h *PacketHandler) decryptPacketData(

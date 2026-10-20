@@ -20,6 +20,12 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   crashes on `ftstop` for any transfer that is not the connection's own, not
   only one that does not exist.
 
+### Fixed
+
+- Voice, whisper, ping and pong now track their inbound 16-bit packet id
+  generations independently, so encrypted audio continues after a packet id
+  wraps from 65535 to 0.
+
 ## v1.0.0-beta.11 (2026-10-18)
 
 ### Added
