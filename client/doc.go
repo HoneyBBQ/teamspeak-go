@@ -1,4 +1,4 @@
-// Package client is a clean-room TeamSpeak client: it connects over the voice
+// Package client is an independent TeamSpeak client: it connects over the voice
 // protocol, the way the TeamSpeak application does, and needs no proprietary
 // SDK.
 //
