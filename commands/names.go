@@ -292,6 +292,10 @@ const (
 	// including database revision number, the file transfer port, default group
 	// IDs, etc.
 	InstanceInfo = "instanceinfo"
+	// JoinStreamRequest is joinstreamrequest: asks the owner of a stream to let
+	// this client watch it, or, with is_remove=1, says it stops watching. Voice
+	// protocol only, TeamSpeak 6 only; undocumented by TeamSpeak.
+	JoinStreamRequest = "joinstreamrequest"
 	// LicenseSignMessage is licensesignmessage: signs the message with the private
 	// key of your license. TeamSpeak 6 only.
 	LicenseSignMessage = "licensesignmessage"
@@ -361,6 +365,14 @@ const (
 	QueryLoginList = "queryloginlist"
 	// Quit is quit: closes the ServerQuery connection to the server instance.
 	Quit = "quit"
+	// RequestStreamInfo is requeststreaminfo: asks for the streams a client has
+	// running, each answered with a notifystreaminfo. Voice protocol only,
+	// TeamSpeak 6 only; undocumented by TeamSpeak.
+	RequestStreamInfo = "requeststreaminfo"
+	// RespondJoinStreamRequest is respondjoinstreamrequest: the stream owner's
+	// answer to a join request: accepts with the SDP offer, or denies. Voice
+	// protocol only, TeamSpeak 6 only; undocumented by TeamSpeak.
+	RespondJoinStreamRequest = "respondjoinstreamrequest"
 	// SendTextMessage is sendtextmessage: sends a text message to a specified
 	// target.
 	SendTextMessage = "sendtextmessage"
@@ -470,6 +482,17 @@ const (
 	// connection statistics, in answer to notifyconnectioninforequest. Voice
 	// protocol only.
 	SetConnectionInfo = "setconnectioninfo"
+	// SetupStream is setupstream: starts a stream and announces it to the channel
+	// with a notifystreamstarted. Voice protocol only, TeamSpeak 6 only;
+	// undocumented by TeamSpeak.
+	SetupStream = "setupstream"
+	// StopStream is stopstream: stops a stream. The server does not check who asks.
+	// Voice protocol only, TeamSpeak 6 only; undocumented by TeamSpeak.
+	StopStream = "stopstream"
+	// StreamSignaling is streamsignaling: relays a signalling message, a JSON
+	// string, between the owner of a stream and a viewer it accepted. Voice
+	// protocol only, TeamSpeak 6 only; undocumented by TeamSpeak.
+	StreamSignaling = "streamsignaling"
 	// TokenAdd is tokenadd: alias for privilegekeyadd.
 	TokenAdd = "tokenadd"
 	// TokenDelete is tokendelete: alias for privilegekeydelete.

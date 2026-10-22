@@ -16,3 +16,19 @@ func TestEscapeRoundTrips(t *testing.T) {
 		t.Errorf("Unescape(Escape(%q)) = %q", in, got)
 	}
 }
+
+// The stream commands are named after what goes on the wire.
+func TestStreamNames(t *testing.T) {
+	for want, got := range map[string]string{
+		"setupstream":              commands.SetupStream,
+		"stopstream":               commands.StopStream,
+		"joinstreamrequest":        commands.JoinStreamRequest,
+		"respondjoinstreamrequest": commands.RespondJoinStreamRequest,
+		"streamsignaling":          commands.StreamSignaling,
+		"requeststreaminfo":        commands.RequestStreamInfo,
+	} {
+		if got != want {
+			t.Errorf("name = %q, want %q", got, want)
+		}
+	}
+}

@@ -55,3 +55,25 @@ func TestAPIKeyCodes(t *testing.T) {
 		}
 	}
 }
+
+// The stream refusals carry the server's own wording and match by name.
+func TestStreamCodes(t *testing.T) {
+	for _, tc := range []struct {
+		msg  string
+		code errcode.Code
+		id   uint32
+	}{
+		{"Stream does not exist", errcode.StreamNotFound, 5635},
+		{"You are not participating in this stream", errcode.StreamNotParticipating, 5636},
+		{"You already joined this stream", errcode.StreamAlreadyJoined, 5638},
+		{"The join request was redacted", errcode.StreamJoinRequestRedacted, 5639},
+	} {
+		err := fmt.Errorf("stream: %w", &teamspeak.ServerError{Code: errcode.Code(tc.id), Message: tc.msg})
+		if !errors.Is(err, tc.code) {
+			t.Errorf("code %d does not match %v", tc.id, tc.code)
+		}
+		if uint32(tc.code) != tc.id || tc.code.Error() != tc.msg {
+			t.Errorf("%d: name = %d %q", tc.id, uint32(tc.code), tc.code.Error())
+		}
+	}
+}

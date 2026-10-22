@@ -3,6 +3,20 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- Names for the TeamSpeak 6 stream (screen share) protocol: the commands
+  `commands.SetupStream`, `StopStream`, `JoinStreamRequest`,
+  `RespondJoinStreamRequest`, `StreamSignaling` and `RequestStreamInfo`, their
+  notifications in `notify` (`StreamStarted`, `StreamInfo`, `StreamStopped`,
+  `JoinStreamRequest`, `RespondJoinStreamRequest`, `StreamSignaling`,
+  `StreamClientJoined`, `StreamClientLeft`), and the error codes
+  `errcode.StreamNotFound` (5635), `StreamNotParticipating` (5636),
+  `StreamAlreadyJoined` (5638) and `StreamJoinRequestRedacted` (5639). The
+  protocol is undocumented by TeamSpeak.
+
 ## v1.0.0-beta.12 (2026-10-22)
 
 ### Changed
