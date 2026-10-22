@@ -364,7 +364,7 @@ if err != nil {
 	return err
 }
 pc.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) { /* read the RTP */ })
-view.OnClosed(func(stream.PeerClosed) { pc.Close() })
+view.OnClosed(func(stream.PeerClosedEvent) { pc.Close() })
 
 err = pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: view.Offer()})
 if err != nil {
@@ -420,7 +420,7 @@ pub.OnRequest(func(request *stream.JoinRequest) {
 	viewer.OnCandidate(func(c stream.IceCandidate) {
 		_ = pc.AddICECandidate(webrtc.ICECandidateInit{Candidate: c.Candidate, SDPMid: c.SDPMid, SDPMLineIndex: c.SDPMLineIndex})
 	})
-	viewer.OnClosed(func(stream.PeerClosed) { pc.Close() })
+	viewer.OnClosed(func(stream.PeerClosedEvent) { pc.Close() })
 	// Send the candidates pc.OnICECandidate finds with viewer.SendCandidate.
 })
 
@@ -432,8 +432,8 @@ A complete pair of peers, over a live server, is in
 out of this module's dependencies.
 
 A request that nobody has answered can end: the viewer withdraws it or goes
-out of view, or the stream ends. `request.OnClosed` is called then, with
-`stream.CloseWithdrawn` or `stream.CloseEnded`, so a UI can drop the request
+out of view, or the stream ends. `request.OnClosed` is called then, with the
+state `stream.RequestWithdrawn` or `stream.RequestEnded`, so a UI can drop the request
 without polling `request.State()`; `Accept` and `Deny` then return
 `stream.ErrNotPending`. It is not called for a request that was accepted or
 denied.
@@ -493,7 +493,7 @@ Things to know:
   stopped when its announcement arrives, so none is left running unseen.
 - A client whose `client_is_streaming` clears, or that comes into view not
   streaming, has its streams dropped, after a grace of two seconds:
-  `OnStopped` with `stream.CauseGone`. The server clears the flag right before
+  `OnStopped` with `stream.EndCauseGone`. The server clears the flag right before
   it reports the stop, so a stop that arrives in that time ends the stream with
   its own cause and reason instead, and a flag set again cancels the drop.
 - The bitrate the server reports for a stream is not the one requested.
@@ -723,6 +723,7 @@ errors its own functions return:
 | `teamspeak` (shared by every client) | `ErrServer` and `*ServerError`; `ErrNotConnected`, `ErrAlreadyConnected`, `ErrNoData`, `ErrFileTransfer`, `ErrInvalidCommand`, `ErrInvalidUID`, `ErrMissingDependency` |
 | `client` (voice only) | `ErrConnectionTimeout`, `ErrHandshake`, `ErrPuzzleTooHard`, `ErrInvalidAddress`, `ErrInvalidConfig`, the whisper target errors, `*RemovedError` (kick, ban or server stop) |
 | `serverquery` (query only) | `ErrInvalidConfig`, `ErrDial`, `ErrAuth`, `ErrNoGuestAccess`, `ErrHostKey`, `*WebQueryHTTPError` |
+| `stream` | `ErrClosed`, `ErrNotPending`, `ErrAlreadyWatching`, `ErrInvalidOptions`, `*UnsupportedError`, `*JoinDeniedError`, `*PayloadTooLargeError`, `*EndedError` (which also matches the server's 5635) |
 | `identity` | `ErrInvalidFormat`, `ErrInvalidLevel`, `ErrNotSerializable` |
 
 `client.ErrInvalidConfig` and `serverquery.ErrInvalidConfig` are different
@@ -1008,10 +1009,12 @@ languages differ:
   `on(event)`; a `context.Context` instead of `signal` and `timeoutMs`;
   `Close(ctx) error`, which waits for the goodbyes and returns what failed,
   instead of `dispose()`, which reports to the `error` event; pointer fields
-  (`*Source`, `*int`) instead of `undefined`; `Watch(ctx, id)` and
-  `WatchInfo(ctx, info)` instead of one `watch` taking either; numeric
+  (`*Source`, `*int`) instead of `undefined`; `Watch(ctx, id, opts)`
+  with `WatchOptions.ClientID` for a stream not in `List`, instead of a
+  `watch` that takes the id or the info; separate `EndCause` and `PeerCause`
+  types, as the JavaScript SDK has `StreamEndCause` and `PeerCloseCause`; numeric
   `Source` and `Accessibility` types with `String()` instead of string
-  unions; and the stream-ended causes `CauseShutdown` for `"disposed"`. The
+  unions; and `Shutdown` in the causes for `"disposed"`. The
   JSON of a signalling message differs from JSON.stringify's in one byte
   sequence only: encoding/json writes U+2028 and U+2029 escaped.
 - **connected.** Both deliver it once `Connect` has succeeded, on the event

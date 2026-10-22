@@ -60,7 +60,7 @@ func ExampleStreams_Watch() { //nolint:testableexamples // needs a server, so it
 		// Give it to the peer connection.
 		fmt.Println("candidate from the publisher:", candidate.Candidate)
 	})
-	view.OnClosed(func(closed stream.PeerClosed) { fmt.Println("the stream ended:", closed.Cause) })
+	view.OnClosed(func(closed stream.PeerClosedEvent) { fmt.Println("the stream ended:", closed.Cause) })
 
 	fmt.Println("offer:", len(view.Offer()), "bytes")
 	// Create the answer with the peer connection, then:
@@ -97,6 +97,6 @@ func ExampleStreams_Publish() { //nolint:testableexamples // needs a server, so 
 		viewer.OnAnswer(func(sdp string) { fmt.Println("answer:", len(sdp), "bytes") })
 		viewer.OnCandidate(func(candidate stream.IceCandidate) { fmt.Println("candidate:", candidate.Candidate) })
 	})
-	published.OnEnded(func(ended stream.Ended) { fmt.Println("ended:", ended.Cause) })
+	published.OnEnded(func(ended stream.EndedEvent) { fmt.Println("ended:", ended.Cause) })
 	defer func() { _ = published.Stop(context.WithoutCancel(ctx), 0) }()
 }

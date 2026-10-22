@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"encoding/json"
 	"log/slog"
 	"strconv"
 
@@ -94,7 +95,9 @@ type Info struct {
 	ViewerLimit *int
 	// Viewers is how many clients had asked to watch, pending requests
 	// included, when the server last answered requeststreaminfo for the stream.
-	// Nothing updates it.
+	// Nothing updates it, and it is what a client that is not the publisher
+	// knows. The publisher's own, current list of accepted viewers is
+	// Published.Viewers.
 	Viewers *int
 	// ID is the stream's id, assigned by the server.
 	ID ID
@@ -141,9 +144,9 @@ func ptrEqual[T comparable](a, b *T) bool {
 	return *a == *b
 }
 
-// IceCandidate is an ICE candidate in the shape of pion's
-// webrtc.ICECandidateInit and of the browser's RTCIceCandidateInit, so one
-// converts to the other field by field.
+// IceCandidate is an ICE candidate in the shape of the browser's
+// RTCIceCandidateInit and of the candidate init type that WebRTC libraries for
+// Go share with it, so one converts to the other field by field.
 type IceCandidate struct {
 	// SDPMid is the media section's id; nil when none.
 	SDPMid *string
@@ -158,13 +161,14 @@ type IceCandidate struct {
 type RawSignal struct {
 	// Cmd is the message's "cmd"; empty when the JSON had none.
 	Cmd string
-	// JSON is the text as it arrived.
+	// JSON is the whole message, as the text arrived.
 	JSON string
-	// Args is the message's "args", unparsed. Untrusted: the server relays the
-	// JSON unseen, so this is whatever the other client sent, of any shape. It
-	// is nil when the JSON was unreadable or had none; when the JSON was no
-	// object with a "cmd", it is the whole value.
-	Args []byte
+	// Args is the "args" part of the message: the JSON value under that key,
+	// unparsed. Untrusted: the server relays the JSON unseen, so this is
+	// whatever the other client sent, of any shape. It is nil when the text was
+	// not JSON or had no "args"; when it was JSON but no object with a "cmd",
+	// it is the whole value.
+	Args json.RawMessage
 }
 
 // Viewer is a client that asked to watch a stream.
@@ -178,66 +182,103 @@ type Viewer struct {
 	ClientID teamspeak.ClientID
 }
 
-// Cause says why a stream or one of its peers ended.
-//
-// A peer closes with CauseClosed, CauseLeft, CauseStopped, CauseDisconnected or
-// CauseShutdown. A published stream ends with CauseStopped, CauseServer,
-// CauseGone, CauseDisconnected or CauseShutdown; Streams.OnStopped reports only
-// CauseServer, CauseStopped and CauseGone.
-type Cause uint8
+// EndCause says why a stream ended.
+type EndCause uint8
 
-// The causes.
+// The causes a stream ends with. Streams.OnStopped reports EndCauseServer,
+// EndCauseStopped and EndCauseGone; Published.OnEnded reports all five.
 const (
-	// CauseStopped is a stream that Published.Stop ended here. For a peer it is
-	// the stream ending, whoever ended it.
-	CauseStopped Cause = iota + 1
-	// CauseServer is a stream the server reported stopped
+	// EndCauseStopped is a stream that Published.Stop ended here.
+	EndCauseStopped EndCause = iota + 1
+	// EndCauseServer is a stream the server reported stopped
 	// (notifystreamstopped), whoever stopped it.
-	CauseServer
-	// CauseGone is a stream whose publisher cleared client_is_streaming or
+	EndCauseServer
+	// EndCauseGone is a stream whose publisher cleared client_is_streaming or
 	// came into view not streaming, with no stop reaching this client within
 	// two seconds.
-	CauseGone
-	// CauseLeft is the other end of a peer leaving the stream.
-	CauseLeft
-	// CauseClosed is a peer that the application closed, or a viewer that left.
-	CauseClosed
-	// CauseDisconnected is the client's connection ending.
-	CauseDisconnected
-	// CauseShutdown is Streams.Close.
-	CauseShutdown
+	EndCauseGone
+	// EndCauseDisconnected is the client's connection ending.
+	EndCauseDisconnected
+	// EndCauseShutdown is Streams.Close.
+	EndCauseShutdown
 )
 
-var causeNames = [...]string{
-	CauseStopped: "stopped", CauseServer: "server", CauseGone: "gone", CauseLeft: "left",
-	CauseClosed: "closed", CauseDisconnected: "disconnected", CauseShutdown: "shutdown",
+var endCauseNames = [...]string{
+	EndCauseStopped: "stopped", EndCauseServer: "server", EndCauseGone: "gone",
+	EndCauseDisconnected: "disconnected", EndCauseShutdown: "shutdown",
 }
 
 // String names the cause, such as "gone".
-func (c Cause) String() string {
-	if c > 0 && int(c) < len(causeNames) {
-		return causeNames[c]
+func (c EndCause) String() string {
+	if c > 0 && int(c) < len(endCauseNames) {
+		return endCauseNames[c]
 	}
 
-	return "Cause(" + strconv.FormatUint(uint64(c), 10) + ")"
+	return "EndCause(" + strconv.FormatUint(uint64(c), 10) + ")"
 }
 
-// PeerClosed reports a peer closing.
-type PeerClosed struct {
+// peer is the cause a peer of a stream that ended with c closes with.
+func (c EndCause) peer() PeerCause {
+	switch c {
+	case EndCauseDisconnected:
+		return PeerCauseDisconnected
+	case EndCauseShutdown:
+		return PeerCauseShutdown
+	case EndCauseStopped, EndCauseServer, EndCauseGone:
+		return PeerCauseStopped
+	default:
+		return PeerCauseStopped
+	}
+}
+
+// PeerCause says why a peer closed.
+type PeerCause uint8
+
+// The causes a peer closes with.
+const (
+	// PeerCauseClosed is a peer that the application closed, or a viewer that
+	// left.
+	PeerCauseClosed PeerCause = iota + 1
+	// PeerCauseLeft is the other end of the peer leaving the stream.
+	PeerCauseLeft
+	// PeerCauseStopped is the stream ending, whoever ended it.
+	PeerCauseStopped
+	// PeerCauseDisconnected is the client's connection ending.
+	PeerCauseDisconnected
+	// PeerCauseShutdown is Streams.Close.
+	PeerCauseShutdown
+)
+
+var peerCauseNames = [...]string{
+	PeerCauseClosed: "closed", PeerCauseLeft: "left", PeerCauseStopped: "stopped",
+	PeerCauseDisconnected: "disconnected", PeerCauseShutdown: "shutdown",
+}
+
+// String names the cause, such as "left".
+func (c PeerCause) String() string {
+	if c > 0 && int(c) < len(peerCauseNames) {
+		return peerCauseNames[c]
+	}
+
+	return "PeerCause(" + strconv.FormatUint(uint64(c), 10) + ")"
+}
+
+// PeerClosedEvent is a peer closing.
+type PeerClosedEvent struct {
 	// Cause is why it closed.
-	Cause Cause
-	// Reason is the stop reason the server reported, for CauseStopped when the
-	// stream ended on the server's word or by Published.Stop; otherwise 0.
+	Cause PeerCause
+	// Reason is the stop reason the server reported, for PeerCauseStopped when
+	// the stream ended on the server's word or by Published.Stop; otherwise 0.
 	Reason uint32
 }
 
-// Ended reports a published stream ending.
-type Ended struct {
+// EndedEvent is a published stream ending.
+type EndedEvent struct {
 	// Cause is why it ended. Always set: a Reason of 0 alone does not say.
-	Cause Cause
+	Cause EndCause
 	// Reason is the numeric reason: the one Stop was given, or the server's.
 	// The server reported 1 when the publisher's connection ended. It is 0 for
-	// CauseGone, CauseDisconnected and CauseShutdown, which carry none.
+	// EndCauseGone, EndCauseDisconnected and EndCauseShutdown, which carry none.
 	Reason uint32
 }
 
@@ -245,13 +286,13 @@ type Ended struct {
 type StoppedEvent struct {
 	// Info is the stream as it was last known.
 	Info Info
-	// Cause is CauseServer for a notifystreamstopped, CauseStopped for a
-	// stream this client stopped, and CauseGone for a stream whose publisher
+	// Cause is EndCauseServer for a notifystreamstopped, EndCauseStopped for a
+	// stream this client stopped, and EndCauseGone for a stream whose publisher
 	// cleared client_is_streaming or came into view not streaming, without a
 	// stop reaching this client.
-	Cause Cause
+	Cause EndCause
 	// Reason is the stop reason the server reported; 0 unless the stopper gave
-	// one, and for CauseGone.
+	// one, and for EndCauseGone.
 	Reason uint32
 }
 
@@ -271,9 +312,9 @@ type WarningCode string
 // TeamSpeak 6 client does not answer it.
 const WarningOfferWithoutAudio WarningCode = "offer-without-audio"
 
-// Warning is something the package noticed and did not stop: the offer or
+// WarningEvent is something the package noticed and did not stop: the offer or
 // message goes out unchanged.
-type Warning struct {
+type WarningEvent struct {
 	// Code is what was noticed.
 	Code WarningCode
 	// StreamID is the stream.
@@ -323,6 +364,10 @@ type PublishOptions struct {
 type WatchOptions struct {
 	// Message goes to the publisher, shown with the request.
 	Message string
+	// ClientID is the publisher, for a stream that is not in List: the id
+	// of the stream alone does not say who runs it. Leave it 0 for a stream
+	// this Streams has heard of, which names its own publisher.
+	ClientID teamspeak.ClientID
 }
 
 // RequestState is where a join request stands.
@@ -339,9 +384,10 @@ const (
 	// RequestFailed is a request whose answer did not reach the server.
 	RequestFailed
 	// RequestWithdrawn is a request the viewer took back, or left view
-	// before it was answered.
+	// before it was answered. JoinRequest.OnClosed reports it.
 	RequestWithdrawn
 	// RequestEnded is a request the stream ended before it was answered.
+	// JoinRequest.OnClosed reports it.
 	RequestEnded
 )
 
@@ -354,27 +400,4 @@ func (s RequestState) String() string {
 	}
 
 	return "RequestState(" + strconv.FormatUint(uint64(s), 10) + ")"
-}
-
-// RequestCloseCause is why a request stopped waiting for an answer.
-type RequestCloseCause uint8
-
-// The causes.
-const (
-	// CloseWithdrawn is the viewer taking the request back or leaving view.
-	CloseWithdrawn RequestCloseCause = iota + 1
-	// CloseEnded is the stream ending first.
-	CloseEnded
-)
-
-// String names the cause, such as "withdrawn".
-func (c RequestCloseCause) String() string {
-	switch c {
-	case CloseWithdrawn:
-		return "withdrawn"
-	case CloseEnded:
-		return "ended"
-	default:
-		return "RequestCloseCause(" + strconv.FormatUint(uint64(c), 10) + ")"
-	}
 }

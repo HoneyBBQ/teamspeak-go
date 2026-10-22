@@ -81,15 +81,15 @@ func (e *JoinDeniedError) Error() string {
 
 // PayloadTooLargeError reports a stream command too long for the server to
 // take. The server drops a command line of about 9.2 KB, escaped, without an
-// answer, so the call fails before sending instead of timing out;
-// MaxCommandLineBytes has the exact figure. An SDP offer of a few kilobytes is
-// far under it.
+// answer, so the call fails before sending instead of timing out; Limit has
+// the figure this package holds to. An SDP offer of a few kilobytes is far
+// under it.
 type PayloadTooLargeError struct {
 	// Command is the command that would have been sent.
 	Command string
 	// Size is the size of its line on the wire, escaped, in bytes.
 	Size int
-	// Limit is the longest line this package sends: MaxCommandLineBytes.
+	// Limit is the longest line this package sends, in bytes.
 	Limit int
 }
 

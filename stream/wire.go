@@ -12,7 +12,7 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/request"
 )
 
-// MaxCommandLineBytes is the longest command line, in bytes, this package sends
+// maxCommandLineBytes is the longest command line, in bytes, this package sends
 // for a stream, before the " return_code=N" the client appends (13 bytes and
 // the digits, at most 23 in all).
 //
@@ -23,7 +23,7 @@ import (
 // dropped without an answer as well. The constant is well under that, so a
 // longer return code, or a server that counts a little differently, does not
 // turn a send into a silent drop.
-const MaxCommandLineBytes = 9150
+const maxCommandLineBytes = 9150
 
 // ---- Commands ----------------------------------------------------------------
 
@@ -109,8 +109,8 @@ func encoded(req teamspeak.Request) string {
 // than the server takes. The line is measured as it will be sent: escaped, in
 // UTF-8 bytes.
 func assertFits(req teamspeak.Request) error {
-	if size := len(encoded(req)); size > MaxCommandLineBytes {
-		return &PayloadTooLargeError{Command: req.Command(), Size: size, Limit: MaxCommandLineBytes}
+	if size := len(encoded(req)); size > maxCommandLineBytes {
+		return &PayloadTooLargeError{Command: req.Command(), Size: size, Limit: maxCommandLineBytes}
 	}
 
 	return nil
@@ -188,7 +188,7 @@ type signal struct {
 // that is none, comes back raw: a wrong shape is accepted by the server and
 // dropped by the receiver without an error, so nothing here guesses.
 func parseSignal(text string) signal {
-	raw := func(cmd string, args []byte) signal {
+	raw := func(cmd string, args json.RawMessage) signal {
 		return signal{kind: signalRaw, raw: RawSignal{Cmd: cmd, Args: args, JSON: text}}
 	}
 	data := []byte(text)

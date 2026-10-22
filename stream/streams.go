@@ -78,7 +78,7 @@ type Streams struct {
 	viewerJoined *topic[ViewerEvent]
 	viewerLeft   *topic[ViewerEvent]
 	errs         *topic[error]
-	warnings     *topic[Warning]
+	warnings     *topic[WarningEvent]
 
 	bus bus
 	// wg counts the goroutines Close waits for.
@@ -130,7 +130,7 @@ func newStreams(h host, opts Options) *Streams {
 	s.viewerJoined = newTopic[ViewerEvent](&s.bus, "viewer joined", false)
 	s.viewerLeft = newTopic[ViewerEvent](&s.bus, "viewer left", false)
 	s.errs = newTopic[error](&s.bus, "error", true)
-	s.warnings = newTopic[Warning](&s.bus, "warning", true)
+	s.warnings = newTopic[WarningEvent](&s.bus, "warning", true)
 	s.started.clone, s.updated.clone = Info.clone, Info.clone
 	s.stopped.clone = func(e StoppedEvent) StoppedEvent {
 		e.Info = e.Info.clone()
@@ -356,7 +356,7 @@ func (s *Streams) OnError(handler func(error)) func() {
 // through, such as an offer the TeamSpeak 6 client will not answer. Warnings
 // are kept for the first handler, as errors are. It returns a function that
 // removes the handler.
-func (s *Streams) OnWarning(handler func(Warning)) func() {
+func (s *Streams) OnWarning(handler func(WarningEvent)) func() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -364,7 +364,7 @@ func (s *Streams) OnWarning(handler func(Warning)) func() {
 }
 
 // Close detaches from the client and ends every session: the streams
-// published here, the views and the viewers, each closed once with CauseShutdown.
+// published here, the views and the viewers, each closed once with EndCauseShutdown.
 // While the client is connected, each stream published here is stopped
 // (stopstream) and each stream watched here is left (joinstreamrequest with
 // is_remove=1), as far as the server takes them. Close waits for those commands
@@ -389,7 +389,7 @@ func (s *Streams) Close(ctx context.Context) error {
 	s.closed = true
 	offs := s.offs
 	s.offs = nil
-	goodbyes := s.resetLocked(CauseShutdown)
+	goodbyes := s.resetLocked(EndCauseShutdown)
 	s.denied.clear()
 
 	var (
@@ -476,44 +476,35 @@ func (s *Streams) Publish(ctx context.Context, opts PublishOptions) (*Published,
 	return s.await(waitCtx, att)
 }
 
-// Watch asks to watch a stream this client has heard of, as List and OnStarted
-// report them, and returns the view once the publisher lets this client in,
-// with the SDP offer in it. WatchInfo takes the stream's description instead
-// of its id.
+// Watch asks to watch a stream and returns the view once the publisher lets
+// this client in, with the SDP offer in it. The stream is one this client has
+// heard of, as List and OnStarted report them; for one it has not, set
+// WatchOptions.ClientID to the publisher.
 //
 // Watch waits until ctx ends, or sixty seconds without a deadline. It returns
 // a *JoinDeniedError when the publisher refuses, an *EndedError when the id is
-// not one this client has heard of, or the stream ends first (or is gone: error
-// 5635), an *UnsupportedError on a server without streams, ErrAlreadyWatching
-// for a stream already asked for, and the server's own error otherwise, among
-// them 5638 (errcode.StreamAlreadyJoined) when this client already asked. When
-// the wait ends with ctx, the request is withdrawn.
+// not one this client has heard of and no ClientID was given, or the stream ends
+// first (or is gone: error 5635), an *UnsupportedError on a server without
+// streams, ErrAlreadyWatching for a stream already asked for, and the server's
+// own error otherwise, among them 5638 (errcode.StreamAlreadyJoined) when this
+// client already asked. When the wait ends with ctx, the request is withdrawn.
 func (s *Streams) Watch(ctx context.Context, id ID, opts WatchOptions) (*View, error) {
 	err := s.usable()
 	if err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	info := s.known(id)
-	var streamer teamspeak.ClientID
-	if info != nil {
-		streamer = info.ClientID
-	}
-	s.mu.Unlock()
-	if info == nil {
-		return nil, &EndedError{StreamID: id}
+	streamer := opts.ClientID
+	if streamer == 0 {
+		s.mu.Lock()
+		info := s.known(id)
+		if info != nil {
+			streamer = info.ClientID
+		}
+		s.mu.Unlock()
+		if info == nil {
+			return nil, &EndedError{StreamID: id}
+		}
 	}
 
 	return s.watch(ctx, id, streamer, opts)
-}
-
-// WatchInfo is Watch for a stream described by info, which need not be one
-// this client has heard of.
-func (s *Streams) WatchInfo(ctx context.Context, info Info, opts WatchOptions) (*View, error) {
-	err := s.usable()
-	if err != nil {
-		return nil, err
-	}
-
-	return s.watch(ctx, info.ID, info.ClientID, opts)
 }

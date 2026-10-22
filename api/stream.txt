@@ -4,16 +4,16 @@ const AccessibilityContacts Accessibility = 2
 const AccessibilityNone Accessibility = 0
 const AccessibilityPrivate Accessibility = 3
 const AccessibilityPublic Accessibility = 1
-const CauseClosed Cause = 5
-const CauseDisconnected Cause = 6
-const CauseGone Cause = 3
-const CauseLeft Cause = 4
-const CauseServer Cause = 2
-const CauseShutdown Cause = 7
-const CauseStopped Cause = 1
-const CloseEnded RequestCloseCause = 2
-const CloseWithdrawn RequestCloseCause = 1
-const MaxCommandLineBytes untyped int = 9150
+const EndCauseDisconnected EndCause = 4
+const EndCauseGone EndCause = 3
+const EndCauseServer EndCause = 2
+const EndCauseShutdown EndCause = 5
+const EndCauseStopped EndCause = 1
+const PeerCauseClosed PeerCause = 1
+const PeerCauseDisconnected PeerCause = 4
+const PeerCauseLeft PeerCause = 2
+const PeerCauseShutdown PeerCause = 5
+const PeerCauseStopped PeerCause = 3
 const RequestAccepted RequestState = 1
 const RequestDenied RequestState = 2
 const RequestEnded RequestState = 5
@@ -33,15 +33,15 @@ var ErrNotPending error
 func New(c *client.Client, opts Options) *Streams
 type Accessibility uint32
 method (Accessibility) String() string
-type Cause uint8
-method (Cause) String() string
-type Ended struct
-field Ended.Cause Cause
-field Ended.Reason uint32
+type EndCause uint8
+method (EndCause) String() string
 type EndedError struct
 field EndedError.StreamID ID
 method (*EndedError) Error() string
 method (*EndedError) Unwrap() error
+type EndedEvent struct
+field EndedEvent.Cause EndCause
+field EndedEvent.Reason uint32
 type ID string
 type IceCandidate struct
 field IceCandidate.SDPMid *string
@@ -65,7 +65,7 @@ type JoinRequest struct
 method (*JoinRequest) Accept(ctx context.Context, offer string, message string) (*ViewerPeer, error)
 method (*JoinRequest) Deny(ctx context.Context, reason string) error
 method (*JoinRequest) Message() string
-method (*JoinRequest) OnClosed(handler func(RequestCloseCause)) func()
+method (*JoinRequest) OnClosed(handler func(RequestState)) func()
 method (*JoinRequest) State() RequestState
 method (*JoinRequest) StreamID() ID
 method (*JoinRequest) Viewer() Viewer
@@ -83,15 +83,17 @@ method (*Peer) Close(ctx context.Context) error
 method (*Peer) Closed() bool
 method (*Peer) OnAnswer(handler func(sdp string)) func()
 method (*Peer) OnCandidate(handler func(IceCandidate)) func()
-method (*Peer) OnClosed(handler func(PeerClosed)) func()
+method (*Peer) OnClosed(handler func(PeerClosedEvent)) func()
 method (*Peer) OnOffer(handler func(sdp string)) func()
 method (*Peer) OnSignal(handler func(RawSignal)) func()
 method (*Peer) SendCandidate(ctx context.Context, c IceCandidate) error
 method (*Peer) SendSignal(ctx context.Context, cmd string, args any) error
 method (*Peer) StreamID() ID
-type PeerClosed struct
-field PeerClosed.Cause Cause
-field PeerClosed.Reason uint32
+type PeerCause uint8
+method (PeerCause) String() string
+type PeerClosedEvent struct
+field PeerClosedEvent.Cause PeerCause
+field PeerClosedEvent.Reason uint32
 type PublishOptions struct
 field PublishOptions.Source *Source
 field PublishOptions.Bitrate *int
@@ -103,23 +105,21 @@ type Published struct
 method (*Published) Ended() bool
 method (*Published) ID() ID
 method (*Published) Info() Info
-method (*Published) OnEnded(handler func(Ended)) func()
+method (*Published) OnEnded(handler func(EndedEvent)) func()
 method (*Published) OnRequest(handler func(*JoinRequest)) func()
 method (*Published) Stop(ctx context.Context, reason uint32) error
 method (*Published) Viewers() []*ViewerPeer
 type RawSignal struct
 field RawSignal.Cmd string
 field RawSignal.JSON string
-field RawSignal.Args []byte
-type RequestCloseCause uint8
-method (RequestCloseCause) String() string
+field RawSignal.Args json.RawMessage
 type RequestState uint8
 method (RequestState) String() string
 type Source uint32
 method (Source) String() string
 type StoppedEvent struct
 field StoppedEvent.Info Info
-field StoppedEvent.Cause Cause
+field StoppedEvent.Cause EndCause
 field StoppedEvent.Reason uint32
 type Streams struct
 method (*Streams) Close(ctx context.Context) error
@@ -131,11 +131,10 @@ method (*Streams) OnStopped(handler func(StoppedEvent)) func()
 method (*Streams) OnUpdated(handler func(Info)) func()
 method (*Streams) OnViewerJoined(handler func(ViewerEvent)) func()
 method (*Streams) OnViewerLeft(handler func(ViewerEvent)) func()
-method (*Streams) OnWarning(handler func(Warning)) func()
+method (*Streams) OnWarning(handler func(WarningEvent)) func()
 method (*Streams) Publish(ctx context.Context, opts PublishOptions) (*Published, error)
 method (*Streams) Supported() bool
 method (*Streams) Watch(ctx context.Context, id ID, opts WatchOptions) (*View, error)
-method (*Streams) WatchInfo(ctx context.Context, info Info, opts WatchOptions) (*View, error)
 type UnsupportedError struct
 field UnsupportedError.Version string
 field UnsupportedError.Family client.ServerFamily
@@ -150,7 +149,7 @@ method (*View) Leave(ctx context.Context) error
 method (*View) Offer() string
 method (View) OnAnswer(handler func(sdp string)) func()
 method (View) OnCandidate(handler func(IceCandidate)) func()
-method (View) OnClosed(handler func(PeerClosed)) func()
+method (View) OnClosed(handler func(PeerClosedEvent)) func()
 method (View) OnOffer(handler func(sdp string)) func()
 method (View) OnSignal(handler func(RawSignal)) func()
 method (View) SendCandidate(ctx context.Context, c IceCandidate) error
@@ -170,18 +169,19 @@ method (ViewerPeer) Close(ctx context.Context) error
 method (ViewerPeer) Closed() bool
 method (ViewerPeer) OnAnswer(handler func(sdp string)) func()
 method (ViewerPeer) OnCandidate(handler func(IceCandidate)) func()
-method (ViewerPeer) OnClosed(handler func(PeerClosed)) func()
+method (ViewerPeer) OnClosed(handler func(PeerClosedEvent)) func()
 method (ViewerPeer) OnOffer(handler func(sdp string)) func()
 method (ViewerPeer) OnSignal(handler func(RawSignal)) func()
 method (ViewerPeer) SendCandidate(ctx context.Context, c IceCandidate) error
 method (*ViewerPeer) SendOffer(ctx context.Context, sdp string) error
 method (ViewerPeer) SendSignal(ctx context.Context, cmd string, args any) error
 method (ViewerPeer) StreamID() ID
-type Warning struct
-field Warning.Code WarningCode
-field Warning.StreamID ID
-field Warning.Message string
-field Warning.ClientID teamspeak.ClientID
 type WarningCode string
+type WarningEvent struct
+field WarningEvent.Code WarningCode
+field WarningEvent.StreamID ID
+field WarningEvent.Message string
+field WarningEvent.ClientID teamspeak.ClientID
 type WatchOptions struct
 field WatchOptions.Message string
+field WatchOptions.ClientID teamspeak.ClientID

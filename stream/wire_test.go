@@ -285,13 +285,13 @@ func TestAssertFits(t *testing.T) {
 		}
 	})
 	t.Run("accepts the limit and refuses a byte over", func(t *testing.T) {
-		err := assertFits(fill(MaxCommandLineBytes-overhead, "a"))
+		err := assertFits(fill(maxCommandLineBytes-overhead, "a"))
 		if err != nil {
 			t.Errorf("at the limit: %v", err)
 		}
-		err = assertFits(fill(MaxCommandLineBytes-overhead+1, "a"))
+		err = assertFits(fill(maxCommandLineBytes-overhead+1, "a"))
 		var big *PayloadTooLargeError
-		if !errors.As(err, &big) || big.Size != MaxCommandLineBytes+1 || big.Limit != MaxCommandLineBytes ||
+		if !errors.As(err, &big) || big.Size != maxCommandLineBytes+1 || big.Limit != maxCommandLineBytes ||
 			big.Command != commands.RespondJoinStreamRequest {
 			t.Errorf("one over: %v", err)
 		}
@@ -315,9 +315,9 @@ func TestAssertFits(t *testing.T) {
 		}
 	})
 	t.Run("says how big the line is", func(t *testing.T) {
-		err := assertFits(fill(MaxCommandLineBytes, "a"))
+		err := assertFits(fill(maxCommandLineBytes, "a"))
 		var big *PayloadTooLargeError
-		if !errors.As(err, &big) || big.Size != overhead+MaxCommandLineBytes ||
+		if !errors.As(err, &big) || big.Size != overhead+maxCommandLineBytes ||
 			!strings.Contains(err.Error(), "respondjoinstreamrequest") {
 			t.Errorf("err = %v", err)
 		}
@@ -361,29 +361,47 @@ func TestErrors_Messages(t *testing.T) {
 	}
 }
 
-func TestCause_Strings(t *testing.T) {
-	for c, want := range map[Cause]string{
-		CauseStopped: "stopped", CauseServer: "server", CauseGone: "gone", CauseLeft: "left",
-		CauseClosed: "closed", CauseDisconnected: "disconnected", CauseShutdown: "shutdown", 0: "Cause(0)", 99: "Cause(99)",
+func TestEndCause_Strings(t *testing.T) {
+	for c, want := range map[EndCause]string{
+		EndCauseStopped: "stopped", EndCauseServer: "server", EndCauseGone: "gone",
+		EndCauseDisconnected: "disconnected", EndCauseShutdown: "shutdown", 0: "EndCause(0)", 99: "EndCause(99)",
 	} {
 		if got := c.String(); got != want {
-			t.Errorf("Cause(%d) = %q, want %q", uint8(c), got, want)
+			t.Errorf("EndCause(%d) = %q, want %q", uint8(c), got, want)
 		}
 	}
+}
+
+func TestPeerCause_Strings(t *testing.T) {
+	for c, want := range map[PeerCause]string{
+		PeerCauseClosed: "closed", PeerCauseLeft: "left", PeerCauseStopped: "stopped",
+		PeerCauseDisconnected: "disconnected", PeerCauseShutdown: "shutdown", 0: "PeerCause(0)", 99: "PeerCause(99)",
+	} {
+		if got := c.String(); got != want {
+			t.Errorf("PeerCause(%d) = %q, want %q", uint8(c), got, want)
+		}
+	}
+}
+
+// A peer closes with the cause of the stream that ended under it.
+func TestEndCause_PeerCause(t *testing.T) {
+	for c, want := range map[EndCause]PeerCause{
+		EndCauseStopped: PeerCauseStopped, EndCauseServer: PeerCauseStopped, EndCauseGone: PeerCauseStopped,
+		EndCauseDisconnected: PeerCauseDisconnected, EndCauseShutdown: PeerCauseShutdown,
+	} {
+		if got := c.peer(); got != want {
+			t.Errorf("%v.peer() = %v, want %v", c, got, want)
+		}
+	}
+}
+
+func TestRequestState_Strings(t *testing.T) {
 	for s, want := range map[RequestState]string{
 		RequestPending: "pending", RequestAccepted: "accepted", RequestDenied: "denied", RequestFailed: "failed",
 		RequestWithdrawn: "withdrawn", RequestEnded: "ended", 9: "RequestState(9)",
 	} {
 		if got := s.String(); got != want {
 			t.Errorf("RequestState(%d) = %q, want %q", uint8(s), got, want)
-		}
-	}
-	closeCauses := map[RequestCloseCause]string{
-		CloseWithdrawn: "withdrawn", CloseEnded: "ended", 0: "RequestCloseCause(0)",
-	}
-	for c, want := range closeCauses {
-		if got := c.String(); got != want {
-			t.Errorf("RequestCloseCause(%d) = %q, want %q", uint8(c), got, want)
 		}
 	}
 }

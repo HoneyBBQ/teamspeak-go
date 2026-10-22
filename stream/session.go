@@ -157,7 +157,7 @@ func (s *Streams) learnLocked(info Info) {
 }
 
 // endLocked is a stream over, for whatever hangs on it; it is forgotten.
-func (s *Streams) endLocked(id ID, reason uint32, cause Cause) {
+func (s *Streams) endLocked(id ID, reason uint32, cause EndCause) {
 	var info *Info
 	if i := slices.IndexFunc(s.infos, func(x Info) bool { return x.ID == id }); i >= 0 {
 		removed := s.infos[i]
@@ -170,12 +170,12 @@ func (s *Streams) endLocked(id ID, reason uint32, cause Cause) {
 
 	if p := s.published[id]; p != nil {
 		delete(s.published, id)
-		p.finishLocked(Ended{Cause: cause, Reason: reason})
+		p.finishLocked(EndedEvent{Cause: cause, Reason: reason})
 	}
 	if w := s.watching[id]; w != nil {
 		delete(s.watching, id)
 		if w.view != nil {
-			w.view.endLocked(PeerClosed{Cause: CauseStopped, Reason: reason})
+			w.view.endLocked(PeerClosedEvent{Cause: PeerCauseStopped, Reason: reason})
 		} else {
 			w.settleLocked(nil, &EndedError{StreamID: id})
 		}
@@ -186,17 +186,17 @@ func (s *Streams) endLocked(id ID, reason uint32, cause Cause) {
 }
 
 // resetLocked ends everything, once, and forgets: the connection ended
-// (CauseDisconnected) or the Streams closed (CauseShutdown). For the latter it
+// (EndCauseDisconnected) or the Streams closed (EndCauseShutdown). For the latter it
 // returns the commands that tell the server.
-func (s *Streams) resetLocked(cause Cause) []func(context.Context) error {
+func (s *Streams) resetLocked(cause EndCause) []func(context.Context) error {
 	var goodbyes []func(context.Context) error
 	err := teamspeak.ErrNotConnected
-	if cause == CauseShutdown {
+	if cause == EndCauseShutdown {
 		err = ErrClosed
 	}
 	s.gen++
 	s.cancelConn()
-	if cause != CauseShutdown {
+	if cause != EndCauseShutdown {
 		s.conn, s.cancelConn = context.WithCancel(context.Background())
 	}
 	for att := range s.attempts {
@@ -205,7 +205,7 @@ func (s *Streams) resetLocked(cause Cause) []func(context.Context) error {
 	clear(s.attempts)
 	s.orphans.clear()
 
-	if cause == CauseShutdown {
+	if cause == EndCauseShutdown {
 		goodbyes = s.farewellsLocked()
 	}
 	published := slices.SortedFunc(maps.Values(s.published), func(a, b *Published) int { return cmpID(a.id, b.id) })
@@ -221,11 +221,11 @@ func (s *Streams) resetLocked(cause Cause) []func(context.Context) error {
 	s.infos = nil
 
 	for _, p := range published {
-		p.finishLocked(Ended{Cause: cause})
+		p.finishLocked(EndedEvent{Cause: cause})
 	}
 	for _, w := range watches {
 		if w.view != nil {
-			w.view.endLocked(PeerClosed{Cause: cause})
+			w.view.endLocked(PeerClosedEvent{Cause: cause.peer()})
 		} else {
 			w.settleLocked(nil, err)
 		}
@@ -266,7 +266,7 @@ func (s *Streams) disconnected() {
 	defer s.mu.Unlock()
 
 	if !s.closed {
-		s.resetLocked(CauseDisconnected)
+		s.resetLocked(EndCauseDisconnected)
 	}
 }
 
@@ -293,7 +293,7 @@ func (s *Streams) goneFired(clid teamspeak.ClientID) {
 	delete(s.gone, clid)
 	for _, info := range slices.Clone(s.infos) {
 		if info.ClientID == clid {
-			s.endLocked(info.ID, 0, CauseGone)
+			s.endLocked(info.ID, 0, EndCauseGone)
 		}
 	}
 }
@@ -457,7 +457,7 @@ func (s *Streams) dispatchLocked(
 		s.onClientLeftLocked(params, self)
 	case notify.StreamStopped:
 		if id := ID(params["id"]); id != "" {
-			s.endLocked(id, reasonOf(params), CauseServer)
+			s.endLocked(id, reasonOf(params), EndCauseServer)
 			s.orphans.remove(id)
 		}
 	}
@@ -505,7 +505,7 @@ func (s *Streams) onClientLeftLocked(params map[string]string, self teamspeak.Cl
 	}
 	// Others leaving is not this view's end; this client leaving is.
 	if w := s.watching[id]; w != nil && w.view != nil && clid == self {
-		w.view.endLocked(PeerClosed{Cause: CauseLeft})
+		w.view.endLocked(PeerClosedEvent{Cause: PeerCauseLeft})
 	}
 	if info := s.known(id); info != nil {
 		s.viewerLeft.emit(ViewerEvent{Info: info.clone(), ClientID: clid})
@@ -606,7 +606,7 @@ func (s *Streams) adoptLocked(info Info) *Published {
 // reported started, and its late rows are ignored.
 func (s *Streams) orphanLocked(info Info) {
 	s.orphans.add(info.ID)
-	s.endLocked(info.ID, 0, CauseStopped)
+	s.endLocked(info.ID, 0, EndCauseStopped)
 }
 
 func (s *Streams) watch(ctx context.Context, id ID, streamer teamspeak.ClientID, opts WatchOptions) (*View, error) {

@@ -22,7 +22,7 @@ type Peer struct {
 	answer    *topic[string]
 	candidate *topic[IceCandidate]
 	signal    *topic[RawSignal]
-	closedT   *topic[PeerClosed]
+	closedT   *topic[PeerClosedEvent]
 	streamID  ID
 	clientID  teamspeak.ClientID
 	closed    bool
@@ -44,7 +44,7 @@ func newPeer(s *Streams, pub *Published, id ID, clid teamspeak.ClientID) *Peer {
 	p.answer = newTopic[string](&s.bus, "answer", true)
 	p.candidate = newTopic[IceCandidate](&s.bus, "candidate", true)
 	p.signal = newTopic[RawSignal](&s.bus, "signal", true)
-	p.closedT = newTopic[PeerClosed](&s.bus, "peer closed", true)
+	p.closedT = newTopic[PeerClosedEvent](&s.bus, "peer closed", true)
 	p.offer.onDrop, p.answer.onDrop, p.candidate.onDrop, p.signal.onDrop, p.closedT.onDrop = drop, drop, drop, drop, drop
 	p.candidate.clone = func(c IceCandidate) IceCandidate {
 		c.SDPMid, c.SDPMLineIndex = clonePtr(c.SDPMid), clonePtr(c.SDPMLineIndex)
@@ -108,7 +108,7 @@ func (p *Peer) OnSignal(handler func(RawSignal)) func() {
 
 // OnClosed registers a handler for the peer closing, for whatever cause. It
 // returns a function that removes the handler.
-func (p *Peer) OnClosed(handler func(PeerClosed)) func() {
+func (p *Peer) OnClosed(handler func(PeerClosedEvent)) func() {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
 
@@ -146,7 +146,7 @@ func (p *Peer) Close(ctx context.Context) error {
 
 		return nil
 	}
-	p.endLocked(PeerClosed{Cause: CauseClosed})
+	p.endLocked(PeerClosedEvent{Cause: PeerCauseClosed})
 	p.s.mu.Unlock()
 
 	if p.pub != nil {
@@ -183,7 +183,7 @@ func (p *Peer) deliverLocked(text string) {
 }
 
 // endLocked closes the peer without telling the server, once.
-func (p *Peer) endLocked(c PeerClosed) {
+func (p *Peer) endLocked(c PeerClosedEvent) {
 	if p.closed {
 		return
 	}

@@ -24,7 +24,7 @@ const maxClosedViewers = 1024
 type Published struct {
 	s        *Streams
 	requests *topic[*JoinRequest]
-	ended    *topic[Ended]
+	ended    *topic[EndedEvent]
 	// peers are the viewers let in and still there.
 	peers   map[teamspeak.ClientID]*ViewerPeer
 	pending map[teamspeak.ClientID]*JoinRequest
@@ -74,7 +74,7 @@ func newPublished(s *Streams, initial Info) *Published {
 	}
 	p.requests = newTopic[*JoinRequest](&s.bus, "request", true)
 	p.requests.onDrop = drop
-	p.ended = newTopic[Ended](&s.bus, "ended", true)
+	p.ended = newTopic[EndedEvent](&s.bus, "ended", true)
 	p.ended.onDrop = drop
 
 	return p
@@ -128,7 +128,7 @@ func (p *Published) OnRequest(handler func(*JoinRequest)) func() {
 
 // OnEnded registers a handler for the stream ending. It returns a function that
 // removes the handler.
-func (p *Published) OnEnded(handler func(Ended)) func() {
+func (p *Published) OnEnded(handler func(EndedEvent)) func() {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
 
@@ -151,7 +151,7 @@ func (p *Published) Stop(ctx context.Context, reason uint32) error {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
 
-	p.s.endLocked(p.id, reason, CauseStopped)
+	p.s.endLocked(p.id, reason, EndCauseStopped)
 
 	return nil
 }
@@ -225,7 +225,7 @@ func (p *Published) announceLocked(w lookup) {
 		return
 	}
 	r := &JoinRequest{p: p, viewer: w.viewer, message: w.message}
-	r.closed = newTopic[RequestCloseCause](&p.s.bus, "request closed", true)
+	r.closed = newTopic[RequestState](&p.s.bus, "request closed", true)
 	p.pending[clid] = r
 	p.requests.emit(r)
 }
@@ -235,7 +235,7 @@ func (p *Published) announceLocked(w lookup) {
 func (p *Published) dropPendingLocked(clid teamspeak.ClientID) {
 	delete(p.resolving, clid)
 	if r := p.pending[clid]; r != nil {
-		r.closeLocked(CloseWithdrawn)
+		r.closeLocked(RequestWithdrawn)
 		delete(p.pending, clid)
 	}
 }
@@ -244,7 +244,7 @@ func (p *Published) dropPendingLocked(clid teamspeak.ClientID) {
 func (p *Published) viewerGoneLocked(clid teamspeak.ClientID) {
 	p.dropPendingLocked(clid)
 	if v := p.peers[clid]; v != nil {
-		v.endLocked(PeerClosed{Cause: CauseLeft})
+		v.endLocked(PeerClosedEvent{Cause: PeerCauseLeft})
 	}
 }
 
@@ -262,18 +262,18 @@ func (p *Published) signalLocked(clid teamspeak.ClientID, text string) bool {
 }
 
 // finishLocked ends the stream and everything that hangs on it, once.
-func (p *Published) finishLocked(e Ended) {
+func (p *Published) finishLocked(e EndedEvent) {
 	if p.done {
 		return
 	}
 	p.done = true
 	for clid, r := range p.pending {
-		r.closeLocked(CloseEnded)
+		r.closeLocked(RequestEnded)
 		delete(p.pending, clid)
 	}
-	closed := PeerClosed{Cause: e.Cause}
-	if e.Cause != CauseDisconnected && e.Cause != CauseShutdown {
-		closed = PeerClosed{Cause: CauseStopped, Reason: e.Reason}
+	closed := PeerClosedEvent{Cause: e.Cause.peer()}
+	if closed.Cause == PeerCauseStopped {
+		closed.Reason = e.Reason
 	}
 	for _, v := range p.viewersLocked() {
 		v.endLocked(closed)
@@ -297,7 +297,7 @@ func (p *Published) viewersLocked() []*ViewerPeer {
 // nothing is accepted for it. A request is answered once.
 type JoinRequest struct {
 	p       *Published
-	closed  *topic[RequestCloseCause]
+	closed  *topic[RequestState]
 	message string
 	viewer  Viewer
 	state   RequestState
@@ -321,12 +321,13 @@ func (r *JoinRequest) State() RequestState {
 }
 
 // OnClosed registers a handler for a request nobody had answered closing: the
-// viewer withdrew it or left view, or the stream ended. It is called once, and
+// viewer withdrew it or left view (the handler gets RequestWithdrawn), or the
+// stream ended (RequestEnded). It is called once, and
 // never for a request that was accepted or denied, nor when Accept or Deny
 // themselves are called. From then on Accept and Deny return ErrNotPending. A
 // close that happens before the first handler is registered is kept for it. It
 // returns a function that removes the handler.
-func (r *JoinRequest) OnClosed(handler func(RequestCloseCause)) func() {
+func (r *JoinRequest) OnClosed(handler func(RequestState)) func() {
 	r.p.s.mu.Lock()
 	defer r.p.s.mu.Unlock()
 
@@ -376,7 +377,7 @@ func (r *JoinRequest) Accept(ctx context.Context, offer, message string) (*Viewe
 	if err != nil {
 		s.mu.Lock()
 		r.state = RequestFailed
-		peer.endLocked(PeerClosed{Cause: CauseClosed})
+		peer.endLocked(PeerClosedEvent{Cause: PeerCauseClosed})
 		s.mu.Unlock()
 
 		return nil, err
@@ -426,16 +427,12 @@ func (r *JoinRequest) Deny(ctx context.Context, reason string) error {
 
 // closeLocked is the request not being answered: the viewer withdrew it, or the
 // stream ended.
-func (r *JoinRequest) closeLocked(cause RequestCloseCause) {
+func (r *JoinRequest) closeLocked(state RequestState) {
 	if r.state != RequestPending {
 		return
 	}
-	if cause == CloseEnded {
-		r.state = RequestEnded
-	} else {
-		r.state = RequestWithdrawn
-	}
-	r.closed.emit(cause)
+	r.state = state
+	r.closed.emit(state)
 }
 
 // identity asks the server who a client out of view is. A client it cannot name
@@ -465,7 +462,7 @@ func (s *Streams) rememberLocked(v Viewer) {
 
 // warnNoAudioLocked warns that an offer for a viewer has no audio section.
 func (s *Streams) warnNoAudioLocked(id ID, clid teamspeak.ClientID) {
-	s.warnings.emit(Warning{
+	s.warnings.emit(WarningEvent{
 		Code:     WarningOfferWithoutAudio,
 		StreamID: id,
 		ClientID: clid,

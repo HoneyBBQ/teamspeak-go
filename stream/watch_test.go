@@ -80,7 +80,7 @@ func TestWatch_TakesAnInfoForAStreamItHasNotHeardOf(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		done := make(chan watchResult, 1)
 		go func() {
-			v, err := e.s.WatchInfo(t.Context(), Info{ID: "a", ClientID: 5}, WatchOptions{})
+			v, err := e.s.Watch(t.Context(), "a", WatchOptions{ClientID: 5})
 			done <- watchResult{v, err}
 		}()
 		e.settle()
@@ -288,7 +288,7 @@ func TestWatch_DeliversARenegotiationOffer(t *testing.T) {
 func TestWatch_LeavesWithIsRemoveOnce(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		v := e.watchAccepted()
-		var closed collector[PeerClosed]
+		var closed collector[PeerClosedEvent]
 		v.OnClosed(closed.add)
 		err := v.Leave(t.Context())
 		if err != nil {
@@ -303,7 +303,7 @@ func TestWatch_LeavesWithIsRemoveOnce(t *testing.T) {
 		if len(join) != 2 || join[1].line != "joinstreamrequest id=a clid=5 msg= is_remove=1" {
 			t.Errorf("sent %v", join)
 		}
-		if got := closed.all(); len(got) != 1 || got[0].Cause != CauseClosed || !v.Closed() {
+		if got := closed.all(); len(got) != 1 || got[0].Cause != PeerCauseClosed || !v.Closed() {
 			t.Errorf("closed = %+v", got)
 		}
 		// The stream can be watched again.
@@ -352,7 +352,7 @@ func TestWatch_RaisesAnyOtherFailureToLeave(t *testing.T) {
 func TestWatch_StaysWhenAnotherViewerLeavesAndClosesWhenItIsItselfTheOne(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		v := e.watchAccepted()
-		var closed collector[PeerClosed]
+		var closed collector[PeerClosedEvent]
 		v.OnClosed(closed.add)
 		e.h.notify(notify.StreamClientLeft, map[string]string{"id": "a", "clid": "9"})
 		e.settle()
@@ -361,7 +361,7 @@ func TestWatch_StaysWhenAnotherViewerLeavesAndClosesWhenItIsItselfTheOne(t *test
 		}
 		e.h.notify(notify.StreamClientLeft, map[string]string{"id": "a", "clid": "1"})
 		e.settle()
-		if got := closed.all(); len(got) != 1 || got[0].Cause != CauseLeft {
+		if got := closed.all(); len(got) != 1 || got[0].Cause != PeerCauseLeft {
 			t.Errorf("closed = %+v", got)
 		}
 	})
@@ -370,11 +370,11 @@ func TestWatch_StaysWhenAnotherViewerLeavesAndClosesWhenItIsItselfTheOne(t *test
 func TestWatch_ClosesWithTheReasonWhenTheStreamStops(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		v := e.watchAccepted()
-		var closed collector[PeerClosed]
+		var closed collector[PeerClosedEvent]
 		v.OnClosed(closed.add)
 		e.h.notify(notify.StreamStopped, map[string]string{"id": "a", "reason": "4"})
 		e.settle()
-		if got := closed.all(); len(got) != 1 || got[0] != (PeerClosed{Cause: CauseStopped, Reason: 4}) {
+		if got := closed.all(); len(got) != 1 || got[0] != (PeerClosedEvent{Cause: PeerCauseStopped, Reason: 4}) {
 			t.Errorf("closed = %+v", got)
 		}
 	})
@@ -428,8 +428,8 @@ func TestCleanup_EndsEverySessionOnceWhenTheConnectionEndsAndForgetsWhatItKnew(t
 		p := e.publish(PublishOptions{Name: "x"})
 		peer := acceptViewer(t, e, p)
 		v := e.watchAccepted()
-		var ended collector[Ended]
-		var closedPeer, closedView collector[PeerClosed]
+		var ended collector[EndedEvent]
+		var closedPeer, closedView collector[PeerClosedEvent]
 		p.OnEnded(ended.add)
 		peer.OnClosed(closedPeer.add)
 		v.OnClosed(closedView.add)
@@ -437,13 +437,13 @@ func TestCleanup_EndsEverySessionOnceWhenTheConnectionEndsAndForgetsWhatItKnew(t
 		e.h.disconnect()
 		e.h.disconnect()
 		e.settle()
-		if got := ended.all(); len(got) != 1 || got[0] != (Ended{Cause: CauseDisconnected}) {
+		if got := ended.all(); len(got) != 1 || got[0] != (EndedEvent{Cause: EndCauseDisconnected}) {
 			t.Errorf("ended = %+v", got)
 		}
-		if closedPeer.len() != 1 || closedPeer.all()[0].Cause != CauseDisconnected {
+		if closedPeer.len() != 1 || closedPeer.all()[0].Cause != PeerCauseDisconnected {
 			t.Errorf("peer %+v", closedPeer.all())
 		}
-		if closedView.len() != 1 || closedView.all()[0].Cause != CauseDisconnected {
+		if closedView.len() != 1 || closedView.all()[0].Cause != PeerCauseDisconnected {
 			t.Errorf("view %+v", closedView.all())
 		}
 		if len(e.s.List()) != 0 || e.h.count() != before {
@@ -483,8 +483,8 @@ func TestCleanup_DetachesAndEndsEverythingOnCloseOnce(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		p := e.publish(PublishOptions{Name: "x"})
 		peer := acceptViewer(t, e, p)
-		var ended collector[Ended]
-		var closed collector[PeerClosed]
+		var ended collector[EndedEvent]
+		var closed collector[PeerClosedEvent]
 		p.OnEnded(ended.add)
 		peer.OnClosed(closed.add)
 		err := e.s.Close(t.Context())
@@ -496,10 +496,10 @@ func TestCleanup_DetachesAndEndsEverythingOnCloseOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 		e.settle()
-		if got := ended.all(); len(got) != 1 || got[0] != (Ended{Cause: CauseShutdown}) {
+		if got := ended.all(); len(got) != 1 || got[0] != (EndedEvent{Cause: EndCauseShutdown}) {
 			t.Errorf("ended = %+v", got)
 		}
-		if got := closed.all(); len(got) != 1 || got[0].Cause != CauseShutdown {
+		if got := closed.all(); len(got) != 1 || got[0].Cause != PeerCauseShutdown {
 			t.Errorf("closed = %+v", got)
 		}
 		for _, event := range []string{"notification", "enter", "updated", "leave", "connected", "disconnected"} {
@@ -660,7 +660,7 @@ func TestPublisherThatStopsStreaming_DropsItsStreamsWithTheCauseGoneOnceTheFlagH
 		}
 		time.Sleep(time.Millisecond)
 		e.settle()
-		if got := stopped.all(); len(got) != 1 || got[0].Cause != CauseGone || got[0].Reason != 0 || len(e.s.List()) != 0 {
+		if got := stopped.all(); len(got) != 1 || got[0].Cause != EndCauseGone || got[0].Reason != 0 || len(e.s.List()) != 0 {
 			t.Errorf("stopped = %+v", got)
 		}
 	})
@@ -675,7 +675,7 @@ func TestPublisherThatStopsStreaming_LetsTheStopNotificationThatFollowsTheClearW
 		e.h.notify(notify.StreamStopped, map[string]string{"id": "a", "reason": "1"})
 		time.Sleep(10 * time.Second)
 		e.settle()
-		if got := stopped.all(); len(got) != 1 || got[0].Cause != CauseServer || got[0].Reason != 1 {
+		if got := stopped.all(); len(got) != 1 || got[0].Cause != EndCauseServer || got[0].Reason != 1 {
 			t.Errorf("stopped = %+v", got)
 		}
 	})
@@ -757,12 +757,12 @@ func TestPublisherThatStopsStreaming_EndsTheViewersSideOfAStreamThatIsGoneAfterT
 	run(t, func(t *testing.T, e *env) {
 		e.h.enter(5, new(true))
 		v := e.watchAccepted()
-		var closed collector[PeerClosed]
+		var closed collector[PeerClosedEvent]
 		v.OnClosed(closed.add)
 		e.h.setStreaming(5, false)
 		time.Sleep(goneGrace)
 		e.settle()
-		if got := closed.all(); len(got) != 1 || got[0] != (PeerClosed{Cause: CauseStopped}) {
+		if got := closed.all(); len(got) != 1 || got[0] != (PeerClosedEvent{Cause: PeerCauseStopped}) {
 			t.Errorf("closed = %+v", got)
 		}
 	})
@@ -772,13 +772,13 @@ func TestPublisherThatStopsStreaming_KeepsTheRealReasonForAViewerWhenTheStopFoll
 	run(t, func(t *testing.T, e *env) {
 		e.h.enter(5, new(true))
 		v := e.watchAccepted()
-		var closed collector[PeerClosed]
+		var closed collector[PeerClosedEvent]
 		v.OnClosed(closed.add)
 		e.h.setStreaming(5, false)
 		e.h.notify(notify.StreamStopped, map[string]string{"id": "a", "reason": "9"})
 		time.Sleep(goneGrace)
 		e.settle()
-		if got := closed.all(); len(got) != 1 || got[0] != (PeerClosed{Cause: CauseStopped, Reason: 9}) {
+		if got := closed.all(); len(got) != 1 || got[0] != (PeerClosedEvent{Cause: PeerCauseStopped, Reason: 9}) {
 			t.Errorf("closed = %+v", got)
 		}
 	})

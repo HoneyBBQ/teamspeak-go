@@ -119,11 +119,11 @@ func FuzzAssertFits(f *testing.F) {
 		req := respondRequest("id", 2, "", strings.Repeat(unit, n), true)
 		size := len(encoded(req))
 		err := assertFits(req)
-		if (err != nil) != (size > MaxCommandLineBytes) {
+		if (err != nil) != (size > maxCommandLineBytes) {
 			t.Fatalf("size %d, err %v", size, err)
 		}
 		big, ok := errors.AsType[*PayloadTooLargeError](err)
-		if ok && (big.Size != size || big.Limit != MaxCommandLineBytes) {
+		if ok && (big.Size != size || big.Limit != maxCommandLineBytes) {
 			t.Fatalf("error %+v for size %d", big, size)
 		}
 	})

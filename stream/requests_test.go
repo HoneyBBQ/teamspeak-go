@@ -313,7 +313,7 @@ func TestJoinRequests_RefusesAnOfferTooLongAndLeavesTheRequestToBeAnsweredAgain(
 		e.settle()
 		r := reqs.all()[0]
 		var big *PayloadTooLargeError
-		_, err := r.Accept(t.Context(), strings.Repeat("a", MaxCommandLineBytes), "")
+		_, err := r.Accept(t.Context(), strings.Repeat("a", maxCommandLineBytes), "")
 		if !errors.As(err, &big) || big.Command != "respondjoinstreamrequest" {
 			t.Fatalf("err = %v", err)
 		}
@@ -495,13 +495,13 @@ func TestJoinRequests_ForgetsAPendingRequestWhenItsClientLeavesViewSoAReusedIdIs
 	})
 }
 
-func closingSetup(e *env) (*Published, *JoinRequest, *collector[RequestCloseCause]) {
+func closingSetup(e *env) (*Published, *JoinRequest, *collector[RequestState]) {
 	p := e.publish(PublishOptions{Name: "x"})
 	reqs := requests(p)
 	e.h.see(9, nil)
 	e.ask(p, 9, "")
 	e.settle()
-	closed := new(collector[RequestCloseCause])
+	closed := new(collector[RequestState])
 	r := reqs.all()[0]
 	r.OnClosed(closed.add)
 
@@ -521,7 +521,7 @@ func TestJoinRequestClosing_EmitsWithdrawnWhenTheViewerTakesTheRequestBackOrLeav
 				p, r, closed := closingSetup(e)
 				act(e, p)
 				e.settle()
-				if got := closed.all(); len(got) != 1 || got[0] != CloseWithdrawn || r.State() != RequestWithdrawn {
+				if got := closed.all(); len(got) != 1 || got[0] != RequestWithdrawn || r.State() != RequestWithdrawn {
 					t.Errorf("closed = %v, state %v", got, r.State())
 				}
 			})
@@ -543,7 +543,7 @@ func TestJoinRequestClosing_EmitsEndedWhenTheStreamStopsIsStoppedHereOrIsClosed(
 				p, r, closed := closingSetup(e)
 				act(e, p)
 				e.settle()
-				if got := closed.all(); len(got) != 1 || got[0] != CloseEnded || r.State() != RequestEnded {
+				if got := closed.all(); len(got) != 1 || got[0] != RequestEnded || r.State() != RequestEnded {
 					t.Errorf("closed = %v, state %v", got, r.State())
 				}
 				_, err := r.Accept(t.Context(), sdp, "")
@@ -577,7 +577,7 @@ func TestJoinRequestClosing_EmitsNothingForARequestThatIsAcceptedOrDeniedThenThe
 		e.ask(p, 9, "")
 		e.ask(p, 10, "")
 		e.settle()
-		var closed collector[RequestCloseCause]
+		var closed collector[RequestState]
 		for _, r := range reqs.all() {
 			r.OnClosed(closed.add)
 		}
@@ -624,7 +624,7 @@ func TestJoinRequestClosing_KeepsTheEventForAHandlerThatComesLateAndDeliversItTo
 		e.settle()
 		e.withdraw(p, 9)
 		e.settle()
-		var first, second collector[RequestCloseCause]
+		var first, second collector[RequestState]
 		reqs.all()[0].OnClosed(first.add)
 		reqs.all()[0].OnClosed(second.add)
 		e.settle()
@@ -653,13 +653,13 @@ func TestJoinRequestClosing_GivesARequestAskedAgainAfterAWithdrawalItsOwnEvent(t
 
 const video = "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
 
-func audioSetup(e *env) (*Published, *JoinRequest, *collector[Warning]) {
+func audioSetup(e *env) (*Published, *JoinRequest, *collector[WarningEvent]) {
 	p := e.publish(PublishOptions{Name: "x"})
 	reqs := requests(p)
 	e.h.see(9, nil)
 	e.ask(p, 9, "")
 	e.settle()
-	warnings := new(collector[Warning])
+	warnings := new(collector[WarningEvent])
 	e.s.OnWarning(warnings.add)
 
 	return p, reqs.all()[0], warnings
@@ -727,7 +727,7 @@ func TestOffersWithoutAudio_WarnsOnARenegotiationOfferWithoutAudioAndSendsIt(t *
 func TestOffersWithoutAudio_DoesNotWarnForADenialOrForAnOfferRefusedAsTooLong(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		_, r, warnings := audioSetup(e)
-		_, err := r.Accept(t.Context(), strings.Repeat("v", MaxCommandLineBytes), "")
+		_, err := r.Accept(t.Context(), strings.Repeat("v", maxCommandLineBytes), "")
 		if err == nil {
 			t.Fatal("no error")
 		}
@@ -759,7 +759,7 @@ func TestOffersWithoutAudio_KeepsWarningsForTheFirstHandlerBounded(t *testing.T)
 				t.Fatal(err)
 			}
 		}
-		var warnings collector[Warning]
+		var warnings collector[WarningEvent]
 		e.s.OnWarning(warnings.add)
 		e.settle()
 		if warnings.len() != maxKept {
@@ -893,7 +893,7 @@ func TestViewerPeer_RefusesAMessageTooLongBeforeSending(t *testing.T) {
 		p := e.publish(PublishOptions{Name: "x"})
 		peer := acceptViewer(t, e, p)
 		before := e.h.count()
-		err := peer.SendSignal(t.Context(), "big", strings.Repeat("x", MaxCommandLineBytes))
+		err := peer.SendSignal(t.Context(), "big", strings.Repeat("x", maxCommandLineBytes))
 		if _, ok := errors.AsType[*PayloadTooLargeError](err); !ok {
 			t.Errorf("err = %v", err)
 		}
@@ -915,7 +915,7 @@ func TestViewerPeer_ClosesWhenTheViewerLeavesHoweverItSaysSoOnce(t *testing.T) {
 			run(t, func(t *testing.T, e *env) {
 				p := e.publish(PublishOptions{Name: "x"})
 				peer := acceptViewer(t, e, p)
-				var closed collector[PeerClosed]
+				var closed collector[PeerClosedEvent]
 				peer.OnClosed(closed.add)
 				act(e, p)
 				act(e, p)
@@ -924,7 +924,7 @@ func TestViewerPeer_ClosesWhenTheViewerLeavesHoweverItSaysSoOnce(t *testing.T) {
 				if name == "left view" {
 					return
 				}
-				if got := closed.all(); len(got) != 1 || got[0].Cause != CauseLeft || !peer.Closed() || len(p.Viewers()) != 0 {
+				if got := closed.all(); len(got) != 1 || got[0].Cause != PeerCauseLeft || !peer.Closed() || len(p.Viewers()) != 0 {
 					t.Errorf("closed = %+v", got)
 				}
 				err := peer.SendCandidate(t.Context(), IceCandidate{Candidate: "c"})
@@ -952,7 +952,7 @@ func TestViewerPeer_ClosesWithoutSendingAnythingWhenTheApplicationClosesIt(t *te
 	run(t, func(t *testing.T, e *env) {
 		p := e.publish(PublishOptions{Name: "x"})
 		peer := acceptViewer(t, e, p)
-		var closed collector[PeerClosed]
+		var closed collector[PeerClosedEvent]
 		peer.OnClosed(closed.add)
 		before := e.h.count()
 		err := peer.Close(t.Context())
@@ -964,7 +964,7 @@ func TestViewerPeer_ClosesWithoutSendingAnythingWhenTheApplicationClosesIt(t *te
 			t.Fatal(err)
 		}
 		e.settle()
-		if e.h.count() != before || closed.len() != 1 || closed.all()[0].Cause != CauseClosed {
+		if e.h.count() != before || closed.len() != 1 || closed.all()[0].Cause != PeerCauseClosed {
 			t.Errorf("sent %d, closed %+v", e.h.count()-before, closed.all())
 		}
 	})
@@ -993,9 +993,9 @@ func TestStoppingAStream_SendsStopstreamWithTheReasonEndsTheStreamHereAndTellsNo
 	run(t, func(t *testing.T, e *env) {
 		p := e.publish(PublishOptions{Name: "x"})
 		peer := acceptViewer(t, e, p)
-		var ended collector[Ended]
+		var ended collector[EndedEvent]
 		var stopped collector[StoppedEvent]
-		var closed collector[PeerClosed]
+		var closed collector[PeerClosedEvent]
 		p.OnEnded(ended.add)
 		e.s.OnStopped(stopped.add)
 		peer.OnClosed(closed.add)
@@ -1011,13 +1011,13 @@ func TestStoppingAStream_SendsStopstreamWithTheReasonEndsTheStreamHereAndTellsNo
 		if !p.Ended() || len(e.s.List()) != 0 {
 			t.Error("the stream is still there")
 		}
-		if got := ended.all(); len(got) != 1 || got[0] != (Ended{Cause: CauseStopped, Reason: 7}) {
+		if got := ended.all(); len(got) != 1 || got[0] != (EndedEvent{Cause: EndCauseStopped, Reason: 7}) {
 			t.Errorf("ended = %+v", got)
 		}
-		if got := stopped.all(); len(got) != 1 || got[0].Cause != CauseStopped || got[0].Reason != 7 {
+		if got := stopped.all(); len(got) != 1 || got[0].Cause != EndCauseStopped || got[0].Reason != 7 {
 			t.Errorf("stopped = %+v", got)
 		}
-		if got := closed.all(); len(got) != 1 || got[0] != (PeerClosed{Cause: CauseStopped, Reason: 7}) {
+		if got := closed.all(); len(got) != 1 || got[0] != (PeerClosedEvent{Cause: PeerCauseStopped, Reason: 7}) {
 			t.Errorf("peer closed = %+v", got)
 		}
 		// Stopping again sends nothing.
@@ -1058,16 +1058,16 @@ func TestStoppingAStream_EndsOnTheServersWordWhoeverStoppedItWithTheReason(t *te
 	run(t, func(t *testing.T, e *env) {
 		p := e.publish(PublishOptions{Name: "x"})
 		peer := acceptViewer(t, e, p)
-		var ended collector[Ended]
-		var closed collector[PeerClosed]
+		var ended collector[EndedEvent]
+		var closed collector[PeerClosedEvent]
 		p.OnEnded(ended.add)
 		peer.OnClosed(closed.add)
 		e.h.notify(notify.StreamStopped, map[string]string{"id": string(p.ID()), "clid": "1", "reason": "1"})
 		e.settle()
-		if got := ended.all(); len(got) != 1 || got[0] != (Ended{Cause: CauseServer, Reason: 1}) {
+		if got := ended.all(); len(got) != 1 || got[0] != (EndedEvent{Cause: EndCauseServer, Reason: 1}) {
 			t.Errorf("ended = %+v", got)
 		}
-		if got := closed.all(); len(got) != 1 || got[0] != (PeerClosed{Cause: CauseStopped, Reason: 1}) {
+		if got := closed.all(); len(got) != 1 || got[0] != (PeerClosedEvent{Cause: PeerCauseStopped, Reason: 1}) {
 			t.Errorf("closed = %+v", got)
 		}
 	})
@@ -1078,10 +1078,10 @@ func TestStoppingAStream_KeepsTheEndedEventForAHandlerThatComesLate(t *testing.T
 		p := e.publish(PublishOptions{Name: "x"})
 		e.h.notify(notify.StreamStopped, map[string]string{"id": string(p.ID())})
 		e.settle()
-		var ended collector[Ended]
+		var ended collector[EndedEvent]
 		p.OnEnded(ended.add)
 		e.settle()
-		if got := ended.all(); len(got) != 1 || got[0].Cause != CauseServer {
+		if got := ended.all(); len(got) != 1 || got[0].Cause != EndCauseServer {
 			t.Errorf("ended = %+v", got)
 		}
 	})

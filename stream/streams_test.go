@@ -22,9 +22,9 @@ func TestUnsupportedServer_RefusesPublishAndWatchBeforeSendingAnything(t *testin
 			if !errors.As(err, &unsupported) {
 				t.Fatalf("Publish err = %v, want *UnsupportedError", err)
 			}
-			_, err = e.s.WatchInfo(t.Context(), Info{ID: "a", ClientID: 3}, WatchOptions{})
+			_, err = e.s.Watch(t.Context(), "a", WatchOptions{ClientID: 3})
 			if !errors.As(err, &unsupported) {
-				t.Fatalf("WatchInfo err = %v, want *UnsupportedError", err)
+				t.Fatalf("Watch err = %v, want *UnsupportedError", err)
 			}
 			if e.h.count() != 0 {
 				t.Errorf("sent %d commands, want none", e.h.count())
@@ -243,7 +243,8 @@ func TestKnownStreams_KeepsTheOtherStreamsOfAClientWhenOneStops(t *testing.T) {
 		e.h.notify(notify.StreamStarted, announcement("b", 5))
 		e.h.notify(notify.StreamStopped, map[string]string{"id": "a", "clid": "5", "reason": "3"})
 		e.settle()
-		if got := stopped.all(); len(got) != 1 || got[0].Info.ID != "a" || got[0].Cause != CauseServer || got[0].Reason != 3 {
+		got := stopped.all()
+		if len(got) != 1 || got[0].Info.ID != "a" || got[0].Cause != EndCauseServer || got[0].Reason != 3 {
 			t.Errorf("stopped = %+v", got)
 		}
 		if list := e.s.List(); len(list) != 1 || list[0].ID != "b" {
@@ -353,7 +354,7 @@ func TestPublish_RefusesANameTooLongToSendWithoutSending(t *testing.T) {
 		if !errors.As(err, &big) || big.Command != "setupstream" || big.Size <= big.Limit {
 			t.Fatalf("err = %v", err)
 		}
-		if big.Limit != MaxCommandLineBytes {
+		if big.Limit != maxCommandLineBytes {
 			t.Errorf("limit = %d", big.Limit)
 		}
 		if e.h.count() != 0 {
@@ -544,7 +545,7 @@ func TestPublishGivingUp_ReportsAStreamStoppedWhenItWasReportedStarted(t *testin
 		giveUp(t, e)
 		e.h.announce(t, announcement("late", 1), 0)
 		e.settle()
-		if started.len() != 1 || stopped.len() != 1 || stopped.all()[0].Cause != CauseStopped {
+		if started.len() != 1 || stopped.len() != 1 || stopped.all()[0].Cause != EndCauseStopped {
 			t.Errorf("started %d, stopped %+v", started.len(), stopped.all())
 		}
 		if len(e.h.commands("stopstream")) != 1 {
