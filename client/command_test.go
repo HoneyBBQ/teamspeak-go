@@ -260,3 +260,27 @@ func itoa(n uint32) string {
 
 	return string(buf)
 }
+
+// The stream package withdraws a request only if it may have reached the server,
+// and tells the two apart by this: a command that gave up in the flood throttle
+// returns the context's own error, and one that was sent and awaited wraps it
+// with the command's name.
+func TestExec_ReturnsTheContextsOwnErrorFromTheThrottleAndWrapsItOnceSent(t *testing.T) {
+	c := newTestClient(t)
+	c.throttle.tokens = 0
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	_, err := c.Exec(ctx, "whoami")
+	if err != context.DeadlineExceeded { //nolint:errorlint,err113 // it is the identity that is pinned
+		t.Errorf("never sent: err = %#v, want the context's own error", err)
+	}
+
+	c = newTestClient(t)
+	c.wireHook = func(string) error { return nil }
+	ctx, cancel2 := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel2()
+	_, err = c.Exec(ctx, "whoami")
+	if !errors.Is(err, context.DeadlineExceeded) || err == context.DeadlineExceeded { //nolint:errorlint,err113 // as above
+		t.Errorf("sent: err = %#v, want the context's error wrapped with the command", err)
+	}
+}

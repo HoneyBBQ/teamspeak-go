@@ -190,6 +190,19 @@ jobs:
           # and server-wide state or load from one must not reach another.
           # -timeout applies to each package on its own, so it is unchanged.
           go test -v -race -p 1 -tags integration -timeout 300s ./...
+      # Two WebRTC peers carry a stream over the live server, with the stream
+      # package doing the signalling. A module of its own, so it is not part of
+      # ./... above. Before the instance tests, which stop the server.
+      - name: Run the WebRTC end-to-end test
+        if: matrix.server.name == 'TS6'
+        working-directory: stream/e2e
+        env:
+          TS3_FIXTURE_ENV: ${{ runner.temp }}/ts3-fixture.env
+        run: |
+          set -a
+          . "$TS3_FIXTURE_ENV"
+          set +a
+          go test -v -race -count=1 -tags integration -timeout 120s ./...
       # The destructive instance tests (stopping and deleting virtual servers,
       # restoring a snapshot, resetting permissions, stopping the process) run
       # against the job's own throwaway server, in a step of their own after
