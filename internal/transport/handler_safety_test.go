@@ -155,11 +155,17 @@ func TestHandlerDropsUnencryptedCommandsAfterCryptoInit(t *testing.T) {
 	}
 }
 
-// sealReal seals a server command with the session key of tc for generation
-// gen, as the server would.
-func sealReal(t *testing.T, tc *crypto.Crypt, id uint16, gen uint32, payload []byte) []byte {
+// sealRealPacket seals a server packet with the session key of tc for
+// generation gen, as the server would.
+func sealRealPacket(
+	t *testing.T,
+	tc *crypto.Crypt,
+	id uint16,
+	gen uint32,
+	typeFlagged byte,
+	payload []byte,
+) []byte {
 	t.Helper()
-	typeFlagged := byte(PacketTypeCommand) | byte(PacketFlagNewProtocol)
 	header := make([]byte, 3)
 	binary.BigEndian.PutUint16(header, id)
 	header[2] = typeFlagged
@@ -174,6 +180,21 @@ func sealReal(t *testing.T, tc *crypto.Crypt, id uint16, gen uint32, payload []b
 	}
 
 	return append(append(append([]byte{}, mac...), header...), ciphertext...)
+}
+
+// sealReal seals a server command with the session key of tc for generation
+// gen, as the server would.
+func sealReal(t *testing.T, tc *crypto.Crypt, id uint16, gen uint32, payload []byte) []byte {
+	t.Helper()
+
+	return sealRealPacket(
+		t,
+		tc,
+		id,
+		gen,
+		byte(PacketTypeCommand)|byte(PacketFlagNewProtocol),
+		payload,
+	)
 }
 
 // A packet recorded in one generation and replayed once the 16-bit id has
@@ -194,6 +215,100 @@ func TestHandlerRefusesAPacketOfAnotherGeneration(t *testing.T) {
 	h.handleRawPacket(sealReal(t, h.TsCrypt, 200, 1, payload))
 	if *delivered != 1 {
 		t.Fatalf("delivered %d packets of the current generation, want 1", *delivered)
+	}
+}
+
+// voicePayload is a voice packet body: a voice id, the talking client's id,
+// the codec and one byte of audio.
+var voicePayload = []byte{0, 1, 0, 2, 0, 4, 1}
+
+// Voice, whisper, ping and pong have separate 16-bit packet id streams. Their
+// ids can wrap without the command stream wrapping, but the packet key still
+// moves to the next generation, so each stream has to follow its own wrap.
+func TestHandlerDecryptsNonCommandPacketsAcrossTheGenerationWrap(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		pType PacketType
+	}{
+		{"voice", PacketTypeVoice},
+		{"whisper", PacketTypeVoiceWhisper},
+		{"pong", PacketTypePong},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, delivered := newFuzzHandler(t, true)
+
+			h.handleRawPacket(sealRealPacket(t, h.TsCrypt, 65535, 0, byte(tc.pType), voicePayload))
+			if *delivered != 1 {
+				t.Fatalf("delivered the last packet of generation 0: got %d, want 1", *delivered)
+			}
+
+			h.handleRawPacket(sealRealPacket(t, h.TsCrypt, 0, 1, byte(tc.pType), voicePayload))
+			if *delivered != 2 {
+				t.Fatalf("delivered first packet of generation 1: got %d, want 2", *delivered)
+			}
+		})
+	}
+}
+
+func TestHandlerAnswersPingsAcrossTheGenerationWrap(t *testing.T) {
+	h, _ := newFuzzHandler(t, true)
+	conn := &countingConn{}
+	h.conn = conn
+
+	h.handleRawPacket(sealRealPacket(t, h.TsCrypt, 65535, 0, byte(PacketTypePing), nil))
+	h.handleRawPacket(sealRealPacket(t, h.TsCrypt, 0, 1, byte(PacketTypePing), nil))
+	if conn.writes != 2 {
+		t.Fatalf("answered %d wrapped pings, want 2", conn.writes)
+	}
+}
+
+// A voice packet that does not decrypt must not move the window, or a forged
+// one could push the stream into a generation the server is not using.
+func TestHandlerKeepsTheVoiceWindowOnAWrongGeneration(t *testing.T) {
+	h, delivered := newFuzzHandler(t, true)
+
+	h.handleRawPacket(sealRealPacket(t, h.TsCrypt, 65535, 0, byte(PacketTypeVoice), voicePayload))
+	h.handleRawPacket(sealRealPacket(t, h.TsCrypt, 0, 0, byte(PacketTypeVoice), voicePayload))
+	if *delivered != 1 {
+		t.Fatalf("accepted a voice packet under the old generation: got %d delivered, want 1", *delivered)
+	}
+
+	h.handleRawPacket(sealRealPacket(t, h.TsCrypt, 0, 1, byte(PacketTypeVoice), voicePayload))
+	if *delivered != 2 {
+		t.Fatalf("the failed old-generation packet prevented the next generation: got %d delivered, want 2", *delivered)
+	}
+}
+
+// Voice is never sent again, so more packets than a command window holds can
+// be lost across the wrap; the first one after the loss, and a late one from
+// before the wrap, must still decrypt.
+func TestHandlerDecryptsVoiceAfterALongLossAcrossTheWrap(t *testing.T) {
+	h, delivered := newFuzzHandler(t, true)
+
+	for i, pkt := range []struct {
+		id  uint16
+		gen uint32
+	}{
+		{64000, 0},
+		{464, 1}, // 2000 packets lost across 65535 -> 0
+		{65530, 0},
+		{465, 1},
+	} {
+		h.handleRawPacket(sealRealPacket(t, h.TsCrypt, pkt.id, pkt.gen, byte(PacketTypeVoice), voicePayload))
+		if *delivered != i+1 {
+			t.Fatalf("voice packet %d of generation %d was not delivered", pkt.id, pkt.gen)
+		}
+	}
+}
+
+func TestHandlerAdvancesPacketTypeStreamsIndependently(t *testing.T) {
+	h, delivered := newFuzzHandler(t, true)
+	h.recvWindowVoice.Advance(1 << 16)
+
+	h.handleRawPacket(sealRealPacket(t, h.TsCrypt, 7, 0, byte(PacketTypeVoiceWhisper), voicePayload))
+	h.handleRawPacket(sealRealPacket(t, h.TsCrypt, 7, 1, byte(PacketTypeVoice), voicePayload))
+	if *delivered != 2 {
+		t.Fatalf("delivered %d independently wrapped streams, want 2", *delivered)
 	}
 }
 
