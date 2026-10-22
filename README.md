@@ -490,7 +490,9 @@ Things to know:
 - `Streams.Close` stops the streams published through that `Streams` and
   leaves the ones it watched, while the client is connected, and returns what
   failed. A stream whose `Publish` gave up after the command went out is
-  stopped when its announcement arrives, so none is left running unseen.
+  stopped when its announcement arrives, so none is left running unseen;
+  `Close` waits for that command, within its context, and returns the failure
+  of the stop.
 - A client whose `client_is_streaming` clears, or that comes into view not
   streaming, has its streams dropped, after a grace of two seconds:
   `OnStopped` with `stream.EndCauseGone`. The server clears the flag right before
