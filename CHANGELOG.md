@@ -13,12 +13,12 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   `JoinRequest` for each client that asks to watch, to `Accept` with an SDP
   offer or `Deny`, and `Watch` asks to watch and returns the publisher's offer.
   SDP and ICE are strings, so any WebRTC stack plugs in; the package has no
-  WebRTC dependency. `stream/e2e`, a module of its own, carries a stream between
-  two peers of a WebRTC library over a live server. TeamSpeak does not document the protocol;
-  it was verified against the server 6.0.0-beta13.1 and the client 6.0.0-beta5
-  (macOS), and a TeamSpeak update may break it. A TeamSpeak 3 server does not
-  do streams: `Publish` and `Watch` return a `*stream.UnsupportedError` before
-  sending.
+  WebRTC dependency. `stream/e2e`, a module of its own, carries a stream
+  between two peers of a WebRTC library over a live server. TeamSpeak does not
+  document the protocol; it was verified against the server 6.0.0-beta13.1 and
+  the client 6.0.0-beta5 (macOS), and a TeamSpeak update may break it. A
+  TeamSpeak 3 server does not do streams: `Publish` and `Watch` return a
+  `*stream.UnsupportedError` before sending.
 - Names for the TeamSpeak 6 stream (screen share) protocol: the commands
   `commands.SetupStream`, `StopStream`, `JoinStreamRequest`,
   `RespondJoinStreamRequest`, `StreamSignaling` and `RequestStreamInfo`, their
