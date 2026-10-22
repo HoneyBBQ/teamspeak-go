@@ -231,7 +231,11 @@ type transferRun struct {
 }
 
 func newTransferRun(opts FileTransferOptions, total uint64) *transferRun {
-	r := &transferRun{start: time.Now(), total: int64(min(total, math.MaxInt64))}
+	r := &transferRun{start: time.Now(), total: math.MaxInt64}
+	if total <= math.MaxInt64 {
+		r.total = int64(total)
+	}
+
 	if opts.Trace != nil {
 		r.trace = *opts.Trace
 	}
