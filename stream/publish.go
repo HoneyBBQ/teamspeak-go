@@ -105,7 +105,9 @@ func (p *Published) Ended() bool {
 	return p.done
 }
 
-// Viewers returns the viewers let in and still there, by client id.
+// Viewers returns the viewers let in and still there, by client id. It is this
+// client's own, live list; Info.Viewers, which every client has for every
+// stream, is the count the server last reported and includes pending requests.
 func (p *Published) Viewers() []*ViewerPeer {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()

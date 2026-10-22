@@ -44,9 +44,9 @@
 // by the client, not by the goroutine the handler runs on. A handler that blocks
 // holds up the events behind it. A panic in a handler is recovered and logged.
 //
-// An event that happens before its first handler is registered is kept for it,
-// up to 256, where losing it would lose a request, a signalling message or an
-// end: the errors and warnings of a Streams, the requests and the end of a
+// An event that happens while there is no handler for it, before the first is
+// registered or after the last was removed, is kept for the next, up to 256,
+// where losing it would lose a request, a signalling message or an end: the errors and warnings of a Streams, the requests and the end of a
 // Published, the close of a JoinRequest and every event of a Peer.
 //
 // # Goroutines
