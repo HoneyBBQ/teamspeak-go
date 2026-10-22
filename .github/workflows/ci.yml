@@ -205,3 +205,16 @@ jobs:
           set +a
           TEAMSPEAK_QUERY_DESTRUCTIVE=1 TEAMSPEAK_QUERY_STOP_INSTANCE=1 \
             go test -v -race -count=1 -tags integration -timeout 300s -run '^TestInstance' ./serverquery/
+      # Two WebRTC peers carry a stream over the live server, with the stream
+      # package doing the signalling. A module of its own, so it is not part of
+      # ./... above.
+      - name: Run the WebRTC end-to-end test
+        if: matrix.server.name == 'TS6'
+        working-directory: stream/e2e
+        env:
+          TS3_FIXTURE_ENV: ${{ runner.temp }}/ts3-fixture.env
+        run: |
+          set -a
+          . "$TS3_FIXTURE_ENV"
+          set +a
+          go test -v -race -count=1 -tags integration -timeout 120s ./...

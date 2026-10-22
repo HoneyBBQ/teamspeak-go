@@ -53,6 +53,10 @@ linters:
       # line instead of the assertion's.
       - path: 'serverquery/integration_.*_test\.go'
         linters: [thelper]
+      # The end-to-end test is a module of its own, and builds against this
+      # checkout.
+      - path: stream/e2e/go\.mod
+        linters: [gomoddirectives]
       # The bodies passed to run in the stream tests are tests, run in a
       # synctest bubble over a fake client, not helpers.
       - path: 'stream/.*_test\.go'
