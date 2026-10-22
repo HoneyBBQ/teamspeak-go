@@ -125,11 +125,17 @@ func TestLive_FindsAStreamWhenTheClientMovesIntoItsChannel(t *testing.T) {
 	late := connectLive(t, "go-stream-mover", os.Getenv("TEAMSPEAK_PASSWORD_CHANNEL"))
 	t.Cleanup(func() { _ = late.Disconnect(context.WithoutCancel(t.Context())) })
 	seen := attach(t, late, Options{})
+	inAlpha := listen(attach(t, l.b, Options{}).OnStarted, nil)
 	pub, err := attach(t, l.a, Options{}).Publish(t.Context(), PublishOptions{Name: "in alpha"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	// The announcement has gone to the clients of the channel once one of them
+	// has it. A negative has to wait for something that does not come, so it
+	// waits a moment more, many times what a datagram takes on this host's
+	// loopback; a stream that had been announced to the mover would show by then.
+	await(t, inAlpha, "announcement in the channel")
+	time.Sleep(300 * time.Millisecond)
 	if _, ok := seen.Get(pub.ID()); ok {
 		t.Fatal("known before moving")
 	}
@@ -259,13 +265,20 @@ func TestLive_DeliversWhatThePublisherSendsRightBehindTheOfferToAHandlerAddedLat
 		t.Fatal(err)
 	}
 	for i := range 8 {
-		err := peer.SendCandidate(t.Context(), candidate(i))
+		err = peer.SendCandidate(t.Context(), candidate(i))
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 	view := await(t, done, "view")
-	time.Sleep(500 * time.Millisecond)
+	// The server relays in order, so once a message sent behind the candidates
+	// has arrived, so have they, and they wait in the view for a handler.
+	marker := listen(view.OnSignal, nil)
+	err = peer.SendSignal(t.Context(), "marker", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	await(t, marker, "marker")
 	seen := listen(view.OnCandidate, nil)
 	for i := range 8 {
 		if got := await(t, seen, "candidate"); got.Candidate != candidate(i).Candidate {
@@ -332,7 +345,10 @@ func TestLive_LeavesARememberedDenialUnanswered(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = await(t, denied, "refusal")
-	// Ask again: the server relays it, and the publisher says nothing.
+	// Ask again: the server relays it, and the publisher says nothing. The
+	// request would be announced within milliseconds of being relayed, so the
+	// 2.5 s the viewer waits, and the moment after, are many times enough for a
+	// request that was going to come.
 	ctx, cancel := context.WithTimeout(t.Context(), 2500*time.Millisecond)
 	defer cancel()
 	_, err = viewer.Watch(ctx, info.ID, WatchOptions{})
@@ -452,7 +468,8 @@ func TestLive_AsksForAStreamThatHasEndedAndIsToldSo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = viewer.Watch(timeout(t, 10*time.Second), info.ID, WatchOptions{})
+	// The viewer heard of the stream stop, so it must be told who ran it.
+	_, err = viewer.Watch(timeout(t, 10*time.Second), info.ID, WatchOptions{ClientID: info.ClientID})
 	var ended *EndedError
 	if !errors.As(err, &ended) || !errors.Is(err, errcode.StreamNotFound) {
 		t.Errorf("err = %v", err)
@@ -464,7 +481,9 @@ func TestLive_ReportsASecondRequestToWatchAsTheServers5638(t *testing.T) {
 	p := connectedPair(t, l)
 	other := attach(t, l.b, Options{})
 	info, _ := p.viewer.Get(p.pub.ID())
-	_, err := other.Watch(timeout(t, 10*time.Second), info.ID, WatchOptions{})
+	// This Streams has no session for it and never heard of it: it is told who
+	// ran it, and the server answers.
+	_, err := other.Watch(timeout(t, 10*time.Second), info.ID, WatchOptions{ClientID: info.ClientID})
 	if !errors.Is(err, errcode.StreamAlreadyJoined) {
 		t.Errorf("err = %v", err)
 	}
@@ -480,16 +499,17 @@ func TestLive_KeepsTheStreamAndItsSignallingWhenThePublisherChangesChannel(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(800 * time.Millisecond)
-	if p.view.Closed() || p.peer.Closed() || len(p.viewer.List()) != 1 {
-		t.Fatal("the stream ended with the move")
-	}
+	// A round trip behind the move: the server has told everyone of the move by
+	// the time a message sent after it has arrived.
 	arrived := listen(p.peer.OnCandidate, nil)
 	err = p.view.SendCandidate(t.Context(), candidate(5))
 	if err != nil {
 		t.Fatal(err)
 	}
 	await(t, arrived, "candidate")
+	if p.view.Closed() || p.peer.Closed() || len(p.viewer.List()) != 1 {
+		t.Fatal("the stream ended with the move")
+	}
 	// The viewer, still a participant, hears the stop from the other channel.
 	closed := listen(p.view.OnClosed, nil)
 	err = p.pub.Stop(t.Context(), 0)
@@ -582,15 +602,14 @@ func TestLive_RefusesAPayloadTooLongBeforeSendingAndCarriesOneAtTheLimit(t *test
 	}
 }
 
-func TestLive_DeliversABurstOfCandidatesInOrder(t *testing.T) {
+func TestLive_DeliversABurstOfCandidates(t *testing.T) {
 	l := requireTS6(t)
 	p := connectedPair(t, l)
 	const n = 40
 	got := listen(p.peer.OnCandidate, nil)
 	errs := make(chan error, n)
-	// Issued together, so they queue in the client's throttle in order of issue.
+	// Issued together, so they queue in the client's throttle.
 	for i := range n {
-		time.Sleep(time.Millisecond)
 		go func() { errs <- p.view.SendCandidate(timeout(t, 40*time.Second), candidate(i)) }()
 	}
 	received := make([]string, 0, n)
@@ -608,7 +627,8 @@ func TestLive_DeliversABurstOfCandidatesInOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Goroutines racing the throttle may interleave neighbours; every candidate must arrive once.
+	// Goroutines race for the throttle, so the order is not fixed; every
+	// candidate must arrive, once.
 	want := make([]string, n)
 	for i := range n {
 		want[i] = candidate(i).Candidate
@@ -712,7 +732,11 @@ func TestLive_KnowsWhoAskedFromAChannelItDoesNotFollowAndLeavesTheirRememberedDe
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(800 * time.Millisecond)
+	for deadline := time.Now().Add(eventTimeout); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if _, ok := l.a.View().Client(l.b.ClientID()); !ok {
+			break
+		}
+	}
 	if _, ok := l.a.View().Client(l.b.ClientID()); ok {
 		t.Fatal("the publisher still sees the viewer")
 	}
@@ -869,10 +893,15 @@ type gate struct {
 	mu      chan struct{}
 	waiting map[int]chan struct{}
 	opened  map[int]bool
+	// entered gets the viewer limit of each command as it reaches the gate.
+	entered chan int
 }
 
 func newGate() *gate {
-	g := &gate{mu: make(chan struct{}, 1), waiting: map[int]chan struct{}{}, opened: map[int]bool{}}
+	g := &gate{
+		mu: make(chan struct{}, 1), waiting: map[int]chan struct{}{}, opened: map[int]bool{},
+		entered: make(chan int, 16),
+	}
 	g.mu <- struct{}{}
 
 	return g
@@ -891,6 +920,7 @@ func (g *gate) middleware() client.CommandMiddleware {
 					g.waiting[limit] = ch
 				}
 				g.mu <- struct{}{}
+				g.entered <- limit
 				select {
 				case <-ch:
 				case <-ctx.Done():
@@ -944,7 +974,10 @@ func testGatedOrder(t *testing.T, firstLimit, secondLimit int) {
 		p, err := publisher.Publish(timeout(t, 20*time.Second), PublishOptions{Name: "same", ViewerLimit: 2})
 		live <- result{p, err}
 	}()
-	time.Sleep(200 * time.Millisecond)
+	// Both commands are at the gate: the abandoned one stays there after its
+	// caller gave up.
+	await(t, g.entered, "the abandoned command at the gate")
+	await(t, g.entered, "the live command at the gate")
 	g.open(firstLimit)
 	for {
 		info := await(t, heard, "first announcement")
@@ -960,12 +993,11 @@ func testGatedOrder(t *testing.T, firstLimit, secondLimit int) {
 	if lim := r.pub.Info().ViewerLimit; lim == nil || *lim != 2 {
 		t.Errorf("the live call got viewer limit %v", lim)
 	}
-	if firstLimit == 1 {
-		if got := await(t, stopped, "stop of the abandoned stream"); got.Info.ID == r.pub.ID() {
-			t.Error("the live stream was stopped")
-		}
+	// The abandoned stream is stopped whichever came first; once the viewer has
+	// heard that, nothing else is due.
+	if got := await(t, stopped, "stop of the abandoned stream"); got.Info.ID == r.pub.ID() {
+		t.Error("the live stream was stopped")
 	}
-	time.Sleep(time.Second)
 	if list := viewer.List(); len(list) != 1 || list[0].ID != r.pub.ID() {
 		t.Errorf("viewer sees %+v, want only %s", list, r.pub.ID())
 	}
@@ -996,7 +1028,8 @@ func TestLive_RejectsAPublishInFlightWhenTheConnectionEndsAndPublishesOnTheNextO
 		_, err := publisher.Publish(timeout(t, 20*time.Second), PublishOptions{Name: "interrupted", ViewerLimit: 1})
 		interrupted <- err
 	}()
-	time.Sleep(500 * time.Millisecond)
+	// The command is held at the gate, so the call is certainly in flight.
+	await(t, g.entered, "the command at the gate")
 	err := c.Disconnect(t.Context())
 	if err != nil {
 		t.Fatal(err)
