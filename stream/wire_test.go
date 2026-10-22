@@ -378,7 +378,9 @@ func TestCause_Strings(t *testing.T) {
 			t.Errorf("RequestState(%d) = %q, want %q", uint8(s), got, want)
 		}
 	}
-	closeCauses := map[RequestCloseCause]string{CloseWithdrawn: "withdrawn", CloseEnded: "ended", 0: "RequestCloseCause(0)"}
+	closeCauses := map[RequestCloseCause]string{
+		CloseWithdrawn: "withdrawn", CloseEnded: "ended", 0: "RequestCloseCause(0)",
+	}
 	for c, want := range closeCauses {
 		if got := c.String(); got != want {
 			t.Errorf("RequestCloseCause(%d) = %q, want %q", uint8(c), got, want)
