@@ -50,6 +50,18 @@ func (g *GenerationWindow) AdvanceToExcluded(mappedValue int) {
 	g.Advance(moveDist + 1)
 }
 
+// AdvanceAfter moves the base to just past a packet that was just received.
+// A stale packet, including one from the generation before a wrap, does not
+// move the base backwards or treat the wait for the next generation as a full
+// cycle.
+func (g *GenerationWindow) AdvanceAfter(mappedValue int) {
+	index := g.MappedToIndex(mappedValue)
+	if index < 0 {
+		return
+	}
+	g.Advance(index + 1)
+}
+
 // SyncTo advances the window baseline toward mappedValue (handles wrap and resync).
 func (g *GenerationWindow) SyncTo(mappedValue int) {
 	moveDist := mappedValue - g.mappedBaseOffset
