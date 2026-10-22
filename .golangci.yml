@@ -43,6 +43,9 @@ linters:
     funlen:
       lines: 60
       statements: 30
+    gomoddirectives:
+      # stream/e2e is a module of its own that builds against this checkout.
+      replace-local: true
   exclusions:
     rules:
       - path: ".*_test\\.go"
@@ -53,14 +56,14 @@ linters:
       # line instead of the assertion's.
       - path: 'serverquery/integration_.*_test\.go'
         linters: [thelper]
-      # The end-to-end test is a module of its own, and builds against this
-      # checkout.
-      - path: stream/e2e/go\.mod
-        linters: [gomoddirectives]
       # The stream tests send text in other scripts and escapes, to see that it
       # arrives as it left, and draw their random numbers for load, not secrets.
       - path: 'stream/.*_test\.go'
         linters: [gosmopolitan]
+      # The bodies passed to run, and to synctest.Test, are tests, run in a
+      # bubble over a fake client, not helpers.
+      - path: 'stream/(requests|streams|watch|fuzz)_test\.go'
+        linters: [thelper]
       - path: 'stream/.*_test\.go'
         linters: [gosec]
         text: "G404"
@@ -68,10 +71,6 @@ linters:
       # bottom, one protocol exchange each; splitting them would only scatter it.
       - path: 'stream/(live.*|fuzz|stress)_test\.go'
         linters: [funlen, gocognit]
-      # The bodies passed to run in the stream tests are tests, run in a
-      # synctest bubble over a fake client, not helpers.
-      - path: 'stream/.*_test\.go'
-        linters: [thelper]
       # Test rows hold made-up keys and passwords, in the fields that carry the
       # real ones.
       - path: ".*_test\\.go"

@@ -97,6 +97,7 @@ func (s *sizes) candidate(c stream.IceCandidate) {
 }
 
 func connected(t *testing.T, pc *webrtc.PeerConnection, who string) <-chan struct{} {
+	t.Helper()
 	ch := make(chan struct{})
 	var once sync.Once
 	pc.OnICEConnectionStateChange(func(s webrtc.ICEConnectionState) {
@@ -314,7 +315,7 @@ func TestLive_PublisherToViewerCarriesRTP(t *testing.T) {
 
 	watching := make(chan *stream.View, 1)
 	go func() {
-		v, err := viewer.WatchInfo(t.Context(), info, stream.WatchOptions{Message: "e2e"})
+		v, err := viewer.Watch(t.Context(), info.ID, stream.WatchOptions{Message: "e2e"})
 		if err != nil {
 			t.Errorf("Watch: %v", err)
 		}
