@@ -37,8 +37,9 @@ type handler[E any] struct {
 // handler may call any method of the package. Queuing under the lock is what
 // makes the order of events the order of the state changes behind them.
 //
-// A topic made with keep holds the events that happen while no handler has ever
-// been added, up to maxKept, and hands them in order to the first handler. That
+// A topic made with keep holds the events that happen while it has no handler,
+// before the first and after the last has been removed, up to maxKept, and hands
+// them in order to the next handler. That
 // bridges the time between being given an object and attaching to it, in
 // which the server does not wait. Past the bound the oldest is dropped and
 // onDrop hears of it.
@@ -78,6 +79,11 @@ func (t *topic[E]) on(fn func(E)) func() {
 		t.bus.mu.Lock()
 		defer t.bus.mu.Unlock()
 		t.handlers = slices.DeleteFunc(slices.Clone(t.handlers), func(x *handler[E]) bool { return x == h })
+		// With nobody left to hear them, events are kept again for the next
+		// handler, as before the first.
+		if len(t.handlers) == 0 {
+			t.attached = false
+		}
 	}
 }
 

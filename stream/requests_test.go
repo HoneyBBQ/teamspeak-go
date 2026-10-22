@@ -1171,3 +1171,21 @@ func TestEventsNobodyListensFor_HandsEachHandlerItsOwnCopy(t *testing.T) {
 }
 
 var _ = context.Background
+
+// With the last handler removed, events are kept again for the next one.
+func TestEventsNobodyListensFor_KeepsEventsAgainOnceTheLastHandlerIsRemoved(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		var first, second collector[error]
+		off := e.s.OnError(first.add)
+		e.h.notify(notify.StreamSignaling, map[string]string{"id": "x", "clid": "3", "json": "{}"})
+		e.settle()
+		off()
+		e.h.notify(notify.StreamSignaling, map[string]string{"id": "y", "clid": "4", "json": "{}"})
+		e.settle()
+		e.s.OnError(second.add)
+		e.settle()
+		if first.len() != 1 || second.len() != 1 || !strings.Contains(second.all()[0].Error(), "stream y") {
+			t.Errorf("first %v, second %v", first.all(), second.all())
+		}
+	})
+}
