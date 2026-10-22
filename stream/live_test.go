@@ -249,3 +249,14 @@ func candidate(n int) IceCandidate {
 		SDPMLineIndex: new(uint16(0)),
 	}
 }
+
+// eventually polls until condition holds, and fails after eventTimeout.
+func eventually(t *testing.T, what string, condition func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(eventTimeout); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
+		if condition() {
+			return
+		}
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}

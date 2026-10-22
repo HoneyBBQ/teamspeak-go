@@ -998,6 +998,13 @@ func testGatedOrder(t *testing.T, firstLimit, secondLimit int) {
 	if got := await(t, stopped, "stop of the abandoned stream"); got.Info.ID == r.pub.ID() {
 		t.Error("the live stream was stopped")
 	}
+	// The viewer hears of the live stream on its own connection, possibly after
+	// the publisher's command was answered.
+	eventually(t, "the viewer to know the live stream", func() bool {
+		_, ok := viewer.Get(r.pub.ID())
+
+		return ok
+	})
 	if list := viewer.List(); len(list) != 1 || list[0].ID != r.pub.ID() {
 		t.Errorf("viewer sees %+v, want only %s", list, r.pub.ID())
 	}
