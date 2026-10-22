@@ -3,7 +3,6 @@ package stream
 import (
 	"bytes"
 	"encoding/json"
-	"math"
 	"regexp"
 	"strconv"
 
@@ -286,44 +285,53 @@ func member(data []byte, key string) (string, bool) {
 
 // ---- Notifications -----------------------------------------------------------
 
-// decimal reads an integer of at most 15 digits, as the server writes them.
-func decimal(raw string) (int64, bool) {
+// field returns the value under the first of keys that is present.
+func field(params map[string]string, keys ...string) (string, bool) {
+	for _, key := range keys {
+		if raw, ok := params[key]; ok {
+			return raw, true
+		}
+	}
+
+	return "", false
+}
+
+// intField reads the integer under key, as the server writes them: at most 15
+// digits, with a sign. It is nil when the key is absent, the value is none, or
+// it does not fit an int.
+func intField(params map[string]string, keys ...string) *int {
+	raw, ok := field(params, keys...)
+	if !ok {
+		return nil
+	}
 	digits := len(raw)
 	if raw != "" && raw[0] == '-' {
 		digits--
 	}
 	if digits < 1 || digits > 15 {
-		return 0, false
+		return nil
 	}
-	n, err := strconv.ParseInt(raw, 10, 64)
-
-	return n, err == nil
-}
-
-// intField reads the integer under key; nil when it is absent or is none.
-func intField(params map[string]string, keys ...string) *int {
-	for _, key := range keys {
-		if raw, ok := params[key]; ok {
-			if n, ok := decimal(raw); ok {
-				return new(int(n))
-			}
-
-			return nil
-		}
-	}
-
-	return nil
-}
-
-// wireNumber reads an unsigned 32-bit number, which is what a source and an
-// accessibility are; nil when it is absent or out of range.
-func wireNumber(params map[string]string, keys ...string) *uint32 {
-	n := intField(params, keys...)
-	if n == nil || *n < 0 || *n > math.MaxUint32 {
+	n, err := strconv.Atoi(raw)
+	if err != nil {
 		return nil
 	}
 
-	return new(uint32(*n))
+	return &n
+}
+
+// wireNumber reads an unsigned 32-bit number, which is what a source and an
+// accessibility are; nil when it is absent, none, or out of range.
+func wireNumber(params map[string]string, keys ...string) *uint32 {
+	raw, ok := field(params, keys...)
+	if !ok || len(raw) > 15 {
+		return nil
+	}
+	n, err := strconv.ParseUint(raw, 10, 32)
+	if err != nil {
+		return nil
+	}
+
+	return new(uint32(n))
 }
 
 // clidOf reads the clid of a notification; 0 when it names none.

@@ -405,3 +405,30 @@ func TestRequestState_Strings(t *testing.T) {
 		}
 	}
 }
+
+func TestWireNumber_ReadsAnUnsigned32BitNumberAndNothingElse(t *testing.T) {
+	for raw, want := range map[string]*uint32{
+		"0": new(uint32(0)), "2": new(uint32(2)), "4294967295": new(uint32(4294967295)),
+		"4294967296": nil, "-1": nil, "x": nil, "": nil, "1.5": nil, "1234567890123456": nil,
+	} {
+		got := wireNumber(map[string]string{"type": raw}, "type")
+		if !ptrEqual(got, want) {
+			t.Errorf("%q: got %v, want %v", raw, got, want)
+		}
+	}
+	if wireNumber(map[string]string{}, "type") != nil {
+		t.Error("an absent key reads as a number")
+	}
+}
+
+func TestIntField_ReadsASignedIntegerOfAtMost15Digits(t *testing.T) {
+	for raw, want := range map[string]*int{
+		"0": new(0), "-3": new(-3), "999999999999999": new(999999999999999),
+		"1000000000000000": nil, "-": nil, "": nil, "1e3": nil,
+	} {
+		got := intField(map[string]string{"k": raw}, "k")
+		if !ptrEqual(got, want) {
+			t.Errorf("%q: got %v, want %v", raw, got, want)
+		}
+	}
+}
