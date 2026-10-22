@@ -617,40 +617,94 @@ func TestPublishGivingUp_StopsNothingForAnAnswerAfterTheConnectionEnded(t *testi
 	})
 }
 
+// closeAsync closes the Streams in the background and returns where its result
+// will be.
+func (e *env) closeAsync(ctx context.Context) chan error {
+	done := make(chan error, 1)
+	go func() { done <- e.s.Close(ctx) }()
+	e.settle()
+
+	return done
+}
+
+// publishAsync calls Publish in the background and lets it send its command.
+func (e *env) publishAsync() chan error {
+	done := make(chan error, 1)
+	go func() { _, err := e.s.Publish(e.t.Context(), PublishOptions{Name: "x"}); done <- err }()
+	e.settle()
+
+	return done
+}
+
 func TestPublishGivingUp_StopsTheStreamAPublishStartedWhenClosedBeforeTheAnnouncement(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
-		done := make(chan error, 1)
-		go func() { _, err := e.s.Publish(t.Context(), PublishOptions{Name: "x"}); done <- err }()
-		e.settle()
-		err := e.s.Close(t.Context())
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = <-done
+		published := e.publishAsync()
+		closed := e.closeAsync(t.Context())
+		err := <-published
 		if !errors.Is(err, ErrClosed) {
 			t.Fatalf("err = %v", err)
 		}
+		select {
+		case early := <-closed:
+			t.Fatalf("Close returned %v while the command was still open", early)
+		default:
+		}
 		e.h.announce(t, announcement("after", 1), 0)
-		e.settle()
+		err = <-closed
+		if err != nil {
+			t.Fatal(err)
+		}
 		if got := e.h.commands("stopstream"); len(got) != 1 || got[0].params["id"] != "after" {
 			t.Errorf("stops = %v", got)
 		}
 	})
 }
 
+// The stop of a stream that turns up after Close is one of the commands Close
+// waits for, and its failure is part of what Close returns.
+func TestPublishGivingUp_CloseReturnsTheFailureOfTheStopItWaitedFor(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		e.h.reply = func(s sent) ([]map[string]string, error, bool) {
+			return nil, serverError(errcode.PermissionsClientInsufficient), s.name == "stopstream"
+		}
+		published := e.publishAsync()
+		closed := e.closeAsync(t.Context())
+		<-published
+		e.h.announce(t, announcement("after", 1), 0)
+		err := <-closed
+		if !errors.Is(err, errcode.PermissionsClientInsufficient) {
+			t.Errorf("Close = %v", err)
+		}
+	})
+}
+
+// Close waits no longer than its context, for a command that never gets its
+// announcement.
+func TestPublishGivingUp_CloseWaitsForTheCommandOnlyAsLongAsItsContext(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		published := e.publishAsync()
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		start := time.Now()
+		err := e.s.Close(ctx)
+		if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) != time.Second {
+			t.Errorf("Close = %v after %v", err, time.Since(start))
+		}
+		<-published
+	})
+}
+
 func TestPublishGivingUp_StopsNothingForAPublishAnsweredAfterCloseWhenTheConnectionIsGone(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
-		done := make(chan error, 1)
-		go func() { _, err := e.s.Publish(t.Context(), PublishOptions{Name: "x"}); done <- err }()
-		e.settle()
+		published := e.publishAsync()
 		e.h.disconnect()
-		err := e.s.Close(t.Context())
+		closed := e.closeAsync(t.Context())
+		<-published
+		e.h.announce(t, announcement("after", 1), 0)
+		err := <-closed
 		if err != nil {
 			t.Fatal(err)
 		}
-		<-done
-		e.h.announce(t, announcement("after", 1), 0)
-		e.settle()
 		if got := e.h.commands("stopstream"); len(got) != 0 {
 			t.Errorf("stops = %v", got)
 		}
@@ -691,3 +745,64 @@ func TestPublishedSettlesOnce(t *testing.T) {
 }
 
 var _ = strconv.Itoa
+
+// The client delivers its disconnected event after the fact. A Publish that
+// started on the connection that is up by then belongs to it: before, the
+// event failed it and left the stream it started running.
+func TestLaggingDisconnect_DoesNotFailAPublishSentOnTheNextConnection(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		e.h.reconnectQuietly(2)
+		type result struct {
+			p   *Published
+			err error
+		}
+		done := make(chan result, 1)
+		go func() { p, err := e.s.Publish(t.Context(), PublishOptions{Name: "x"}); done <- result{p, err} }()
+		e.settle()
+		e.h.deliverDisconnected()
+		e.settle()
+		e.h.announce(t, announcement("on-b", 2), 0)
+		r := <-done
+		if r.err != nil || r.p.ID() != "on-b" || r.p.Ended() {
+			t.Fatalf("Publish = %v, %v", r.p, r.err)
+		}
+		e.settle()
+		if got := e.h.commands("stopstream"); len(got) != 0 {
+			t.Errorf("stops = %v", got)
+		}
+	})
+}
+
+func TestLaggingDisconnect_StillFailsAPublishSentOnTheConnectionThatEnded(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		published := e.publishAsync()
+		e.h.reconnectQuietly(2)
+		e.h.deliverDisconnected()
+		err := <-published
+		if !errors.Is(err, teamspeak.ErrNotConnected) {
+			t.Errorf("err = %v", err)
+		}
+	})
+}
+
+func TestLaggingDisconnect_KeepsWhatTheNextConnectionStarted(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		old := e.publish(PublishOptions{Name: "old"})
+		e.streamOf5()
+		e.h.reconnectQuietly(2)
+		fresh := e.publish(PublishOptions{Name: "fresh"})
+		watching := e.startWatch(t.Context())
+		var ended collector[EndedEvent]
+		old.OnEnded(ended.add)
+		fresh.OnEnded(ended.add)
+		e.h.deliverDisconnected()
+		e.settle()
+		if !old.Ended() || fresh.Ended() || ended.len() != 1 || ended.all()[0].Cause != EndCauseDisconnected {
+			t.Errorf("old ended %v, fresh ended %v, events %+v", old.Ended(), fresh.Ended(), ended.all())
+		}
+		e.respond(nil)
+		if r := <-watching; r.err != nil {
+			t.Errorf("Watch = %v", r.err)
+		}
+	})
+}

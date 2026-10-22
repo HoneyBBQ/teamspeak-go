@@ -104,6 +104,20 @@ func (s *Streams) leave(ctx context.Context, id ID, streamer teamspeak.ClientID)
 	return err
 }
 
+// farewell notes a failure of a command that ends a session of a Streams that
+// is closed, for Close to return; if Close has returned already it is logged.
+func (s *Streams) farewell(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closeDone {
+		s.logger.Warn("stream: a command after Close failed", slog.Any("error", err))
+
+		return
+	}
+	s.farewellErrs = append(s.farewellErrs, err)
+}
+
 // goodbye runs a best-effort command for a session that is over: the result is
 // reported, not returned, and the command outlives the call that caused it by
 // up to goodbyeTimeout.
@@ -186,14 +200,25 @@ func (s *Streams) endLocked(id ID, reason uint32, cause EndCause) {
 	}
 }
 
-// resetLocked ends everything, once, and forgets: the connection ended
-// (EndCauseDisconnected) or the Streams closed (EndCauseShutdown). For the latter it
+// resetLocked ends the sessions of a connection that ended, or of everything
+// when the Streams closed (EndCauseShutdown), and forgets. For the latter it
 // returns the commands that tell the server.
-func (s *Streams) resetLocked(cause EndCause) []func(context.Context) error {
+//
+// The client delivers its disconnected event after the fact, and a Publish or a
+// Watch may have started on the next connection by then, so a disconnect ends
+// only what was started under another client id than the connection that is up
+// now, c. Everything else a reset forgets reaches this Streams through the
+// client's events, which are delivered in order, so a lagging one does not
+// reach what the next connection made.
+func (s *Streams) resetLocked(cause EndCause, c connState) []func(context.Context) error {
 	var goodbyes []func(context.Context) error
 	err := teamspeak.ErrNotConnected
 	if cause == EndCauseShutdown {
 		err = ErrClosed
+		goodbyes = s.farewellsLocked()
+	}
+	survives := func(owner teamspeak.ClientID) bool {
+		return cause == EndCauseDisconnected && c.status == client.StatusConnected && owner != 0 && owner == c.self
 	}
 	s.gen++
 	s.cancelConn()
@@ -201,49 +226,46 @@ func (s *Streams) resetLocked(cause EndCause) []func(context.Context) error {
 		s.conn, s.cancelConn = context.WithCancel(context.Background())
 	}
 	for att := range s.attempts {
-		att.settleLocked(nil, err)
+		if !survives(att.owner) {
+			att.settleLocked(nil, err)
+			delete(s.attempts, att)
+		}
 	}
-	clear(s.attempts)
 	s.orphans.clear()
-
-	if cause == EndCauseShutdown {
-		goodbyes = s.farewellsLocked()
-	}
-	published := slices.SortedFunc(maps.Values(s.published), func(a, b *Published) int { return cmpID(a.id, b.id) })
-	watches := s.watchesLocked()
-
 	for _, t := range s.gone {
 		t.Stop()
 	}
 	clear(s.gone)
-	clear(s.published)
-	clear(s.watching)
 	clear(s.asked)
 	s.infos = nil
 
+	s.endSessionsLocked(cause, err, survives)
+
+	return goodbyes
+}
+
+// endSessionsLocked ends the published streams and the watches that do not
+// survive, with cause; a watch still waiting fails with err.
+func (s *Streams) endSessionsLocked(cause EndCause, err error, survives func(teamspeak.ClientID) bool) {
+	published := slices.SortedFunc(maps.Values(s.published), func(a, b *Published) int { return cmpID(a.id, b.id) })
 	for _, p := range published {
-		p.finishLocked(EndedEvent{Cause: cause})
+		if !survives(p.owner) {
+			delete(s.published, p.id)
+			p.finishLocked(EndedEvent{Cause: cause})
+		}
 	}
-	for _, w := range watches {
+	for _, id := range slices.SortedFunc(maps.Keys(s.watching), cmpID) {
+		w := s.watching[id]
+		if survives(w.owner) {
+			continue
+		}
+		delete(s.watching, id)
 		if w.view != nil {
 			w.view.endLocked(PeerClosedEvent{Cause: cause.peer()})
 		} else {
 			w.settleLocked(nil, err)
 		}
 	}
-
-	return goodbyes
-}
-
-// watchesLocked returns the watches in the order of their streams' ids.
-func (s *Streams) watchesLocked() []*watch {
-	ids := slices.SortedFunc(maps.Keys(s.watching), cmpID)
-	out := make([]*watch, len(ids))
-	for i, id := range ids {
-		out[i] = s.watching[id]
-	}
-
-	return out
 }
 
 // farewellsLocked are the commands that tell the server this Streams is done: it
@@ -266,11 +288,13 @@ func (s *Streams) farewellsLocked() []func(context.Context) error {
 // disconnected is the connection ending: nothing is sent, the server ends the
 // streams itself.
 func (s *Streams) disconnected() {
+	c := s.observe()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if !s.closed {
-		s.resetLocked(EndCauseDisconnected)
+		s.resetLocked(EndCauseDisconnected, c)
 	}
 }
 
@@ -562,6 +586,7 @@ func (s *Streams) finishAttempt(base context.Context, att *attempt, rows []map[s
 		}
 	}
 	var stop bool
+	closed := s.closed
 	switch {
 	case att.settled:
 		// The connection ended or the Streams closed while the command was out.
@@ -577,24 +602,39 @@ func (s *Streams) finishAttempt(base context.Context, att *attempt, rows []map[s
 		att.settled = true
 		stop = true
 	default:
-		att.settleLocked(s.adoptLocked(info), nil)
+		att.settleLocked(s.adoptLocked(info, att.owner), nil)
 	}
 	s.mu.Unlock()
 
-	if !stop || s.host.Status() != client.StatusConnected {
+	if stop {
+		s.stopOrphan(base, info.ID, closed)
+	}
+}
+
+// stopOrphan stops a stream nobody is waiting for, if the client is still
+// connected. A failure goes to Close, which waits for this, or else to OnError.
+func (s *Streams) stopOrphan(base context.Context, id ID, closed bool) {
+	if s.host.Status() != client.StatusConnected {
 		return
 	}
 	ctx, cancel := context.WithTimeout(base, goodbyeTimeout)
 	defer cancel()
-	err = s.stopStream(ctx, info.ID, 0)
-	if err != nil && !isGone(err) {
-		s.report(fmt.Errorf("stream: stopstream for stream %s: %w", info.ID, err))
+	err := s.stopStream(ctx, id, 0)
+	if err == nil || isGone(err) {
+		return
 	}
+	err = fmt.Errorf("stream: stopstream for stream %s: %w", id, err)
+	if closed {
+		s.farewell(err)
+
+		return
+	}
+	s.report(err)
 }
 
 // adoptLocked is the stream of a Publish that is waiting: learned if the
 // notification has not been, and published.
-func (s *Streams) adoptLocked(info Info) *Published {
+func (s *Streams) adoptLocked(info Info, owner teamspeak.ClientID) *Published {
 	s.learnLocked(info)
 	p := s.published[info.ID]
 	if p == nil {
@@ -603,6 +643,7 @@ func (s *Streams) adoptLocked(info Info) *Published {
 			initial = *known
 		}
 		p = newPublished(s, initial.clone())
+		p.owner = owner
 		s.published[info.ID] = p
 	}
 
@@ -692,7 +733,7 @@ func isContextError(err error) bool {
 // error, unwrapped, for a command that never left its flood throttle, and wraps
 // it with the command's name once the command was sent and its answer awaited.
 func mayHaveBeenSent(err error) bool {
-	//nolint:errorlint // the error itself, not what it wraps, says the command was never sent
+	//nolint:errorlint,err113 // the error itself, not what it wraps, says the command was never sent
 	return err != context.Canceled && err != context.DeadlineExceeded
 }
 
@@ -748,24 +789,27 @@ func withDefaultTimeout(ctx context.Context, d time.Duration) (context.Context, 
 // values) for the wait and the announcement window, and its goroutine ends when
 // that context does.
 func (s *Streams) startAttempt(ctx, waitCtx context.Context, req teamspeak.Request) (*attempt, error) {
-	att := &attempt{done: make(chan struct{})}
+	att := &attempt{done: make(chan struct{}), owner: s.host.ClientID()}
+	deadline, _ := waitCtx.Deadline()
+	base := context.WithoutCancel(ctx)
+	sendCtx, cancel := context.WithTimeout(base, time.Until(deadline)+announceWindow)
+
 	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
+	defer s.mu.Unlock()
+
+	// Close waits for the goroutine, and so for the stop it sends if the stream
+	// turns up after all.
+	started := s.spawnLocked(func() {
+		defer cancel()
+		rows, err := s.host.Send(sendCtx, req)
+		s.finishAttempt(base, att, rows, err)
+	})
+	if !started {
+		cancel()
 
 		return nil, ErrClosed
 	}
 	s.attempts[att] = struct{}{}
-	s.mu.Unlock()
-
-	deadline, _ := waitCtx.Deadline()
-	base := context.WithoutCancel(ctx)
-	sendCtx, cancel := context.WithTimeout(base, time.Until(deadline)+announceWindow)
-	go func() {
-		defer cancel()
-		rows, err := s.host.Send(sendCtx, req)
-		s.finishAttempt(base, att, rows, err)
-	}()
 
 	return att, nil
 }

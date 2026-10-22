@@ -815,10 +815,12 @@ func TestWatch_DoesNotLeaveAViewBehindWhenTheAnswerLandsDuringAFailingSend(t *te
 			t.Fatalf("view %v, err %v: a view the publisher accepted was dropped", r.view, r.err)
 		}
 		e.h.reply = nil
-		if _, err := e.s.Watch(t.Context(), "a", WatchOptions{}); !errors.Is(err, ErrAlreadyWatching) {
+		_, err := e.s.Watch(t.Context(), "a", WatchOptions{})
+		if !errors.Is(err, ErrAlreadyWatching) {
 			t.Errorf("watching again: %v", err)
 		}
-		if err := r.view.Leave(t.Context()); err != nil {
+		err = r.view.Leave(t.Context())
+		if err != nil {
 			t.Fatal(err)
 		}
 		if join := e.h.commands("joinstreamrequest"); len(join) != 2 || join[1].params["is_remove"] != "1" {
@@ -912,10 +914,12 @@ func TestPeerClose_KeepsTheStreamWatchedUntilTheLeaveIsAnswered(t *testing.T) {
 		if !v.Closed() {
 			t.Error("the view is not closed at once")
 		}
-		if _, err := e.s.Watch(t.Context(), "a", WatchOptions{}); !errors.Is(err, ErrAlreadyWatching) {
+		_, err := e.s.Watch(t.Context(), "a", WatchOptions{})
+		if !errors.Is(err, ErrAlreadyWatching) {
 			t.Errorf("Watch during the leave: %v", err)
 		}
-		if err := <-left; err != nil {
+		err = <-left
+		if err != nil {
 			t.Fatal(err)
 		}
 		done := e.startWatch(t.Context())
@@ -933,7 +937,8 @@ func TestPeerClose_IgnoresWhatThePublisherStillSends(t *testing.T) {
 		var errs collector[error]
 		e.s.OnError(errs.add)
 		v := e.watchAccepted()
-		if err := v.Leave(t.Context()); err != nil {
+		err := v.Leave(t.Context())
+		if err != nil {
 			t.Fatal(err)
 		}
 		e.h.notify(notify.StreamSignaling, fromFive(`{"cmd":"iceCandidate","args":{"sdp":"late"}}`))

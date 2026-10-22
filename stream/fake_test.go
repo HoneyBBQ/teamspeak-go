@@ -248,6 +248,19 @@ func (h *fakeHost) disconnect() {
 	emit(h, "disconnected", client.DisconnectedEvent{})
 }
 
+// reconnectQuietly is the client being connected again under another client id
+// while its disconnected event for the old connection is still on its way.
+func (h *fakeHost) reconnectQuietly(self teamspeak.ClientID) {
+	h.mu.Lock()
+	h.status, h.self = client.StatusConnected, self
+	h.mu.Unlock()
+}
+
+// deliverDisconnected is the lagging event itself.
+func (h *fakeHost) deliverDisconnected() {
+	emit(h, "disconnected", client.DisconnectedEvent{})
+}
+
 func (h *fakeHost) connect() {
 	h.mu.Lock()
 	h.status = client.StatusConnected

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -71,6 +72,9 @@ type Streams struct {
 	attempts  map[*attempt]struct{}
 	denied    *lru[teamspeak.UID]
 	orphans   *lru[ID]
+	// farewellErrs are the failures of the commands that end a closed
+	// Streams' sessions; Close returns them. closeDone is set once it has.
+	farewellErrs []error
 	// closedViews are the streams whose view is over: what their publisher
 	// still sends is not worth a report.
 	closedViews *lru[ID]
@@ -91,9 +95,10 @@ type Streams struct {
 	gen uint64
 	// mu guards everything above it that is not set once. It is never held while
 	// calling the client or a handler.
-	mu       sync.Mutex
-	remember bool
-	closed   bool
+	mu        sync.Mutex
+	remember  bool
+	closed    bool
+	closeDone bool
 }
 
 // New returns a Streams over c, which may not have connected yet: nothing is
@@ -201,6 +206,8 @@ type attempt struct {
 	err error
 	// done is closed when the outcome is settled.
 	done chan struct{}
+	// owner is this client's id on the connection the command was sent on.
+	owner teamspeak.ClientID
 	// abandoned is set once the caller has stopped waiting: an announcement
 	// then is not theirs to receive.
 	abandoned bool
@@ -379,9 +386,11 @@ func (s *Streams) OnWarning(handler func(WarningEvent)) func() {
 // is_remove=1), as far as the server takes them. Close waits for those commands
 // within ctx and returns what failed, joined; a stream or a connection already
 // gone is no failure. A Publish still waiting returns ErrClosed, and a stream
-// it started after all is stopped when the server announces it, if the client
-// is still connected. When the connection is already gone nothing is sent, and
-// the server ends the streams itself.
+// its command started after all is stopped when the server announces it, if the
+// client is still connected: Close waits for that too, for as long as the
+// command is open (up to the Publish's timeout and five seconds) or ctx lasts,
+// and returns the failure of that stop. When the connection is already gone
+// nothing is sent, and the server ends the streams itself.
 //
 // The commands outlive ctx by up to five seconds, so pass a context that is not
 // already cancelled, such as context.WithoutCancel(ctx), when closing because a
@@ -398,13 +407,8 @@ func (s *Streams) Close(ctx context.Context) error {
 	s.closed = true
 	offs := s.offs
 	s.offs = nil
-	goodbyes := s.resetLocked(EndCauseShutdown)
+	goodbyes := s.resetLocked(EndCauseShutdown, connState{})
 	s.denied.clear()
-
-	var (
-		errMu sync.Mutex
-		errs  []error
-	)
 	if connected {
 		base := context.WithoutCancel(ctx)
 		for _, bye := range goodbyes {
@@ -413,9 +417,7 @@ func (s *Streams) Close(ctx context.Context) error {
 				defer cancel()
 				err := bye(byeCtx)
 				if err != nil {
-					errMu.Lock()
-					errs = append(errs, err)
-					errMu.Unlock()
+					s.farewell(err)
 				}
 			})
 		}
@@ -430,17 +432,18 @@ func (s *Streams) Close(ctx context.Context) error {
 		s.wg.Wait()
 		close(done)
 	}()
+	var waitErr error
 	select {
 	case <-done:
 	case <-ctx.Done():
-		errMu.Lock()
-		errs = append(errs, fmt.Errorf("stream: closing: %w", ctx.Err()))
-		errMu.Unlock()
+		waitErr = fmt.Errorf("stream: closing: %w", ctx.Err())
 	}
-	errMu.Lock()
-	defer errMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	return errors.Join(errs...)
+	s.closeDone = true
+
+	return errors.Join(append(slices.Clone(s.farewellErrs), waitErr)...)
 }
 
 // Publish starts a stream and returns it once the server has announced it. The

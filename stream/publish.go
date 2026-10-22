@@ -40,6 +40,8 @@ type Published struct {
 	// the lookups take.
 	queue   []lookup
 	initial Info
+	// owner is this client's id on the connection that started the stream.
+	owner teamspeak.ClientID
 	// working is whether the goroutine that drains queue is running.
 	working bool
 	done    bool
