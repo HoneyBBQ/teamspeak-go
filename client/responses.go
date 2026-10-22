@@ -11,9 +11,10 @@ import "slices"
 // reports an empty success for every one of those — which this SDK did, and
 // documented as a property of the protocol.
 //
-// Notifications carry no return_code, so nothing on the wire ties one to the
-// command that caused it. The pairing is a property of the command, and this
-// table is where it lives. It was measured command by command against TS3
+// Most notifications carry no return_code, so nothing on the wire ties one to
+// the command that caused it; the two stream notifications that answer
+// setupstream and requeststreaminfo are the exceptions and echo it. The pairing
+// is a property of the command, and this table is where it lives. It was measured command by command against TS3
 // 3.13.8 and TS6 6.0.0-beta13.1, which answer identically; the TypeScript
 // SDK's scripts/probe-response-shapes.mts re-runs that measurement.
 //
