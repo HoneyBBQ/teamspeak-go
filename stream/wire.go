@@ -118,9 +118,14 @@ func assertFits(req teamspeak.Request) error {
 
 // ---- Signalling --------------------------------------------------------------
 
+// signalMessage is the JSON of a signalling message. The order of its fields is
+// the order of its keys on the wire, which the other end may be picky about, so
+// it is not rearranged for alignment.
+//
+//nolint:govet // see above
 type signalMessage struct {
-	Args any    `json:"args,omitempty"`
 	Cmd  string `json:"cmd"`
+	Args any    `json:"args,omitempty"`
 }
 
 // encodeSignal is the JSON text of a signalling message. It is marshalled with
@@ -150,10 +155,10 @@ func offerJSON(sdp string) string {
 }
 
 func candidateJSON(c IceCandidate) string {
-	type args struct {
+	type args struct { //nolint:govet // the order of the keys on the wire
+		SDP   string  `json:"sdp"`
 		Mid   *string `json:"mid"`
 		MLine *uint16 `json:"mLine"`
-		SDP   string  `json:"sdp"`
 	}
 	// A string and two small numbers always marshal.
 	text, _ := encodeSignal("iceCandidate", args{SDP: c.Candidate, Mid: c.SDPMid, MLine: c.SDPMLineIndex})

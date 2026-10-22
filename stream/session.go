@@ -115,7 +115,14 @@ func (s *Streams) leave(ctx context.Context, id ID, streamer teamspeak.ClientID)
 // reported, not returned, and the command outlives the call that caused it by
 // up to goodbyeTimeout.
 func (s *Streams) goodbye(base context.Context, what string, fn func(context.Context) error) {
-	s.spawn(func() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.goodbyeLocked(base, what, fn)
+}
+
+func (s *Streams) goodbyeLocked(base context.Context, what string, fn func(context.Context) error) {
+	s.spawnLocked(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(base), goodbyeTimeout)
 		defer cancel()
 		err := fn(ctx)
@@ -691,7 +698,7 @@ func (s *Streams) onRespondLocked(params map[string]string) {
 		delete(s.watching, id)
 		w.settleLocked(nil, errNoOffer)
 		streamer := w.streamer
-		s.goodbye(s.conn, "leaving stream "+string(id), func(ctx context.Context) error {
+		s.goodbyeLocked(s.conn, "leaving stream "+string(id), func(ctx context.Context) error {
 			return s.leave(ctx, id, streamer)
 		})
 
