@@ -959,3 +959,21 @@ func TestPeerClose_IgnoresWhatThePublisherStillSends(t *testing.T) {
 		}
 	})
 }
+
+// The stream stops while the join request is out, and the server's answer to it
+// is 5635: the error keeps the server's refusal as its cause.
+func TestWatch_KeepsTheServersRefusalWhenTheStreamStopsDuringTheSend(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		e.streamOf5()
+		e.joinReply(func() ([]map[string]string, error) {
+			e.h.notify(notify.StreamStopped, map[string]string{"id": "a"})
+
+			return nil, serverError(errcode.StreamNotFound)
+		})
+		r := <-e.startWatch(t.Context())
+		ended, ok := errors.AsType[*EndedError](r.err)
+		if !ok || ended.StreamID != "a" || !errors.Is(r.err, errcode.StreamNotFound) {
+			t.Errorf("err = %#v", r.err)
+		}
+	})
+}

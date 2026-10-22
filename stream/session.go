@@ -713,6 +713,12 @@ func (s *Streams) ask(ctx context.Context, w *watch, id ID, message string) (*Vi
 	defer s.mu.Unlock()
 
 	if w.settled {
+		// The stream's end can be heard while the join request is being sent;
+		// the server's own refusal, when that is what came back, says more.
+		if _, ended := errors.AsType[*EndedError](err); ended && w.view == nil {
+			return nil, false, err
+		}
+
 		return w.view, false, w.err
 	}
 	// Abandoned here, in the same breath as the decision: from now on an
