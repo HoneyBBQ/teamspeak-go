@@ -115,6 +115,7 @@ method (*Client) Exec(ctx context.Context, line string) ([]map[string]string, er
 method (Client) FindBans(ctx context.Context, criteria teamspeak.BanCriteria) ([]teamspeak.BanEntry, error)
 method (Client) FindChannels(ctx context.Context, pattern string) ([]teamspeak.ChannelMatch, error)
 method (Client) FindClientDatabase(ctx context.Context, pattern string) ([]teamspeak.ClientDBID, error)
+method (Client) FindClientDatabaseByUID(ctx context.Context, pattern string) ([]teamspeak.ClientDBID, error)
 method (Client) FindClients(ctx context.Context, pattern string) ([]teamspeak.ClientMatch, error)
 method (Client) FindClientsWith(ctx context.Context, pattern string, opts teamspeak.ClientFindOptions) ([]teamspeak.ClientMatch, error)
 method (Client) FindCustomProperty(ctx context.Context, ident string, pattern string) ([]teamspeak.CustomPropertyMatch, error)

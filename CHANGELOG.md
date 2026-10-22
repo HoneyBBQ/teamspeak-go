@@ -3,6 +3,18 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- `(*Commands).FindClientDatabaseByUID(ctx, pattern)` finds database ids by
+  unique identifier (`clientdbfind -uid`), next to `FindClientDatabase`, which
+  searches nicknames. On TeamSpeak 3 and 6, over ServerQuery and the voice
+  protocol alike, the pattern is SQL `LIKE` over the whole uid, ignoring case:
+  without `%` (any run of characters) or `_` (any one character) it must be the
+  entire uid, so a prefix needs a trailing `%`. No match is an empty slice, and
+  a server answers at most 50 ids.
+
 ## v1.0.0-beta.13 (2026-10-22)
 
 ### Added

@@ -51,6 +51,30 @@ func TestFindClients_AsksForNoChannel(t *testing.T) {
 	}
 }
 
+// clientdbfind -uid searches the unique identifier; the answer is database ids.
+func TestFindClientDatabaseByUID_SearchesTheUID(t *testing.T) {
+	s := &script{replies: []reply{{rows: []map[string]string{{"cldbid": "9"}, {"cldbid": "12"}}}}}
+	got, err := NewCommands(s).FindClientDatabaseByUID(t.Context(), "Q/vfU/I2Vc%")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `clientdbfind pattern=Q\/vfU\/I2Vc% -uid`; s.sent[0] != want {
+		t.Errorf("sent %q, want %q", s.sent[0], want)
+	}
+	if want := []ClientDBID{9, 12}; !reflect.DeepEqual(got, want) {
+		t.Errorf("ids = %v, want %v", got, want)
+	}
+}
+
+// No match is error 1281, which reads as no ids rather than as a failure.
+func TestFindClientDatabaseByUID_NoMatchIsNoIDs(t *testing.T) {
+	empty := &ServerError{Code: errcode.DatabaseEmptyResult, Message: "database empty result set"}
+	ids, err := NewCommands(&script{replies: []reply{{err: empty}}}).FindClientDatabaseByUID(t.Context(), "nobody")
+	if err != nil || len(ids) != 0 {
+		t.Errorf("FindClientDatabaseByUID = %v, %v; want no ids and no error", ids, err)
+	}
+}
+
 func TestCustomPropertyLines(t *testing.T) {
 	for _, tc := range []struct {
 		run  func(c *Commands) error
