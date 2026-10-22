@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -452,5 +453,151 @@ func TestGetConnectionInfo_FailsOnTheErrorWithoutWaiting(t *testing.T) {
 	got := receive(t, done).Err
 	if !errors.Is(got, want) {
 		t.Errorf("err = %v, want %v", got, want)
+	}
+}
+
+// setupstream is matched on the return_code of the command itself, which the
+// request does not carry: the tracker learns it at registration.
+func streamAnnouncement(id, rc string) map[string]string {
+	return map[string]string{"id": id, "clid": "5", "name": "screen", "return_code": rc}
+}
+
+func registerSetupStream(tr *commandTracker) (uint32, <-chan commandResult) {
+	rc, done := tr.register(responseFor("setupstream"), "", false)
+	tr.setCorrelation(rc, strconv.FormatUint(uint64(rc), 10))
+
+	return rc, done
+}
+
+func TestSetupStream_TakesTheAnnouncementThatBeatsTheError(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := registerSetupStream(tr)
+	row := streamAnnouncement("7", strconv.Itoa(int(rc)))
+	tr.offerCorrelated("notifystreamstarted", row)
+	tr.resolve(rc, nil, 0)
+
+	if got := receive(t, done).Data; !reflect.DeepEqual(got, []map[string]string{row}) {
+		t.Errorf("data = %v", got)
+	}
+}
+
+// The order is not promised, so an error that comes first leaves the command
+// waiting for its announcement.
+func TestSetupStream_WaitsForTheAnnouncementWhenTheErrorComesFirst(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := registerSetupStream(tr)
+	tr.resolve(rc, nil, 0)
+
+	select {
+	case res := <-done:
+		t.Fatalf("resolved before the announcement: %v", res)
+	case <-time.After(20 * time.Millisecond):
+	}
+	row := streamAnnouncement("7", strconv.Itoa(int(rc)))
+	tr.offerCorrelated("notifystreamstarted", row)
+	if got := receive(t, done).Data; !reflect.DeepEqual(got, []map[string]string{row}) {
+		t.Errorf("data = %v", got)
+	}
+}
+
+func TestSetupStream_KeepsConcurrentCommandsApart(t *testing.T) {
+	tr := newReadyCommandTracker()
+	first, firstDone := registerSetupStream(tr)
+	second, secondDone := registerSetupStream(tr)
+	// Same name, announced in the opposite order to the commands.
+	tr.offerCorrelated("notifystreamstarted", streamAnnouncement("20", strconv.Itoa(int(second))))
+	tr.offerCorrelated("notifystreamstarted", streamAnnouncement("10", strconv.Itoa(int(first))))
+	tr.resolve(first, nil, 0)
+	tr.resolve(second, nil, 0)
+
+	if got := receive(t, firstDone).Data; len(got) != 1 || got[0]["id"] != "10" {
+		t.Errorf("first = %v, want stream 10", got)
+	}
+	if got := receive(t, secondDone).Data; len(got) != 1 || got[0]["id"] != "20" {
+		t.Errorf("second = %v, want stream 20", got)
+	}
+}
+
+// An announcement sent to the other clients of the channel does not echo this
+// command's return_code, so it is never taken for the answer.
+func TestSetupStream_IgnoresAnnouncementsOfOtherClients(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := registerSetupStream(tr)
+	tr.offerCorrelated("notifystreamstarted", map[string]string{"id": "3", "clid": "9", "name": "screen"})
+	tr.resolve(rc, nil, 0)
+
+	select {
+	case res := <-done:
+		t.Fatalf("resolved with a foreign stream: %v", res)
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+// A refusal settles at once, with or without an announcement ahead of it.
+func TestSetupStream_ErrorSettlesTheCommand(t *testing.T) {
+	refusal := &teamspeak.ServerError{Code: errcode.PermissionsClientInsufficient}
+	for name, announcedFirst := range map[string]bool{"before": true, "after": false} {
+		tr := newReadyCommandTracker()
+		rc, done := registerSetupStream(tr)
+		if announcedFirst {
+			tr.offerCorrelated("notifystreamstarted", streamAnnouncement("7", strconv.Itoa(int(rc))))
+		}
+		tr.resolve(rc, refusal, 0)
+
+		if res := receive(t, done); !errors.Is(res.Err, errcode.PermissionsClientInsufficient) {
+			t.Errorf("%s the announcement: err = %v, want the refusal", name, res.Err)
+		}
+	}
+}
+
+// A command that has given up is unregistered, and its late announcement finds
+// nobody. The next command never inherits its return_code, also across a reset.
+func TestSetupStream_StaleReturnCodeMatchesNothing(t *testing.T) {
+	tr := newReadyCommandTracker()
+	old, _ := registerSetupStream(tr)
+	tr.unregister(old)
+	tr.reset(teamspeak.ErrNotConnected)
+
+	rc, done := registerSetupStream(tr)
+	if rc == old {
+		t.Fatalf("return_code %d was reused after a reset", rc)
+	}
+	tr.offerCorrelated("notifystreamstarted", streamAnnouncement("7", strconv.Itoa(int(old))))
+	tr.resolve(rc, nil, 0)
+
+	select {
+	case res := <-done:
+		t.Fatalf("resolved with a stale announcement: %v", res)
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+// The whole path: Send learns the return_code it appends to the line, and the
+// announcement that echoes it comes back as the command's data.
+func TestSetupStream_ResolvesWithTheEchoedAnnouncementThroughSend(t *testing.T) {
+	for name, announceBeforeError := range map[string]bool{"before the error": true, "after the error": false} {
+		c := newTestClient(t)
+		c.wireHook = func(line string) error {
+			cmd := wire.ParseCommand(line)
+			rc := cmd.Params["return_code"]
+			if rc == "" {
+				t.Errorf("%s: line %q carries no return_code", name, line)
+			}
+			announce := "notifystreamstarted id=7 clid=5 name=screen return_code=" + rc
+			ack := "error id=0 msg=ok return_code=" + rc
+			lines := []string{announce, ack}
+			if !announceBeforeError {
+				lines = []string{ack, announce}
+			}
+			for _, l := range lines {
+				c.handleCommand(c.handler, l)
+			}
+
+			return nil
+		}
+		rows, err := c.Exec(ctxWithin(t, time.Second), "setupstream name=screen")
+		if err != nil || len(rows) != 1 || rows[0]["id"] != "7" {
+			t.Errorf("%s: rows = %v, err = %v", name, rows, err)
+		}
 	}
 }
