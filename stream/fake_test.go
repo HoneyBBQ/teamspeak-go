@@ -42,17 +42,17 @@ type setupResult struct {
 // sent, answers as the test says, and delivers the events and notifications the
 // test injects, on the caller's goroutine as the client does on its own.
 type fakeHost struct {
-	status  client.Status
 	reply   func(sent) ([]map[string]string, error, bool)
 	entries map[teamspeak.ClientID]teamspeak.ClientEntry
+	subs    map[string][]*subscription
+	family  teamspeak.ServerFamily
 	version string
 	log     []sent
 	setups  []*pendingSetup
-	subs    map[string][]*subscription
-	family  teamspeak.ServerFamily
+	mu      sync.Mutex
+	status  client.Status
 	nextRC  int
 	self    teamspeak.ClientID
-	mu      sync.Mutex
 }
 
 type subscription struct {
@@ -199,8 +199,8 @@ func emit[E any](h *fakeHost, event string, e E) {
 		h.mu.Lock()
 		removed := sub.removed
 		h.mu.Unlock()
-		if !removed {
-			sub.fn.(func(E))(e)
+		if fn, ok := sub.fn.(func(E)); ok && !removed {
+			fn(e)
 		}
 	}
 }
@@ -427,5 +427,3 @@ func (e *env) publish(opts PublishOptions) *Published {
 func serverError(code errcode.Code) error {
 	return &teamspeak.ServerError{Code: code, Message: code.Error()}
 }
-
-func ptr[T any](v T) *T { return &v }

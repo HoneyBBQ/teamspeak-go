@@ -52,13 +52,6 @@ func (s *Streams) spawnLocked(fn func()) bool {
 	return true
 }
 
-func (s *Streams) spawn(fn func()) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.spawnLocked(fn)
-}
-
 // reportLocked tells OnError of a failure nobody awaits. With no handler yet,
 // it is logged as well, since the event is kept for a handler that may never
 // come.
