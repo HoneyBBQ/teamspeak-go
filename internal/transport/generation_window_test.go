@@ -117,6 +117,27 @@ func TestGenerationWindowAdvanceToExcluded(t *testing.T) {
 	}
 }
 
+func TestGenerationWindowAdvanceAfter(t *testing.T) {
+	gw := transport.NewGenerationWindow(65536, 1024)
+	gw.Advance(1<<16 + 10) // base 10 of generation 1
+
+	gw.AdvanceAfter(65535) // stale packet from generation 0
+	if !gw.IsOldPacket(65535) {
+		t.Error("65535 should remain old after AdvanceAfter")
+	}
+	if gw.IsOldPacket(10) || gw.GetGeneration(10) != 1 {
+		t.Error("a stale packet moved the window back from generation 1")
+	}
+
+	gw.AdvanceAfter(20)
+	if !gw.IsOldPacket(20) {
+		t.Error("20 should be old after AdvanceAfter(20)")
+	}
+	if gw.IsOldPacket(21) || gw.GetGeneration(21) != 1 {
+		t.Error("21 should be the next packet in generation 1")
+	}
+}
+
 func TestGenerationWindowSyncTo(t *testing.T) {
 	gw := transport.NewGenerationWindow(65536, 1024)
 	gw.SyncTo(500)
