@@ -11,21 +11,26 @@ import (
 	"github.com/honeybbq/teamspeak-go/stream"
 )
 
+// fatal ends the example on an error. A function of its own, so that the
+// deferred calls of the example are not skipped by name.
+func fatal(err error) { log.Fatal(err) }
+
 // connect returns a connected client, for the examples.
-func connect(ctx context.Context) *client.Client {
+func connect() *client.Client {
+	ctx := context.Background()
 	id, err := identity.Generate(ctx, 8)
 	if err != nil {
-		log.Fatal(err)
+		fatal(err)
 	}
 	c, err := client.New(id, "ts.example.com", "streamer")
 	if err != nil {
-		log.Fatal(err)
+		fatal(err)
 	}
 	connectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	err = c.Connect(connectCtx)
 	if err != nil {
-		log.Fatal(err)
+		fatal(err)
 	}
 
 	return c
@@ -36,7 +41,7 @@ func connect(ctx context.Context) *client.Client {
 // produces go back through the view.
 func ExampleStreams_Watch() { //nolint:testableexamples // needs a server, so it is compiled, not run
 	ctx := context.Background()
-	c := connect(ctx)
+	c := connect()
 	defer func() { _ = c.Disconnect(context.WithoutCancel(ctx)) }()
 	s := stream.New(c, stream.Options{})
 	defer func() { _ = s.Close(context.WithoutCancel(ctx)) }()
@@ -49,7 +54,7 @@ func ExampleStreams_Watch() { //nolint:testableexamples // needs a server, so it
 	defer cancel()
 	view, err := s.Watch(watchCtx, info.ID, stream.WatchOptions{Message: "hello"})
 	if err != nil {
-		log.Fatal(err)
+		fatal(err)
 	}
 	view.OnCandidate(func(candidate stream.IceCandidate) {
 		// Give it to the peer connection.
@@ -61,7 +66,7 @@ func ExampleStreams_Watch() { //nolint:testableexamples // needs a server, so it
 	// Create the answer with the peer connection, then:
 	err = view.Answer(ctx, "v=0 ...")
 	if err != nil {
-		log.Fatal(err)
+		fatal(err)
 	}
 }
 
@@ -69,14 +74,14 @@ func ExampleStreams_Watch() { //nolint:testableexamples // needs a server, so it
 // SDP offer from its own WebRTC peer connection.
 func ExampleStreams_Publish() { //nolint:testableexamples // needs a server, so it is compiled, not run
 	ctx := context.Background()
-	c := connect(ctx)
+	c := connect()
 	defer func() { _ = c.Disconnect(context.WithoutCancel(ctx)) }()
 	s := stream.New(c, stream.Options{})
 	defer func() { _ = s.Close(context.WithoutCancel(ctx)) }()
 
 	published, err := s.Publish(ctx, stream.PublishOptions{Name: "Demo", Audio: true})
 	if err != nil {
-		log.Fatal(err)
+		fatal(err)
 	}
 	published.OnRequest(func(request *stream.JoinRequest) {
 		// Make a peer connection for this viewer and an offer with an audio

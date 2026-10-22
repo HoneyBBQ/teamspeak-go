@@ -73,7 +73,8 @@ func TestLive_SeesAStreamStartInItsChannel(t *testing.T) {
 	viewer := attach(t, l.b, Options{})
 	started := listen(viewer.OnStarted, nil)
 	pub, err := publisher.Publish(t.Context(), PublishOptions{
-		Name: "Demo | stream", Source: new(SourceWindow), Audio: true, Accessibility: new(AccessibilityContacts), ViewerLimit: 4,
+		Name: "Demo | stream", Source: new(SourceWindow), Audio: true, ViewerLimit: 4,
+		Accessibility: new(AccessibilityContacts),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -165,7 +166,8 @@ func TestLive_KnowsEveryStreamOfAClientAndStoppingOneLeavesTheOther(t *testing.T
 	if len(seen.List()) != 2 {
 		t.Fatalf("List = %+v", seen.List())
 	}
-	if err := one.Stop(t.Context(), 0); err != nil {
+	err = one.Stop(t.Context(), 0)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if e := await(t, stopped, "stopped"); e.Info.ID != one.ID() {
@@ -189,7 +191,8 @@ func TestLive_CarriesTheOfferTheAnswerAndTheCandidatesBothWaysByteForByte(t *tes
 		done <- err
 	}()
 	request := await(t, requests, "request")
-	if v := request.Viewer(); v.ClientID != l.b.ClientID() || v.UID != l.b.UID() || request.Message() != "let me in | please ü" {
+	v := request.Viewer()
+	if v.ClientID != l.b.ClientID() || v.UID != l.b.UID() || request.Message() != "let me in | please ü" {
 		t.Errorf("request = %+v %q", v, request.Message())
 	}
 	offer := sdpLike(3000)
@@ -197,7 +200,8 @@ func TestLive_CarriesTheOfferTheAnswerAndTheCandidatesBothWaysByteForByte(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := <-done; err != nil {
+	err = <-done
+	if err != nil {
 		t.Fatal(err)
 	}
 	if view.Offer() != offer {
@@ -208,17 +212,20 @@ func TestLive_CarriesTheOfferTheAnswerAndTheCandidatesBothWaysByteForByte(t *tes
 	fromPublisher := listen(view.OnCandidate, nil)
 	answered := listen(peer.OnAnswer, nil)
 	answer := sdpLike(2800)
-	if err := view.Answer(t.Context(), answer); err != nil {
+	err = view.Answer(t.Context(), answer)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := await(t, answered, "answer"); got != answer {
 		t.Error("the answer changed on the way")
 	}
 	for i := range n {
-		if err := view.SendCandidate(t.Context(), candidate(i)); err != nil {
+		err := view.SendCandidate(t.Context(), candidate(i))
+		if err != nil {
 			t.Fatal(err)
 		}
-		if err := peer.SendCandidate(t.Context(), candidate(100+i)); err != nil {
+		err = peer.SendCandidate(t.Context(), candidate(100+i))
+		if err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -252,7 +259,8 @@ func TestLive_DeliversWhatThePublisherSendsRightBehindTheOfferToAHandlerAddedLat
 		t.Fatal(err)
 	}
 	for i := range 8 {
-		if err := peer.SendCandidate(t.Context(), candidate(i)); err != nil {
+		err := peer.SendCandidate(t.Context(), candidate(i))
+		if err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -270,7 +278,8 @@ func TestLive_HandsAMessageItHasNoNameForToTheOtherEndAsARawSignal(t *testing.T)
 	l := requireTS6(t)
 	p := connectedPair(t, l)
 	raw := listen(p.view.OnSignal, nil)
-	if err := p.peer.SendSignal(t.Context(), "custom", map[string]string{"note": "a b | c"}); err != nil {
+	err := p.peer.SendSignal(t.Context(), "custom", map[string]string{"note": "a b | c"})
+	if err != nil {
 		t.Fatal(err)
 	}
 	got := await(t, raw, "signal")
@@ -284,24 +293,27 @@ func TestLive_TellsTheViewerWhyARequestWasDeniedAndLetsItAskAgain(t *testing.T) 
 	_, viewer, pub, info := publishAndSee(t, l, "private", Options{})
 	requests := listen(pub.OnRequest, nil)
 	denied := make(chan error, 1)
-	go func() { _, err := viewer.WatchInfo(timeout(t, 20*time.Second), info, WatchOptions{}); denied <- err }()
-	if err := await(t, requests, "request").Deny(t.Context(), "Denied | not today"); err != nil {
+	go func() { _, werr := viewer.WatchInfo(timeout(t, 20*time.Second), info, WatchOptions{}); denied <- werr }()
+	err := await(t, requests, "request").Deny(t.Context(), "Denied | not today")
+	if err != nil {
 		t.Fatal(err)
 	}
 	var d *JoinDeniedError
-	if err := await(t, denied, "refusal"); !errors.As(err, &d) || d.Message != "Denied | not today" {
+	err = await(t, denied, "refusal")
+	if !errors.As(err, &d) || d.Message != "Denied | not today" {
 		t.Fatalf("err = %v", err)
 	}
 	// The server forgets a denial.
 	second := make(chan *View, 1)
 	go func() {
-		v, err := viewer.WatchInfo(timeout(t, 20*time.Second), info, WatchOptions{})
-		if err != nil {
-			t.Error(err)
+		v, werr := viewer.WatchInfo(timeout(t, 20*time.Second), info, WatchOptions{})
+		if werr != nil {
+			t.Error(werr)
 		}
 		second <- v
 	}()
-	if _, err := await(t, requests, "second request").Accept(t.Context(), sdpLike(500), ""); err != nil {
+	_, err = await(t, requests, "second request").Accept(t.Context(), sdpLike(500), "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if v := await(t, second, "view"); v.Offer() != sdpLike(500) {
@@ -315,14 +327,16 @@ func TestLive_LeavesARememberedDenialUnanswered(t *testing.T) {
 	requests := listen(pub.OnRequest, nil)
 	denied := make(chan error, 1)
 	go func() { _, err := viewer.WatchInfo(timeout(t, 20*time.Second), info, WatchOptions{}); denied <- err }()
-	if err := await(t, requests, "request").Deny(t.Context(), "no"); err != nil {
+	err := await(t, requests, "request").Deny(t.Context(), "no")
+	if err != nil {
 		t.Fatal(err)
 	}
-	await(t, denied, "refusal")
+	_ = await(t, denied, "refusal")
 	// Ask again: the server relays it, and the publisher says nothing.
 	ctx, cancel := context.WithTimeout(t.Context(), 2500*time.Millisecond)
 	defer cancel()
-	if _, err := viewer.WatchInfo(ctx, info, WatchOptions{}); !errors.Is(err, context.DeadlineExceeded) {
+	_, err = viewer.WatchInfo(ctx, info, WatchOptions{})
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("err = %v", err)
 	}
 	awaitNone(t, requests, "request", 200*time.Millisecond)
@@ -343,10 +357,12 @@ func TestLive_WarnsAboutAnOfferWithoutAudioAndStillLetsTheViewerIn(t *testing.T)
 	}()
 	request := await(t, requests, "request")
 	const offer = "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=sendonly\r\n"
-	if _, err := request.Accept(t.Context(), offer, ""); err != nil {
+	_, err := request.Accept(t.Context(), offer, "")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if w := await(t, warned, "warning"); w.Code != WarningOfferWithoutAudio || w.StreamID != pub.ID() || w.ClientID != l.b.ClientID() {
+	w := await(t, warned, "warning")
+	if w.Code != WarningOfferWithoutAudio || w.StreamID != pub.ID() || w.ClientID != l.b.ClientID() {
 		t.Errorf("warning = %+v", w)
 	}
 	if request.State() != RequestAccepted || await(t, done, "view").Offer() != offer {
@@ -368,17 +384,19 @@ func TestLive_TellsThePublisherARequestWasWithdrawnAndOneTheStreamEndedOn(t *tes
 	if got := await(t, closed, "closed"); got != CloseWithdrawn || request.State() != RequestWithdrawn {
 		t.Errorf("closed = %v, state %v", got, request.State())
 	}
-	if _, err := request.Accept(t.Context(), sdpLike(100), ""); !errors.Is(err, ErrNotPending) {
+	_, err := request.Accept(t.Context(), sdpLike(100), "")
+	if !errors.Is(err, ErrNotPending) {
 		t.Errorf("Accept: %v", err)
 	}
 	<-gaveUp
 
 	// A request pending when the stream stops ends with it.
 	waiting := make(chan error, 1)
-	go func() { _, err := viewer.WatchInfo(timeout(t, 20*time.Second), info, WatchOptions{}); waiting <- err }()
+	go func() { _, werr := viewer.WatchInfo(timeout(t, 20*time.Second), info, WatchOptions{}); waiting <- werr }()
 	second := await(t, requests, "second request")
 	ended := listen(second.OnClosed, nil)
-	if err := pub.Stop(t.Context(), 0); err != nil {
+	err = pub.Stop(t.Context(), 0)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := await(t, ended, "closed"); got != CloseEnded {
@@ -391,7 +409,8 @@ func TestLive_ClosesThePublishersPeerWhenTheViewerLeaves(t *testing.T) {
 	l := requireTS6(t)
 	p := connectedPair(t, l)
 	closed := listen(p.peer.OnClosed, nil)
-	if err := p.view.Leave(t.Context()); err != nil {
+	err := p.view.Leave(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := await(t, closed, "closed"); got != (PeerClosed{Cause: CauseLeft}) {
@@ -408,7 +427,8 @@ func TestLive_EndsTheViewersSideWithTheReasonWhenThePublisherStops(t *testing.T)
 	viewClosed := listen(p.view.OnClosed, nil)
 	stopped := listen(p.viewer.OnStopped, nil)
 	ended := listen(p.pub.OnEnded, nil)
-	if err := p.pub.Stop(t.Context(), 3); err != nil {
+	err := p.pub.Stop(t.Context(), 3)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := await(t, viewClosed, "closed"); got != (PeerClosed{Cause: CauseStopped, Reason: 3}) {
@@ -428,10 +448,11 @@ func TestLive_EndsTheViewersSideWithTheReasonWhenThePublisherStops(t *testing.T)
 func TestLive_AsksForAStreamThatHasEndedAndIsToldSo(t *testing.T) {
 	l := requireTS6(t)
 	_, viewer, pub, info := publishAndSee(t, l, "short", Options{})
-	if err := pub.Stop(t.Context(), 0); err != nil {
+	err := pub.Stop(t.Context(), 0)
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, err := viewer.WatchInfo(timeout(t, 10*time.Second), info, WatchOptions{})
+	_, err = viewer.WatchInfo(timeout(t, 10*time.Second), info, WatchOptions{})
 	var ended *EndedError
 	if !errors.As(err, &ended) || !errors.Is(err, errcode.StreamNotFound) {
 		t.Errorf("err = %v", err)
@@ -464,13 +485,15 @@ func TestLive_KeepsTheStreamAndItsSignallingWhenThePublisherChangesChannel(t *te
 		t.Fatal("the stream ended with the move")
 	}
 	arrived := listen(p.peer.OnCandidate, nil)
-	if err := p.view.SendCandidate(t.Context(), candidate(5)); err != nil {
+	err = p.view.SendCandidate(t.Context(), candidate(5))
+	if err != nil {
 		t.Fatal(err)
 	}
 	await(t, arrived, "candidate")
 	// The viewer, still a participant, hears the stop from the other channel.
 	closed := listen(p.view.OnClosed, nil)
-	if err := p.pub.Stop(t.Context(), 0); err != nil {
+	err = p.pub.Stop(t.Context(), 0)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := await(t, closed, "closed"); got.Cause != CauseStopped {
@@ -496,13 +519,15 @@ func TestLive_EndsTheViewersSideWhenThePublisherDisconnects(t *testing.T) {
 		v, _ := viewer.WatchInfo(timeout(t, 20*time.Second), info, WatchOptions{})
 		done <- v
 	}()
-	if _, err := await(t, requests, "request").Accept(t.Context(), sdpLike(800), ""); err != nil {
+	_, err = await(t, requests, "request").Accept(t.Context(), sdpLike(800), "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	view := await(t, done, "view")
 	closed := listen(view.OnClosed, nil)
 	ended := listen(pub.OnEnded, nil)
-	if err := gone.Disconnect(t.Context()); err != nil {
+	err = gone.Disconnect(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
 	// The server reports a publisher that went away as reason 1.
@@ -521,11 +546,13 @@ func TestLive_RefusesAPayloadTooLongBeforeSendingAndCarriesOneAtTheLimit(t *test
 	l := requireTS6(t)
 	p := connectedPair(t, l)
 	var big *PayloadTooLargeError
-	if err := p.peer.SendOffer(t.Context(), string(make([]byte, 20000))); !errors.As(err, &big) {
+	err := p.peer.SendOffer(t.Context(), string(make([]byte, 20000)))
+	if !errors.As(err, &big) {
 		t.Errorf("offer: %v", err)
 	}
 	long := IceCandidate{Candidate: sdpLike(12000), SDPMid: new("0"), SDPMLineIndex: new(uint16(0))}
-	if err := p.view.SendCandidate(t.Context(), long); !errors.As(err, &big) {
+	err = p.view.SendCandidate(t.Context(), long)
+	if !errors.As(err, &big) {
 		t.Errorf("candidate: %v", err)
 	}
 	// The longest candidate this package sends: the line is exactly the limit.
@@ -545,7 +572,8 @@ func TestLive_RefusesAPayloadTooLongBeforeSendingAndCarriesOneAtTheLimit(t *test
 		t.Fatalf("could not build a line of exactly the limit: %d", wrap(string(text)))
 	}
 	arrived := listen(p.peer.OnCandidate, nil)
-	err := p.view.SendCandidate(t.Context(), IceCandidate{Candidate: string(text), SDPMid: new("0"), SDPMLineIndex: new(uint16(0))})
+	longest := IceCandidate{Candidate: string(text), SDPMid: new("0"), SDPMLineIndex: new(uint16(0))}
+	err = p.view.SendCandidate(t.Context(), longest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +603,8 @@ func TestLive_DeliversABurstOfCandidatesInOrder(t *testing.T) {
 		}
 	}
 	for range n {
-		if err := <-errs; err != nil {
+		err := <-errs
+		if err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -595,7 +624,8 @@ func TestLive_CloseEndsEverythingAndStopsNothingItDidNotPublish(t *testing.T) {
 	l := requireTS6(t)
 	p := connectedPair(t, l)
 	closed := listen(p.view.OnClosed, nil)
-	if err := p.viewer.Close(t.Context()); err != nil {
+	err := p.viewer.Close(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := await(t, closed, "closed"); got.Cause != CauseShutdown {
@@ -604,17 +634,19 @@ func TestLive_CloseEndsEverythingAndStopsNothingItDidNotPublish(t *testing.T) {
 	if p.pub.Ended() {
 		t.Error("the stream was stopped by its viewer")
 	}
-	if _, err := l.b.WhoAmI(t.Context()); err != nil {
+	_, err = l.b.WhoAmI(t.Context())
+	if err != nil {
 		t.Errorf("the connection is none the worse: %v", err)
 	}
 }
 
-func TestLive_TellsThePublisherAViewerLeftWhenTheViewerClosesAndTheViewerTheStreamStoppedWhenThePublisherDoes(t *testing.T) {
+func TestLive_TellsThePublisherAViewerLeftOnCloseAndTheViewerTheStreamStoppedWhenThePublisherCloses(t *testing.T) {
 	l := requireTS6(t)
 	p := connectedPair(t, l)
 	peerClosed := listen(p.peer.OnClosed, nil)
 	left := listen(p.publisher.OnViewerLeft, nil)
-	if err := p.viewer.Close(t.Context()); err != nil {
+	err := p.viewer.Close(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := await(t, peerClosed, "closed"); got != (PeerClosed{Cause: CauseLeft}) {
@@ -639,12 +671,14 @@ func TestLive_TellsThePublisherAViewerLeftWhenTheViewerClosesAndTheViewerTheStre
 		v, _ := second.Watch(timeout(t, 20*time.Second), p.pub.ID(), WatchOptions{})
 		done <- v
 	}()
-	if _, err := await(t, requests, "request").Accept(t.Context(), sdpLike(500), ""); err != nil {
+	_, err = await(t, requests, "request").Accept(t.Context(), sdpLike(500), "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	view := await(t, done, "view")
 	viewClosed := listen(view.OnClosed, nil)
-	if err := p.publisher.Close(t.Context()); err != nil {
+	err = p.publisher.Close(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := await(t, viewClosed, "closed"); got.Cause != CauseStopped {
@@ -669,11 +703,12 @@ func TestLive_KnowsWhoAskedFromAChannelItDoesNotFollowAndLeavesTheirRememberedDe
 		t.Skip("no second channel")
 	}
 	_, viewer, pub, info := publishAndSee(t, l, "across", Options{RememberDenied: true})
-	if err := l.a.UnsubscribeChannel(t.Context(), l.other); err != nil {
+	err := l.a.UnsubscribeChannel(t.Context(), l.other)
+	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = l.a.SubscribeChannel(context.WithoutCancel(t.Context()), l.other) })
-	err := l.b.MoveClient(t.Context(), l.b.ClientID(), l.other, teamspeak.ClientMoveOptions{Password: l.otherPassword})
+	err = l.b.MoveClient(t.Context(), l.b.ClientID(), l.other, teamspeak.ClientMoveOptions{Password: l.otherPassword})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -683,18 +718,20 @@ func TestLive_KnowsWhoAskedFromAChannelItDoesNotFollowAndLeavesTheirRememberedDe
 	}
 	requests := listen(pub.OnRequest, nil)
 	denied := make(chan error, 1)
-	go func() { _, err := viewer.WatchInfo(timeout(t, 20*time.Second), info, WatchOptions{}); denied <- err }()
+	go func() { _, werr := viewer.WatchInfo(timeout(t, 20*time.Second), info, WatchOptions{}); denied <- werr }()
 	request := await(t, requests, "request")
 	if v := request.Viewer(); v.ClientID != l.b.ClientID() || v.UID != l.b.UID() || v.Nickname != "go-stream-b" {
 		t.Errorf("viewer = %+v", v)
 	}
-	if err := request.Deny(t.Context(), "no"); err != nil {
+	err = request.Deny(t.Context(), "no")
+	if err != nil {
 		t.Fatal(err)
 	}
-	await(t, denied, "refusal")
+	_ = await(t, denied, "refusal")
 	ctx, cancel := context.WithTimeout(t.Context(), 2500*time.Millisecond)
 	defer cancel()
-	if _, err := viewer.WatchInfo(ctx, info, WatchOptions{}); !errors.Is(err, context.DeadlineExceeded) {
+	_, err = viewer.WatchInfo(ctx, info, WatchOptions{})
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("err = %v", err)
 	}
 	awaitNone(t, requests, "request", 200*time.Millisecond)
@@ -720,7 +757,8 @@ func TestLive_StopsAStreamWhosePublishWasGivenUpOnAfterItWasSent(t *testing.T) {
 	viewer := attach(t, l.b, Options{})
 	started := listen(viewer.OnStarted, nil)
 	stopped := listen(viewer.OnStopped, nil)
-	if _, err := publisher.Publish(ctx, PublishOptions{Name: "abandoned"}); !errors.Is(err, context.Canceled) {
+	_, err := publisher.Publish(ctx, PublishOptions{Name: "abandoned"})
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Publish: %v", err)
 	}
 	info := await(t, started, "started")
@@ -745,8 +783,8 @@ func stopQuietly(c *client.Client, id string) {
 func TestLive_AnswersEachOfSeveralSameNameSetupstreamCommandsFromOneClientWithItsOwnStream(t *testing.T) {
 	l := requireTS6(t)
 	type result struct {
-		rows []map[string]string
 		err  error
+		rows []map[string]string
 	}
 	results := make([]result, 3)
 	done := make(chan int, 3)
@@ -814,7 +852,8 @@ func TestLive_EchoesTheReturnCodeOnThePublishersOwnAnnouncementOnly(t *testing.T
 	if a.Params["id"] != string(pub.ID()) || b.Params["id"] != string(pub.ID()) {
 		t.Fatalf("a %v, b %v", a.Params, b.Params)
 	}
-	if _, err := strconv.Atoi(a.Params["return_code"]); err != nil {
+	_, err = strconv.Atoi(a.Params["return_code"])
+	if err != nil {
 		t.Errorf("the publisher's copy has no return_code: %v", a.Params)
 	}
 	if rc, ok := b.Params["return_code"]; ok {
@@ -879,7 +918,8 @@ func testGatedOrder(t *testing.T, firstLimit, secondLimit int) {
 	t.Helper()
 	l := requireTS6(t)
 	g := newGate()
-	publishing := connectLive(t, "go-stream-gate", os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL"), client.WithCommandMiddleware(g.middleware()))
+	gated := client.WithCommandMiddleware(g.middleware())
+	publishing := connectLive(t, "go-stream-gate", os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL"), gated)
 	t.Cleanup(func() { _ = publishing.Disconnect(context.WithoutCancel(t.Context())) })
 	publisher := attach(t, publishing, Options{})
 	viewer := attach(t, l.b, Options{})
@@ -889,7 +929,8 @@ func testGatedOrder(t *testing.T, firstLimit, secondLimit int) {
 	// Held in the middleware, so the caller gives up before the command is sent.
 	short, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
-	if _, err := publisher.Publish(short, PublishOptions{Name: "same", ViewerLimit: 1}); !errors.Is(err, context.DeadlineExceeded) {
+	_, err := publisher.Publish(short, PublishOptions{Name: "same", ViewerLimit: 1})
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("abandoned: %v", err)
 	}
 	type result struct {
@@ -944,7 +985,8 @@ func TestLive_KeepsTheLiveStreamAndStopsTheAbandonedOneWhenTheLiveCommandIsSentF
 func TestLive_RejectsAPublishInFlightWhenTheConnectionEndsAndPublishesOnTheNextOne(t *testing.T) {
 	requireTS6(t)
 	g := newGate()
-	c := connectLive(t, "go-stream-reconnect", os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL"), client.WithCommandMiddleware(g.middleware()))
+	gated := client.WithCommandMiddleware(g.middleware())
+	c := connectLive(t, "go-stream-reconnect", os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL"), gated)
 	t.Cleanup(func() { _ = c.Disconnect(context.WithoutCancel(t.Context())) })
 	publisher := attach(t, c, Options{})
 	interrupted := make(chan error, 1)
@@ -953,20 +995,25 @@ func TestLive_RejectsAPublishInFlightWhenTheConnectionEndsAndPublishesOnTheNextO
 		interrupted <- err
 	}()
 	time.Sleep(500 * time.Millisecond)
-	if err := c.Disconnect(t.Context()); err != nil {
+	err := c.Disconnect(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := await(t, interrupted, "rejection"); !errors.Is(err, teamspeak.ErrNotConnected) {
+	err = await(t, interrupted, "rejection")
+	if !errors.Is(err, teamspeak.ErrNotConnected) {
 		t.Errorf("err = %v", err)
 	}
 	g.open(1)
-	if err := paceConnect(t.Context()); err != nil {
+	err = paceConnect(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Connect(timeout(t, 15*time.Second)); err != nil {
+	err = c.Connect(timeout(t, 15*time.Second))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.WaitView(timeout(t, 10*time.Second)); err != nil {
+	err = c.WaitView(timeout(t, 10*time.Second))
+	if err != nil {
 		t.Fatal(err)
 	}
 	pub, err := publisher.Publish(timeout(t, 15*time.Second), PublishOptions{Name: "after"})
@@ -992,7 +1039,8 @@ func TestLive_RefusesPublishAndWatchAtOnceWithoutSendingOnAServerWithoutStreams(
 	if !errors.As(err, &unsupported) || unsupported.Family != client.ServerFamilyTS3 || unsupported.Version == "" {
 		t.Fatalf("Publish: %v", err)
 	}
-	if _, err := s.WatchInfo(t.Context(), Info{ID: "x", ClientID: l.b.ClientID()}, WatchOptions{}); !errors.As(err, &unsupported) {
+	_, err = s.WatchInfo(t.Context(), Info{ID: "x", ClientID: l.b.ClientID()}, WatchOptions{})
+	if !errors.As(err, &unsupported) {
 		t.Fatalf("Watch: %v", err)
 	}
 	if time.Since(start) > 500*time.Millisecond || s.Supported() || len(s.List()) != 0 {
@@ -1000,7 +1048,8 @@ func TestLive_RefusesPublishAndWatchAtOnceWithoutSendingOnAServerWithoutStreams(
 	}
 	// The connection is none the worse.
 	for _, c := range []*client.Client{l.a, l.b} {
-		if who, err := c.WhoAmI(t.Context()); err != nil || who.ClientID != c.ClientID() {
+		who, err := c.WhoAmI(t.Context())
+		if err != nil || who.ClientID != c.ClientID() {
 			t.Errorf("WhoAmI: %+v, %v", who, err)
 		}
 		time.Sleep(500 * time.Millisecond)

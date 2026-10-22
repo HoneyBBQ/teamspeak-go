@@ -31,8 +31,8 @@ const eventTimeout = 8 * time.Second
 type live struct {
 	a, b          *client.Client
 	family        teamspeak.ServerFamily
-	alpha, other  teamspeak.ChannelID
 	otherPassword string
+	alpha, other  teamspeak.ChannelID
 }
 
 var (
@@ -104,7 +104,8 @@ func connectLive(t *testing.T, nickname, channel string, opts ...client.Option) 
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	if err := c.WaitView(ctx); err != nil {
+	err = c.WaitView(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(300 * time.Millisecond)

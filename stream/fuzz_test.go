@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -121,7 +122,8 @@ func FuzzAssertFits(f *testing.F) {
 		if (err != nil) != (size > MaxCommandLineBytes) {
 			t.Fatalf("size %d, err %v", size, err)
 		}
-		if big, ok := err.(*PayloadTooLargeError); ok && (big.Size != size || big.Limit != MaxCommandLineBytes) {
+		big, ok := errors.AsType[*PayloadTooLargeError](err)
+		if ok && (big.Size != size || big.Limit != MaxCommandLineBytes) {
 			t.Fatalf("error %+v for size %d", big, size)
 		}
 	})
@@ -142,6 +144,8 @@ func FuzzNotifications(f *testing.F) {
 		synctest.Test(t, func(t *testing.T) { playScript(t, script) })
 	})
 }
+
+var fuzzSignals = []string{`{"cmd":"answer","args":{"answer":"x"}}`, `{"cmd":"iceCandidate","args":{"sdp":"c"}}`, "?"}
 
 var fuzzIDs = []string{"a", "b", "c", "mine-1", "mine-2"}
 
@@ -167,7 +171,7 @@ func playScript(t *testing.T, script []byte) {
 		return map[string]string{
 			"id": id, "clid": clid, "name": "n", "type": strconv.Itoa(next() % 6), "decision": strconv.Itoa(next() % 2),
 			"offer": []string{"", sdp}[next()%2], "is_remove": strconv.Itoa(next() % 2), "reason": strconv.Itoa(next()),
-			"json":   []string{`{"cmd":"answer","args":{"answer":"x"}}`, `{"cmd":"iceCandidate","args":{"sdp":"c"}}`, "?"}[next()%3],
+			"json":   fuzzSignals[next()%len(fuzzSignals)],
 			"viewer": strconv.Itoa(next() % 4),
 		}
 	}

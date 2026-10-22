@@ -57,6 +57,17 @@ linters:
       # checkout.
       - path: stream/e2e/go\.mod
         linters: [gomoddirectives]
+      # The stream tests send text in other scripts and escapes, to see that it
+      # arrives as it left, and draw their random numbers for load, not secrets.
+      - path: 'stream/.*_test\.go'
+        linters: [gosmopolitan]
+      - path: 'stream/.*_test\.go'
+        linters: [gosec]
+        text: "G404"
+      # The live, fuzz and stress scenarios of the stream package read top to
+      # bottom, one protocol exchange each; splitting them would only scatter it.
+      - path: 'stream/(live.*|fuzz|stress)_test\.go'
+        linters: [funlen, gocognit]
       # The bodies passed to run in the stream tests are tests, run in a
       # synctest bubble over a fake client, not helpers.
       - path: 'stream/.*_test\.go'

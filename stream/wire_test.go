@@ -64,20 +64,25 @@ func TestRespondRequest_AlwaysCarriesTheOfferEmptyOnARefusal(t *testing.T) {
 	}
 }
 
+// lineCase is a request and the line it is sent as.
+type lineCase struct {
+	want string
+	req  teamspeak.Request
+}
+
+func line(req teamspeak.Request, want string) lineCase { return lineCase{want: want, req: req} }
+
 func TestRequests_Lines(t *testing.T) {
-	for _, tc := range []struct {
-		req  teamspeak.Request
-		want string
-	}{
-		{joinRequest("s-1", 5, "let me in", false), `joinstreamrequest id=s-1 clid=5 msg=let\sme\sin is_remove=0`},
-		{joinRequest("s-1", 5, "", true), "joinstreamrequest id=s-1 clid=5 msg= is_remove=1"},
-		{respondRequest("s-1", 9, "hi", "v=0\r\n", true),
-			`respondjoinstreamrequest id=s-1 clid=9 msg=hi offer=v=0\r\n decision=1`},
-		{signalRequest("s-1", 9, `{"cmd":"x"}`), `streamsignaling id=s-1 clid=9 json={"cmd":"x"}`},
-		{stopRequest("s-1", 4294967295), "stopstream id=s-1 reason=4294967295"},
-		{infoRequest(7), "requeststreaminfo clid=7"},
-		{setupRequest("a|b", SourceNone, 0, AccessibilityPrivate, 65535, true),
-			`setupstream name=a\pb type=0 bitrate=0 accessibility=3 mode=1 viewer_limit=65535 audio=1`},
+	for _, tc := range []lineCase{
+		line(joinRequest("s-1", 5, "let me in", false), `joinstreamrequest id=s-1 clid=5 msg=let\sme\sin is_remove=0`),
+		line(joinRequest("s-1", 5, "", true), "joinstreamrequest id=s-1 clid=5 msg= is_remove=1"),
+		line(respondRequest("s-1", 9, "hi", "v=0\r\n", true),
+			`respondjoinstreamrequest id=s-1 clid=9 msg=hi offer=v=0\r\n decision=1`),
+		line(signalRequest("s-1", 9, `{"cmd":"x"}`), `streamsignaling id=s-1 clid=9 json={"cmd":"x"}`),
+		line(stopRequest("s-1", 4294967295), "stopstream id=s-1 reason=4294967295"),
+		line(infoRequest(7), "requeststreaminfo clid=7"),
+		line(setupRequest("a|b", SourceNone, 0, AccessibilityPrivate, 65535, true),
+			`setupstream name=a\pb type=0 bitrate=0 accessibility=3 mode=1 viewer_limit=65535 audio=1`),
 	} {
 		if got := encoded(tc.req); got != tc.want {
 			t.Errorf("%s: line = %q, want %q", tc.req.Command(), got, tc.want)
@@ -144,7 +149,8 @@ func TestParseSignal_ReadsACandidateWithoutAMidOrALineAsNil(t *testing.T) {
 		`{"cmd":"iceCandidate","args":{"sdp":"c","mLine":1.5}}`,
 	} {
 		got := parseSignal(in)
-		if got.kind != signalCandidate || got.candidate.Candidate != "c" || got.candidate.SDPMid != nil || got.candidate.SDPMLineIndex != nil {
+		bare := got.candidate.SDPMid == nil && got.candidate.SDPMLineIndex == nil
+		if got.kind != signalCandidate || got.candidate.Candidate != "c" || !bare {
 			t.Errorf("%s: signal = %+v", in, got)
 		}
 	}
@@ -273,15 +279,17 @@ func TestAssertFits(t *testing.T) {
 	}
 
 	t.Run("lets an offer of a few kilobytes through", func(t *testing.T) {
-		if err := assertFits(fill(4000, "a")); err != nil {
+		err := assertFits(fill(4000, "a"))
+		if err != nil {
 			t.Error(err)
 		}
 	})
 	t.Run("accepts the limit and refuses a byte over", func(t *testing.T) {
-		if err := assertFits(fill(MaxCommandLineBytes-overhead, "a")); err != nil {
+		err := assertFits(fill(MaxCommandLineBytes-overhead, "a"))
+		if err != nil {
 			t.Errorf("at the limit: %v", err)
 		}
-		err := assertFits(fill(MaxCommandLineBytes-overhead+1, "a"))
+		err = assertFits(fill(MaxCommandLineBytes-overhead+1, "a"))
 		var big *PayloadTooLargeError
 		if !errors.As(err, &big) || big.Size != MaxCommandLineBytes+1 || big.Limit != MaxCommandLineBytes ||
 			big.Command != commands.RespondJoinStreamRequest {
@@ -290,16 +298,19 @@ func TestAssertFits(t *testing.T) {
 	})
 	t.Run("measures the escaped line, not the characters", func(t *testing.T) {
 		// 3000 spaces are 6000 bytes escaped, so 5000 of them are over.
-		if err := assertFits(fill(3000, " ")); err != nil {
+		err := assertFits(fill(3000, " "))
+		if err != nil {
 			t.Error(err)
 		}
-		if err := assertFits(fill(5000, " ")); err == nil {
+		err = assertFits(fill(5000, " "))
+		if err == nil {
 			t.Error("5000 spaces fit")
 		}
 	})
 	t.Run("counts UTF-8 bytes", func(t *testing.T) {
 		// Three bytes each: 3100 of them are over the limit though they are few characters.
-		if err := assertFits(fill(3100, "日")); err == nil {
+		err := assertFits(fill(3100, "日"))
+		if err == nil {
 			t.Error("3100 characters fit")
 		}
 	})
@@ -334,7 +345,10 @@ func TestErrors_Messages(t *testing.T) {
 		err  error
 		want string
 	}{
-		{&UnsupportedError{Family: "ts3", Version: "3.13.8"}, "stream: streams need a TeamSpeak 6 server; this is ts3 (3.13.8)"},
+		{
+			&UnsupportedError{Family: "ts3", Version: "3.13.8"},
+			"stream: streams need a TeamSpeak 6 server; this is ts3 (3.13.8)",
+		},
 		{&UnsupportedError{}, "stream: streams need a TeamSpeak 6 server; this is an unknown server"},
 		{&JoinDeniedError{StreamID: "a", Message: "no"}, "stream: the stream's owner denied the request to watch it: no"},
 		{&JoinDeniedError{StreamID: "a"}, "stream: the stream's owner denied the request to watch it"},
@@ -364,7 +378,10 @@ func TestCause_Strings(t *testing.T) {
 			t.Errorf("RequestState(%d) = %q, want %q", uint8(s), got, want)
 		}
 	}
-	if CloseWithdrawn.String() != "withdrawn" || CloseEnded.String() != "ended" || RequestCloseCause(0).String() != "RequestCloseCause(0)" {
-		t.Error("RequestCloseCause strings")
+	closeCauses := map[RequestCloseCause]string{CloseWithdrawn: "withdrawn", CloseEnded: "ended", 0: "RequestCloseCause(0)"}
+	for c, want := range closeCauses {
+		if got := c.String(); got != want {
+			t.Errorf("RequestCloseCause(%d) = %q, want %q", uint8(c), got, want)
+		}
 	}
 }
