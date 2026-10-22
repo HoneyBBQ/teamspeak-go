@@ -25,7 +25,7 @@ know came from, leave it out and say so in the pull request.
 ## Setup
 
 You need Go 1.26 or newer and [golangci-lint](https://golangci-lint.run/). The Go versions the module supports, and how that changes over
-time, are described under [Supported Go versions](../README.md#supported-go-versions);
+time, are described under [Supported Go versions](../docs/compatibility.md#supported-go-versions);
 CI tests them.
 
 ```sh
@@ -117,7 +117,7 @@ yours banned. If that happens, restart the container.
   under `## Unreleased`; add that heading above the newest release if it is not
   there. Write it for someone upgrading: what changed and what they have to do.
   The release notes on GitHub are built from that file.
-- If behaviour changes, update the README and the doc comments.
+- If behaviour changes, update the README, the docs and the doc comments.
 - Keep commits focused. Messages follow [Conventional Commits](https://www.conventionalcommits.org/),
   as the history does: `feat`, `fix`, `docs`, `ci`, `test`, `refactor` or
   `chore`, with an optional scope, and a `!` after the type for a breaking
