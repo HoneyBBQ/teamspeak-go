@@ -680,6 +680,28 @@ func (c *Commands) FindClientDatabase(ctx context.Context, pattern string) ([]Cl
 	return out, nil
 }
 
+// FindClientDatabaseByUID returns the database ids of the records whose unique
+// identifier matches pattern (clientdbfind -uid). No match is an empty slice.
+//
+// On TeamSpeak 3 and 6 alike the match is SQL LIKE over the whole identifier,
+// ignoring case: without a wildcard pattern must be the entire uid, % stands
+// for any run of characters and _ for any one, so a prefix needs a trailing %.
+// A server answers at most 50 ids for one pattern. The server answers with ids
+// only; GetClientDatabaseInfo reads a record.
+func (c *Commands) FindClientDatabaseByUID(ctx context.Context, pattern string) ([]ClientDBID, error) {
+	rows, err := c.list(ctx, "clientdbfind", []param{strArg("pattern", pattern), boolArg("-uid", true)})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]ClientDBID, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ClientDBID(fieldUint(row, "cldbid")))
+	}
+
+	return out, nil
+}
+
 // GetClientDatabaseInfo returns one persistent client record.
 func (c *Commands) GetClientDatabaseInfo(ctx context.Context, clientDBID ClientDBID) (ClientDatabaseEntry, error) {
 	row, err := c.queryRow(ctx, "clientdbinfo", "", []param{idArg("cldbid", clientDBID)})

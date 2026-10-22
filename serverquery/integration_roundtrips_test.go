@@ -305,6 +305,8 @@ func TestQueryAdmin_ClientDatabase(t *testing.T) {
 			t.Errorf("a pattern that matches nothing found %v", none)
 		}
 
+		assertFindByUID(ctx, t, c, info.UID, nickname, dbid)
+
 		assertClientDatabaseListing(ctx, t, c, dbid)
 
 		groups, err := c.GetServerGroupsByClient(ctx, dbid)
@@ -713,5 +715,53 @@ func TestQueryAdmin_EditInstance(t *testing.T) {
 		if err != nil || restored[key] != original {
 			t.Errorf("after putting it back %s = %q, %v, want %q", key, restored[key], err, original)
 		}
+	})
+}
+
+// assertFindByUID checks what clientdbfind -uid matches, as measured on both
+// servers: the whole uid ignoring case, % and _ as wildcards, and nothing for a
+// fragment without one or for a nickname.
+func assertFindByUID(ctx context.Context, t *testing.T, finder interface {
+	FindClientDatabaseByUID(ctx context.Context, pattern string) ([]teamspeak.ClientDBID, error)
+}, clientUID teamspeak.UID, nickname string, dbid teamspeak.ClientDBID,
+) {
+	t.Helper()
+	uid := string(clientUID)
+	for _, tc := range []struct {
+		pattern string
+		want    bool
+	}{
+		{uid, true},
+		{strings.ToLower(uid), true},
+		{uid[:8] + "%", true},
+		{uid[:len(uid)-2] + "_=", true},
+		{uid[:8], false},
+		{nickname, false},
+		{"ts-go-nobody-" + uniqueStamp(), false},
+	} {
+		found, err := finder.FindClientDatabaseByUID(ctx, tc.pattern)
+		if err != nil {
+			t.Errorf("FindClientDatabaseByUID(%q): %v", tc.pattern, err)
+
+			continue
+		}
+		if got := slices.Contains(found, dbid); got != tc.want {
+			t.Errorf("FindClientDatabaseByUID(%q) = %v, contains %d: %v, want %v", tc.pattern, found, dbid, got, tc.want)
+		}
+	}
+}
+
+// The voice protocol answers clientdbfind -uid with the same ids.
+func TestVoiceDatabaseByUID(t *testing.T) {
+	forEachTransport(t, 1, func(t *testing.T, c *serverquery.Client, _ teamspeak.ServerFamily, transport string) {
+		if transport != "ssh" {
+			t.Skip("the voice variant runs once, beside the SSH connection")
+		}
+		voice := adminVoice(t, c)
+		name, err := c.GetClientNameByUID(adminCtx(t), voice.UID())
+		if err != nil || name.DatabaseID == 0 {
+			t.Fatalf("GetClientNameByUID(%s) = %+v, %v, want the voice client's entry", voice.UID(), name, err)
+		}
+		assertFindByUID(adminCtx(t), t, voice, voice.UID(), "ts-go-voice-nobody", name.DatabaseID)
 	})
 }

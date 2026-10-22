@@ -102,6 +102,7 @@ func readLists(ctx context.Context, c *Commands) {
 	_, _ = c.FindClients(ctx, "a")
 	_, _ = c.FindChannels(ctx, "a")
 	_, _ = c.FindClientDatabase(ctx, "a")
+	_, _ = c.FindClientDatabaseByUID(ctx, "a")
 	_, _ = c.ListFiles(ctx, 1, "/", FileOptions{})
 }
 
