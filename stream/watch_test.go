@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"strings"
 	"testing"
@@ -780,6 +781,176 @@ func TestPublisherThatStopsStreaming_KeepsTheRealReasonForAViewerWhenTheStopFoll
 		e.settle()
 		if got := closed.all(); len(got) != 1 || got[0] != (PeerClosedEvent{Cause: PeerCauseStopped, Reason: 9}) {
 			t.Errorf("closed = %+v", got)
+		}
+	})
+}
+
+// joinReply makes the fake host answer the join request itself (not the leave)
+// with do.
+func (e *env) joinReply(do func() ([]map[string]string, error)) {
+	e.h.reply = func(s sent) ([]map[string]string, error, bool) {
+		if s.name != "joinstreamrequest" || s.params["is_remove"] != "0" {
+			return nil, nil, false
+		}
+		rows, err := do()
+
+		return rows, err, true
+	}
+}
+
+// The publisher accepts while the join request is still being sent, and the
+// send then fails with the end of its context. The view is a live one, and the
+// caller has it: before, the error was returned and the view was left behind,
+// joined on the server, so that asking again returned ErrAlreadyWatching.
+func TestWatch_DoesNotLeaveAViewBehindWhenTheAnswerLandsDuringAFailingSend(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		e.streamOf5()
+		e.joinReply(func() ([]map[string]string, error) {
+			e.respond(nil)
+
+			return nil, fmt.Errorf("joinstreamrequest: %w", context.DeadlineExceeded)
+		})
+		r := <-e.startWatch(t.Context())
+		if r.err != nil || r.view == nil || r.view.Closed() {
+			t.Fatalf("view %v, err %v: a view the publisher accepted was dropped", r.view, r.err)
+		}
+		e.h.reply = nil
+		if _, err := e.s.Watch(t.Context(), "a", WatchOptions{}); !errors.Is(err, ErrAlreadyWatching) {
+			t.Errorf("watching again: %v", err)
+		}
+		if err := r.view.Leave(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if join := e.h.commands("joinstreamrequest"); len(join) != 2 || join[1].params["is_remove"] != "1" {
+			t.Errorf("sent %v", join)
+		}
+	})
+}
+
+// The wait ends, and the answer comes after: it finds no watch, so no view is
+// made, the request was withdrawn, and asking again works.
+func TestWatch_IgnoresAnAcceptanceThatComesAfterTheWaitEnded(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		e.streamOf5()
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		r := <-e.startWatch(ctx)
+		if !errors.Is(r.err, context.DeadlineExceeded) {
+			t.Fatalf("err = %v", r.err)
+		}
+		e.respond(nil)
+		e.settle()
+		join := e.h.commands("joinstreamrequest")
+		if len(join) != 2 || join[1].params["is_remove"] != "1" {
+			t.Fatalf("sent %v", join)
+		}
+		done := e.startWatch(t.Context())
+		e.respond(nil)
+		if r := <-done; r.err != nil {
+			t.Errorf("asking again: %v", r.err)
+		}
+	})
+}
+
+// A join request that never left the client's flood throttle is not withdrawn:
+// the server has nothing to withdraw. The client says so by returning the
+// context's own error, not wrapped.
+func TestWatch_DoesNotWithdrawARequestThatWasNeverSent(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		e.streamOf5()
+		e.joinReply(func() ([]map[string]string, error) { return nil, context.DeadlineExceeded })
+		r := <-e.startWatch(t.Context())
+		if !errors.Is(r.err, context.DeadlineExceeded) {
+			t.Fatalf("err = %v", r.err)
+		}
+		e.settle()
+		if join := e.h.commands("joinstreamrequest"); len(join) != 1 {
+			t.Errorf("sent %v, want the request alone", join)
+		}
+		// Nothing is left behind.
+		e.h.reply = nil
+		done := e.startWatch(t.Context())
+		e.respond(nil)
+		if r := <-done; r.err != nil {
+			t.Errorf("asking again: %v", r.err)
+		}
+	})
+}
+
+// One that was sent, and whose answer was awaited, may have been taken.
+func TestWatch_WithdrawsARequestWhoseAnswerWasAwaited(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		e.streamOf5()
+		e.joinReply(func() ([]map[string]string, error) {
+			return nil, fmt.Errorf("joinstreamrequest: %w", context.DeadlineExceeded)
+		})
+		r := <-e.startWatch(t.Context())
+		if !errors.Is(r.err, context.DeadlineExceeded) {
+			t.Fatalf("err = %v", r.err)
+		}
+		e.settle()
+		if join := e.h.commands("joinstreamrequest"); len(join) != 2 || join[1].params["is_remove"] != "1" {
+			t.Errorf("sent %v", join)
+		}
+	})
+}
+
+// While a view's leave is out, the stream still counts as watched.
+func TestPeerClose_KeepsTheStreamWatchedUntilTheLeaveIsAnswered(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		v := e.watchAccepted()
+		e.h.reply = func(s sent) ([]map[string]string, error, bool) {
+			if s.name == "joinstreamrequest" && s.params["is_remove"] == "1" {
+				time.Sleep(time.Second)
+			}
+
+			return nil, nil, false
+		}
+		left := make(chan error, 1)
+		go func() { left <- v.Leave(t.Context()) }()
+		e.settle()
+		if !v.Closed() {
+			t.Error("the view is not closed at once")
+		}
+		if _, err := e.s.Watch(t.Context(), "a", WatchOptions{}); !errors.Is(err, ErrAlreadyWatching) {
+			t.Errorf("Watch during the leave: %v", err)
+		}
+		if err := <-left; err != nil {
+			t.Fatal(err)
+		}
+		done := e.startWatch(t.Context())
+		e.respond(nil)
+		if r := <-done; r.err != nil {
+			t.Errorf("Watch after the leave: %v", r.err)
+		}
+	})
+}
+
+// A publisher goes on sending to a view that is over, as the server cannot
+// remove it; that is not worth a report.
+func TestPeerClose_IgnoresWhatThePublisherStillSends(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		var errs collector[error]
+		e.s.OnError(errs.add)
+		v := e.watchAccepted()
+		if err := v.Leave(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		e.h.notify(notify.StreamSignaling, fromFive(`{"cmd":"iceCandidate","args":{"sdp":"late"}}`))
+		e.settle()
+		if errs.len() != 0 {
+			t.Errorf("errors = %v", errs.all())
+		}
+		// A new view of the stream hears its publisher again.
+		done := e.startWatch(t.Context())
+		e.respond(nil)
+		v2 := (<-done).view
+		var cands collector[IceCandidate]
+		v2.OnCandidate(cands.add)
+		e.h.notify(notify.StreamSignaling, fromFive(`{"cmd":"iceCandidate","args":{"sdp":"again"}}`))
+		e.settle()
+		if cands.len() != 1 {
+			t.Errorf("candidates = %d", cands.len())
 		}
 	})
 }

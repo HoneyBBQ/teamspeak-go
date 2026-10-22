@@ -71,6 +71,9 @@ type Streams struct {
 	attempts  map[*attempt]struct{}
 	denied    *lru[teamspeak.UID]
 	orphans   *lru[ID]
+	// closedViews are the streams whose view is over: what their publisher
+	// still sends is not worth a report.
+	closedViews *lru[ID]
 
 	started      *topic[Info]
 	updated      *topic[Info]
@@ -110,16 +113,17 @@ func New(c *client.Client, opts Options) *Streams {
 
 func newStreams(h host, opts Options) *Streams {
 	s := &Streams{
-		host:      h,
-		logger:    cmpLogger(opts.Logger),
-		remember:  opts.RememberDenied,
-		asked:     make(map[teamspeak.ClientID]struct{}),
-		gone:      make(map[teamspeak.ClientID]*time.Timer),
-		published: make(map[ID]*Published),
-		watching:  make(map[ID]*watch),
-		attempts:  make(map[*attempt]struct{}),
-		denied:    newLRU[teamspeak.UID](maxDenied),
-		orphans:   newLRU[ID](maxOrphans),
+		host:        h,
+		logger:      cmpLogger(opts.Logger),
+		remember:    opts.RememberDenied,
+		asked:       make(map[teamspeak.ClientID]struct{}),
+		gone:        make(map[teamspeak.ClientID]*time.Timer),
+		published:   make(map[ID]*Published),
+		watching:    make(map[ID]*watch),
+		attempts:    make(map[*attempt]struct{}),
+		denied:      newLRU[teamspeak.UID](maxDenied),
+		orphans:     newLRU[ID](maxOrphans),
+		closedViews: newLRU[ID](maxClosedViewers),
 	}
 	s.cmds = teamspeak.NewCommands(teamspeak.ExecutorFunc(h.Send))
 	s.conn, s.cancelConn = context.WithCancel(context.Background())
@@ -248,9 +252,14 @@ type watch struct {
 	done     chan struct{}
 	early    []string
 	streamer teamspeak.ClientID
+	// owner is this client's id on the connection that asked.
+	owner teamspeak.ClientID
 	// overflowed is whether the overflow of early was reported.
 	overflowed bool
 	settled    bool
+	// closing is set while the view's leave is out, so that the stream still
+	// counts as watched until the server has answered.
+	closing bool
 }
 
 func (w *watch) settleLocked(view *View, err error) {

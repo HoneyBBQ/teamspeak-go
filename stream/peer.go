@@ -134,11 +134,13 @@ func (p *Peer) SendSignal(ctx context.Context, cmd string, args any) error {
 }
 
 // Close stops sending and delivering for this peer. On a viewer's side this
-// also leaves the stream, and Close returns what the server answered. The
-// publisher's side sends nothing: the server has no way to remove a viewer, so
-// a viewer closed here stays a participant on the server and may keep
-// signalling, which is ignored, and may ask again, which is a new request. Stop
-// the stream to end it for everyone. Closing a closed peer does nothing.
+// also leaves the stream, and Close returns what the server answered; the
+// stream counts as watched until then, so a Watch of it meanwhile returns
+// ErrAlreadyWatching. The publisher's side sends nothing: the server has no way
+// to remove a viewer, so a viewer closed here stays a participant on the server
+// and may keep signalling, which is ignored, and may ask again, which is a new
+// request. Stop the stream to end it for everyone. Closing a closed peer does
+// nothing.
 func (p *Peer) Close(ctx context.Context) error {
 	p.s.mu.Lock()
 	if p.closed {
@@ -146,14 +148,25 @@ func (p *Peer) Close(ctx context.Context) error {
 
 		return nil
 	}
+	w := p.s.watchOfLocked(p)
+	if w != nil {
+		w.closing = true
+	}
 	p.endLocked(PeerClosedEvent{Cause: PeerCauseClosed})
 	p.s.mu.Unlock()
 
 	if p.pub != nil {
 		return nil
 	}
+	err := p.s.leave(ctx, p.streamID, p.clientID)
 
-	return p.s.leave(ctx, p.streamID, p.clientID)
+	p.s.mu.Lock()
+	defer p.s.mu.Unlock()
+	if p.s.watching[p.streamID] == w {
+		delete(p.s.watching, p.streamID)
+	}
+
+	return err
 }
 
 func (p *Peer) sendJSON(ctx context.Context, text string) error {
@@ -193,8 +206,12 @@ func (p *Peer) endLocked(c PeerClosedEvent) {
 			delete(p.pub.peers, p.clientID)
 			p.pub.closedViewers.add(p.clientID)
 		}
-	} else if w := p.s.watching[p.streamID]; w != nil && w.view != nil && w.view.Peer == p {
-		delete(p.s.watching, p.streamID)
+	} else if w := p.s.watchOfLocked(p); w != nil {
+		p.s.closedViews.add(p.streamID)
+		// While its leave is out the stream stays watched.
+		if !w.closing {
+			delete(p.s.watching, p.streamID)
+		}
 	}
 	p.closedT.emit(c)
 }
@@ -238,4 +255,13 @@ func (v *View) Answer(ctx context.Context, sdp string) error {
 // Leave leaves the stream: the same as Close.
 func (v *View) Leave(ctx context.Context) error {
 	return v.Close(ctx)
+}
+
+// watchOfLocked is the watch that made the view p, if it is still there.
+func (s *Streams) watchOfLocked(p *Peer) *watch {
+	if w := s.watching[p.streamID]; w != nil && w.view != nil && w.view.Peer == p {
+		return w
+	}
+
+	return nil
 }

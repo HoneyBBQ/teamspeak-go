@@ -175,6 +175,7 @@ func (s *Streams) endLocked(id ID, reason uint32, cause EndCause) {
 	if w := s.watching[id]; w != nil {
 		delete(s.watching, id)
 		if w.view != nil {
+			s.closedViews.add(id)
 			w.view.endLocked(PeerClosedEvent{Cause: PeerCauseStopped, Reason: reason})
 		} else {
 			w.settleLocked(nil, &EndedError{StreamID: id})
@@ -253,7 +254,10 @@ func (s *Streams) farewellsLocked() []func(context.Context) error {
 		goodbyes = append(goodbyes, func(ctx context.Context) error { return s.stopStream(ctx, p.id, 0) })
 	}
 	for id, w := range s.watching {
-		goodbyes = append(goodbyes, func(ctx context.Context) error { return s.leave(ctx, id, w.streamer) })
+		// A view being closed has its leave out already.
+		if !w.closing {
+			goodbyes = append(goodbyes, func(ctx context.Context) error { return s.leave(ctx, id, w.streamer) })
+		}
 	}
 
 	return goodbyes
@@ -534,6 +538,9 @@ func (s *Streams) onSignalingLocked(params map[string]string) {
 					errDropped, id, maxKept))
 			}
 		}
+	case s.closedViews.has(id):
+		// The server cannot remove a viewer, so a publisher may keep sending to
+		// a view that is over.
 	default:
 		s.reportLocked(fmt.Errorf("%w: stream %s, client %d", errNoSession, id, clid))
 	}
@@ -610,6 +617,7 @@ func (s *Streams) orphanLocked(info Info) {
 }
 
 func (s *Streams) watch(ctx context.Context, id ID, streamer teamspeak.ClientID, opts WatchOptions) (*View, error) {
+	self := s.host.ClientID()
 	s.mu.Lock()
 	switch {
 	case s.closed:
@@ -627,51 +635,65 @@ func (s *Streams) watch(ctx context.Context, id ID, streamer teamspeak.ClientID,
 
 		return nil, err
 	}
-	w := &watch{streamer: streamer, done: make(chan struct{})}
+	w := &watch{streamer: streamer, owner: self, done: make(chan struct{})}
 	s.watching[id] = w
+	s.closedViews.remove(id)
 	s.mu.Unlock()
 
-	view, err := s.ask(ctx, w, id, opts.Message)
-	if err == nil {
-		return view, nil
-	}
-	s.mu.Lock()
-	mine := s.watching[id] == w && w.view == nil
-	if mine {
-		delete(s.watching, id)
-	}
-	s.mu.Unlock()
-	// Asked and not answered: withdraw. An answer, a refusal or a lost
-	// connection leaves nothing to withdraw.
-	if mine && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+	view, withdraw, err := s.ask(ctx, w, id, opts.Message)
+	if err != nil && withdraw {
 		s.goodbye(ctx, "withdrawing a request to watch stream "+string(id), func(ctx context.Context) error {
 			return s.leave(ctx, id, streamer)
 		})
 	}
 
-	return nil, err
+	return view, err
 }
 
-// ask sends the join request and waits for the publisher's answer.
-func (s *Streams) ask(ctx context.Context, w *watch, id ID, message string) (*View, error) {
+// ask sends the join request and waits for the publisher's answer. When it
+// fails, the request is gone from s.watching by the time it returns, decided
+// under the lock, so that an answer that comes after finds nothing to join. It
+// also reports whether the request may have reached the server and so is to be
+// withdrawn: not when the server answered, or the command never left the
+// flood throttle.
+func (s *Streams) ask(ctx context.Context, w *watch, id ID, message string) (*View, bool, error) {
 	err := s.send(ctx, joinRequest(id, w.streamer, message, false), id)
-	if err != nil {
-		return nil, err
-	}
-	waitCtx, cancel := withDefaultTimeout(ctx, watchTimeout)
-	defer cancel()
-	select {
-	case <-w.done:
-	case <-waitCtx.Done():
+	if err == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = withDefaultTimeout(ctx, watchTimeout)
+		defer cancel()
+		select {
+		case <-w.done:
+		case <-ctx.Done():
+			err = fmt.Errorf("%s: %w", commands.JoinStreamRequest, ctx.Err())
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !w.settled {
-		return nil, fmt.Errorf("%s: %w", commands.JoinStreamRequest, waitCtx.Err())
+	if w.settled {
+		return w.view, false, w.err
 	}
+	// Abandoned here, in the same breath as the decision: from now on an
+	// answer finds no watch.
+	delete(s.watching, id)
+	w.settled = true
 
-	return w.view, w.err
+	return nil, isContextError(err) && mayHaveBeenSent(err), err
+}
+
+// isContextError reports whether err is the end of a context.
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// mayHaveBeenSent reports whether a command that failed with the end of a
+// context may have reached the server. The client returns the context's own
+// error, unwrapped, for a command that never left its flood throttle, and wraps
+// it with the command's name once the command was sent and its answer awaited.
+func mayHaveBeenSent(err error) bool {
+	//nolint:errorlint // the error itself, not what it wraps, says the command was never sent
+	return err != context.Canceled && err != context.DeadlineExceeded
 }
 
 func (s *Streams) onRespondLocked(params map[string]string) {
