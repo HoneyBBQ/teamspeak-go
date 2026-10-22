@@ -23,4 +23,14 @@
 // up the events behind it. A handler or event middleware that panics is
 // recovered and logged at Error with the event type; the other handlers and
 // later events are still delivered.
+//
+// # Documentation
+//
+// The [guide] covers connecting, events, commands, file transfers and
+// identities; [configuration] the options, the client version and tracing; and
+// [design] the conventions the module keeps.
+//
+// [guide]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/guide.md
+// [configuration]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/configuration.md
+// [design]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/design.md
 package client

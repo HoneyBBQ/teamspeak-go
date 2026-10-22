@@ -1,13 +1,16 @@
 package teamspeak_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log"
 
 	"github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/client"
 	"github.com/honeybbq/teamspeak-go/errcode"
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 // recorded is an Executor that answers each command from a list of recorded
@@ -111,4 +114,34 @@ func ExamplePermission() {
 	// i_client_talk_power i_client_talk_power
 	// permission 4353 4353
 	// true
+}
+
+// A file transfer is negotiated with the server over the connection, then the
+// data goes over a connection of its own: InitFileUpload answers with where to
+// send it, and UploadFileData sends it.
+func ExampleUploadFileData() { //nolint:testableexamples // needs a server, so it is compiled, not run
+	ctx := context.Background()
+	id, err := identity.Generate(ctx, 8)
+	if err != nil {
+		log.Fatal(err)
+	}
+	c, err := client.New(id, "ts.example.com", "bot")
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = c.Connect(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	data := []byte("hello")
+
+	upload, err := c.InitFileUpload(ctx, 1, "/notes.txt", uint64(len(data)),
+		teamspeak.FileUploadOptions{Overwrite: true})
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = teamspeak.UploadFileData(ctx, "ts.example.com", upload, bytes.NewReader(data), teamspeak.FileTransferOptions{})
+	if err != nil {
+		log.Fatal(err)
+	}
 }

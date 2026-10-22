@@ -63,4 +63,11 @@
 // teamspeak-js, in Go's terms: contexts instead of signals and timeouts,
 // handlers registered with On... instead of an event emitter, and Close, which
 // returns what failed, instead of dispose.
+//
+// # Documentation
+//
+// The [streams guide] covers publishing and watching in full, and how to
+// interoperate with the TeamSpeak 6 client.
+//
+// [streams guide]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/streams.md
 package stream
