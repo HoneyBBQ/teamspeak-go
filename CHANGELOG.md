@@ -17,6 +17,16 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   `StreamAlreadyJoined` (5638) and `StreamJoinRequestRedacted` (5639). The
   protocol is undocumented by TeamSpeak.
 
+### Changed
+
+- `setupstream` (also sent with `Exec`) now resolves with the
+  `notifystreamstarted` row that echoes its `return_code`, whether that row
+  arrives before or after the command's `error`. Before, the row was not part
+  of the answer, and an announcement could not be told from another client's.
+  A command whose announcement never arrives waits until its context ends, so
+  `Exec("setupstream ...")` now blocks until the announcement arrives (or its
+  context ends) instead of returning with the command's `error`.
+
 ## v1.0.0-beta.12 (2026-10-22)
 
 ### Changed

@@ -76,9 +76,11 @@ type pendingCommand struct {
 // channellistfinished; without the gate they would land in the first command's
 // answer as duplicate rows and a phantom cid=0.
 type commandTracker struct {
-	pending         map[uint32]*pendingCommand
-	buffer          []bufferedRow
-	mu              sync.Mutex
+	pending map[uint32]*pendingCommand
+	buffer  []bufferedRow
+	mu      sync.Mutex
+	// nextRC is never reset: a late answer to a command of an earlier connection
+	// must not carry the return_code of a later one.
 	nextRC          atomic.Uint32
 	welcomeComplete bool
 }
@@ -124,6 +126,19 @@ func (t *commandTracker) setEcho(rc uint32, value string) {
 
 	if p, ok := t.pending[rc]; ok {
 		p.echo, p.hasEcho = value, true
+	}
+}
+
+// setCorrelation records the value an answer echoes for a command whose
+// correlation key is its own return_code. The code exists only once the command
+// is registered, so the request cannot carry it. Like setEcho, it is called
+// before the command is sent.
+func (t *commandTracker) setCorrelation(rc uint32, value string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if p, ok := t.pending[rc]; ok {
+		p.correlation, p.hasCorrelation = value, true
 	}
 }
 
@@ -696,6 +711,9 @@ func (c *Client) execOn(ctx context.Context, h *transport.PacketHandler, cmd str
 
 	rc, ch := c.cmdTrack.register(spec, correlation, hasCorrelation)
 	defer c.cmdTrack.unregister(rc)
+	if spec != nil && spec.Correlated != nil && spec.Correlated.Key == "return_code" {
+		c.cmdTrack.setCorrelation(rc, strconv.FormatUint(uint64(rc), 10))
+	}
 	if spec != nil && spec.EchoKey != "" {
 		if echo, ok := parsed.Params[spec.EchoKey]; ok {
 			c.cmdTrack.setEcho(rc, echo)

@@ -12,10 +12,12 @@ import "slices"
 // documented as a property of the protocol.
 //
 // Most notifications carry no return_code, so nothing on the wire ties one to
-// the command that caused it; the two stream notifications that answer
-// setupstream and requeststreaminfo are the exceptions and echo it. The pairing
-// is a property of the command, and this table is where it lives. It was measured command by command against TS3
-// 3.13.8 and TS6 6.0.0-beta13.1, which answer identically; the TypeScript
+// the command that caused it. The exceptions are notifystreamstarted, which
+// echoes the return_code of the setupstream that started the stream, and
+// notifystreaminfo, which echoes that of requeststreaminfo (its rows are told
+// apart by stream id, not matched here). The pairing is a property of the
+// command, and this table is where it lives. It was measured command by command
+// against TS3 3.13.8 and TS6 6.0.0-beta13.1, which answer identically; the TypeScript
 // SDK's scripts/probe-response-shapes.mts re-runs that measurement.
 //
 // Commands not listed answer with nameless rows, or with nothing.
@@ -148,8 +150,17 @@ var responses = map[string]*responseSpec{
 	"servergroupsbyclientid":      inline("notifyservergroupsbyclientid"),
 	"serverrequestconnectioninfo": inline("notifyserverconnectioninfo"),
 	"servertemppasswordlist":      inline("notifyservertemppasswordlist"),
-	"tokenadd":                    inline("notifytokenadd"),
-	"tokenlist":                   inline("notifytokenlist"),
+	// Matched on the command's own return_code, which the announcement echoes
+	// to the client that started the stream and to nobody else. The announcement
+	// falls on either side of the error (before it in all of 500 measured runs, but nothing promises the order), and
+	// several streams of one name may be in flight, so the name cannot tell
+	// them apart. A command whose announcement never comes waits until its
+	// caller gives up.
+	"setupstream": {Correlated: &correlation{
+		Key: "return_code", Notifications: []string{"notifystreamstarted"},
+	}},
+	"tokenadd":  inline("notifytokenadd"),
+	"tokenlist": inline("notifytokenlist"),
 }
 
 // responseFor returns the response shape of a command, or nil for plain rows.
