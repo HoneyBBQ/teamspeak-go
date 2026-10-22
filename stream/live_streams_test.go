@@ -720,7 +720,7 @@ func TestLive_KnowsWhoAskedFromAChannelItDoesNotFollowAndLeavesTheirRememberedDe
 	denied := make(chan error, 1)
 	go func() { _, werr := viewer.WatchInfo(timeout(t, 20*time.Second), info, WatchOptions{}); denied <- werr }()
 	request := await(t, requests, "request")
-	if v := request.Viewer(); v.ClientID != l.b.ClientID() || v.UID != l.b.UID() || v.Nickname != "go-stream-b" {
+	if v := request.Viewer(); v.ClientID != l.b.ClientID() || v.UID != l.b.UID() || v.Nickname != l.b.View().Self.Nickname {
 		t.Errorf("viewer = %+v", v)
 	}
 	err = request.Deny(t.Context(), "no")
