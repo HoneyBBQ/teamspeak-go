@@ -21,6 +21,26 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   twice the wait the server names rather than the wait itself: a resend as the
   wait ends was often refused again, and every refusal lengthens the server's
   pause.
+- `UploadFile` no longer mistakes a transfer that was cut short for a stored
+  file. After the server closes the transfer connection it asks for the file's
+  size with `GetFileInfo` (one extra command), and returns an error wrapping
+  `ErrFileTransfer` when the server holds a different size, or no such file. The
+  servers never report a completed upload (the voice protocol's status
+  notification comes only for failures, after the close, and ServerQuery sends
+  nothing), so this is the only way to tell a stored file from a transfer
+  someone stopped. A client without browse power gets 2568 for the command and
+  counts on the close as before. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6
+  6.0.0.
+- `UploadFile` and `DownloadFile` stop the negotiated transfer on the server when
+  the TCP connection to the file transfer port is refused or times out within 5
+  seconds of the negotiation; left alone, the server keeps it in the active list
+  for about 10 seconds (measured on both servers). The dial's error is still the
+  one returned. Nothing is sent once the connection opened, or when the caller's
+  context ended the dial.
+- `(*client.Client).UploadAvatar` and `UploadIcon` do the same: a refused
+  connection stops the negotiated transfer, and the stored file is checked once
+  the server closes the connection. The avatar is checked under the name the
+  server stores it as, which it derives from the uploader's uid.
 
 ## v1.0.0-beta.16 (2026-10-23)
 

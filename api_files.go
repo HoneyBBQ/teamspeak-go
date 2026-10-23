@@ -3,6 +3,7 @@ package teamspeak
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/errcode"
+	"github.com/honeybbq/teamspeak-go/internal/ftdial"
 )
 
 // File transfer commands.
@@ -433,8 +435,16 @@ type UploadFileOptions struct {
 // to: the servers never name another. For a stream, call the two yourself.
 //
 // It returns once the server has closed the transfer connection, which it does
-// when it has the file: measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0,
-// about 200 ms after the last byte of a 100000-byte file.
+// when it has the file (measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0,
+// about 200 ms after the last byte of a 100000-byte file) and, by
+// GetFileInfo (one more command), holds a file of exactly that size: the
+// server does not say whether it stored a file, so a close alone could be a
+// transfer someone stopped. A size that differs, or a file that is not there,
+// fails the call with an error wrapping ErrFileTransfer; a client with no
+// browse power cannot ask (2568) and counts on the close. When the connection
+// to the file transfer port is refused or times out, the negotiated transfer is
+// stopped on the server (else it lingers in the active list for about 10
+// seconds), as DownloadFile does for a refused MaxSize.
 //
 // A refusal, such as no permission to upload or a file that exists without
 // Overwrite (errcode.FileAlreadyExists), is the server's error as
@@ -459,7 +469,63 @@ func (c *Commands) UploadFile(
 		rest = data[info.SeekPosition:]
 	}
 
-	return UploadFileData(ctx, host, info, bytes.NewReader(rest), opts.Transfer)
+	negotiated := time.Now()
+	err = UploadFileData(ctx, host, info, bytes.NewReader(rest), opts.Transfer)
+	if err != nil {
+		c.stopIfNeverDialled(ctx, info.ServerFileTransferID, negotiated, err)
+
+		return err
+	}
+
+	return c.verifyStored(ctx, channelID, path, uint64(len(data)), opts)
+}
+
+// stopIfNeverDialled stops the negotiated transfer when err is a dial that
+// never got a connection, refused or timed out: nothing has reached the server,
+// and the transfer would sit in its list until it expires. As the MaxSize
+// refusal does, the stop is best effort and its failure never replaces err. It
+// is not sent once the connection opened (the key may be written and the
+// server may have dropped the transfer), after the caller's context ended the
+// dial, nor later than ftdial.StopWithin after the negotiation.
+func (c *Commands) stopIfNeverDialled(
+	ctx context.Context, id ServerFileTransferID, negotiated time.Time, err error,
+) {
+	if !ftdial.ShouldStop(err, negotiated) {
+		return
+	}
+	_ = c.StopFileTransfer(context.WithoutCancel(ctx), id, FileTransferStopOptions{})
+}
+
+// verifyStored checks that the server holds the whole file after an upload's
+// connection closed. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0: a
+// completed upload gets no status from the server, so a close after the last
+// byte looks the same whether the file was stored or the transfer was stopped
+// (the voice protocol reports that, 2066, only after the close), and
+// ftgetfileinfo already answers the final size 6 to 45 ms after the close, in
+// every case. Permissions are checked at the negotiation only, so no refusal
+// comes later.
+//
+// A client without browse power gets 2568 for ftgetfileinfo: the file cannot
+// be checked, and the upload counts on the close. Any other failure of the
+// command is returned as it is.
+func (c *Commands) verifyStored(
+	ctx context.Context, channelID ChannelID, path string, size uint64, opts UploadFileOptions,
+) error {
+	info, err := c.GetFileInfo(ctx, channelID, path, FileOptions{Password: opts.Password})
+	switch {
+	case errors.Is(err, errcode.PermissionsClientInsufficient):
+		return nil
+	// 2051 on TeamSpeak 6, 2052 on TeamSpeak 3 for a file that is not there.
+	case errors.Is(err, errcode.FileNotFound), errors.Is(err, errcode.FileIOError):
+		return fmt.Errorf("%w: the server closed the upload but has no file %s: %w", ErrFileTransfer, path, err)
+	case err != nil:
+		return err
+	case info.Size != size:
+		return fmt.Errorf("%w: the server closed the upload but holds %d of the %d bytes of %s",
+			ErrFileTransfer, info.Size, size, path)
+	}
+
+	return nil
 }
 
 // defaultDownloadFileLimit is DownloadFileOptions.MaxSize when it is zero.
@@ -525,8 +591,11 @@ func (c *Commands) DownloadFile(
 	if wanted <= math.MaxInt32 {
 		buf.Grow(int(wanted))
 	}
+	negotiated := time.Now()
 	err = DownloadFileData(ctx, host, info, &buf, opts.Transfer)
 	if err != nil {
+		c.stopIfNeverDialled(ctx, info.ServerFileTransferID, negotiated, err)
+
 		return nil, err
 	}
 

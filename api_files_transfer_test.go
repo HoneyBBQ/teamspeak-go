@@ -62,6 +62,7 @@ func TestUploadFile_NegotiatesAndSends(t *testing.T) {
 	srv.rows["ftinitupload"] = []map[string]string{{
 		"clientftfid": "1", "serverftfid": "2", "ftkey": testKey, "port": "30033", "seekpos": "0", "proto": "0",
 	}}
+	srv.rows["ftgetfileinfo"] = []map[string]string{{"name": "a.txt", "size": "5", "datetime": "0", "type": "1"}}
 	var got []byte
 	done := make(chan struct{})
 	// The server closes once it has the file, as the real one does.
@@ -93,6 +94,7 @@ func TestUploadFile_DialsTheConnectionsHost(t *testing.T) {
 	srv.rows["ftinitupload"] = []map[string]string{{
 		"clientftfid": "1", "serverftfid": "2", "ftkey": testKey, "port": "30033", "ip": "10.0.0.7",
 	}}
+	srv.rows["ftgetfileinfo"] = []map[string]string{{"name": "a", "size": "1", "datetime": "0", "type": "1"}}
 	srv.serve = func(conn net.Conn) { _, _ = io.ReadFull(conn, make([]byte, 1)) }
 
 	err := teamspeak.NewCommands(srv).UploadFile(t.Context(), "ts.example", 5, "/a", []byte("x"),

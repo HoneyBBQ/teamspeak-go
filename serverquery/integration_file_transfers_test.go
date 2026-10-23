@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
 	"reflect"
 	"slices"
 	"strconv"
@@ -41,6 +42,9 @@ type fileClient interface {
 	GetFileInfo(
 		ctx context.Context, cid teamspeak.ChannelID, path string, opts teamspeak.FileOptions,
 	) (teamspeak.FileEntry, error)
+	StopFileTransfer(
+		ctx context.Context, id teamspeak.ServerFileTransferID, opts teamspeak.FileTransferStopOptions,
+	) error
 }
 
 // waitForFiles lists recursively until the server shows want, the sizes
@@ -86,8 +90,8 @@ func runFileTransfers(t *testing.T, actor fileClient, c *serverquery.Client) {
 		t.Fatalf("CreateDirectory: %v", err)
 	}
 	cleanup(t, "the files", func(ctx context.Context) error {
-		delErr := c.DeleteFile(ctx, cid, []string{"/docs", "/top.txt", "/whole.bin", "/part.bin", "/short.bin", "/long.bin"},
-			teamspeak.FileOptions{})
+		names := []string{"/docs", "/top.txt", "/whole.bin", "/part.bin", "/short.bin", "/long.bin", "/stopped.bin"}
+		delErr := c.DeleteFile(ctx, cid, names, teamspeak.FileOptions{})
 		if delErr != nil && !errors.Is(delErr, errcode.FileNotFound) && !errors.Is(delErr, errcode.FileInvalidPath) &&
 			serverCode(delErr) != 5120 {
 			return delErr
@@ -141,6 +145,122 @@ func runFileTransfers(t *testing.T, actor fileClient, c *serverquery.Client) {
 	assertRecursiveBounds(ctx, t, actor, cid)
 	assertTransferRefusals(ctx, t, actor, c, cid)
 	assertResumeAndSizes(ctx, t, actor, c, cid)
+	assertTransfersThatDoNotComplete(ctx, t, actor, c, cid)
+}
+
+var errConnectionRefused = errors.New("connection refused")
+
+// refusedDialer is a TCP connect that is refused: nothing reaches the server.
+type refusedDialer struct{}
+
+func (refusedDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	return nil, errConnectionRefused
+}
+
+// stoppingDialer opens the real connection, and has the transfer stopped by its
+// own connection while the data is going, after the first chunks.
+type stoppingDialer struct {
+	stop func()
+}
+
+func (d stoppingDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &stoppingConn{Conn: conn, stop: d.stop}, nil
+}
+
+type stoppingConn struct {
+	net.Conn
+
+	stop   func()
+	writes int
+}
+
+func (c *stoppingConn) Write(p []byte) (int, error) {
+	c.writes++
+	if c.writes == 3 { // the key, then two chunks
+		c.stop()
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	return c.Conn.Write(p)
+}
+
+// assertTransfersThatDoNotComplete checks that a transfer whose dial is refused
+// is stopped on the server, and that an upload the server stopped fails
+// though its connection closed. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6
+// 6.0.0: left alone, a negotiated transfer nobody dialled is dropped after 10
+// s. Only the connection's own transfer is stopped: ftstop of anyone else's
+// crashes TeamSpeak 6.
+func assertTransfersThatDoNotComplete(
+	ctx context.Context, t *testing.T, actor fileClient, c *serverquery.Client, cid teamspeak.ChannelID,
+) {
+	t.Helper()
+	data := make([]byte, 100_000)
+
+	err := actor.UploadFile(ctx, transferHost, cid, "/never.bin", data,
+		teamspeak.UploadFileOptions{Transfer: teamspeak.FileTransferOptions{Dialer: refusedDialer{}}})
+	if !errors.Is(err, teamspeak.ErrFileTransfer) {
+		t.Errorf("UploadFile to a refused port: %v, want ErrFileTransfer", err)
+	}
+	// Seconds, not the 10 the server would take on its own.
+	waitNoTransfersWithin(ctx, t, c, cid, 4*time.Second)
+	_, err = actor.DownloadFile(ctx, transferHost, cid, "/whole.bin",
+		teamspeak.DownloadFileOptions{Transfer: teamspeak.FileTransferOptions{Dialer: refusedDialer{}}})
+	if !errors.Is(err, teamspeak.ErrFileTransfer) {
+		t.Errorf("DownloadFile from a refused port: %v, want ErrFileTransfer", err)
+	}
+	waitNoTransfersWithin(ctx, t, c, cid, 4*time.Second)
+
+	stop := func() {
+		active, listErr := c.ListActiveTransfers(ctx)
+		if listErr != nil {
+			t.Errorf("ListActiveTransfers: %v", listErr)
+
+			return
+		}
+		for _, a := range active {
+			if strings.HasSuffix(a.Path, "channel_"+strconv.FormatUint(uint64(cid), 10)) {
+				stopErr := actor.StopFileTransfer(ctx, a.ServerFileTransferID, teamspeak.FileTransferStopOptions{})
+				if stopErr != nil {
+					t.Errorf("StopFileTransfer: %v", stopErr)
+				}
+			}
+		}
+	}
+	err = actor.UploadFile(ctx, transferHost, cid, "/stopped.bin", make([]byte, 200_000),
+		teamspeak.UploadFileOptions{Transfer: teamspeak.FileTransferOptions{Dialer: stoppingDialer{stop: stop}}})
+	if !errors.Is(err, teamspeak.ErrFileTransfer) {
+		t.Errorf("UploadFile the server stopped: %v, want ErrFileTransfer", err)
+	}
+	waitNoTransfers(ctx, t, c, cid)
+}
+
+// waitNoTransfersWithin is waitNoTransfers with a deadline of its own.
+func waitNoTransfersWithin(
+	ctx context.Context, t *testing.T, c *serverquery.Client, cid teamspeak.ChannelID, within time.Duration,
+) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for {
+		active, err := c.ListActiveTransfers(ctx)
+		if err != nil && serverCode(err) != 5120 {
+			t.Fatalf("ListActiveTransfers: %v", err)
+		}
+		mine := slices.DeleteFunc(slices.Clone(active), func(a teamspeak.ActiveTransfer) bool {
+			return !strings.HasSuffix(a.Path, "channel_"+strconv.FormatUint(uint64(cid), 10))
+		})
+		if len(mine) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the refused transfer is still active after %v: %+v", within, mine)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 // assertRecursiveBounds checks MaxDepth and a listing that starts below the top.
