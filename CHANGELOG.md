@@ -52,6 +52,12 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   in the view, as the next welcome lists it, instead of zeros: codec 4, quality
   5, no client limit, and the rest of what the notification does not carry.
   Before, `View().Channel(id)` reported codec 0 and a limit of 0 clients for it.
+- Icon ids above 2^31 are read in every form the server sends them. The voice
+  protocol announces a channel's new icon in `notifychanneledited` as the
+  negative 32-bit id sign-extended to 64 bits (`18446744072424443899` for the
+  icon `3009859579`), which was read as no icon, so `ChannelEditedEvent` and
+  the view reported 0. It now reads as the same id as `channelinfo`'s unsigned
+  form and `servergrouplist`'s signed one, wherever an icon id is parsed.
 
 ## v1.0.0-beta.14 (2026-10-23)
 
