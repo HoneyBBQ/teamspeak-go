@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/honeybbq/teamspeak-go/identity"
 )
 
 var errTestDrop = errors.New("test drop")
@@ -213,5 +215,23 @@ func TestDisconnectedEvent_AFailedReconnectAttemptWillReconnectWhenThePolicyAllo
 		if e := receive(t, heard); e.WillReconnect != accept {
 			t.Errorf("policy accepts %v: WillReconnect = %v", accept, e.WillReconnect)
 		}
+	}
+}
+
+// A backoff that would retry in a tight loop is refused up front.
+func TestNew_RefusesABackoffThatCannotWork(t *testing.T) {
+	id, err := identity.Parse(testClientIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(id, unitTestServerAddr, "Bot", WithReconnect(ReconnectOptions{
+		Backoff: BackoffPolicy{InitialDelay: time.Second, MaxDelay: time.Millisecond},
+	}))
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Errorf("New with a ceiling below the first delay = %v, want ErrInvalidConfig", err)
+	}
+	_, err = New(id, unitTestServerAddr, "Bot", WithReconnect(ReconnectOptions{}))
+	if err != nil {
+		t.Errorf("New with the zero policy = %v, want it accepted", err)
 	}
 }

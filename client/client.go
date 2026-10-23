@@ -338,6 +338,12 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 	if err != nil {
 		return nil, err
 	}
+	if c.reconnectOptions != nil {
+		err = c.reconnectOptions.Backoff.Validate()
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+		}
+	}
 
 	c.handler = c.newHandler()
 	if c.resolver == nil {
@@ -393,6 +399,8 @@ func WithPacketConn(pc net.PacketConn) Option {
 //
 // Off unless this is set. A deliberate Disconnect never reconnects, whatever
 // the policy says: retrying would keep a process alive that asked to stop.
+// New returns ErrInvalidConfig for a backoff that cannot work, see
+// BackoffPolicy.Validate.
 func WithReconnect(options ReconnectOptions) Option {
 	return optionFunc(func(c *Client) {
 		c.reconnectOptions = &options
@@ -524,7 +532,10 @@ func (c *Client) Connect(ctx context.Context) error {
 // Disconnect leaves the server and closes the connection.
 //
 // It says goodbye first, waiting for the server's acknowledgement for a second
-// at most, or until ctx is done if that is sooner. The connection is closed
+// at most, or until ctx is done if that is sooner. The goodbye is sent at once,
+// past the flood throttle, and also by a client still connecting whose
+// clientinit is out; commands still waiting for their turn are rejected with
+// teamspeak.ErrNotConnected and never sent. The connection is closed
 // either way. A Connect still waiting for its handshake returns
 // teamspeak.ErrNotConnected, and so do the commands still waiting for an
 // answer, and a reconnect still pending or waiting out its backoff is
@@ -583,18 +594,35 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler, 
 	report := c.endAttemptLocked(errDisconnectedDuringHandshake)
 	sessionEnd := c.endSessionLocked(nil)
 	handler := c.handler
+	holdsSession := serverMayHoldSession(oldStatus, handler)
 	l := &leaving{done: make(chan struct{})}
 	c.leaving = l
 	c.mu.Unlock()
 	report()
+	// Whatever still waits for its turn is rejected and never sent; the
+	// goodbye below does not wait for one.
+	c.throttle.rejectAll(teamspeak.ErrNotConnected)
 
 	c.logger.InfoContext(ctx, "disconnecting from server")
 
-	if oldStatus == StatusConnected {
+	if holdsSession {
 		c.sayGoodbye(ctx, handler, message)
 	}
 
-	err := handler.Close()
+	return c.closeLeaving(handler, sessionEnd, l)
+}
+
+// serverMayHoldSession reports whether the server may hold a session for the
+// client whose connection h was in status: from the moment clientinit is out,
+// which is as soon as the keys exist, well before Connected.
+func serverMayHoldSession(status Status, h *transport.PacketHandler) bool {
+	return status == StatusConnected || status == StatusConnecting && h.TsCrypt.InitComplete()
+}
+
+// closeLeaving closes the connection h of Disconnect l, ends its session and
+// finishes l with the result of closing.
+func (c *Client) closeLeaving(h *transport.PacketHandler, sessionEnd func(), l *leaving) error {
+	err := h.Close()
 	// Before finishLeaving queues disconnected.
 	if sessionEnd != nil {
 		sessionEnd()
@@ -624,7 +652,7 @@ func (c *Client) sayGoodbye(ctx context.Context, handler *transport.PacketHandle
 			{"reasonid", strconv.Itoa(int(teamspeak.ReasonDisconnect))},
 			{"reasonmsg", message},
 		})
-		_, err := c.execOn(goodbyeCtx, handler, line)
+		_, err := c.execOn(goodbyeCtx, handler, line, true)
 		answered <- err
 	}()
 	var acknowledged bool

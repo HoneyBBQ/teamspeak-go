@@ -76,7 +76,7 @@ func (c *Client) answerConnectionInfoRequest(h *transport.PacketHandler) {
 		ctx, cancel := contextUntil(context.Background(), h.Done())
 		defer cancel()
 		err := c.throttle.wait(ctx)
-		if err != nil {
+		if err != nil || c.connectedHandler() != h {
 			return
 		}
 		err = c.sendLine(h, line)

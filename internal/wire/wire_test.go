@@ -282,6 +282,21 @@ func TestParseCode(t *testing.T) {
 	if got != errcode.Undefined {
 		t.Errorf("ParseCode(\"\") = %v, want errcode.Undefined", got)
 	}
+	// Not read as a prefix, a sign or a wrapped value.
+	for _, raw := range []string{"12abc", " 7", "-1", "+5", "1.5", "0x10", "4294967296", "99999999999999999999"} {
+		got = wire.ParseCode(raw)
+		if got != errcode.Undefined {
+			t.Errorf("ParseCode(%q) = %v, want errcode.Undefined", raw, got)
+		}
+	}
+	got = wire.ParseCode("4294967295")
+	if got != errcode.Code(4294967295) {
+		t.Errorf("ParseCode(4294967295) = %v", got)
+	}
+	got = wire.ParseCode("0000000000000000000012")
+	if got != errcode.Code(12) {
+		t.Errorf("ParseCode with leading zeros = %v, want 12", got)
+	}
 }
 
 type iconID uint32

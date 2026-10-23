@@ -13,6 +13,9 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   relays the empty frame a client sends with `SendVoice(nil, codec, ...)` as a
   packet with no audio, and the client used to drop it. Skip it if you decode
   every event's `Data`. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0.
+- `BackoffPolicy.Validate` reports a reconnect backoff that cannot work, with an
+  error wrapping the new `ErrInvalidBackoff`. `New` of the voice and ServerQuery
+  clients runs it on `WithReconnect`'s policy.
 
 ### Changed
 
@@ -23,6 +26,17 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   the fragments after it when it was the first of them. The server sends a
   command until it is acknowledged, so a hole that stays means a broken
   connection.
+- A reconnect backoff that cannot work is refused by `New` with
+  `ErrInvalidConfig`, where a negative `MaxAttempts` never reconnected and a
+  `Jitter` above 1 was clamped: delays must not be negative, a `MaxDelay` not
+  below the `InitialDelay`, a `Factor` at least 1, a `Jitter` at most 1, a
+  `MaxAttempts` not negative, and no float `NaN` or infinite. A zero field still
+  takes the default.
+- A command the server refuses as flooding (`errcode.ClientIsFlooding`, error
+  524) with `extra_msg=retry in 1985ms` is sent again after that wait, up to
+  three times and while its context's deadline allows, and every other command
+  waits with it. The server does not run a refused command, so the resend is
+  safe. A refusal that cannot be retried is returned as before.
 
 ### Fixed
 
@@ -40,6 +54,15 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 - A malformed `Init1` step no longer ends a connection attempt. It carries no
   authentication, so one forged datagram could end every attempt; the step is
   ignored, as the TypeScript SDK does.
+- `Disconnect` reaches the server when commands are queued. The goodbye
+  (`clientdisconnect`) waited behind the flood throttle and, with about four
+  commands waiting, missed its one second, so the server kept a ghost session
+  and an immediate reconnect with the same identity was refused with error 521
+  (too many clones). The goodbye now skips the throttle, and a client still
+  connecting says goodbye as soon as its `clientinit` is out.
+- Commands still waiting for the flood throttle when `Disconnect` starts return
+  `ErrNotConnected` and are never sent; `Exec` and `ExecNoWait` did not check
+  the status again after the wait.
 
 ## v1.0.0-beta.15 (2026-10-23)
 
