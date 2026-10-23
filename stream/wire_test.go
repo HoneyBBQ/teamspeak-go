@@ -490,3 +490,22 @@ func TestIntField_ReadsASignedIntegerOfAtMost15Digits(t *testing.T) {
 		}
 	}
 }
+
+func TestWireNumbers_AreUnsignedAndFitTheirWidth(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"0": true, "4294967295": true, "4294967296": false, "-1": false, "+1": false, "1.5": false,
+		"": false, "1234567890123456": false,
+	} {
+		got := wireNumber(map[string]string{"type": raw}, "type") != nil
+		if got != want {
+			t.Errorf("wireNumber(%q) read = %v, want %v", raw, got, want)
+		}
+	}
+	lines := map[string]*uint16{"0": new(uint16(0)), "65535": new(uint16(65535)), "65536": nil, "-1": nil, "1.5": nil}
+	for raw, want := range lines {
+		got := parseSignal(`{"cmd":"iceCandidate","args":{"sdp":"c","mLine":` + raw + `}}`).candidate.SDPMLineIndex
+		if (got == nil) != (want == nil) || got != nil && *got != *want {
+			t.Errorf("mLine %s = %v, want %v", raw, got, want)
+		}
+	}
+}

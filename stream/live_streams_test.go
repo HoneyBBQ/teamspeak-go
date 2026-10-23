@@ -1098,3 +1098,68 @@ func TestLive_RefusesPublishAndWatchAtOnceWithoutSendingOnAServerWithoutStreams(
 		time.Sleep(500 * time.Millisecond)
 	}
 }
+
+// A stream that stopped while its watcher was out of the channel is reported to
+// nobody there. The server answers a join request for it with 5635, which proves
+// it is gone: the stream leaves List, with the end "gone", and a retry sends
+// nothing.
+func TestLive_EndsAStreamLocallyWhenAJoinRequestIsAnsweredThatItDoesNotExist(t *testing.T) {
+	l := requireTS6(t)
+	if l.other == 0 {
+		t.Skip("no second channel")
+	}
+	_, viewer, pub, info := publishAndSee(t, l, "unheard stop", Options{})
+	err := l.b.MoveClient(t.Context(), l.b.ClientID(), l.other, teamspeak.ClientMoveOptions{Password: l.otherPassword})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	stopped := listen(viewer.OnStopped, nil)
+	err = pub.Stop(t.Context(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second)
+	if _, ok := viewer.Get(info.ID); !ok {
+		t.Skip("the stop was reported to the watcher out of the channel")
+	}
+	_, err = viewer.Watch(timeout(t, 10*time.Second), info.ID, WatchOptions{})
+	var ended *EndedError
+	if !errors.As(err, &ended) || !errors.Is(err, errcode.StreamNotFound) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := await(t, stopped, "stopped"); got.Cause != EndCauseGone {
+		t.Errorf("stopped = %+v", got)
+	}
+	if _, ok := viewer.Get(info.ID); ok {
+		t.Error("the stream is still listed")
+	}
+	_, err = viewer.Watch(timeout(t, 10*time.Second), info.ID, WatchOptions{ClientID: info.ClientID})
+	if !errors.As(err, &ended) {
+		t.Errorf("second Watch err = %v", err)
+	}
+}
+
+// Every connect is a new session, whatever client id the server hands out.
+func TestLive_NumbersEachSessionOfAClient(t *testing.T) {
+	requireLive(t)
+	c := connectLive(t, "go-stream-session", os.Getenv("TEAMSPEAK_DEFAULT_CHANNEL"))
+	first := c.Session()
+	if first == 0 {
+		t.Fatal("Session = 0 while connected")
+	}
+	err := c.Disconnect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	err = c.Connect(ctx)
+	if err != nil {
+		t.Skipf("reconnect: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Disconnect(context.WithoutCancel(t.Context())) })
+	if c.Session() <= first {
+		t.Errorf("Session = %d after %d", c.Session(), first)
+	}
+}

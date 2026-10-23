@@ -231,6 +231,16 @@ func (c *Client) ClientID() teamspeak.ClientID {
 	return c.clid
 }
 
+// Session numbers the sessions this client has completed, from 1; it is 0
+// before the first. Every connect, and every reconnect, is a new session, even
+// when the server hands out the client id the last one had.
+func (c *Client) Session() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.session
+}
+
 // Status reports the current connection state.
 func (c *Client) Status() Status {
 	c.mu.Lock()

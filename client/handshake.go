@@ -146,6 +146,7 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 	c.clientInitOptions.privilegeKey = ""
 	reconnected := c.attempt.reconnect
 	c.adoptClientIDLocked(h, cmd.Params)
+	c.session++
 
 	// initserver is the only place the server names itself, and it determines
 	// how the server hashes our public key into client_unique_identifier:

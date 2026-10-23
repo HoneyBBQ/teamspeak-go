@@ -33,6 +33,9 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 - `serverquery.ErrLineTooLong`: a raw TCP or SSH connection ends with it when
   the server sends a line longer than 256 MiB, rather than reading on without
   bound.
+- `Client.Session()` numbers the sessions a client has completed: every connect
+  and every reconnect is a new one, even when the server hands out the client
+  id the last one had.
 
 ### Changed
 
@@ -90,6 +93,10 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   settings key that is anything else with `ErrInvalidCommand` before sending,
   where a key with a space or a newline in it added parameters or a command to
   the line.
+- A viewer lookup in `stream` answers for its own request, so a reused client
+  id cannot announce the wrong viewer, and the lookups for requesters out of
+  view of one stream run side by side (at most eight at once) while the
+  requests are still announced in the order they came.
 
 ### Fixed
 
@@ -130,6 +137,15 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   caller's `ShouldRetry` is asked once per failure.
 - `String()` of a WebQuery dialer and `Stats().Address` no longer include a
   user name or password from the URL.
+- `Streams.Watch` ends a stream locally, with the cause `EndCauseGone`, when
+  the server answers its join request with 5635 ("Stream does not exist"): the
+  stream leaves `List` and a retry sends nothing.
+- A `Publish` whose stream was stopped before its own answer arrived returns an
+  `*EndedError` instead of adopting a dead stream.
+- A stale timer for a client whose `client_is_streaming` cleared can no longer
+  end that client's streams early.
+- A lagging disconnected event ends what the old connection started even when
+  the new connection was given the same client id.
 
 ## v1.0.0-beta.15 (2026-10-23)
 

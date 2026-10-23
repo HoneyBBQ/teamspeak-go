@@ -22,6 +22,7 @@ type host interface {
 type state interface {
 	Send(ctx context.Context, req teamspeak.Request) ([]map[string]string, error)
 	ClientID() teamspeak.ClientID
+	Session() uint64
 	Status() client.Status
 	ServerCapabilities() client.ServerCapabilities
 	Entries() []teamspeak.ClientEntry
