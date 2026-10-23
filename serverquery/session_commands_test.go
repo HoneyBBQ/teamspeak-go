@@ -3,6 +3,7 @@ package serverquery
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -95,7 +96,7 @@ func awaitRoster(t *testing.T, c *Client, id teamspeak.ClientID, ok func(teamspe
 // ctid, so the roster reads both. The row is the shape the server answers with.
 func TestUse_RosterHoldsTheChannelAListRowNames(t *testing.T) {
 	d := newFakeDialer(true)
-	c, transport := connected(t, d)
+	c, transport := connected(t, d, WithServer(1))
 
 	done := run(func() error { return c.Use(context.Background(), ByID(2), UseOptions{}) })
 	expect(t, d, "use")
@@ -157,7 +158,7 @@ func TestLogin_SendsTheLoginEscaped(t *testing.T) {
 // on, and the clients it had seen there, are no longer true.
 func TestLogout_ForgetsTheServer(t *testing.T) {
 	d := newFakeDialer(true)
-	c, transport := connected(t, d)
+	c, transport := connected(t, d, WithServer(1))
 	if id, seen := c.knownSelf(); id != 7 || seen != 1 {
 		t.Fatalf("before Logout: self %d, %d clients seen, want 7 and 1", id, seen)
 	}
@@ -198,7 +199,7 @@ func TestLogout_RefusedKeepsTheSelf(t *testing.T) {
 // server's list.
 func TestUse_ReadsTheNewSelf(t *testing.T) {
 	d := newFakeDialer(true)
-	c, transport := connected(t, d)
+	c, transport := connected(t, d, WithServer(1))
 
 	done := run(func() error {
 		return c.Use(context.Background(), ByID(2), UseOptions{Nickname: "second bot"})
@@ -217,6 +218,47 @@ func TestUse_ReadsTheNewSelf(t *testing.T) {
 	}
 	if id, seen := c.knownSelf(); id != 9 || seen != 1 {
 		t.Errorf("after Use: self %d, %d clients seen, want 9 and 1", id, seen)
+	}
+}
+
+// Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0 (raw TCP and SSH): with
+// no server selected servernotifyregister, clientlist and clientupdate are
+// refused with 1024, while version and whoami answer. So a client with no
+// server connects without them, and the first Use registers the events.
+func TestConnect_WithNoServerRegistersTheEventsAtTheFirstUse(t *testing.T) {
+	d := newFakeDialer(true)
+	c, transport := connected(t, d, WithNickname("bot"), WithEvents(CategoryTextPrivate))
+	if got := transport.sentLines(); !slices.Equal(got, []string{"version", "whoami"}) {
+		t.Fatalf("connecting with no server sent %q, want version and whoami", got)
+	}
+
+	done := run(func() error { return c.Use(context.Background(), ByID(1), UseOptions{}) })
+	expect(t, d, "use")
+	transport.reply("error id=0 msg=ok")
+	expect(t, d, "whoami")
+	transport.reply("client_id=9", "error id=0 msg=ok")
+	if line := expect(t, d, "servernotifyregister"); line != "servernotifyregister event=textprivate" {
+		t.Errorf("sent %q", line)
+	}
+	transport.reply("error id=0 msg=ok")
+	expect(t, d, "clientlist")
+	transport.reply("clid=9 client_nickname=bot client_servergroups=6", "error id=0 msg=ok")
+	err := finish(t, done)
+	if err != nil {
+		t.Fatalf("Use: %v", err)
+	}
+
+	// Registered once: a later Use only reads the list again.
+	done = run(func() error { return c.Use(context.Background(), ByID(2), UseOptions{}) })
+	expect(t, d, "use")
+	transport.reply("error id=0 msg=ok")
+	expect(t, d, "whoami")
+	transport.reply("client_id=9", "error id=0 msg=ok")
+	expect(t, d, "clientlist")
+	transport.reply("clid=9 client_nickname=bot client_servergroups=6", "error id=0 msg=ok")
+	err = finish(t, done)
+	if err != nil {
+		t.Fatalf("second Use: %v", err)
 	}
 }
 

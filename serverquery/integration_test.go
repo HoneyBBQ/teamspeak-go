@@ -242,6 +242,35 @@ func TestQuery_TS3OverTCP(t *testing.T) {
 	t.Run("own channel kick", func(t *testing.T) { assertOwnChannelKick(t, c) })
 }
 
+// With no server selected the server refuses servernotifyregister and
+// clientlist (1024) and answers the instance-level commands, so a client with
+// no WithServer connects, and registers its events at the first Use.
+func TestQuery_TCPWithNoServerSelectsOneLater(t *testing.T) {
+	addr, login, password := tcpVars(t)
+	waitForOtherSuites()
+
+	c, err := serverquery.New(serverquery.TCPLogin(addr, login, password))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	open(t, c)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	servers, err := c.ListServers(ctx, teamspeak.ServerListOptions{})
+	if err != nil || len(servers) == 0 {
+		t.Fatalf("ListServers with no server selected: %d servers, %v", len(servers), err)
+	}
+	err = c.Use(ctx, serverquery.ByID(1), serverquery.UseOptions{})
+	if err != nil {
+		t.Fatalf("Use: %v", err)
+	}
+	rows, err := c.Exec(ctx, "whoami")
+	if err != nil || len(rows) != 1 || rows[0]["client_id"] == "" {
+		t.Fatalf("whoami after Use: %v, %v", rows, err)
+	}
+}
+
 // WebQuery, which TeamSpeak 3 (3.12 and later) and TeamSpeak 6 both serve, and
 // the one transport TS6 has on by default: the commands. No events: the
 // transport reports that it delivers none, so the On… methods for server events

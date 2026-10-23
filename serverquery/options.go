@@ -43,7 +43,7 @@ const (
 // WithServer selects the virtual server to address by id, as `use sid=N` does.
 // Without it the client selects no server: over TCP and SSH that addresses the
 // instance, which is enough for the instance-wide commands and not for the
-// rest. TeamSpeak 3's WebQuery runs every command on a virtual server even
+// rest; the events are registered by the first Use. TeamSpeak 3's WebQuery runs every command on a virtual server even
 // with none in the path, so an instance command such as queryloginadd answers
 // 1539 there; TeamSpeak 6's WebQuery reads it as the instance.
 //
@@ -74,7 +74,7 @@ func WithServerPort(port uint16) Option {
 
 // WithNickname sets the nickname the query connection takes, as clientupdate
 // does once a server is selected. Without it the server's default for the
-// account is kept.
+// account is kept, and with no WithServer or WithServerPort it is not used.
 //
 // Experimental: this package may change in a minor release.
 func WithNickname(nickname string) Option {

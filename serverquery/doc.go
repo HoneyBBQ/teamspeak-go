@@ -112,7 +112,11 @@
 //     release no longer shows it.
 //   - ftstop for a transfer that is not the connection's own. TeamSpeak 6
 //     6.0.0-beta13.1 crashes on a ServerQuery ftstop for a transfer that does
-//     not exist or belongs to another client.
+//     not exist or belongs to another client. A transfer of the connection's
+//     own that has finished, or that nobody connected to for about 10 seconds
+//     after it was negotiated, no longer exists either (measured on TeamSpeak
+//     3 3.13.8 and TeamSpeak 6 6.0.0), so stopping it then crashes TeamSpeak 6
+//     too.
 //     The SDK does nothing and [teamspeak.Commands.StopFileTransfer] says so.
 //     Code: none. Test: none, since the test would crash the server;
 //     TestQueryFiles_ActiveTransferStopped stops only its own. Removable when a
