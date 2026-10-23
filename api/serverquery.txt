@@ -288,6 +288,7 @@ field WebOptions.Client *http.Client
 type WebQueryHTTPError struct
 field WebQueryHTTPError.Message string
 field WebQueryHTTPError.ExtraMessage string
+field WebQueryHTTPError.FailedPermission string
 field WebQueryHTTPError.Status int
 field WebQueryHTTPError.Code errcode.Code
 method (*WebQueryHTTPError) Error() string

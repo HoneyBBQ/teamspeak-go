@@ -41,6 +41,13 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   is unchanged.
 - `(*Commands).UpdateClient` sends `ClientUpdateOptions.Nickname`. It was
   accepted and left out of the command.
+- A refusal over WebQuery now says which permission was missing.
+  `*teamspeak.ServerError` has a `FailedPermission` field, the permission's
+  name as WebQuery reports it in `status.failed_permission` (for example
+  `b_serverinstance_info_view` for a guest's `hostinfo`); `""` when the server
+  named none. WebQuery sends the name and no id, so it is kept as sent rather
+  than mapped to a `FailedPermID`, which the voice protocol and raw or SSH
+  ServerQuery still fill. `*serverquery.WebQueryHTTPError` carries it too.
 
 ## v1.0.0-beta.14 (2026-10-23)
 

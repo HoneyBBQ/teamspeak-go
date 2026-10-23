@@ -8,7 +8,7 @@ An error is one of two kinds:
 
 - **A refusal the server reports.** It is a `*teamspeak.ServerError` carrying
   the server's `Code`, `Message`, `ExtraMessage` and, for a refused permission
-  check, `FailedPermID`.
+  check, `FailedPermID` or, over WebQuery, `FailedPermission` (the name).
 - **A condition the SDK detects itself**: not connected, no data, a timeout,
   invalid input or configuration, a failed handshake, a failed file transfer.
   Each is a sentinel (`ErrNotConnected`, `ErrNoData`, ...) or, where the caller

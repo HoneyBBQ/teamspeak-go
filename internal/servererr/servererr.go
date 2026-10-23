@@ -26,5 +26,7 @@ func Parse(params map[string]string) *teamspeak.ServerError {
 		Message:      params["msg"],
 		ExtraMessage: params["extra_msg"],
 		FailedPermID: teamspeak.PermissionID(failedPermID),
+
+		FailedPermission: params["failed_permission"],
 	}
 }

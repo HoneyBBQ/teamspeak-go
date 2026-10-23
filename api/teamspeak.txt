@@ -1086,6 +1086,7 @@ field ServerEditedEvent.InvokerID ClientID
 type ServerError struct
 field ServerError.Message string
 field ServerError.ExtraMessage string
+field ServerError.FailedPermission string
 field ServerError.Code errcode.Code
 field ServerError.FailedPermID PermissionID
 method (*ServerError) Error() string
