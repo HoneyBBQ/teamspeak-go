@@ -682,3 +682,41 @@ func TestIntegration_MuteClientsStopsOnlyTheMutersHearing(t *testing.T) {
 	requireSilentAfterListMute(t, listener, speaker, bystander)
 	t.Logf("took %s", time.Since(start).Round(time.Millisecond))
 }
+
+// An empty frame is the end of speech: the server relays it to the other
+// clients in the channel, and it reaches a listener as an event with empty Data
+// after the frames that came before it.
+func TestIntegration_EndOfSpeechReachesAListenerAsEmptyData(t *testing.T) {
+	listener := liveClient(t, "eos-listener")
+	speaker := liveClient(t, "eos-speaker")
+	id := speaker.ClientID()
+
+	var mu sync.Mutex
+	var lengths []int
+	listener.OnVoiceData(func(e client.VoiceDataEvent) {
+		if e.ClientID != id {
+			return
+		}
+		mu.Lock()
+		lengths = append(lengths, len(e.Data))
+		mu.Unlock()
+	})
+
+	for range 5 {
+		requireNoErr(t, speaker.SendVoice(whisperFrame, teamspeak.CodecOpusVoice, client.VoiceOptions{}))
+		time.Sleep(20 * time.Millisecond)
+	}
+	requireNoErr(t, speaker.SendVoice(nil, teamspeak.CodecOpusVoice, client.VoiceOptions{}))
+	time.Sleep(time.Second)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(lengths) != 6 || lengths[5] != 0 {
+		t.Fatalf("the listener heard frames of %v bytes, want five frames and then an empty one", lengths)
+	}
+	for _, n := range lengths[:5] {
+		if n != len(whisperFrame) {
+			t.Fatalf("the listener heard frames of %v bytes, want %d each before the end", lengths, len(whisperFrame))
+		}
+	}
+}

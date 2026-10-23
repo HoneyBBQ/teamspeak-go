@@ -62,6 +62,10 @@ const (
 	voicePayloadBufferSize = 1027
 	smallPacketBufferSize  = 2
 	packetProcessQueueSize = 2048
+	// commandHoleTimeout is how long a command packet may stay missing while
+	// later ones wait for it. The server sends a command again until it is
+	// acknowledged, so a hole that stays this long is not going to fill.
+	commandHoleTimeout     = 5 * time.Second
 	resendBaseInterval     = 500 * time.Millisecond
 	resendLoopInterval     = 100 * time.Millisecond
 	headerSize             = 5
@@ -90,6 +94,11 @@ var (
 	// ErrNotOpen is returned by a send on a handler that has not started or
 	// has closed.
 	ErrNotOpen = errors.New("connection is not open")
+	// ErrCommandStalled is the cause a handler closes with when a command
+	// packet stayed missing for seconds while later ones arrived: the server
+	// sends a command until it is acknowledged, so the stream is broken, and
+	// carrying on without the command would lose an answer or a notification.
+	ErrCommandStalled = errors.New("connection stalled: a command from the server never arrived")
 	// ErrPacketHandling is the cause a handler closes with when handling a
 	// received packet panicked: the connection's state can no longer be
 	// trusted.
@@ -171,7 +180,14 @@ type PacketHandler struct {
 	OnPacket func(p *Packet)
 	TsCrypt  *crypto.Crypt
 	// readerDone is closed when the receive loop has stopped reading.
-	readerDone        chan struct{}
+	readerDone chan struct{}
+	// processDone is closed when the process loop has returned: nothing is
+	// delivered through OnPacket after it, and OnClosed waits for it.
+	processDone chan struct{}
+	// commandSendMu keeps the fragments of one command, and the packets of
+	// concurrent commands, from taking each other's ids: a command's packet ids
+	// are consecutive on the wire, or the server reassembles garbage.
+	commandSendMu     sync.Mutex
 	generationCounter [9]uint32
 	mu                sync.Mutex
 	// lifecycleMu orders Start and Close: a Close that races a Start either
@@ -203,6 +219,11 @@ type resendPacket struct {
 	lastSend     time.Time
 	retryCount   int
 	nextInterval time.Duration
+	// dummy is whether the packet went out under the dummy key. It is fixed at
+	// the first send: clientek goes out under it and crypto init completes right
+	// after, so a resend that chose again would use a key the server cannot
+	// decrypt with.
+	dummy bool
 }
 
 type decryptPacketResult struct {
@@ -219,6 +240,7 @@ func NewPacketHandler(tsCrypt *crypto.Crypt, logger *slog.Logger) *PacketHandler
 
 	h := &PacketHandler{
 		readerDone:             make(chan struct{}),
+		processDone:            make(chan struct{}),
 		TsCrypt:                tsCrypt,
 		logger:                 logger,
 		ackManager:             make(map[uint32]*resendPacket),
@@ -346,6 +368,10 @@ func (h *PacketHandler) SendPacket(pType byte, data []byte, flags byte) error {
 	if !h.IsOpen() {
 		return ErrNotOpen
 	}
+	if pType == byte(PacketTypeCommand) || pType == byte(PacketTypeCommandLow) {
+		h.commandSendMu.Lock()
+		defer h.commandSendMu.Unlock()
+	}
 	dummy := !h.TsCrypt.InitComplete()
 
 	// Fragment non-voice command payloads larger than one UDP frame (487 B body).
@@ -420,6 +446,7 @@ func (h *PacketHandler) sendPacket(pType byte, data []byte, flags byte, dummy bo
 		firstSend:    time.Now(),
 		lastSend:     time.Now(),
 		nextInterval: resendBaseInterval,
+		dummy:        dummy,
 	}
 	h.trackResendPacket(pType, p, rp)
 
@@ -438,6 +465,9 @@ func (h *PacketHandler) sendPong(pID uint16, dummy bool) error {
 func (h *PacketHandler) receiveLoop() {
 	var finalErr error
 	defer func() {
+		// After the process loop has returned: whatever it was delivering is
+		// delivered before the close is reported, never after.
+		<-h.processDone
 		if h.OnClosed != nil {
 			h.OnClosed(finalErr)
 		}
@@ -481,11 +511,19 @@ func (h *PacketHandler) receiveLoop() {
 }
 
 func (h *PacketHandler) processLoop() {
+	defer close(h.processDone)
 	for {
 		select {
 		case <-h.stopCh:
 			return
 		case pb := <-h.packetProcessCh:
+			// select picks at random when both are ready: a packet buffered
+			// before the close is not handled after it.
+			if h.closed.Load() {
+				putPooledBytes(&bufPool, pb.buf)
+
+				return
+			}
 			h.handleRawPacketSafely(pb.buf[:pb.n])
 			putPooledBytes(&bufPool, pb.buf)
 			if h.closed.Load() {
@@ -561,20 +599,6 @@ func (h *PacketHandler) handleRawPacket(raw []byte) {
 	h.updatePostReceiveState(p)
 }
 
-func (h *PacketHandler) getWinForType(pType PacketType) *GenerationWindow {
-	switch pType {
-	case PacketTypeCommand:
-		return h.recvWindowCommand
-	case PacketTypeCommandLow:
-		return h.recvWindowCommandLow
-	case PacketTypeVoice, PacketTypeVoiceWhisper, PacketTypePing, PacketTypePong,
-		PacketTypeAck, PacketTypeAckLow, PacketTypeInit1:
-		return nil
-	default:
-		return nil
-	}
-}
-
 func (h *PacketHandler) handlePacketQueue(p *Packet) {
 	pType := p.Type()
 	if pType != PacketTypeCommand && pType != PacketTypeCommandLow {
@@ -618,9 +642,6 @@ func (h *PacketHandler) takeReadyCommands(p *Packet) []*Packet {
 	}
 	queue[p.ID] = p
 	h.queuedBytes += len(p.Data)
-
-	// If the expected ID never arrives, skip it once a newer fragment has stalled long enough.
-	h.fastForwardMissingPackets(pType, queue, nextID)
 
 	var ready []*Packet
 	for {
@@ -915,29 +936,14 @@ func (h *PacketHandler) updatePostReceiveState(p *Packet) {
 	}
 }
 
-func (h *PacketHandler) fastForwardMissingPackets(
-	pType PacketType, queue map[uint16]*Packet, nextID *uint16,
-) {
-	for {
-		if _, ok := queue[*nextID]; ok {
-			return
-		}
-		if !hasOldNewerPacket(queue, *nextID) {
-			return
-		}
-		h.logger.Warn("skipping missing packet to unblock queue",
-			slog.Uint64("type", uint64(pType)),
-			slog.Uint64("missing_id", uint64(*nextID)))
-		*nextID++
-		if win := h.getWinForType(pType); win != nil {
-			win.Advance(1)
-		}
+// stalledHole reports whether a command packet is missing from queue
+// while a later one has waited for it for commandHoleTimeout.
+func stalledHole(queue map[uint16]*Packet, nextID uint16, now time.Time) bool {
+	if _, ok := queue[nextID]; ok {
+		return false
 	}
-}
-
-func hasOldNewerPacket(queue map[uint16]*Packet, nextID uint16) bool {
 	for id, pkg := range queue {
-		if (id-nextID) < 32768 && time.Since(pkg.ReceivedAt) > 5*time.Second {
+		if (id-nextID) < 32768 && now.Sub(pkg.ReceivedAt) > commandHoleTimeout {
 			return true
 		}
 	}
@@ -1162,11 +1168,16 @@ func (h *PacketHandler) ReceivedFinalInitAck() {
 func (h *PacketHandler) checkResends() {
 	h.mu.Lock()
 	now := time.Now()
-	needClose := false
+	var closeErr error
 
 	if now.Sub(h.lastMessageReceived) > PacketTimeout {
 		h.logger.Warn("idle timeout: no packets received", slog.Duration("timeout", PacketTimeout))
-		needClose = true
+		closeErr = ErrTimedOut
+	}
+	if stalledHole(h.commandQueue, h.nextCommandID, now) ||
+		stalledHole(h.commandLowQueue, h.nextCommandLowID, now) {
+		h.logger.Warn("a command from the server never arrived, closing the connection")
+		closeErr = ErrCommandStalled
 	}
 
 	if h.initPacketCheck != nil {
@@ -1175,15 +1186,15 @@ func (h *PacketHandler) checkResends() {
 	for key, rp := range h.ackManager {
 		if now.Sub(rp.firstSend) > PacketTimeout {
 			delete(h.ackManager, key)
-			needClose = true
+			closeErr = ErrTimedOut
 
 			break
 		}
 		h.doResend(rp, now)
 	}
 	h.mu.Unlock()
-	if needClose {
-		_ = h.closeWith(ErrTimedOut)
+	if closeErr != nil {
+		_ = h.closeWith(closeErr)
 	}
 }
 
@@ -1198,7 +1209,6 @@ func (h *PacketHandler) doResend(rp *resendPacket, now time.Time) {
 		}
 
 		unencrypted := (rp.packet.Flags()&PacketFlagUnencrypted != 0)
-		dummy := !h.TsCrypt.InitComplete()
 		header := rp.packet.BuildC2SHeader()
 		h.logger.Debug("resending packet",
 			slog.Uint64("type", uint64(rp.packet.Type())),
@@ -1206,7 +1216,7 @@ func (h *PacketHandler) doResend(rp *resendPacket, now time.Time) {
 			slog.Int("retry_count", rp.retryCount),
 			slog.Duration("next_interval", rp.nextInterval))
 		ciphertext, tag, _ := h.TsCrypt.Encrypt(
-			byte(rp.packet.Type()), rp.packet.ID, rp.packet.GenerationID, header, rp.packet.Data, dummy, unencrypted,
+			byte(rp.packet.Type()), rp.packet.ID, rp.packet.GenerationID, header, rp.packet.Data, rp.dummy, unencrypted,
 		)
 		final := make([]byte, tagSize+headerSize+len(ciphertext))
 		copy(final[0:8], tag)

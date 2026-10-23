@@ -36,6 +36,25 @@ func TestHandleVoicePacket_DispatchesSpeakerAndAudio(t *testing.T) {
 	}
 }
 
+// The server relays a client's empty frame, its end of speech, as a packet with
+// the header alone; it reaches handlers as an event with empty Data.
+func TestHandleVoicePacket_DeliversEndOfSpeechAsEmptyData(t *testing.T) {
+	c := newTestClient(t)
+	got := make(chan VoiceDataEvent, 1)
+	c.OnVoiceData(func(vd VoiceDataEvent) { got <- vd })
+
+	c.handleVoicePacket(voicePacket(42, 4, nil))
+
+	select {
+	case vd := <-got:
+		if vd.ClientID != 42 || vd.Codec != 4 || len(vd.Data) != 0 {
+			t.Errorf("got clid=%d codec=%d data=% x", vd.ClientID, vd.Codec, vd.Data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("OnVoiceData was not called for an empty frame")
+	}
+}
+
 func TestHandleVoicePacket_IgnoresOwnAudio(t *testing.T) {
 	c := newTestClient(t)
 	c.mu.Lock()

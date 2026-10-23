@@ -399,9 +399,6 @@ func indexOfOrFail(t *testing.T, s string, needle string) int {
 // rather than allowed to end the attempt (see the handshake package).
 func TestHandshakeFailureEndsTheAttemptWithErrHandshake(t *testing.T) {
 	cases := map[string]func(c *Client){
-		"empty init1": func(c *Client) {
-			c.handleInit1(c.handler, []byte{})
-		},
 		"a puzzle above the cap": func(c *Client) {
 			step := make([]byte, 1+64+64+4+100)
 			step[0] = 3
@@ -435,6 +432,36 @@ func TestHandshakeFailureEndsTheAttemptWithErrHandshake(t *testing.T) {
 			}
 			if name == "a puzzle above the cap" && !errors.Is(attempt.err, ErrPuzzleTooHard) {
 				t.Errorf("attempt ended with %v, want ErrPuzzleTooHard", attempt.err)
+			}
+		})
+	}
+}
+
+// Init1 is not authenticated, so a step of a known kind that cannot be
+// answered — empty, or the wrong length — is ignored, not allowed to end the
+// attempt: one forged datagram would otherwise end every connection.
+func TestMalformedInit1DoesNotEndTheAttempt(t *testing.T) {
+	for name, step := range map[string][]byte{
+		"empty":        {},
+		"step 0 short": make([]byte, 5),
+		"step 1 short": {1, 2, 3},
+		"step 2 short": {2},
+		"step 3 short": {3, 0, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := newHandshakingClient(t)
+			markConnecting(c)
+			attempt := c.attempt
+
+			c.handleInit1(c.handler, step)
+
+			select {
+			case <-attempt.done:
+				t.Fatalf("the attempt ended with %v, want it to go on", attempt.err)
+			case <-time.After(100 * time.Millisecond):
+			}
+			if got := c.Status(); got != StatusConnecting {
+				t.Errorf("status = %v, want connecting", got)
 			}
 		})
 	}

@@ -26,6 +26,7 @@ const ViewLoading ViewStatus = 1
 const ViewStale ViewStatus = 3
 var DefaultBackoffPolicy func() teamspeak.BackoffPolicy
 var ErrAlreadyConnected error
+var ErrConnectionStalled error
 var ErrConnectionTimeout error
 var ErrHandshake error
 var ErrInvalidAddress error

@@ -636,25 +636,6 @@ func TestHandlerReceivedFinalInitAck_ClearsInitPacketCheck(t *testing.T) {
 	}
 }
 
-func TestHandlerGetWinForType(t *testing.T) {
-	h, serverConn := newTestHandler(t)
-	defer func() { _ = h.Close() }()
-	_ = readPacket(t, serverConn)
-
-	if w := h.getWinForType(PacketTypeCommand); w == nil {
-		t.Error("expected non-nil window for PacketTypeCommand")
-	}
-	if w := h.getWinForType(PacketTypeCommandLow); w == nil {
-		t.Error("expected non-nil window for PacketTypeCommandLow")
-	}
-	if w := h.getWinForType(PacketTypePing); w != nil {
-		t.Errorf("expected nil window for PacketTypePing, got %v", w)
-	}
-	if w := h.getWinForType(PacketTypeVoice); w != nil {
-		t.Errorf("expected nil window for PacketTypeVoice, got %v", w)
-	}
-}
-
 func TestHandlerCheckResends_InitPacket_ReSent(t *testing.T) {
 	h, serverConn := newTestHandler(t)
 	defer func() { _ = h.Close() }()

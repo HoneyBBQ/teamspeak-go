@@ -12,6 +12,13 @@ import (
 // nothing arrived, or a packet went unacknowledged, for a minute.
 var ErrConnectionTimeout = transport.ErrTimedOut
 
+// ErrConnectionStalled reports a connection ended because a command packet
+// from the server stayed missing for seconds while later ones arrived. The
+// server sends a command again until it is acknowledged, so the stream was
+// broken; carrying on would have lost an answer or a notification, and a
+// reconnect starts from a consistent state.
+var ErrConnectionStalled = transport.ErrCommandStalled
+
 // ErrHandshake reports a connection attempt whose handshake failed: the server
 // sent a step the client could not use — malformed, out of range, or failing
 // verification — so the attempt ended there. Connect returns an error wrapping
