@@ -153,7 +153,7 @@ func TestUploadFileData_StopsWhenCancelled(t *testing.T) {
 		cancel()
 	}()
 
-	info := &teamspeak.FileUploadInfo{FileTransferKey: "key", Port: 30033}
+	info := &teamspeak.FileUploadInfo{FileTransferKey: "key", Port: 30033, Size: 1 << 20}
 	data := bytes.NewReader(make([]byte, 1<<20))
 	err := teamspeak.UploadFileData(ctx, "transfer.example", info, data, viaDialer(dialer))
 	if !errors.Is(err, context.Canceled) || !errors.Is(err, teamspeak.ErrFileTransfer) {
@@ -254,7 +254,7 @@ func TestUploadFileData_FailsWhenIdle(t *testing.T) {
 		// Then the server never reads the data.
 	}()
 
-	info := &teamspeak.FileUploadInfo{FileTransferKey: "key", Port: 30033}
+	info := &teamspeak.FileUploadInfo{FileTransferKey: "key", Port: 30033, Size: 4}
 	err := teamspeak.UploadFileData(t.Context(), "h", info, bytes.NewReader([]byte("data")), idleOptions(dialer))
 	requireIdleError(t, err)
 }

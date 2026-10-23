@@ -821,6 +821,7 @@ field DisconnectedEvent.WillReconnect bool
 type DownloadFileOptions struct
 field DownloadFileOptions.Transfer FileTransferOptions
 field DownloadFileOptions.Password string
+field DownloadFileOptions.SeekPosition uint64
 field DownloadFileOptions.MaxSize uint64
 type Event interface
 sealed Event
@@ -831,9 +832,9 @@ method (ExecutorFunc) Send(ctx context.Context, req Request) ([]map[string]strin
 type FileDownloadInfo struct
 field FileDownloadInfo.FileTransferKey string
 field FileDownloadInfo.Size uint64
+field FileDownloadInfo.SeekPosition uint64
 field FileDownloadInfo.ClientFileTransferID ClientFileTransferID
 field FileDownloadInfo.ServerFileTransferID ServerFileTransferID
-field FileDownloadInfo.IP string
 field FileDownloadInfo.Port uint16
 method (FileDownloadInfo) GoString() string
 method (FileDownloadInfo) LogValue() slog.Value
@@ -889,10 +890,10 @@ embed FileTreeEntry FileEntry
 field FileTreeEntry.Path string
 type FileUploadInfo struct
 field FileUploadInfo.FileTransferKey string
+field FileUploadInfo.Size uint64
 field FileUploadInfo.SeekPosition uint64
 field FileUploadInfo.ClientFileTransferID ClientFileTransferID
 field FileUploadInfo.ServerFileTransferID ServerFileTransferID
-field FileUploadInfo.IP string
 field FileUploadInfo.Port uint16
 method (FileUploadInfo) GoString() string
 method (FileUploadInfo) LogValue() slog.Value
@@ -1184,6 +1185,7 @@ type UploadFileOptions struct
 field UploadFileOptions.Transfer FileTransferOptions
 field UploadFileOptions.Password string
 field UploadFileOptions.Overwrite bool
+field UploadFileOptions.Resume bool
 type VirtualServer struct
 field VirtualServer.Name string
 field VirtualServer.Status string

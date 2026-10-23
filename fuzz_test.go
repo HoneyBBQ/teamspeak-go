@@ -33,6 +33,9 @@ func rowsFromText(text string) []map[string]string {
 // code that indexes, converts and allocates. Nothing a server answers may
 // panic, and a list has one entry per row.
 func FuzzTypedResponses(f *testing.F) {
+	f.Add("clientftfid=2 status=2051 msg=file\\snot\\sfound")
+	f.Add("clientftfid=2 status=99999999999999999999 msg=x ftkey=")
+	f.Add("clientftfid=2 serverftfid=1 ftkey=abc port=70000 seekpos=18446744073709551615 size=-1")
 	f.Add("clid=1 cid=2 client_nickname=a\\sb client_unique_identifier=abc= client_type=0|clid=3 cid=2")
 	f.Add("cid=1 pid=0 channel_name=Lobby channel_maxclients=-1 channel_icon_id=-2004712318|cid=2 pid=1")
 	f.Add("sgid=6 name=Guest type=1 iconid=300 savedb=1|sgid=7 name=Admin")
