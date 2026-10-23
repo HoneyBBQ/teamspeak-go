@@ -17,7 +17,7 @@ import (
 )
 
 // usable returns why streams cannot be used now: the Streams is closed, or the
-// server is not TeamSpeak 6.
+// server does not name STREAM_P2P among its extensions.
 func (s *Streams) usable() error {
 	s.mu.Lock()
 	closed := s.closed
@@ -25,8 +25,8 @@ func (s *Streams) usable() error {
 	if closed {
 		return ErrClosed
 	}
-	if caps := s.host.ServerCapabilities(); caps.Family != client.ServerFamilyTS6 {
-		return &UnsupportedError{Family: caps.Family, Version: caps.Version}
+	if caps := s.host.ServerCapabilities(); !caps.HasExtension(extensionP2P) {
+		return &UnsupportedError{Family: caps.Family, Version: caps.Version, Extensions: caps.Extensions}
 	}
 
 	return nil
@@ -36,7 +36,7 @@ func (s *Streams) observe() connState {
 	return connState{
 		self:   s.host.ClientID(),
 		status: s.host.Status(),
-		ts6:    s.host.ServerCapabilities().Family == client.ServerFamilyTS6,
+		p2p:    s.host.ServerCapabilities().HasExtension(extensionP2P),
 	}
 }
 
@@ -354,7 +354,7 @@ func (s *Streams) rescan() {
 // discoverLocked asks for the streams of a client that says it streams, once.
 // The answer is one notifystreaminfo per stream, which onNotification takes.
 func (s *Streams) discoverLocked(clid teamspeak.ClientID, c connState) {
-	if _, asked := s.asked[clid]; asked || clid == 0 || clid == c.self || !c.ts6 || c.status != client.StatusConnected {
+	if _, asked := s.asked[clid]; asked || clid == 0 || clid == c.self || !c.p2p || c.status != client.StatusConnected {
 		return
 	}
 	ctx, gen := s.conn, s.gen

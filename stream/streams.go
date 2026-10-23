@@ -178,7 +178,7 @@ func cmpLogger(l *slog.Logger) *slog.Logger {
 type connState struct {
 	status client.Status
 	self   teamspeak.ClientID
-	ts6    bool
+	p2p    bool
 }
 
 func endedOr(err error, id ID) error {
@@ -277,10 +277,11 @@ func (w *watch) settleLocked(view *View, err error) {
 	close(w.done)
 }
 
-// Supported reports whether the connected server can do streams: a TeamSpeak 6
-// server. It is false before the client has connected.
+// Supported reports whether the connected server says it does peer to peer
+// streams: its extensions name STREAM_P2P. It is false before the client has
+// connected.
 func (s *Streams) Supported() bool {
-	return s.host.ServerCapabilities().Family == client.ServerFamilyTS6
+	return s.host.ServerCapabilities().HasExtension(extensionP2P)
 }
 
 // List returns the streams known now, in the order they became known. What it

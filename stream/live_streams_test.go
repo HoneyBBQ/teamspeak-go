@@ -1078,7 +1078,8 @@ func TestLive_RefusesPublishAndWatchAtOnceWithoutSendingOnAServerWithoutStreams(
 	start := time.Now()
 	_, err := s.Publish(t.Context(), PublishOptions{Name: "nope"})
 	var unsupported *UnsupportedError
-	if !errors.As(err, &unsupported) || unsupported.Family != client.ServerFamilyTS3 || unsupported.Version == "" {
+	if !errors.As(err, &unsupported) || unsupported.Family != client.ServerFamilyTS3 || unsupported.Version == "" ||
+		len(unsupported.Extensions) != 0 {
 		t.Fatalf("Publish: %v", err)
 	}
 	_, err = s.Watch(t.Context(), "x", WatchOptions{ClientID: l.b.ClientID()})
