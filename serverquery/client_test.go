@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"reflect"
 	"strings"
 	"sync"
@@ -1119,5 +1120,19 @@ func TestNotification_EnterMoveAndLeaveCarryTheChannels(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("the leave was never delivered")
+	}
+}
+
+// A backoff that would retry in a tight loop is refused up front.
+func TestNew_RefusesABackoffThatCannotWork(t *testing.T) {
+	_, err := New(newFakeDialer(true), WithReconnect(teamspeak.ReconnectOptions{
+		Backoff: teamspeak.BackoffPolicy{Factor: math.NaN()},
+	}))
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Errorf("New with a NaN factor = %v, want ErrInvalidConfig", err)
+	}
+	_, err = New(newFakeDialer(true), WithReconnect(teamspeak.ReconnectOptions{}))
+	if err != nil {
+		t.Errorf("New with the zero policy = %v, want it accepted", err)
 	}
 }

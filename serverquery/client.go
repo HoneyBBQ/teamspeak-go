@@ -93,7 +93,8 @@ type serverTarget struct {
 //
 // It returns an error wrapping ErrInvalidConfig for a configuration it cannot
 // honour: no dialer, a login or a server over a transport that has neither, or
-// events asked for over a transport that cannot deliver them.
+// events asked for over a transport that cannot deliver them, or a reconnect
+// backoff that cannot work.
 //
 // Experimental: this package may change in a minor release.
 func New(d Dialer, opts ...Option) (*Client, error) {
@@ -132,6 +133,12 @@ func New(d Dialer, opts ...Option) (*Client, error) {
 // validateConfig checks the assembled configuration, returning an error
 // wrapping ErrInvalidConfig for a combination the transport cannot serve.
 func validateConfig(c *Client) error {
+	if c.reconnectOptions != nil {
+		err := c.reconnectOptions.Backoff.Validate()
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+		}
+	}
 	err := c.dialer.validate()
 	if err != nil {
 		return err

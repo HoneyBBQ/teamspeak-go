@@ -66,6 +66,7 @@ const TextMessageTargetClient TextMessageTarget = 1
 const TextMessageTargetServer TextMessageTarget = 3
 var ErrAlreadyConnected error
 var ErrFileTransfer error
+var ErrInvalidBackoff error
 var ErrInvalidCommand error
 var ErrInvalidUID error
 var ErrMissingDependency error
@@ -134,6 +135,7 @@ field BackoffPolicy.Factor float64
 field BackoffPolicy.Jitter float64
 field BackoffPolicy.MaxAttempts int
 method (BackoffPolicy) Delay(attempt int) time.Duration
+method (BackoffPolicy) Validate() error
 type BanClientOptions struct
 field BanClientOptions.Reason string
 field BanClientOptions.Duration time.Duration

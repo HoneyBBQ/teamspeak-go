@@ -1,6 +1,8 @@
 package teamspeak
 
 import (
+	"errors"
+	"math"
 	"testing"
 	"time"
 )
@@ -74,4 +76,63 @@ func TestServerFamilyForVersion(t *testing.T) {
 			t.Errorf("ServerFamilyForVersion(%q) = %q, want %q", tc.version, got, tc.want)
 		}
 	}
+}
+
+func TestBackoffPolicy_Validate(t *testing.T) {
+	nan := math.NaN()
+	refused := map[string]BackoffPolicy{
+		"negative initial":              {InitialDelay: -time.Second},
+		"negative max":                  {MaxDelay: -time.Second},
+		"max below initial":             {InitialDelay: time.Second, MaxDelay: time.Millisecond},
+		"max below the default initial": {MaxDelay: time.Millisecond},
+		"NaN factor":                    {Factor: nan},
+		"infinite factor":               {Factor: math.Inf(1)},
+		"factor that shrinks":           {Factor: 0.5},
+		"negative factor":               {Factor: -2},
+		"NaN jitter":                    {Jitter: nan},
+		"jitter above 1":                {Jitter: 1.5},
+		"negative attempts":             {MaxAttempts: -1},
+		"infinite negative jitter":      {Jitter: math.Inf(-1)},
+	}
+	for name, p := range refused {
+		err := p.Validate()
+		if !errors.Is(err, ErrInvalidBackoff) {
+			t.Errorf("%s: Validate(%+v) = %v, want ErrInvalidBackoff", name, p, err)
+		}
+	}
+	accepted := map[string]BackoffPolicy{
+		"zero value":            {},
+		"edges":                 {InitialDelay: 1, MaxDelay: 1, Factor: 1, Jitter: 1, MaxAttempts: 0},
+		"jitter off":            {Jitter: -1},
+		"default":               DefaultBackoffPolicy(),
+		"initial above default": {InitialDelay: 2 * time.Minute},
+	}
+	for name, p := range accepted {
+		err := p.Validate()
+		if err != nil {
+			t.Errorf("%s: Validate refused %+v: %v", name, p, err)
+		}
+	}
+}
+
+func FuzzBackoffPolicy_Validate(f *testing.F) {
+	f.Add(int64(time.Second), int64(time.Minute), 2.0, 0.2, 3)
+	f.Add(int64(0), int64(0), 0.0, 0.0, 0)
+	f.Add(int64(1), int64(1), math.NaN(), -1.0, 1)
+	f.Fuzz(func(t *testing.T, initial, maxDelay int64, factor, jitter float64, attempts int) {
+		p := BackoffPolicy{
+			InitialDelay: time.Duration(initial), MaxDelay: time.Duration(maxDelay),
+			Factor: factor, Jitter: jitter, MaxAttempts: attempts,
+		}
+		if p.Validate() != nil {
+			return
+		}
+		// A policy that passes gives delays within its ceiling, however odd.
+		ceiling := p.withDefaults().MaxDelay
+		for attempt := 1; attempt <= 5; attempt++ {
+			if d := p.Delay(attempt); d < 0 || d > ceiling {
+				t.Fatalf("Delay(%d) = %v, outside 0..%v for %+v", attempt, d, ceiling, p)
+			}
+		}
+	})
 }

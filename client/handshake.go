@@ -178,7 +178,7 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 			"client_input_muted":  "0",
 			"client_output_muted": "0",
 		})
-		if c.throttle.wait(ctx) == nil {
+		if c.throttle.wait(ctx) == nil && c.connectedHandler() == h {
 			_ = c.sendLine(h, updateCmd)
 		}
 	}()

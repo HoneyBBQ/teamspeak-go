@@ -126,7 +126,8 @@ func WithoutEvents() Option {
 // server saying the credentials or the server id are wrong, and repeating them
 // only risks the flood ban that TeamSpeak applies to an IP that connects too
 // often. That is the default ShouldRetry; supplying another replaces it
-// entirely.
+// entirely. New returns ErrInvalidConfig for a backoff that cannot work, see
+// teamspeak.BackoffPolicy.Validate.
 //
 // Experimental: this package may change in a minor release.
 func WithReconnect(options teamspeak.ReconnectOptions) Option {

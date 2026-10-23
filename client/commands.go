@@ -629,6 +629,11 @@ func (c *Client) ExecNoWait(ctx context.Context, cmd string) error {
 	if err != nil {
 		return err
 	}
+	// A Disconnect that began during the wait has said goodbye already: what
+	// still waited for its turn is not sent.
+	if c.connectedHandler() != h {
+		return teamspeak.ErrNotConnected
+	}
 	c.logger.DebugContext(ctx, "sending command without waiting", slog.String("command", commandName(cmd)))
 
 	return c.sendLine(h, cmd)
@@ -641,6 +646,11 @@ func (c *Client) ExecNoWait(ctx context.Context, cmd string) error {
 // already hashed.
 //
 // Without a deadline on ctx the command gives up after ten seconds.
+//
+// A command the server refuses as flooding (errcode.ClientIsFlooding) with a
+// time to wait is sent again after it, and every other command waits too, up
+// to three times and while ctx's deadline allows; the refusal that remains is
+// returned as it is.
 func (c *Client) Exec(ctx context.Context, cmd string) ([]map[string]string, error) {
 	return c.send(ctx, cmd)
 }
@@ -687,12 +697,16 @@ func (c *Client) execWithResponse(ctx context.Context, cmd string) ([]map[string
 		return nil, teamspeak.ErrNotConnected
 	}
 
-	return c.execOn(ctx, h, cmd)
+	return c.execOn(ctx, h, cmd, false)
 }
 
 // execOn sends a raw command on h and waits, until ctx is done, for its
-// answer.
-func (c *Client) execOn(ctx context.Context, h *transport.PacketHandler, cmd string) ([]map[string]string, error) {
+// answer. The goodbye of a Disconnect (goodbye) goes out at once, past the
+// flood throttle and with the status already Disconnected: queued behind other
+// commands it would not leave in time, and the server would keep the session.
+func (c *Client) execOn(
+	ctx context.Context, h *transport.PacketHandler, cmd string, goodbye bool,
+) ([]map[string]string, error) {
 	if !h.IsOpen() {
 		return nil, teamspeak.ErrNotConnected
 	}
@@ -718,6 +732,44 @@ func (c *Client) execOn(ctx context.Context, h *transport.PacketHandler, cmd str
 		correlation, hasCorrelation = parsed.Params[spec.Correlated.Key]
 	}
 
+	for refused := 0; ; refused++ {
+		rows, err := c.sendAndAwait(ctx, h, cmd, parsed, spec, correlation, hasCorrelation, goodbye)
+		// Refused as flooding with a time to wait, which the command can
+		// afford: nothing is sent until then, and the command, which the
+		// server did not run, goes out again.
+		wait, flooded := servererr.FloodRetryDelay(err)
+		if !flooded || goodbye || refused >= floodRetries || !affordable(ctx, wait) {
+			return rows, err
+		}
+		c.logger.DebugContext(ctx, "the server asked for a pause",
+			slog.String("command", parsed.Name), slog.Duration("wait", wait))
+		c.throttle.hold(wait + floodHoldMargin)
+	}
+}
+
+// floodRetries is how many times a command refused as flooding is sent again
+// after the pause the server asked for. The first resend is usually refused
+// once more with a shorter wait, and the second goes through (measured on
+// TeamSpeak 3 and 6).
+const floodRetries = 3
+
+// floodHoldMargin is added to the server's wait, which counts down to the
+// millisecond.
+const floodHoldMargin = 10 * time.Millisecond
+
+// affordable reports whether ctx lasts longer than wait.
+func affordable(ctx context.Context, wait time.Duration) bool {
+	deadline, ok := ctx.Deadline()
+
+	return !ok || wait < time.Until(deadline)
+}
+
+// sendAndAwait sends parsed, the command cmd, once under a return code of its
+// own, and waits until ctx is done for the answer the tracker pairs with it.
+func (c *Client) sendAndAwait(
+	ctx context.Context, h *transport.PacketHandler, cmd string, parsed *wire.Command,
+	spec *responseSpec, correlation string, hasCorrelation, goodbye bool,
+) ([]map[string]string, error) {
 	rc, ch := c.cmdTrack.register(spec, correlation, hasCorrelation)
 	defer c.cmdTrack.unregister(rc)
 	if spec != nil && spec.Correlated != nil && spec.Correlated.Key == "return_code" {
@@ -734,12 +786,19 @@ func (c *Client) execOn(ctx context.Context, h *transport.PacketHandler, cmd str
 	c.logger.DebugContext(ctx, "sending command",
 		slog.String("command", parsed.Name), slog.Uint64("return_code", uint64(rc)))
 
-	err := c.throttle.wait(ctx)
-	if err != nil {
-		return nil, err
+	if !goodbye {
+		err := c.throttle.wait(ctx)
+		if err != nil {
+			return nil, err
+		}
+		// A Disconnect that began during the wait has rejected what still
+		// waited; one released just before it must not be sent either.
+		if c.connectedHandler() != h {
+			return nil, teamspeak.ErrNotConnected
+		}
 	}
 
-	err = c.sendLine(h, fmt.Sprintf("%s return_code=%d", cmd, rc))
+	err := c.sendLine(h, fmt.Sprintf("%s return_code=%d", cmd, rc))
 	if err != nil {
 		return nil, err
 	}
