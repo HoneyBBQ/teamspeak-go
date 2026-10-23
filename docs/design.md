@@ -45,7 +45,7 @@ errors its own functions return:
 | Package | Errors |
 | --- | --- |
 | `teamspeak` (shared by every client) | `ErrServer` and `*ServerError`; `ErrNotConnected`, `ErrAlreadyConnected`, `ErrNoData`, `ErrFileTransfer`, `ErrInvalidCommand`, `ErrInvalidUID`, `ErrMissingDependency` |
-| `client` (voice only) | `ErrConnectionTimeout`, `ErrHandshake`, `ErrPuzzleTooHard`, `ErrInvalidAddress`, `ErrInvalidConfig`, the whisper target errors, `*RemovedError` (kick, ban or server stop) |
+| `client` (voice only) | `ErrConnectionTimeout`, `ErrConnectionStalled`, `ErrHandshake`, `ErrPuzzleTooHard`, `ErrInvalidAddress`, `ErrInvalidConfig`, the whisper target errors, `*RemovedError` (kick, ban or server stop) |
 | `serverquery` (query only) | `ErrInvalidConfig`, `ErrDial`, `ErrAuth`, `ErrNoGuestAccess`, `ErrHostKey`, `*WebQueryHTTPError` |
 | `stream` | `ErrClosed`, `ErrNotPending`, `ErrAlreadyWatching`, `ErrInvalidOptions`, `*UnsupportedError`, `*JoinDeniedError`, `*PayloadTooLargeError`, `*EndedError` (which also matches the server's 5635) |
 | `identity` | `ErrInvalidFormat`, `ErrInvalidLevel`, `ErrNotSerializable` |

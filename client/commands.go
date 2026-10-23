@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -363,6 +364,14 @@ func (c *Client) answerInit1(h *transport.PacketHandler, data []byte) {
 
 	response, err := handshake.ProcessInit1(ctx, h.TsCrypt, data)
 	if err != nil {
+		// Init1 is not authenticated: a step that cannot be answered is
+		// ignored, not a reason to end the attempt, or anyone could end it with
+		// one datagram. The real server's steps go on.
+		if errors.Is(err, handshake.ErrMalformedInit1) {
+			c.logger.Debug("ignoring a malformed Init1 step", slog.Any("error", err))
+
+			return
+		}
 		// An attempt that ended did so for its own reason; the abandoned
 		// solve has nothing more to report.
 		if ctx.Err() == nil {
@@ -769,8 +778,14 @@ func (c *Client) noteRename(cmd *wire.Command) {
 // prepends the speaker's client ID, so the payload is
 // [voiceID: u16][speakerID: u16][codec: u8][audio...]. Whisper target lists are
 // not echoed back.
+//
+// A packet with no audio is how a speaker's end of speech arrives: the server
+// relays the empty frame a client sends when it stops talking, and it is
+// delivered with empty Data. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6
+// 6.0.0: the frames of SendVoice arrive as 45-byte packets and an empty one as
+// a 5-byte packet.
 func (c *Client) handleVoicePacket(p *transport.Packet) {
-	if len(p.Data) < 6 {
+	if len(p.Data) < 5 {
 		return
 	}
 

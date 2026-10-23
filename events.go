@@ -226,7 +226,8 @@ type KickedEvent struct {
 // the voice protocol delivers it.
 type VoiceDataEvent struct {
 	// Data is the encoded audio, one frame in Codec. Each handler gets its own
-	// copy.
+	// copy. It is empty when the speaker stopped talking: that is the end of
+	// the speech, not a frame to decode.
 	Data []byte
 	// ClientID is the client speaking.
 	ClientID ClientID

@@ -3,6 +3,44 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- `ErrConnectionStalled` reports a connection ended because a command from the
+  server stayed missing for 5 seconds while later ones arrived. See Changed.
+- `VoiceDataEvent` with empty `Data` is a speaker's end of speech. The server
+  relays the empty frame a client sends with `SendVoice(nil, codec, ...)` as a
+  packet with no audio, and the client used to drop it. Skip it if you decode
+  every event's `Data`. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0.
+
+### Changed
+
+- A command that stays missing from the server's stream for 5 seconds while
+  later ones wait now ends the connection with `ErrConnectionStalled`; the
+  default reconnect policy retries it. The client used to skip the missing
+  command, losing an answer or a notification without a trace, and misparsing
+  the fragments after it when it was the first of them. The server sends a
+  command until it is acknowledged, so a hole that stays means a broken
+  connection.
+
+### Fixed
+
+- A `clientek` datagram that was lost no longer fails the connection. A packet
+  sent again goes out under the key it first went out under: `clientek` is sent
+  under the dummy key and crypto init completes right after, and its resend
+  took the session key, which the server cannot decrypt, so the handshake ran
+  into its timeout.
+- Concurrent `Exec` calls can no longer interleave a small command between the
+  fragments of a large one, which made the server reassemble garbage. A
+  command's packets now take their ids together.
+- No event is delivered after `disconnected`: the connection reports its close
+  only once the packet being handled is done, and a packet buffered behind the
+  close is not handled.
+- A malformed `Init1` step no longer ends a connection attempt. It carries no
+  authentication, so one forged datagram could end every attempt; the step is
+  ignored, as the TypeScript SDK does.
+
 ## v1.0.0-beta.15 (2026-10-23)
 
 ### Added
