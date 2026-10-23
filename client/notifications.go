@@ -171,9 +171,10 @@ func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *wire.Com
 	// the server drops the connection for command-resend timeout.
 	switch {
 	case info.ID == c.clid:
-		// Carries the rename the server applied if our nickname was taken.
+		// Carries the rename the server applied if our nickname was taken; the
+		// nickname asked for stays as it was.
 		c.nickname = info.Nickname
-	case c.clid == 0 && isAutoNicknameMatch(c.nickname, info.Nickname):
+	case c.clid == 0 && isAutoNicknameMatch(c.requestedNickname, info.Nickname):
 		// initserver carried no aclid, so the welcome enter is the only way
 		// to learn our clid. Once known, a later lookalike cannot take over.
 		c.clid = info.ID
@@ -326,6 +327,8 @@ func (c *Client) handleClientUpdated(h *transport.PacketHandler, cmd *wire.Comma
 		c.clients[evt.ClientID] = evt.Changes.Apply(info)
 		c.view.revision++
 	}
+	// The server may rename a client, this one included. That changes the name
+	// it reports, not the one this client asks for on reconnecting.
 	if evt.ClientID == c.clid && evt.Changes.Nickname != nil {
 		c.nickname = *evt.Changes.Nickname
 	}

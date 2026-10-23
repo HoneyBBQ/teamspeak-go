@@ -267,6 +267,7 @@ type ClientUpdateOptions struct {
 // UpdateClient changes our own client state (nickname, mute, away, …).
 func (c *Commands) UpdateClient(ctx context.Context, opts ClientUpdateOptions) error {
 	return c.exec(ctx, "clientupdate", []param{
+		strPtrArg("client_nickname", opts.Nickname),
 		boolPtrArg("client_input_muted", opts.IsInputMuted),
 		boolPtrArg("client_output_muted", opts.IsOutputMuted),
 		boolPtrArg("client_away", opts.IsAway),
