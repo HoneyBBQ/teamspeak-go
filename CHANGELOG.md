@@ -58,6 +58,10 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   icon `3009859579`), which was read as no icon, so `ChannelEditedEvent` and
   the view reported 0. It now reads as the same id as `channelinfo`'s unsigned
   form and `servergrouplist`'s signed one, wherever an icon id is parsed.
+- A ServerQuery client now reads the channel of each client in the listing it
+  takes on connecting. A `clientlist` row names the channel `cid`, which was
+  not read, so every client in that roster was in channel 0 until a move or an
+  enter notification replaced its record.
 
 ## v1.0.0-beta.14 (2026-10-23)
 

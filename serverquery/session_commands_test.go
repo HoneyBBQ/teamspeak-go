@@ -65,6 +65,69 @@ func (c *Client) knownSelf() (teamspeak.ClientID, int) {
 	return c.selfID, len(c.clients)
 }
 
+// knownClient is the roster's record of a client.
+func (c *Client) knownClient(id teamspeak.ClientID) (teamspeak.ClientEntry, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.clients[id]
+
+	return entry, ok
+}
+
+// awaitRoster polls until the roster's record of id satisfies ok: a
+// notification reaches it on the reader's goroutine, after the test sent it.
+func awaitRoster(t *testing.T, c *Client, id teamspeak.ClientID, ok func(teamspeak.ClientEntry, bool) bool) {
+	t.Helper()
+	deadline := time.Now().Add(eventWait)
+	for {
+		entry, found := c.knownClient(id)
+		if ok(entry, found) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the roster's record of %d is %+v (known: %t)", id, entry, found)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// A clientlist row names the channel cid, where an enter notification names it
+// ctid, so the roster reads both. The row is the shape the server answers with.
+func TestUse_RosterHoldsTheChannelAListRowNames(t *testing.T) {
+	d := newFakeDialer(true)
+	c, transport := connected(t, d)
+
+	done := run(func() error { return c.Use(context.Background(), ByID(2), UseOptions{}) })
+	expect(t, d, "use")
+	transport.reply("error id=0 msg=ok")
+	expect(t, d, "whoami")
+	transport.reply("client_id=9", "error id=0 msg=ok")
+	expect(t, d, "clientlist")
+	transport.reply(
+		"clid=9 cid=1 client_database_id=2 client_nickname=bot client_type=1 "+
+			"client_unique_identifier=botuid= client_servergroups=2|"+
+			"clid=5 cid=3 client_database_id=14 client_nickname=Ann client_type=0 "+
+			"client_unique_identifier=annuid= client_servergroups=6,9",
+		"error id=0 msg=ok")
+	err := finish(t, done)
+	if err != nil {
+		t.Fatalf("Use: %v", err)
+	}
+
+	if entry, ok := c.knownClient(5); !ok || entry.ChannelID != 3 || entry.Nickname != "Ann" {
+		t.Fatalf("roster holds %+v (known: %t), want Ann in channel 3", entry, ok)
+	}
+	if entry, ok := c.knownClient(9); !ok || entry.ChannelID != 1 {
+		t.Errorf("roster holds %+v (known: %t), want the query client in channel 1", entry, ok)
+	}
+
+	// A move updates the record, and a leave drops it.
+	transport.lines <- `notifyclientmoved cfid=3 clid=5 ctid=6 reasonid=1 invokerid=2 invokername=a invokeruid=u`
+	awaitRoster(t, c, 5, func(e teamspeak.ClientEntry, ok bool) bool { return ok && e.ChannelID == 6 })
+	transport.lines <- `notifyclientleftview cfid=6 clid=5 ctid=0 reasonid=8 reasonmsg=Shutdown`
+	awaitRoster(t, c, 5, func(_ teamspeak.ClientEntry, ok bool) bool { return !ok })
+}
+
 func TestLogin_SendsTheLoginEscaped(t *testing.T) {
 	d := newFakeDialer(true)
 	c, transport := connected(t, d)
