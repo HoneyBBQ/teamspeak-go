@@ -79,6 +79,10 @@ type ServerError struct {
 	Message string
 	// ExtraMessage is detail the server adds to some refusals (extra_msg).
 	ExtraMessage string
+	// FailedPermission is the missing permission's name, as WebQuery reports it
+	// (failed_permission); "" when the server named none. The voice protocol
+	// and raw or SSH ServerQuery report an id instead, in FailedPermID.
+	FailedPermission string
 	// Code is the server's error code.
 	Code errcode.Code
 	// FailedPermID is the permission a refused permission check failed on, when

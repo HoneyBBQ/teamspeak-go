@@ -258,6 +258,64 @@ func TestWeb_OtherRefusalsAreNotAMissingGuestAccess(t *testing.T) {
 	}
 }
 
+// WebQuery names the permission it refused on, and sends no id; the error
+// keeps the name as it came.
+func TestWeb_RefusalKeepsTheFailedPermissionName(t *testing.T) {
+	const refusal = `"message":"insufficient client permissions"`
+	for name, tc := range map[string]struct{ extra, want string }{
+		"named":   {`,"failed_permission":"b_serverinstance_info_view"`, "b_serverinstance_info_view"},
+		"unnamed": {``, ""},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/hostinfo") {
+				_, _ = w.Write([]byte(`{"status":{"code":2568,` + refusal + tc.extra + `}}`))
+
+				return
+			}
+			_, _ = w.Write([]byte(`{"status":{"code":0,"message":"ok"},"body":[{"version":"6"}]}`))
+		}))
+		t.Cleanup(srv.Close)
+		c, err := New(WebGuest(srv.URL), WithServer(1))
+		if err != nil {
+			t.Fatalf("%s: New: %v", name, err)
+		}
+		err = c.Connect(t.Context())
+		if err != nil {
+			t.Fatalf("%s: Connect: %v", name, err)
+		}
+		_, err = c.GetHostInfo(t.Context())
+		se, ok := errors.AsType[*teamspeak.ServerError](err)
+		if !ok || se.Code != errcode.PermissionsClientInsufficient ||
+			se.FailedPermission != tc.want || se.FailedPermID != 0 {
+			t.Errorf("%s: hostinfo = %#v, want 2568 with FailedPermission %q and no id", name, err, tc.want)
+		}
+		_ = c.Disconnect(t.Context())
+	}
+}
+
+// An HTTP error that carries the status keeps the name too.
+func TestWeb_HTTPRefusalKeepsTheFailedPermissionName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"status":{"code":2568,"message":"insufficient client permissions",` +
+			`"failed_permission":"b_x"}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(WebGuest(srv.URL), WithServer(1))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	err = c.Connect(t.Context())
+	httpErr, ok := errors.AsType[*WebQueryHTTPError](err)
+	if !ok || httpErr.FailedPermission != "b_x" {
+		t.Fatalf("Connect = %v, want a WebQueryHTTPError naming b_x", err)
+	}
+	se, ok := errors.AsType[*teamspeak.ServerError](err)
+	if !ok || se.FailedPermission != "b_x" {
+		t.Errorf("the wrapped ServerError = %#v, want FailedPermission b_x", se)
+	}
+}
+
 // webRecorder answers WebQuery requests and records whether a key came.
 func webRecorder(t *testing.T) (string, func() []http.Header) {
 	t.Helper()

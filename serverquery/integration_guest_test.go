@@ -111,6 +111,15 @@ func TestQueryGuest_OverWebQuery(t *testing.T) {
 	if got := serverCode(err); got != codeOutOfScope {
 		t.Errorf("apikeylist as a guest = %v, want code %d (out of scope)", err, codeOutOfScope)
 	}
+
+	// A permission-gated command is refused with 2568, and WebQuery names the
+	// missing permission rather than giving its id.
+	_, err = c.GetHostInfo(ctx)
+	refused, ok := errors.AsType[*teamspeak.ServerError](err)
+	if !ok || refused.Code != errcode.PermissionsClientInsufficient ||
+		refused.FailedPermission != "b_serverinstance_info_view" || refused.FailedPermID != 0 {
+		t.Errorf("hostinfo as a guest = %#v, want 2568 naming b_serverinstance_info_view", err)
+	}
 }
 
 // A wrong key is not a guest: the server refuses it, so a mistyped key never

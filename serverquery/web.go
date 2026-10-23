@@ -349,6 +349,7 @@ func httpFailure(path string, status int, answer *webAnswer, decodeErr error) er
 			failure.Code = errcode.Code(code)
 			failure.Message = answer.Status.Message
 			failure.ExtraMessage = answer.Status.ExtraMessage
+			failure.FailedPermission = answer.Status.FailedPermission
 			failure.hasCode = true
 		}
 	}
@@ -366,7 +367,7 @@ func httpFailure(path string, status int, answer *webAnswer, decodeErr error) er
 // [*teamspeak.ServerError] as on every transport. It answers some with an HTTP
 // error as well: 401 for a wrong, missing or out-of-scope api key, and 400 for
 // a body it cannot read. When the body carries the server's status, the error
-// holds it as Code, Message and ExtraMessage, and wraps the same
+// holds it as Code, Message, ExtraMessage and FailedPermission, and wraps the same
 // [*teamspeak.ServerError], so errors.Is on an [errcode.Code] and errors.As to
 // a [*teamspeak.ServerError] match as they do for a 200. An answer with no
 // WebQuery body, such as a proxy's 502 or 404, has only Status, and the error
@@ -378,6 +379,9 @@ type WebQueryHTTPError struct {
 	Message string
 	// ExtraMessage is the body's extra_message, "" when it carried none.
 	ExtraMessage string
+	// FailedPermission is the body's failed_permission, the name of the missing
+	// permission, "" when it carried none.
+	FailedPermission string
 	// Status is the HTTP status code of the answer.
 	Status int
 	// Code is the server's error code from the body. It is meaningful only when
@@ -387,7 +391,7 @@ type WebQueryHTTPError struct {
 }
 
 // HasCode reports whether the answer carried a WebQuery status, which Code,
-// Message and ExtraMessage then hold.
+// Message, ExtraMessage and FailedPermission then hold.
 func (e *WebQueryHTTPError) HasCode() bool { return e.hasCode }
 
 // Error describes the status and, when there is one, the server's refusal.
@@ -410,7 +414,8 @@ func (e *WebQueryHTTPError) Unwrap() error {
 }
 
 func (e *WebQueryHTTPError) serverError() *teamspeak.ServerError {
-	return &teamspeak.ServerError{Code: e.Code, Message: e.Message, ExtraMessage: e.ExtraMessage}
+	return &teamspeak.ServerError{Code: e.Code, Message: e.Message, ExtraMessage: e.ExtraMessage,
+		FailedPermission: e.FailedPermission}
 }
 
 // push hands an answer's rows and its error line to the reader, in that order.
@@ -437,6 +442,8 @@ type webAnswer struct {
 		Code         *json.Number `json:"code"`
 		Message      string       `json:"message"`
 		ExtraMessage string       `json:"extra_message"`
+		// FailedPermission is the permission's name; WebQuery sends no id.
+		FailedPermission string `json:"failed_permission"`
 	} `json:"status"`
 	Body []map[string]any `json:"body"`
 }
@@ -451,6 +458,9 @@ func (a *webAnswer) errorLine() string {
 	}
 	if a.Status.ExtraMessage != "" {
 		params = append(params, [2]string{"extra_msg", a.Status.ExtraMessage})
+	}
+	if a.Status.FailedPermission != "" {
+		params = append(params, [2]string{"failed_permission", a.Status.FailedPermission})
 	}
 
 	return wire.BuildCommandOrdered("error", params)
