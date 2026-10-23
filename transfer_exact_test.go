@@ -193,6 +193,7 @@ func TestUploadFile_ResumeSendsOnlyWhatTheServerDoesNotHold(t *testing.T) {
 	srv.rows["ftinitupload"] = []map[string]string{{
 		"clientftfid": "1", "serverftfid": "2", "ftkey": testKey, "port": "30033", "seekpos": "3",
 	}}
+	srv.rows["ftgetfileinfo"] = []map[string]string{{"name": "a", "size": "5", "datetime": "0", "type": "1"}}
 	var got []byte
 	srv.serve = func(conn net.Conn) {
 		got = make([]byte, 2)

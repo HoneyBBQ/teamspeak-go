@@ -371,6 +371,13 @@ func DialFileTransfer(
 	return conn, nil
 }
 
+// neverConnectedError is a dial that failed before the connection opened, so
+// nothing reached the server: not the key, and no byte of the file. Not one the
+// caller's context ended, nor one after the connection opened.
+type neverConnectedError struct{ error }
+
+func (e *neverConnectedError) Unwrap() error { return e.error }
+
 // dialFileTransfer dials addr and sends the transfer key.
 func dialFileTransfer(ctx context.Context, addr, key string, opts FileTransferOptions) (net.Conn, error) {
 	dialer := opts.Dialer
@@ -380,7 +387,12 @@ func dialFileTransfer(ctx context.Context, addr, key string, opts FileTransferOp
 
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("%w: dial %s: %w", ErrFileTransfer, addr, err)
+		err = fmt.Errorf("%w: dial %s: %w", ErrFileTransfer, addr, err)
+		if ctx.Err() == nil {
+			err = &neverConnectedError{err}
+		}
+
+		return nil, err
 	}
 
 	err = runOnConn(ctx, conn, func() error {
@@ -414,6 +426,13 @@ func dialFileTransfer(ctx context.Context, addr, key string, opts FileTransferOp
 // 6.0.0: the server closes about 200 ms after the last byte of a 100000-byte
 // file. A connection that closes before every byte is written fails the
 // upload, and so does one that stays open for the idle timeout.
+//
+// A close after the last byte is not proof that the file is stored: the server
+// sends nothing on the transfer connection, and over the voice protocol its
+// status notification comes only for a failure (2066 canceled, 2063 lost
+// connection, 2052 more than declared), after the close, never for success;
+// over ServerQuery nothing comes. Commands.UploadFile therefore asks the
+// server for the file's size before it returns.
 //
 // If ctx is done first the connection is closed and the upload stops with an
 // error wrapping ctx's error. An upload waiting on data's Read notices at its
