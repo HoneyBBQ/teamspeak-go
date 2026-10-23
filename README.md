@@ -2,7 +2,7 @@
   <a href="https://pkg.go.dev/github.com/honeybbq/teamspeak-go">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/HoneyBBQ/teamspeak-go/main/docs/assets/banner-dark.svg">
-      <img alt="teamspeak-go" src="https://raw.githubusercontent.com/HoneyBBQ/teamspeak-go/main/docs/assets/banner-light.svg" width="480">
+      <img alt="teamspeak-go" src="https://raw.githubusercontent.com/HoneyBBQ/teamspeak-go/main/docs/assets/banner-light.svg" width="460">
     </picture>
   </a>
 </p>
