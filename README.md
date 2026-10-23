@@ -9,7 +9,7 @@
 
 <p align="center">
   <strong>An independent TeamSpeak client protocol library written in pure Go.</strong><br>
-  Works with TeamSpeak 3 and TeamSpeak 6 servers. No proprietary SDK, no copied code.
+  Works with TeamSpeak 3 and TeamSpeak 6 servers. No proprietary SDK or code.
 </p>
 
 <p align="center">
@@ -147,6 +147,6 @@ See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for setup and checks.
 
 <sub>TeamSpeak is a registered trademark of [TeamSpeak Systems, Inc.](https://teamspeak.com/). This project is not affiliated with, endorsed by, or associated with TeamSpeak Systems, Inc. in any way.</sub>
 
-<sub>This library is an **independent implementation** built from public documentation, observation of network traffic, and independent research. It contains no TeamSpeak proprietary code, headers, libraries, or binaries.</sub>
+<sub>This library is an **independent implementation** built from public documentation, open-source implementations, observation of network traffic, and independent research. It contains no TeamSpeak proprietary code, headers, libraries, or binaries.</sub>
 
 <sub>The project implements the client side only and does not implement a TeamSpeak server.</sub>
