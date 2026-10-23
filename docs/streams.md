@@ -169,6 +169,11 @@ Things to know:
   it reports the stop, so a stop that arrives in that time ends the stream with
   its own cause and reason instead, and a flag set again cancels the drop.
 - The bitrate the server reports for a stream is not the one requested.
+- `Info.Transport` is the `mode` the server reports. Only peer to peer
+  (`TransportP2P`, 1) has been seen, and it is what `Publish` always sets up.
+  `Watch` returns a `*TransportUnsupportedError`, before sending anything, for
+  a stream whose reported transport is another; a stream with none reported is
+  tried.
 - A client announces that it streams only with `client_is_streaming`, and a
   stream that was running before you came is not announced at all. `Streams`
   asks for the streams of each client that sets the flag, once, on a

@@ -16,6 +16,15 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 - `ServerView.ServerName()`, `ServerIconID()` and `ServerBannerImageURL()` read
   the server's name, icon and banner from the view, which follows the server's
   edits.
+- `stream.Info.Transport` reports how a stream's media travels, from the `mode`
+  the server sends with a stream's announcement and info, nil when it never
+  did. `stream.TransportP2P` (1) is the only value named; another is reported
+  with its number and reads as `Transport(2)`.
+- `Watch` returns a `*stream.TransportUnsupportedError`, with the `StreamID` and
+  the `Transport`, before sending anything, for a stream whose reported
+  transport is not `TransportP2P`: its signalling is not one this package
+  carries. A stream with no reported transport is tried as before. Catch it
+  with `errors.As`.
 
 ### Changed
 

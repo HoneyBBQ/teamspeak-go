@@ -497,25 +497,33 @@ func (s *Streams) Publish(ctx context.Context, opts PublishOptions) (*Published,
 // a *JoinDeniedError when the publisher refuses, an *EndedError when the id is
 // not one this client has heard of and no ClientID was given, or the stream ends
 // first (or is gone: error 5635), an *UnsupportedError on a server without
-// streams, ErrAlreadyWatching for a stream already asked for, and the server's
-// own error otherwise, among them 5638 (errcode.StreamAlreadyJoined) when this
-// client already asked. When the wait ends with ctx, the request is withdrawn.
+// streams, a *TransportUnsupportedError, before sending anything, for a stream
+// whose Info.Transport the server reported and is not TransportP2P (one with no
+// reported transport is tried), ErrAlreadyWatching for a stream already asked
+// for, and the server's own error otherwise, among them 5638
+// (errcode.StreamAlreadyJoined) when this client already asked. When the wait
+// ends with ctx, the request is withdrawn.
 func (s *Streams) Watch(ctx context.Context, id ID, opts WatchOptions) (*View, error) {
 	err := s.usable()
 	if err != nil {
 		return nil, err
 	}
 	streamer := opts.ClientID
-	if streamer == 0 {
-		s.mu.Lock()
-		info := s.known(id)
-		if info != nil {
+	s.mu.Lock()
+	info := s.known(id)
+	var transport *Transport
+	if info != nil {
+		transport = clonePtr(info.Transport)
+		if streamer == 0 {
 			streamer = info.ClientID
 		}
-		s.mu.Unlock()
-		if info == nil {
-			return nil, &EndedError{StreamID: id}
-		}
+	}
+	s.mu.Unlock()
+	if info == nil && streamer == 0 {
+		return nil, &EndedError{StreamID: id}
+	}
+	if transport != nil && *transport != TransportP2P {
+		return nil, &TransportUnsupportedError{StreamID: id, Transport: *transport}
 	}
 
 	return s.watch(ctx, id, streamer, opts)

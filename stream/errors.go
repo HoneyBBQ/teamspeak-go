@@ -56,6 +56,23 @@ func (e *UnsupportedError) Error() string {
 	return "stream: streams need a TeamSpeak 6 server; this is " + what
 }
 
+// TransportUnsupportedError reports that a stream's media does not travel the
+// way this package carries it: the signalling here is for peer to peer
+// streams, and the server reported another transport for this one. Watch
+// returns it before sending anything.
+type TransportUnsupportedError struct {
+	// StreamID is the stream that was asked for.
+	StreamID ID
+	// Transport is the transport the server reported for it.
+	Transport Transport
+}
+
+// Error names the stream and its transport.
+func (e *TransportUnsupportedError) Error() string {
+	return fmt.Sprintf("stream: stream %s uses transport %s; only %s streams can be watched",
+		e.StreamID, e.Transport, TransportP2P)
+}
+
 // JoinDeniedError reports that a stream's owner refused a request to watch it.
 // Watch returns it.
 //

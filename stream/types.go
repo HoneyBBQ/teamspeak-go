@@ -76,6 +76,32 @@ func (a Accessibility) String() string {
 // known reports whether the protocol has a name for a.
 func (a Accessibility) known() bool { return int(a) < len(accessibilityNames) }
 
+// Transport is how a stream's media travels, the mode the server reports for
+// it. The server stores any number, so a stream from a client that sends
+// another value is reported with that number.
+type Transport uint32
+
+// The transports the protocol names. Only peer to peer has been seen: the
+// server accepts no other mode when a stream is set up.
+const (
+	// TransportP2P is media that goes directly between the publisher and each
+	// viewer, with the server relaying only the signalling.
+	TransportP2P Transport = 1
+)
+
+// String names the transport, such as "p2p". A number with no name reads as
+// "Transport(2)".
+func (t Transport) String() string {
+	if t == TransportP2P {
+		return "p2p"
+	}
+
+	return "Transport(" + strconv.FormatUint(uint64(t), 10) + ")"
+}
+
+// known reports whether the protocol has a name for t.
+func (t Transport) known() bool { return t == TransportP2P }
+
 // Info is a stream as the server describes it.
 //
 // A nil pointer field means the server never reported the value, which is not
@@ -90,6 +116,10 @@ type Info struct {
 	Bitrate *int
 	// Accessibility is who the stream says may watch it.
 	Accessibility *Accessibility
+	// Transport is how the stream's media travels, as the server reports it;
+	// nil when it never did. Watch refuses a stream whose transport is known
+	// and is not TransportP2P.
+	Transport *Transport
 	// ViewerLimit is the viewer limit the publisher set; 0 is none. The server
 	// does not enforce it.
 	ViewerLimit *int
@@ -114,6 +144,7 @@ func (i Info) clone() Info {
 	i.Source = clonePtr(i.Source)
 	i.Bitrate = clonePtr(i.Bitrate)
 	i.Accessibility = clonePtr(i.Accessibility)
+	i.Transport = clonePtr(i.Transport)
 	i.ViewerLimit = clonePtr(i.ViewerLimit)
 	i.Viewers = clonePtr(i.Viewers)
 
@@ -124,8 +155,8 @@ func (i Info) clone() Info {
 func (i Info) equal(o Info) bool {
 	return i.ID == o.ID && i.ClientID == o.ClientID && i.Name == o.Name && i.Audio == o.Audio &&
 		ptrEqual(i.Source, o.Source) && ptrEqual(i.Bitrate, o.Bitrate) &&
-		ptrEqual(i.Accessibility, o.Accessibility) && ptrEqual(i.ViewerLimit, o.ViewerLimit) &&
-		ptrEqual(i.Viewers, o.Viewers)
+		ptrEqual(i.Accessibility, o.Accessibility) && ptrEqual(i.Transport, o.Transport) &&
+		ptrEqual(i.ViewerLimit, o.ViewerLimit) && ptrEqual(i.Viewers, o.Viewers)
 }
 
 func clonePtr[T any](p *T) *T {

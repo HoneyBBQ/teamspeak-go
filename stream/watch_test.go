@@ -102,6 +102,42 @@ func TestWatch_RejectsAnIdItKnowsNothingOfWithoutSending(t *testing.T) {
 	})
 }
 
+func TestWatch_RefusesAStreamWhoseTransportIsNotPeerToPeerWithoutSending(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		started := announcement("a", 5)
+		started["mode"] = "2"
+		e.h.notify(notify.StreamStarted, started)
+		e.settle()
+
+		// Neither the stream's own publisher nor one given by hand gets past it.
+		for _, opts := range []WatchOptions{{}, {ClientID: 5}} {
+			_, err := e.s.Watch(t.Context(), "a", opts)
+			var unsupported *TransportUnsupportedError
+			if !errors.As(err, &unsupported) || unsupported.StreamID != "a" || unsupported.Transport != 2 || e.h.count() != 0 {
+				t.Fatalf("err = %v, sent %d", err, e.h.count())
+			}
+		}
+		_, err := e.s.Watch(t.Context(), "a", WatchOptions{})
+		if !strings.Contains(err.Error(), "Transport(2)") {
+			t.Errorf("err = %v", err)
+		}
+	})
+}
+
+func TestWatch_TriesAStreamWhoseTransportWasNeverReported(t *testing.T) {
+	run(t, func(t *testing.T, e *env) {
+		started := announcement("a", 5)
+		delete(started, "mode")
+		e.h.notify(notify.StreamStarted, started)
+		e.settle()
+		done := e.startWatch(t.Context())
+		e.respond(nil)
+		if r := <-done; r.err != nil {
+			t.Errorf("Watch: %v", r.err)
+		}
+	})
+}
+
 func TestWatch_RejectsWithThePublishersMessageWhenItDenies(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		e.streamOf5()
