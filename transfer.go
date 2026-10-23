@@ -9,6 +9,8 @@ import (
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/honeybbq/teamspeak-go/internal/ftdial"
 )
 
 // defaultFileTransferIdleTimeout is FileTransferOptions.IdleTimeout when it is
@@ -371,13 +373,6 @@ func DialFileTransfer(
 	return conn, nil
 }
 
-// neverConnectedError is a dial that failed before the connection opened, so
-// nothing reached the server: not the key, and no byte of the file. Not one the
-// caller's context ended, nor one after the connection opened.
-type neverConnectedError struct{ error }
-
-func (e *neverConnectedError) Unwrap() error { return e.error }
-
 // dialFileTransfer dials addr and sends the transfer key.
 func dialFileTransfer(ctx context.Context, addr, key string, opts FileTransferOptions) (net.Conn, error) {
 	dialer := opts.Dialer
@@ -389,7 +384,7 @@ func dialFileTransfer(ctx context.Context, addr, key string, opts FileTransferOp
 	if err != nil {
 		err = fmt.Errorf("%w: dial %s: %w", ErrFileTransfer, addr, err)
 		if ctx.Err() == nil {
-			err = &neverConnectedError{err}
+			err = &ftdial.NeverConnectedError{Err: err}
 		}
 
 		return nil, err

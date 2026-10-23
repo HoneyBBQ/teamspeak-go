@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/errcode"
+	"github.com/honeybbq/teamspeak-go/internal/ftdial"
 )
 
 // File transfer commands.
@@ -479,26 +480,17 @@ func (c *Commands) UploadFile(
 	return c.verifyStored(ctx, channelID, path, uint64(len(data)), opts)
 }
 
-// stopTransferWithin is how soon after the negotiation a transfer whose dial
-// failed is stopped. The server drops a transfer nobody dialled after about 10
-// seconds (measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0: gone from the
-// active list at 10.05 s, and the voice client told 2059), and ftstop of a
-// transfer the server no longer has crashes TeamSpeak 6, so a stop is only sent
-// well inside that.
-var stopTransferWithin = 5 * time.Second
-
 // stopIfNeverDialled stops the negotiated transfer when err is a dial that
 // never got a connection, refused or timed out: nothing has reached the server,
 // and the transfer would sit in its list until it expires. As the MaxSize
 // refusal does, the stop is best effort and its failure never replaces err. It
 // is not sent once the connection opened (the key may be written and the
 // server may have dropped the transfer), after the caller's context ended the
-// dial, nor later than stopTransferWithin after the negotiation.
+// dial, nor later than ftdial.StopWithin after the negotiation.
 func (c *Commands) stopIfNeverDialled(
 	ctx context.Context, id ServerFileTransferID, negotiated time.Time, err error,
 ) {
-	var refused *neverConnectedError
-	if !errors.As(err, &refused) || time.Since(negotiated) >= stopTransferWithin {
+	if !ftdial.ShouldStop(err, negotiated) {
 		return
 	}
 	_ = c.StopFileTransfer(context.WithoutCancel(ctx), id, FileTransferStopOptions{})

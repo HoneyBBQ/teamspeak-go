@@ -37,6 +37,10 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   for about 10 seconds (measured on both servers). The dial's error is still the
   one returned. Nothing is sent once the connection opened, or when the caller's
   context ended the dial.
+- `(*client.Client).UploadAvatar` and `UploadIcon` do the same: a refused
+  connection stops the negotiated transfer, and the stored file is checked once
+  the server closes the connection. The avatar is checked under the name the
+  server stores it as, which it derives from the uploader's uid.
 
 ## v1.0.0-beta.16 (2026-10-23)
 

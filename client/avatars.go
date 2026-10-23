@@ -6,10 +6,13 @@ import (
 	"crypto/md5" //nolint:gosec // the avatar's name on the wire is its MD5, not a security use
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/errcode"
 	"github.com/honeybbq/teamspeak-go/internal/discovery"
+	"github.com/honeybbq/teamspeak-go/internal/ftdial"
 )
 
 // Host is the host this client connects to, as it was given, without the
@@ -21,14 +24,44 @@ func (c *Client) Host() string {
 	return host
 }
 
-// upload negotiates an upload into channel 0 and sends data.
-func (c *Client) upload(ctx context.Context, name string, data []byte, opts teamspeak.FileTransferOptions) error {
+// upload negotiates an upload into channel 0 as name, sends data, and checks
+// that the server holds it as stored, the name it keeps the file under. As
+// Commands.UploadFile does, a transfer whose connection was never made is
+// stopped, and the stored size is asked for once the server closed the
+// connection, since a stopped transfer closes it the same way.
+func (c *Client) upload(
+	ctx context.Context, name, stored string, data []byte, opts teamspeak.FileTransferOptions,
+) error {
 	info, err := c.InitFileUpload(ctx, 0, name, uint64(len(data)), teamspeak.FileUploadOptions{Overwrite: true})
 	if err != nil {
 		return err
 	}
+	negotiated := time.Now()
+	err = teamspeak.UploadFileData(ctx, c.Host(), info, bytes.NewReader(data), opts)
+	if err != nil {
+		if ftdial.ShouldStop(err, negotiated) {
+			_ = c.StopFileTransfer(context.WithoutCancel(ctx), info.ServerFileTransferID,
+				teamspeak.FileTransferStopOptions{})
+		}
 
-	return teamspeak.UploadFileData(ctx, c.Host(), info, bytes.NewReader(data), opts)
+		return err
+	}
+	got, err := c.GetFileInfo(ctx, 0, stored, teamspeak.FileOptions{})
+	switch {
+	case errors.Is(err, errcode.PermissionsClientInsufficient):
+		return nil
+	// 2051 on TeamSpeak 6, 2052 on TeamSpeak 3 for a file that is not there.
+	case errors.Is(err, errcode.FileNotFound), errors.Is(err, errcode.FileIOError):
+		return fmt.Errorf("%w: the server closed the upload but has no file %s: %w",
+			teamspeak.ErrFileTransfer, stored, err)
+	case err != nil:
+		return err
+	case got.Size != uint64(len(data)):
+		return fmt.Errorf("%w: the server closed the upload but holds %d of the %d bytes of %s",
+			teamspeak.ErrFileTransfer, got.Size, len(data), stored)
+	}
+
+	return nil
 }
 
 // download fetches a file of channel 0. The bool is false when there is no
@@ -70,7 +103,11 @@ func (c *Client) download(
 func (c *Client) UploadAvatar(ctx context.Context, data []byte, opts teamspeak.FileTransferOptions) (string, error) {
 	sum := md5.Sum(data) //nolint:gosec // see the import
 	digest := hex.EncodeToString(sum[:])
-	err := c.upload(ctx, "/avatar_"+digest, data, opts)
+	stored, err := teamspeak.AvatarFileName(c.UID())
+	if err != nil {
+		return "", err
+	}
+	err = c.upload(ctx, "/avatar_"+digest, "/"+stored, data, opts)
 	if err != nil {
 		return "", err
 	}
@@ -114,7 +151,7 @@ func (c *Client) UploadIcon(
 	ctx context.Context, data []byte, opts teamspeak.FileTransferOptions,
 ) (teamspeak.IconID, error) {
 	id := teamspeak.IconIDOf(data)
-	err := c.upload(ctx, teamspeak.IconFileName(id), data, opts)
+	err := c.upload(ctx, teamspeak.IconFileName(id), teamspeak.IconFileName(id), data, opts)
 	if err != nil {
 		return 0, err
 	}

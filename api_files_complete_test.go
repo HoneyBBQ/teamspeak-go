@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/honeybbq/teamspeak-go/errcode"
+	"github.com/honeybbq/teamspeak-go/internal/ftdial"
 )
 
 // fileScript answers each command from the table, and counts the commands.
@@ -177,9 +178,9 @@ func TestFileCalls_DoNotStopWhenTheCallersContextEndedTheDial(t *testing.T) {
 // ftstop of a transfer the server has already dropped crashes TeamSpeak 6, and
 // it drops one nobody dialled after about 10 seconds.
 func TestFileCalls_DoNotStopATransferTheServerProbablyDropped(t *testing.T) {
-	old := stopTransferWithin
-	stopTransferWithin = 0
-	t.Cleanup(func() { stopTransferWithin = old })
+	old := ftdial.StopWithin
+	ftdial.StopWithin = 0
+	t.Cleanup(func() { ftdial.StopWithin = old })
 
 	s := &fileScript{rows: negotiatedRows("ftinitdownload")}
 	_, err := NewCommands(s).DownloadFile(t.Context(), "h", 1, "/a",
