@@ -1099,15 +1099,16 @@ func TestNotification_EnterMoveAndLeaveCarryTheChannels(t *testing.T) {
 
 	select {
 	case e := <-enter:
-		if e.FromChannelID != 0 || e.Reason != teamspeak.ReasonSubscription || e.ChannelID != 6 {
-			t.Errorf("enter = from %d, %v, in %d", e.FromChannelID, e.Reason, e.ChannelID)
+		if e.FromChannelID == nil || *e.FromChannelID != 0 || e.Reason == nil ||
+			*e.Reason != teamspeak.ReasonSubscription || e.ChannelID != 6 {
+			t.Errorf("enter = from %v, %v, in %d", e.FromChannelID, e.Reason, e.ChannelID)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("the enter was never delivered")
 	}
 	select {
 	case e := <-moved:
-		if e.FromChannelID != 1 || e.TargetChannelID != 6 {
+		if e.FromChannelID == nil || *e.FromChannelID != 1 || e.TargetChannelID != 6 {
 			t.Errorf("move = %+v", e)
 		}
 	case <-time.After(2 * time.Second):
@@ -1115,7 +1116,7 @@ func TestNotification_EnterMoveAndLeaveCarryTheChannels(t *testing.T) {
 	}
 	select {
 	case e := <-left:
-		if e.FromChannelID != 6 || e.TargetChannelID != 0 {
+		if e.FromChannelID == nil || *e.FromChannelID != 6 || e.TargetChannelID == nil || *e.TargetChannelID != 0 {
 			t.Errorf("leave = %+v", e)
 		}
 	case <-time.After(2 * time.Second):
@@ -1134,5 +1135,55 @@ func TestNew_RefusesABackoffThatCannotWork(t *testing.T) {
 	_, err = New(newFakeDialer(true), WithReconnect(teamspeak.ReconnectOptions{}))
 	if err != nil {
 		t.Errorf("New with the zero policy = %v, want it accepted", err)
+	}
+}
+
+// Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0: a client's own move
+// names no invoker, and TeamSpeak 3 sends no cfid on any move. The event leaves
+// the invoker empty and reads where the client came from in the client list,
+// which the move then updates.
+func TestNotification_MoveWithoutCfidOrInvokerComesFromTheList(t *testing.T) {
+	d := newFakeDialer(true)
+	c := newClient(t, d)
+
+	done := make(chan error, 1)
+	go func() { done <- c.Connect(context.Background()) }()
+	transport := d.answer(t)
+	err := <-done
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	moved := make(chan teamspeak.ClientMovedEvent, 3)
+	c.OnClientMoved(func(e teamspeak.ClientMovedEvent) { moved <- e })
+
+	transport.lines <- `notifycliententerview cfid=0 ctid=2 reasonid=0 clid=13 client_nickname=B client_type=0`
+	transport.lines <- `notifyclientmoved ctid=4 reasonid=0 clid=13`
+	transport.lines <- `notifyclientmoved ctid=2 reasonid=1 invokerid=11 invokername=Admin invokeruid=adm clid=13`
+	transport.lines <- `notifyclientmoved ctid=5 reasonid=0 clid=99`
+
+	next := func() teamspeak.ClientMovedEvent {
+		t.Helper()
+		select {
+		case e := <-moved:
+			return e
+		case <-time.After(2 * time.Second):
+			t.Fatal("a move was never delivered")
+
+			return teamspeak.ClientMovedEvent{}
+		}
+	}
+	own := next()
+	if own.FromChannelID == nil || *own.FromChannelID != 2 || own.TargetChannelID != 4 {
+		t.Errorf("own move = %+v, want from 2 to 4", own)
+	}
+	if own.InvokerID != 0 || own.InvokerName != "" || own.InvokerUID != "" {
+		t.Errorf("own move names an invoker: %+v", own)
+	}
+	admin := next()
+	if admin.FromChannelID == nil || *admin.FromChannelID != 4 || admin.InvokerID != 11 || admin.InvokerName != "Admin" {
+		t.Errorf("admin move = %+v, want from 4 by Admin", admin)
+	}
+	if unknown := next(); unknown.FromChannelID != nil {
+		t.Errorf("a client never seen moved from %d, want no origin", *unknown.FromChannelID)
 	}
 }

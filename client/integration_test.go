@@ -209,7 +209,7 @@ func requireSharedClient(t *testing.T) *client.Client {
 			// Compare via the client rather than a precomputed UID: the hash
 			// depends on the server version (TS3 SHA-1, TS6 SHA-256), which is
 			// only known once the handshake has read initserver.
-			if info.UID != "" && info.UID == c.UID() {
+			if info.UID != nil && *info.UID == c.UID() {
 				select {
 				case sharedClientEnter <- info:
 				default:
@@ -437,7 +437,7 @@ func TestIntegration_ListClientsTimes(t *testing.T) {
 	if self.Created.IsZero() || time.Since(self.Created) < 0 {
 		t.Errorf("Created = %v, want a time in the past", self.Created)
 	}
-	if self.IdleTime < 0 || self.IdleTime > 10*time.Minute {
+	if self.IdleTime == nil || *self.IdleTime < 0 || *self.IdleTime > 10*time.Minute {
 		t.Errorf("IdleTime = %v, want under the suite's own run time", self.IdleTime)
 	}
 }

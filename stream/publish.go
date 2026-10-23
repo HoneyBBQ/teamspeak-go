@@ -186,8 +186,10 @@ func (p *Published) requestLocked(clid teamspeak.ClientID, message string, entry
 		return
 	}
 	w := &lookup{message: message, viewer: Viewer{ClientID: clid}}
-	if entry != nil {
-		w.viewer = Viewer{ClientID: clid, UID: entry.UID, Nickname: entry.Nickname}
+	// An entry without a uid is not enough to announce the viewer: the uid is
+	// what the lookup would add.
+	if entry != nil && entry.UID != nil {
+		w.viewer = Viewer{ClientID: clid, UID: *entry.UID, Nickname: entry.Nickname}
 		w.ready = true
 	}
 	p.resolving[clid] = w

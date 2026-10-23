@@ -696,7 +696,7 @@ func (c *Client) viewWaiting() bool {
 
 func scribbleChannel(ch *teamspeak.Channel) { ch.Name = "changed" }
 
-func scribbleClient(e *teamspeak.ClientEntry) { e.IsAway = true }
+func scribbleClient(e *teamspeak.ClientEntry) { e.IsAway = new(true) }
 
 // Nothing the caller does to a view, or to what it returns, reaches the client
 // or the next view.
@@ -745,7 +745,7 @@ func TestViewIsACopy(t *testing.T) {
 		}
 	}
 	for _, e := range got.Clients() {
-		if e.Nickname == "changed" || e.ServerGroups[0] == 999 || e.IsAway {
+		if e.Nickname == "changed" || e.ServerGroups[0] == 999 || e.IsAway != nil {
 			t.Errorf("client %+v", e)
 		}
 	}

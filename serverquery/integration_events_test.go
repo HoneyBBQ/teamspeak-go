@@ -80,7 +80,8 @@ func TestQueryEvents_MoveAndEnter(t *testing.T) {
 		})
 		voice := voiceClient(t, nickname)
 		enter := entered()
-		isVoice := enter.Type == teamspeak.ClientTypeVoice && enter.UID == voice.UID() && enter.ID == voice.ClientID()
+		isVoice := enter.Type == teamspeak.ClientTypeVoice && enter.UID != nil && *enter.UID == voice.UID() &&
+			enter.ID == voice.ClientID()
 		if !isVoice || enter.ChannelID == 0 {
 			t.Errorf("the enter event = %+v, want voice client %d (%s) in a channel",
 				enter.ClientEntry, voice.ClientID(), voice.UID())

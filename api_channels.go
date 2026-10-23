@@ -27,9 +27,6 @@ type Channel struct {
 	Name string
 	// Topic is the topic shown under the name (channel_topic).
 	Topic string
-	// Description is the channel description (channel_description). channellist
-	// does not carry it, so ListChannels leaves it empty; GetChannelInfo has it.
-	Description string
 	// ID is the channel's id (cid).
 	ID ChannelID
 	// ParentID is the channel this one sits under, or 0 at the top level.
@@ -84,6 +81,13 @@ type Channel struct {
 	// GetChannelInfo fills the ones channelinfo has, and a channel notification
 	// carries only those that changed.
 
+	// Description is the channel description (channel_description). Neither
+	// channellist nor a channel notification carries it, so ListChannels and
+	// the voice client's view leave it nil, and ChannelDescriptionChangedEvent
+	// says it changed without the text; GetChannelInfo has it, and so does the
+	// voice client's GetChannelDescription. A pointer to "" is a channel with
+	// none.
+	Description *string
 	// CodecLatencyFactor is the codec's latency factor
 	// (channel_codec_latency_factor).
 	CodecLatencyFactor *int32
@@ -142,7 +146,6 @@ func parseChannel(row map[string]string) Channel {
 		ParentID:             ChannelID(parent),
 		Name:                 fieldStr(row, "channel_name"),
 		Topic:                fieldStr(row, "channel_topic"),
-		Description:          fieldStr(row, "channel_description"),
 		Order:                ChannelID(fieldUint(row, "channel_order")),
 		HasPassword:          fieldBool(row, "channel_flag_password"),
 		IsDefault:            fieldBool(row, "channel_flag_default"),
@@ -172,6 +175,7 @@ func parseChannel(row map[string]string) Channel {
 		EmptyFor:                    fieldOptEmptyFor(row, "seconds_empty"),
 		StorageQuota:                fieldOptUint64(row, "channel_storage_quota"),
 		FilePath:                    fieldStr(row, "channel_filepath"),
+		Description:                 fieldOptStr[string](row, "channel_description"),
 	}
 }
 

@@ -226,8 +226,8 @@ func TestListClients_Icon(t *testing.T) {
 	}
 	// The server sends an icon id as an unsigned 32-bit number, or as the same
 	// bits signed.
-	if got[0].IconID != 4294967295 {
-		t.Errorf("IconID = %d, want 4294967295", got[0].IconID)
+	if got[0].IconID == nil || *got[0].IconID != 4294967295 {
+		t.Errorf("IconID = %v, want 4294967295", got[0].IconID)
 	}
 
 	line := encoded(t, func(c *Commands) error {

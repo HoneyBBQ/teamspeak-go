@@ -20,55 +20,66 @@ type Properties map[string]string
 // structs made the list and event paths disagree about what a client is —
 // including the type of ServerGroups.
 type ClientEntry struct {
-	// Created, LastConnected and IdleTime are reported only by ListClients
-	// with ClientListOptions.Times; otherwise they are zero.
-	//
-	// Created is when the client first connected to this server.
+	// Created is when the client first connected to this server
+	// (client_created); the zero time when the answer did not carry it, which
+	// ListClients does with ClientListOptions.Times, and when the server sends
+	// 0 for never.
 	Created time.Time
-	// LastConnected is when the client last connected before this session.
+	// LastConnected is when the client last connected before this session
+	// (client_lastconnected); the zero time as Created is.
 	LastConnected time.Time
-	// IdleTime is how long since the client last did anything, reported in
-	// milliseconds (client_idle_time).
-	IdleTime time.Duration
 	// Nickname is the client's nickname (client_nickname).
 	Nickname string
-	// UID is the client's identity (client_unique_identifier); "" when
-	// ListClients ran with OmitUID.
-	UID UID
-	// ServerGroups are the group ids this client holds. Ids rather than names:
-	// the server sends ids, and resolving them costs a separate call.
-	ServerGroups []ServerGroupID
 	// ChannelID is the channel the client is in (cid, or ctid when it entered
 	// view).
 	ChannelID ChannelID
-	// ChannelGroupID is the client's channel group in that channel
-	// (client_channel_group_id).
-	ChannelGroupID ChannelGroupID
 	// Type is whether the client is a voice client or a ServerQuery connection
-	// (client_type).
+	// (client_type). Every list and every enter notification carries it.
 	Type ClientType
+	// DatabaseID is the client's database id (client_database_id). Every list
+	// and every enter notification carries it.
+	DatabaseID ClientDBID
 	// ID is the client's id for this session (clid); it changes on every
 	// connection.
 	ID ClientID
-	// IsAway reports a client marked away (client_away).
-	IsAway bool
+	// ServerGroups are the group ids this client holds. Ids rather than names:
+	// the server sends ids, and resolving them costs a separate call. It is nil
+	// when the answer did not carry the groups, which ListClients does with
+	// ClientListOptions.Groups, and an empty list for a client that holds none.
+	ServerGroups []ServerGroupID
+
+	// The fields below are nil, or the zero value for IdleTime, where the answer
+	// did not carry them, which is not the same as false, 0 or "": a client that
+	// is not away and one whose away state was not asked for are different, and
+	// a nil flag does not claim the first. A list brings only what its flags
+	// ask for (the comment of each says which), and a few properties are in no
+	// list at all. A client entered by notifycliententerview carries all of
+	// them but Created, LastConnected, IdleTime, Version, Platform and IP, which
+	// only a list brings.
+
+	// UID is the client's identity (client_unique_identifier). ListClients
+	// brings it unless run with OmitUID.
+	UID *UID
+	// ChannelGroupID is the client's channel group in its channel
+	// (client_channel_group_id). ListClients brings it with
+	// ClientListOptions.Groups.
+	ChannelGroupID *ChannelGroupID
+	// IsAway reports a client marked away (client_away). ListClients brings it
+	// with ClientListOptions.Away.
+	IsAway *bool
 	// IsRecording reports a client that is recording (client_is_recording).
-	IsRecording bool
+	// ListClients brings it with ClientListOptions.Voice.
+	IsRecording *bool
 	// IsTalker reports a client granted talk power (client_is_talker).
-	IsTalker bool
-
-	// The fields below are nil, empty or 0 where the answer did not carry
-	// them, which is not the same as false or 0: a list brings only what its
-	// flags ask for (the comment of each says which), and a few properties are
-	// in no list at all. A client entered by notifycliententerview carries
-	// most of them; Version, Platform and IP only a list brings.
-
-	// DatabaseID is the client's database id (client_database_id); 0 when the
-	// answer did not carry it.
-	DatabaseID ClientDBID
-	// AwayMessage is the away message (client_away_message); empty when none or
-	// not carried. ListClients brings it with ClientListOptions.Away.
-	AwayMessage string
+	// ListClients brings it with ClientListOptions.Voice.
+	IsTalker *bool
+	// IdleTime is how long since the client last did anything, reported in
+	// milliseconds (client_idle_time). ListClients brings it with
+	// ClientListOptions.Times.
+	IdleTime *time.Duration
+	// AwayMessage is the away message (client_away_message); a pointer to ""
+	// for none. ListClients brings it with ClientListOptions.Away.
+	AwayMessage *string
 	// IsInputMuted reports a muted microphone (client_input_muted). ListClients
 	// brings it with ClientListOptions.Voice.
 	IsInputMuted *bool
@@ -105,22 +116,23 @@ type ClientEntry struct {
 	TalkRequestedAt time.Time
 	// TalkRequestMessage is the message sent with a talk request
 	// (client_talk_request_msg). No list brings it.
-	TalkRequestMessage string
+	TalkRequestMessage *string
 	// Description is the client's description (client_description). No list
 	// brings it.
-	Description string
+	Description *string
 	// MetaData is the client's free-form meta data (client_meta_data). No list
 	// brings it.
-	MetaData string
-	// Avatar is the MD5 of the client's avatar, empty for none
+	MetaData *string
+	// Avatar is the MD5 of the client's avatar, a pointer to "" for none
 	// (client_flag_avatar). No list brings it.
-	Avatar string
-	// IconID is the client's icon, or 0 for none (client_icon_id). Only
-	// ListClients with ClientListOptions.Icon brings it among the lists.
-	IconID IconID
+	Avatar *string
+	// IconID is the client's icon (client_icon_id); nil for none as well as for
+	// an answer that did not carry it. Only ListClients with
+	// ClientListOptions.Icon brings it among the lists.
+	IconID *IconID
 	// NicknamePhonetic is how the nickname is pronounced
 	// (client_nickname_phonetic). No list brings it.
-	NicknamePhonetic string
+	NicknamePhonetic *string
 	// UnreadMessages is how many offline messages the client has unread
 	// (client_unread_messages). No list brings it.
 	UnreadMessages *int32
@@ -129,41 +141,43 @@ type ClientEntry struct {
 	// brings it; the server sends it after every group change.
 	NeededServerQueryViewPower *int32
 	// ChannelGroupInheritedChannelID is the channel the client's channel group
-	// is inherited from (client_channel_group_inherited_channel_id); 0 when
-	// not carried. ListClients brings it with ClientListOptions.Groups.
-	ChannelGroupInheritedChannelID ChannelID
-	// Country is the client's country code (client_country). ListClients
-	// brings it with ClientListOptions.Country.
-	Country string
+	// is inherited from (client_channel_group_inherited_channel_id).
+	// ListClients brings it with ClientListOptions.Groups.
+	ChannelGroupInheritedChannelID *ChannelID
+	// Country is the client's country code (client_country); a pointer to ""
+	// for a client with none. ListClients brings it with
+	// ClientListOptions.Country.
+	Country *string
 	// Version is the client's version string (client_version). ListClients
 	// brings it with ClientListOptions.Info; a client entering view does not
 	// carry it.
-	Version string
+	Version *string
 	// Platform is the client's platform (client_platform). ListClients brings
 	// it with ClientListOptions.Info; a client entering view does not carry it.
-	Platform string
+	Platform *string
 	// IP is the client's address (connection_client_ip). ListClients brings it
-	// with ClientListOptions.IP.
-	IP string
+	// with ClientListOptions.IP; a client entering view does not carry it.
+	IP *string
 	// Badges are the client's badges (client_badges). ListClients brings them
 	// with ClientListOptions.Badges.
-	Badges string
+	Badges *string
 	// SignedBadges are the client's signed badges (client_signed_badges). No
 	// list brings them.
-	SignedBadges string
+	SignedBadges *string
 	// MyTeamSpeakID is the client's MyTeamSpeak id (client_myteamspeak_id). No
 	// list brings it.
-	MyTeamSpeakID string
+	MyTeamSpeakID *string
 	// MyTeamSpeakAvatar is the client's MyTeamSpeak avatar
 	// (client_myteamspeak_avatar). No list brings it.
-	MyTeamSpeakAvatar string
+	MyTeamSpeakAvatar *string
 	// Integrations are the client's linked integrations (client_integrations).
 	// No list brings them.
-	Integrations string
-	// UserTag is the client's user tag (client_user_tag); TeamSpeak 6 only.
-	UserTag string
+	Integrations *string
+	// UserTag is the client's user tag (client_user_tag); TeamSpeak 6 only, and
+	// no list brings it.
+	UserTag *string
 	// IsStreaming reports a client that is streaming (client_is_streaming);
-	// TeamSpeak 6 only.
+	// TeamSpeak 6 only, and no list brings it.
 	IsStreaming *bool
 }
 

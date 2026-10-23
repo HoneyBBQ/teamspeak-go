@@ -30,22 +30,21 @@ import (
 // a cliententerview row can carry.
 func ClientEnter(params map[string]string) teamspeak.ClientEntry {
 	clientType, _ := ParseInt(params["client_type"])
-	channelGroup, _ := ParseUint64(params["client_channel_group_id"])
 
 	return teamspeak.ClientEntry{
-		ID:             ParseClientID(params["clid"]),
-		Nickname:       params["client_nickname"],
-		UID:            teamspeak.UID(params["client_unique_identifier"]),
-		ChannelID:      enterChannel(params),
-		ChannelGroupID: teamspeak.ChannelGroupID(channelGroup),
-		Type:           teamspeak.ClientType(clientType),
-		ServerGroups:   ParseIDList[teamspeak.ServerGroupID](params["client_servergroups"]),
-		IsAway:         params["client_away"] == "1",
-		IsRecording:    params["client_is_recording"] == "1",
-		IsTalker:       params["client_is_talker"] == "1",
+		ID:           ParseClientID(params["clid"]),
+		Nickname:     params["client_nickname"],
+		ChannelID:    enterChannel(params),
+		Type:         teamspeak.ClientType(clientType),
+		DatabaseID:   teamspeak.ClientDBID(uintOrZero(params["client_database_id"])),
+		ServerGroups: optIDList[teamspeak.ServerGroupID](params, "client_servergroups"),
 
-		DatabaseID:                     teamspeak.ClientDBID(uintOrZero(params["client_database_id"])),
-		AwayMessage:                    params["client_away_message"],
+		UID:                            optStr[teamspeak.UID](params, "client_unique_identifier"),
+		ChannelGroupID:                 optID[teamspeak.ChannelGroupID](params, "client_channel_group_id"),
+		IsAway:                         optBool(params, "client_away"),
+		IsRecording:                    optBool(params, "client_is_recording"),
+		IsTalker:                       optBool(params, "client_is_talker"),
+		AwayMessage:                    optStr[string](params, "client_away_message"),
 		IsInputMuted:                   optBool(params, "client_input_muted"),
 		IsOutputMuted:                  optBool(params, "client_output_muted"),
 		IsOutputOnlyMuted:              optBool(params, "client_outputonly_muted"),
@@ -56,25 +55,25 @@ func ClientEnter(params map[string]string) teamspeak.ClientEntry {
 		TalkPower:                      optInt32(params, "client_talk_power"),
 		IsRequestingTalk:               optBool(params, "client_talk_request"),
 		TalkRequestedAt:                asTime(params["client_talk_request"]),
-		TalkRequestMessage:             params["client_talk_request_msg"],
-		Description:                    params["client_description"],
-		MetaData:                       params["client_meta_data"],
-		Avatar:                         params["client_flag_avatar"],
-		IconID:                         wire.ParseIconID[teamspeak.IconID](params["client_icon_id"]),
-		NicknamePhonetic:               params["client_nickname_phonetic"],
+		TalkRequestMessage:             optStr[string](params, "client_talk_request_msg"),
+		Description:                    optStr[string](params, "client_description"),
+		MetaData:                       optStr[string](params, "client_meta_data"),
+		Avatar:                         optStr[string](params, "client_flag_avatar"),
+		IconID:                         optIconID(params, "client_icon_id"),
+		NicknamePhonetic:               optStr[string](params, "client_nickname_phonetic"),
 		UnreadMessages:                 optInt32(params, "client_unread_messages"),
 		NeededServerQueryViewPower:     optInt32(params, "client_needed_serverquery_view_power"),
-		ChannelGroupInheritedChannelID: teamspeak.ChannelID(uintOrZero(params["client_channel_group_inherited_channel_id"])),
-		Country:                        params["client_country"],
-		Version:                        params["client_version"],
-		Platform:                       params["client_platform"],
-		IP:                             params["connection_client_ip"],
-		Badges:                         params["client_badges"],
-		SignedBadges:                   params["client_signed_badges"],
-		MyTeamSpeakID:                  params["client_myteamspeak_id"],
-		MyTeamSpeakAvatar:              params["client_myteamspeak_avatar"],
-		Integrations:                   params["client_integrations"],
-		UserTag:                        params["client_user_tag"],
+		ChannelGroupInheritedChannelID: optID[teamspeak.ChannelID](params, "client_channel_group_inherited_channel_id"),
+		Country:                        optStr[string](params, "client_country"),
+		Version:                        optStr[string](params, "client_version"),
+		Platform:                       optStr[string](params, "client_platform"),
+		IP:                             optStr[string](params, "connection_client_ip"),
+		Badges:                         optStr[string](params, "client_badges"),
+		SignedBadges:                   optStr[string](params, "client_signed_badges"),
+		MyTeamSpeakID:                  optStr[string](params, "client_myteamspeak_id"),
+		MyTeamSpeakAvatar:              optStr[string](params, "client_myteamspeak_avatar"),
+		Integrations:                   optStr[string](params, "client_integrations"),
+		UserTag:                        optStr[string](params, "client_user_tag"),
 		IsStreaming:                    optBool(params, "client_is_streaming"),
 	}
 }
@@ -110,6 +109,54 @@ func optBool(params map[string]string, key string) *bool {
 	return &v
 }
 
+// optStr reads a string a notification may leave out: nil when the key is
+// absent, otherwise a pointer to its value, "" included.
+func optStr[T ~string](params map[string]string, key string) *T {
+	raw, ok := params[key]
+	if !ok {
+		return nil
+	}
+	v := T(raw)
+
+	return &v
+}
+
+// optID reads an id a notification may leave out: nil when the key is absent
+// or empty, otherwise a pointer to it, 0 included.
+func optID[T ~uint64](params map[string]string, key string) *T {
+	if params[key] == "" {
+		return nil
+	}
+	v := T(uintOrZero(params[key]))
+
+	return &v
+}
+
+// optIconID reads an icon id a notification may leave out: nil when the key is
+// absent, and nil for icon 0, which is none.
+func optIconID(params map[string]string, key string) *teamspeak.IconID {
+	if icon := wire.ParseIconID[teamspeak.IconID](params[key]); icon != 0 {
+		return &icon
+	}
+
+	return nil
+}
+
+// optIDList reads a list of ids a notification may leave out: nil when the key
+// is absent, and an empty list, not nil, when it is empty.
+func optIDList[T ~uint64](params map[string]string, key string) []T {
+	raw, ok := params[key]
+	if !ok {
+		return nil
+	}
+	list := ParseIDList[T](raw)
+	if list == nil {
+		list = []T{}
+	}
+
+	return list
+}
+
 // optInt32 reads a signed 32-bit number a notification may leave out: nil when
 // the key is absent or empty, clamped rather than wrapped when too large.
 func optInt32(params map[string]string, key string) *int32 {
@@ -134,19 +181,36 @@ func ClientLeave(params map[string]string) teamspeak.ClientLeaveEvent {
 		InvokerName:   params["invokername"],
 		InvokerUID:    teamspeak.UID(params["invokeruid"]),
 
-		FromChannelID:   ParseChannelID(params["cfid"]),
-		TargetChannelID: ParseChannelID(params["ctid"]),
+		FromChannelID:   optChannelID(params, "cfid"),
+		TargetChannelID: optChannelID(params, "ctid"),
 	}
 }
 
-// ClientMoved reads notifyclientmoved.
+// optChannelID reads a channel id a notification may leave out: nil when the
+// key is absent, otherwise a pointer to it, 0 included.
+func optChannelID(params map[string]string, key string) *teamspeak.ChannelID {
+	raw, ok := params[key]
+	if !ok {
+		return nil
+	}
+	id := ParseChannelID(raw)
+
+	return &id
+}
+
+// ClientMoved reads notifyclientmoved. FromChannelID is nil when the row has no
+// cfid, as a TeamSpeak 3 move has none; the client, which knows where the
+// client was, fills it in.
+//
+// A move of the client's own (reason 0) names no invoker on either server, and
+// the invoker fields are empty then, whatever the caller knows.
 func ClientMoved(params map[string]string) teamspeak.ClientMovedEvent {
 	reasonID, _ := ParseInt(params["reasonid"])
 
 	return teamspeak.ClientMovedEvent{
 		ClientID:        ParseClientID(params["clid"]),
 		TargetChannelID: ParseChannelID(params["ctid"]),
-		FromChannelID:   ParseChannelID(params["cfid"]),
+		FromChannelID:   optChannelID(params, "cfid"),
 		Reason:          teamspeak.Reason(reasonID),
 		InvokerID:       ParseClientID(params["invokerid"]),
 		InvokerName:     params["invokername"],
@@ -492,11 +556,16 @@ func PluginCommand(params map[string]string) teamspeak.PluginCommandEvent {
 
 // ClientEnterOrigin reads the parts of notifycliententerview that describe the
 // entry and not the client: the channel the client came from and why it came
-// into view.
-func ClientEnterOrigin(params map[string]string) (teamspeak.ChannelID, teamspeak.Reason) {
-	reasonID, _ := ParseInt(params["reasonid"])
+// into view. Each is nil when the row has none.
+func ClientEnterOrigin(params map[string]string) (*teamspeak.ChannelID, *teamspeak.Reason) {
+	var reason *teamspeak.Reason
+	if raw, ok := params["reasonid"]; ok {
+		reasonID, _ := ParseInt(raw)
+		r := teamspeak.Reason(reasonID)
+		reason = &r
+	}
 
-	return ParseChannelID(params["cfid"]), teamspeak.Reason(reasonID)
+	return optChannelID(params, "cfid"), reason
 }
 
 // ClientChatClosed reads notifyclientchatclosed. ok is false for a row that
@@ -629,6 +698,23 @@ func CloneChannelChanges(c teamspeak.ChannelChanges) teamspeak.ChannelChanges {
 	c.FilePath = clonePtr(c.FilePath)
 
 	return c
+}
+
+// CloneClientMoved returns a copy of e that shares no memory with it, so a
+// handler editing what it was given cannot change what the next one sees.
+func CloneClientMoved(e teamspeak.ClientMovedEvent) teamspeak.ClientMovedEvent {
+	e.FromChannelID = clonePtr(e.FromChannelID)
+
+	return e
+}
+
+// CloneClientLeave returns a copy of e as CloneClientMoved does. The record a
+// voice client holds in Previous is its own to copy.
+func CloneClientLeave(e teamspeak.ClientLeaveEvent) teamspeak.ClientLeaveEvent {
+	e.FromChannelID = clonePtr(e.FromChannelID)
+	e.TargetChannelID = clonePtr(e.TargetChannelID)
+
+	return e
 }
 
 // clonePtr returns a pointer to a copy of what p points at, or nil.

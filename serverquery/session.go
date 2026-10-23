@@ -769,7 +769,7 @@ func (c *Client) handleClientLeave(cmd *wire.Command) {
 	c.mu.Unlock()
 
 	c.events.Push(func() {
-		c.subs.clientLeave.Deliver(c.logger, "ClientLeaveEvent", evt, nil)
+		c.subs.clientLeave.Deliver(c.logger, "ClientLeaveEvent", evt, servernotify.CloneClientLeave)
 	})
 	// A query client cannot be kicked from the server — the server refuses
 	// that with 516 — but a ban or a shutdown still arrives as a leave, and
@@ -787,19 +787,19 @@ func (c *Client) handleClientMoved(cmd *wire.Command) {
 
 	c.mu.Lock()
 	if entry, ok := c.clients[evt.ClientID]; ok {
+		// TeamSpeak 3 sends no cfid on a move: the channel the roster had the
+		// client in is where it came from, and this is the last place to read it.
+		if evt.FromChannelID == nil {
+			from := entry.ChannelID
+			evt.FromChannelID = &from
+		}
 		entry.ChannelID = evt.TargetChannelID
 		c.clients[evt.ClientID] = entry
-	}
-	// A move of the client's own names no invoker; the notification is filled
-	// from what the client knows of itself, as the voice client does.
-	if evt.ClientID == c.selfID && c.selfID != 0 && evt.InvokerID == 0 {
-		evt.InvokerID = c.selfID
-		evt.InvokerName = c.selfNickname
 	}
 	c.mu.Unlock()
 
 	c.events.Push(func() {
-		c.subs.clientMoved.Deliver(c.logger, "ClientMovedEvent", evt, nil)
+		c.subs.clientMoved.Deliver(c.logger, "ClientMovedEvent", evt, servernotify.CloneClientMoved)
 	})
 	// A channel kick arrives as a move, not as a leave.
 	if evt.ClientID == c.selfID && evt.Reason == teamspeak.ReasonKickChannel {
@@ -812,8 +812,8 @@ func (c *Client) handleTextMessage(cmd *wire.Command) {
 
 	c.mu.Lock()
 	if entry, ok := c.clients[evt.InvokerID]; ok {
-		if evt.InvokerUID == "" {
-			evt.InvokerUID = entry.UID
+		if evt.InvokerUID == "" && entry.UID != nil {
+			evt.InvokerUID = *entry.UID
 		}
 		evt.InvokerGroups = slices.Clone(entry.ServerGroups)
 	}

@@ -73,15 +73,16 @@ func (ClientChatClosedEvent) serverEvent()          {}
 type ClientEnterEvent struct {
 	ClientEntry
 
-	// FromChannelID is the channel the client came from (cfid). It is 0 when the
-	// client connected, which both TeamSpeak 3 and 6 send as cfid 0, and when
-	// the server sends none.
-	FromChannelID ChannelID
+	// FromChannelID is the channel the client came from (cfid). It points at 0
+	// when the client connected, which both TeamSpeak 3 and 6 send as cfid 0,
+	// and is nil when the server sends none.
+	FromChannelID *ChannelID
 	// Reason is why the client came into view (reasonid): ReasonNone when it
 	// connected, ReasonSubscription when it was already on the server and came
 	// into view by this client moving into its channel. Measured on TeamSpeak
-	// 3.13.8 and 6.0.0-beta13.1; both send cfid 0 with it.
-	Reason Reason
+	// 3.13.8 and 6.0.0-beta13.1; both send cfid 0 with it. It is nil when the
+	// server sends none.
+	Reason *Reason
 }
 
 // Clone returns a copy of the event whose record shares no memory with e's; see
@@ -89,6 +90,8 @@ type ClientEnterEvent struct {
 // otherwise be promoted and return the record alone.
 func (e ClientEnterEvent) Clone() ClientEnterEvent {
 	e.ClientEntry = e.ClientEntry.Clone()
+	e.FromChannelID = clonePtr(e.FromChannelID)
+	e.Reason = clonePtr(e.Reason)
 
 	return e
 }
@@ -124,6 +127,11 @@ type TextMessageEvent struct {
 	// carry them, so a client fills them in from what it knows of the sender;
 	// nil means the notification did not carry them and the client did not
 	// know them either, which is not the same as the sender holding none.
+	//
+	// A ServerQuery connection is not sent notifyclientupdated, so for a
+	// ServerQuery client they are the groups from the listing taken on
+	// connecting, kept current only by clients entering, leaving and moving: a
+	// change of groups made since is not in them.
 	InvokerGroups []ServerGroupID
 	// TargetMode is whether the message went to a client, a channel or the
 	// server (targetmode).
@@ -137,27 +145,31 @@ type TextMessageEvent struct {
 
 // ClientMovedEvent is emitted when a client changes channel (notifyclientmoved).
 type ClientMovedEvent struct {
-	// InvokerName is who moved the client (invokername); empty when it moved
-	// itself.
+	// FromChannelID is the channel the client moved from: cfid, or when the
+	// server sends none (TeamSpeak 3.13.8 sends none on a move, TeamSpeak 6.0.0
+	// does) the channel the client was known to be in. The client's record is
+	// updated before the event is delivered, so this is where its previous
+	// channel is told. It is nil only when the server sent none and the client
+	// was not known.
+	FromChannelID *ChannelID
+	// InvokerName is who moved the client (invokername); empty when the server
+	// names no one, which it does not for a client that moved itself
+	// (ReasonNone).
 	InvokerName string
 	// InvokerUID is the identity of who moved the client (invokeruid); empty
-	// when it moved itself.
+	// when the server names no one, as for a client that moved itself.
 	InvokerUID UID
 	// ReasonMessage is the reason the invoker gave (reasonmsg), if any.
 	ReasonMessage string
 	// TargetChannelID is the channel the client moved to (ctid).
 	TargetChannelID ChannelID
-	// FromChannelID is the channel the client moved from (cfid). It is 0 when
-	// the server sends none: TeamSpeak 3.13.8 does not on a move, TeamSpeak
-	// 6.0.0-beta13.1 does.
-	FromChannelID ChannelID
 	// Reason is why it moved (reasonid): ReasonMoved for a move by someone,
 	// ReasonKickChannel for a channel kick, ReasonNone for its own.
 	Reason Reason
 	// ClientID is the client that moved.
 	ClientID ClientID
-	// InvokerID is the client id of who moved the client (invokerid); 0 when it
-	// moved itself.
+	// InvokerID is the client id of who moved the client (invokerid); 0 when the
+	// server names no one, as for a client that moved itself.
 	InvokerID ClientID
 }
 
@@ -182,6 +194,14 @@ type ClientLeaveEvent struct {
 	//
 	// Experimental: this may change in a minor release.
 	Previous *ClientEntry
+	// FromChannelID is the channel the client was in (cfid), nil when the server
+	// sends none. Both TeamSpeak 3.13.8 and 6.0.0-beta13.1 send it.
+	FromChannelID *ChannelID
+	// TargetChannelID is the channel the client went to (ctid): a pointer to 0
+	// when it left the server, the channel it moved into when it left view by
+	// moving out of the channels this client is subscribed to, and nil when the
+	// server sends none.
+	TargetChannelID *ChannelID
 	// ReasonMessage is the reason given for a kick or a ban, or the client's
 	// own parting message.
 	ReasonMessage string
@@ -198,13 +218,6 @@ type ClientLeaveEvent struct {
 	ClientID ClientID
 	// InvokerID is the client id of who kicked or banned the client (invokerid).
 	InvokerID ClientID
-	// FromChannelID is the channel the client was in (cfid), 0 when the server
-	// sends none. Both TeamSpeak 3.13.8 and 6.0.0-beta13.1 send it.
-	FromChannelID ChannelID
-	// TargetChannelID is the channel the client went to (ctid): 0 when it left
-	// the server, and the channel it moved into when it left view by moving
-	// out of the channels this client is subscribed to.
-	TargetChannelID ChannelID
 }
 
 // KickedEvent is the connected client being kicked from its channel or the server.

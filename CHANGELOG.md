@@ -97,6 +97,51 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   id cannot announce the wrong viewer, and the lookups for requesters out of
   view of one stream run side by side (at most eight at once) while the
   requests are still announced in the order they came.
+- **Breaking:** a client record no longer reads a field the answer did not
+  carry as `false`, `0` or `""`. On `ClientEntry`, `UID`, `ChannelGroupID`,
+  `IsAway`, `IsRecording`, `IsTalker`, `IdleTime`, `AwayMessage`,
+  `TalkRequestMessage`, `Description`, `MetaData`, `Avatar`, `IconID`,
+  `NicknamePhonetic`, `ChannelGroupInheritedChannelID`, `Country`, `Version`,
+  `Platform`, `IP`, `Badges`, `SignedBadges`, `MyTeamSpeakID`,
+  `MyTeamSpeakAvatar`, `Integrations` and `UserTag` are pointers, and
+  `ServerGroups` is nil when the groups were not carried (an empty list is a
+  client in none). `ListClients` brings only what its flags ask for: `-uid` the
+  uid, `-away` `IsAway` and `AwayMessage`, `-voice` `IsRecording` and
+  `IsTalker` with the mute and hardware flags, `-groups` `ServerGroups`,
+  `ChannelGroupID` and `ChannelGroupInheritedChannelID`, `-times` `Created`,
+  `LastConnected` and `IdleTime`. A client that came into view through
+  `notifycliententerview` carries all of them but those, `Version`, `Platform`
+  and `IP`. `ID`, `Nickname`, `ChannelID`, `Type` and `DatabaseID` stay plain:
+  every list and every enter notification sends them. Ask for the flag you read
+  (`ClientListOptions{Groups: true}`) and test for nil: `if e.IsAway != nil &&
+  *e.IsAway`, where `if e.IsAway` was true or false for every client. An icon
+  of 0 is nil in `IconID`.
+- **Breaking:** `Channel.Description` is a `*string`, nil unless the answer
+  carried it. `ListChannels` and the voice client's view never have it, and a
+  channel notification never carries it (`ChannelDescriptionChangedEvent` says
+  it changed); `GetChannelInfo` and `GetChannelDescription` have it. Read
+  `*ch.Description` after `GetChannelInfo`, and treat nil as "not known".
+- **Breaking:** `ClientEnterEvent.FromChannelID` and `Reason`, and
+  `ClientLeaveEvent.FromChannelID` and `TargetChannelID`, are pointers, nil
+  where the notification carried none, where they read as channel 0 and
+  `ReasonNone` before.
+- **Breaking:** a client's own move names no invoker. TeamSpeak 3 and 6 send
+  none for it (`ReasonNone`), and `ClientMovedEvent.InvokerID`, `InvokerName`
+  and `InvokerUID` are `0`, `""` and `""` on the voice and ServerQuery clients
+  alike; the ServerQuery client used to name itself. Test `Reason ==
+  ReasonNone` for "moved on its own".
+- **Breaking:** `ClientMovedEvent.FromChannelID` is a `*ChannelID`. It is
+  `cfid`, or when the server sends none (TeamSpeak 3 sends none on a move) the
+  channel the client was known to be in, which is otherwise lost because the
+  client's record is updated before the event is delivered. It is nil only for a
+  client that was not known.
+- **Breaking:** a `PermissionLocation` with a target the constants do not name
+  is returned by `FindPermission` and `GetPermissionOverview` with the number in
+  `Target` and the raw ids in `ID1` and `ID2`; it was left out.
+- `TextMessageEvent.InvokerGroups` documents what holds for a ServerQuery
+  client: the groups of the listing taken on connecting, kept by clients
+  entering, leaving and moving, because a ServerQuery connection is not sent
+  `notifyclientupdated`.
 
 ### Fixed
 
@@ -146,6 +191,12 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   end that client's streams early.
 - A lagging disconnected event ends what the old connection started even when
   the new connection was given the same client id.
+- A `PrivilegeKey` of a type other than `PrivilegeKeyServerGroup` or
+  `PrivilegeKeyChannelGroup` no longer reads as a server group key: its
+  `ServerGroupID`, `ChannelGroupID` and `ChannelID` are 0 and `Type` holds the
+  number.
+- The stream package announces a viewer whose record has no uid after looking
+  it up, instead of announcing it with an empty uid.
 
 ## v1.0.0-beta.15 (2026-10-23)
 
