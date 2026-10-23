@@ -217,6 +217,53 @@ func (c *Client) Exec(ctx context.Context, line string) ([]map[string]string, er
 	}
 	defer func() { <-c.turn }()
 
+	// Refused as flooding with a time to wait, which the command can afford:
+	// the turn is kept for the pause, so nothing is sent until it is over, and
+	// the command, which the server did not run, goes out again.
+	//
+	// Measured on TeamSpeak 3 3.13.8 (raw TCP) and TeamSpeak 6 6.0.0 (SSH): the
+	// refusal is `error id=524 ... extra_msg=please\swait\s1\sseconds`, the
+	// connection stays open, and sending again before the pause is over only
+	// prolongs it. WebQuery has no such answer; see servererr.FloodRetryDelay.
+	for refused := 0; ; refused++ {
+		rows, err := c.execOnce(ctx, name, line)
+		wait, flooded := servererr.FloodRetryDelay(err)
+		hold := servererr.FloodHold(wait)
+		if !flooded || refused >= servererr.FloodRetries || !servererr.Affordable(ctx, hold) {
+			return rows, err
+		}
+		pause := time.NewTimer(hold)
+		select {
+		case <-pause.C:
+		case <-c.done:
+			pause.Stop()
+
+			return nil, c.notConnected()
+		case <-ctx.Done():
+			pause.Stop()
+
+			return nil, fmt.Errorf("%s: %w", name, ctx.Err())
+		}
+	}
+}
+
+// Close ends the connection. Commands still waiting, and any sent later, fail
+// with teamspeak.ErrNotConnected.
+//
+// Ending the connection is end's work, so this is the same thing with no cause
+// to report; the transport's error is returned however the connection ended,
+// including when the read loop noticed before this was called.
+func (c *Client) Close() error {
+	c.end(nil)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.transportErr
+}
+
+// execOnce sends line and waits for its answer. The caller holds the turn.
+func (c *Client) execOnce(ctx context.Context, name, line string) ([]map[string]string, error) {
 	p, err := c.send(ctx, line)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
@@ -249,21 +296,6 @@ func (c *Client) Exec(ctx context.Context, line string) ([]map[string]string, er
 	c.mu.Unlock()
 
 	return nil, fmt.Errorf("%s: %w", name, ctx.Err())
-}
-
-// Close ends the connection. Commands still waiting, and any sent later, fail
-// with teamspeak.ErrNotConnected.
-//
-// Ending the connection is end's work, so this is the same thing with no cause
-// to report; the transport's error is returned however the connection ended,
-// including when the read loop noticed before this was called.
-func (c *Client) Close() error {
-	c.end(nil)
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	return c.transportErr
 }
 
 // send writes line as the command whose answer the next lines carry. The

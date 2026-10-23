@@ -14,6 +14,7 @@ import (
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/errcode"
+	"github.com/honeybbq/teamspeak-go/internal/servererr"
 	"github.com/honeybbq/teamspeak-go/internal/serverquery"
 )
 
@@ -719,4 +720,190 @@ func TestClient_AStrayKeyNeverDropsTheRowOfACreateOfTheSameKind(t *testing.T) {
 			t.Fatalf("second create: %v, %v", a.value, a.err)
 		}
 	})
+}
+
+// Measured on TeamSpeak 3 3.13.8 (raw TCP) and TeamSpeak 6 6.0.0 (SSH): a
+// client over the flood limit gets this line for each command, and the command
+// is not run.
+const flooded = `error id=524 msg=client\sis\sflooding extra_msg=please\swait\s2\sseconds`
+
+// floodFixture runs body in a bubble of fake time, on a client whose transport
+// the test answers.
+func floodFixture(t *testing.T, body func(t *testing.T, c *serverquery.Client, tr *fakeTransport)) {
+	t.Helper()
+	synctest.Test(t, func(t *testing.T) {
+		tr := newFakeTransport()
+		c := serverquery.New(tr)
+		defer func() { _ = c.Close() }()
+		body(t, c, tr)
+	})
+}
+
+func TestClient_SendsACommandAgainAfterThePauseAFloodRefusalNames(t *testing.T) {
+	floodFixture(t, func(t *testing.T, c *serverquery.Client, tr *fakeTransport) {
+		t.Helper()
+		done := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "whoami") })
+		synctest.Wait()
+		tr.receive(flooded)
+		// Twice the 2 seconds the server named: still held at 3.9 seconds.
+		time.Sleep(3900 * time.Millisecond)
+		synctest.Wait()
+		if sent := tr.sentLines(); len(sent) != 1 {
+			t.Fatalf("sent %q before the pause was over, want one line", sent)
+		}
+		time.Sleep(120 * time.Millisecond)
+		synctest.Wait()
+		tr.receive("client_id=1", "error id=0 msg=ok")
+		synctest.Wait()
+
+		got := <-done
+		if !reflect.DeepEqual(got.value, []map[string]string{{"client_id": "1"}}) || got.err != nil {
+			t.Errorf("answer = %v, %v", got.value, got.err)
+		}
+		if sent := tr.sentLines(); !reflect.DeepEqual(sent, []string{"whoami", "whoami"}) {
+			t.Errorf("sent %q, want whoami twice", sent)
+		}
+	})
+}
+
+func TestClient_HoldsTheCommandsQueuedBehindAFloodRefusal(t *testing.T) {
+	floodFixture(t, func(t *testing.T, c *serverquery.Client, tr *fakeTransport) {
+		t.Helper()
+		first := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "first") })
+		synctest.Wait()
+		second := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "second") })
+		synctest.Wait()
+		tr.receive(flooded)
+		time.Sleep(3900 * time.Millisecond)
+		synctest.Wait()
+		if sent := tr.sentLines(); !reflect.DeepEqual(sent, []string{"first"}) {
+			t.Fatalf("sent %q during the pause, want only first", sent)
+		}
+		time.Sleep(120 * time.Millisecond)
+		synctest.Wait()
+		tr.receive("a=1", "error id=0 msg=ok")
+		synctest.Wait()
+		tr.receive("b=2", "error id=0 msg=ok")
+		synctest.Wait()
+
+		if got := <-first; got.err != nil {
+			t.Errorf("first: %v", got.err)
+		}
+		if got := <-second; !reflect.DeepEqual(got.value, []map[string]string{{"b": "2"}}) {
+			t.Errorf("second = %v, %v", got.value, got.err)
+		}
+		if sent := tr.sentLines(); !reflect.DeepEqual(sent, []string{"first", "first", "second"}) {
+			t.Errorf("sent %q, want first twice, then second", sent)
+		}
+	})
+}
+
+func TestClient_StopsSendingAFloodedCommandAfterAFewRefusals(t *testing.T) {
+	floodFixture(t, func(t *testing.T, c *serverquery.Client, tr *fakeTransport) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		defer cancel()
+		done := run(func() ([]map[string]string, error) { return c.Exec(ctx, "whoami") })
+		for range servererr.FloodRetries + 1 {
+			synctest.Wait()
+			tr.receive(flooded)
+			time.Sleep(4020 * time.Millisecond)
+		}
+		synctest.Wait()
+
+		var refusal *teamspeak.ServerError
+		if got := <-done; !errors.As(got.err, &refusal) || refusal.Code != errcode.ClientIsFlooding {
+			t.Errorf("err = %v, want the flood refusal", got.err)
+		}
+		if n := len(tr.sentLines()); n != servererr.FloodRetries+1 {
+			t.Errorf("sent %d times, want %d", n, servererr.FloodRetries+1)
+		}
+	})
+}
+
+func TestClient_FailsAtOnceWhenThePauseIsLongerThanTheCommandHasLeft(t *testing.T) {
+	floodFixture(t, func(t *testing.T, c *serverquery.Client, tr *fakeTransport) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(t.Context(), 1500*time.Millisecond)
+		defer cancel()
+		done := run(func() ([]map[string]string, error) { return c.Exec(ctx, "whoami") })
+		synctest.Wait()
+		tr.receive(flooded)
+		synctest.Wait()
+
+		select {
+		case got := <-done:
+			if _, ok := errors.AsType[*teamspeak.ServerError](got.err); !ok {
+				t.Errorf("err = %v, want the flood refusal", got.err)
+			}
+		default:
+			t.Fatal("the command waited instead of failing")
+		}
+		time.Sleep(10 * time.Second)
+		if n := len(tr.sentLines()); n != 1 {
+			t.Errorf("sent %d times, want 1", n)
+		}
+	})
+}
+
+func TestClient_GivesUpAFloodPauseWhenTheCallerCancels(t *testing.T) {
+	floodFixture(t, func(t *testing.T, c *serverquery.Client, tr *fakeTransport) {
+		t.Helper()
+		ctx, cancel := context.WithCancel(t.Context())
+		done := run(func() ([]map[string]string, error) { return c.Exec(ctx, "whoami") })
+		synctest.Wait()
+		tr.receive(flooded)
+		time.Sleep(500 * time.Millisecond)
+		cancel()
+		synctest.Wait()
+
+		if got := <-done; !errors.Is(got.err, context.Canceled) {
+			t.Errorf("err = %v, want context.Canceled", got.err)
+		}
+		time.Sleep(10 * time.Second)
+		if n := len(tr.sentLines()); n != 1 {
+			t.Errorf("sent %d times, want 1", n)
+		}
+	})
+}
+
+func TestClient_FailsAFloodPauseWhenTheConnectionCloses(t *testing.T) {
+	floodFixture(t, func(t *testing.T, c *serverquery.Client, tr *fakeTransport) {
+		t.Helper()
+		done := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "whoami") })
+		synctest.Wait()
+		tr.receive(flooded)
+		time.Sleep(500 * time.Millisecond)
+		_ = c.Close()
+		synctest.Wait()
+
+		if got := <-done; !errors.Is(got.err, teamspeak.ErrNotConnected) {
+			t.Errorf("err = %v, want ErrNotConnected", got.err)
+		}
+	})
+}
+
+func TestClient_DoesNotSendACommandAgainForARefusalThatNamesNoPauseOrIsNotThisOne(t *testing.T) {
+	for name, line := range map[string]string{
+		"flooding, no pause": `error id=524 msg=client\sis\sflooding`,
+		"flood ban":          `error id=3329 msg=flood\sban extra_msg=please\swait\s2\sseconds`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			floodFixture(t, func(t *testing.T, c *serverquery.Client, tr *fakeTransport) {
+				t.Helper()
+				done := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "whoami") })
+				synctest.Wait()
+				tr.receive(line)
+				synctest.Wait()
+
+				if got := <-done; got.err == nil {
+					t.Error("the command succeeded")
+				}
+				time.Sleep(10 * time.Second)
+				if n := len(tr.sentLines()); n != 1 {
+					t.Errorf("sent %d times, want 1", n)
+				}
+			})
+		})
+	}
 }

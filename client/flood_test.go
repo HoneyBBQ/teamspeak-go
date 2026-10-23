@@ -145,8 +145,8 @@ func TestExec_StopsResendingAfterAFewRefusals(t *testing.T) {
 	if err == nil {
 		t.Fatal("Exec succeeded")
 	}
-	if n := len(a.sent()); n != floodRetries+1 {
-		t.Errorf("sent %d times, want %d", n, floodRetries+1)
+	if n := len(a.sent()); n != servererr.FloodRetries+1 {
+		t.Errorf("sent %d times, want %d", n, servererr.FloodRetries+1)
 	}
 }
 
@@ -157,6 +157,10 @@ func TestFloodRetryDelay(t *testing.T) {
 	for extra, want := range map[string]time.Duration{
 		"retry in 1985ms": 1985 * time.Millisecond,
 		"retry in 0ms":    0,
+		// A ServerQuery client is told in whole seconds.
+		"please wait 1 seconds":   time.Second,
+		"please wait 600 seconds": 600 * time.Second,
+		"please wait 0 seconds":   0,
 	} {
 		got, ok := servererr.FloodRetryDelay(flood(extra))
 		if !ok || got != want {
@@ -165,6 +169,8 @@ func TestFloodRetryDelay(t *testing.T) {
 	}
 	for _, err := range []error{
 		flood(""), flood("retry in 5 seconds"), flood("retry in 99999999999ms"),
+		flood("please wait 1.5 seconds"), flood("please wait seconds"), flood("please wait 1 seconds now"),
+		&teamspeak.ServerError{Code: errcode.BanFlooding, ExtraMessage: "please wait 5 seconds"},
 		&teamspeak.ServerError{Code: errcode.Code(1024), ExtraMessage: "retry in 10ms"},
 		errRetryText, nil,
 	} {

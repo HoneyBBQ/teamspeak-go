@@ -738,30 +738,14 @@ func (c *Client) execOn(
 		// afford: nothing is sent until then, and the command, which the
 		// server did not run, goes out again.
 		wait, flooded := servererr.FloodRetryDelay(err)
-		if !flooded || goodbye || refused >= floodRetries || !affordable(ctx, wait) {
+		hold := servererr.FloodHold(wait)
+		if !flooded || goodbye || refused >= servererr.FloodRetries || !servererr.Affordable(ctx, hold) {
 			return rows, err
 		}
 		c.logger.DebugContext(ctx, "the server asked for a pause",
 			slog.String("command", parsed.Name), slog.Duration("wait", wait))
-		c.throttle.hold(wait + floodHoldMargin)
+		c.throttle.hold(hold)
 	}
-}
-
-// floodRetries is how many times a command refused as flooding is sent again
-// after the pause the server asked for. The first resend is usually refused
-// once more with a shorter wait, and the second goes through (measured on
-// TeamSpeak 3 and 6).
-const floodRetries = 3
-
-// floodHoldMargin is added to the server's wait, which counts down to the
-// millisecond.
-const floodHoldMargin = 10 * time.Millisecond
-
-// affordable reports whether ctx lasts longer than wait.
-func affordable(ctx context.Context, wait time.Duration) bool {
-	deadline, ok := ctx.Deadline()
-
-	return !ok || wait < time.Until(deadline)
 }
 
 // sendAndAwait sends parsed, the command cmd, once under a return code of its
