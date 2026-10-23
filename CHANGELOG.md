@@ -48,6 +48,10 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   named none. WebQuery sends the name and no id, so it is kept as sent rather
   than mapped to a `FailedPermID`, which the voice protocol and raw or SSH
   ServerQuery still fill. `*serverquery.WebQueryHTTPError` carries it too.
+- A channel created while a client is connected now holds the server's defaults
+  in the view, as the next welcome lists it, instead of zeros: codec 4, quality
+  5, no client limit, and the rest of what the notification does not carry.
+  Before, `View().Channel(id)` reported codec 0 and a limit of 0 clients for it.
 
 ## v1.0.0-beta.14 (2026-10-23)
 

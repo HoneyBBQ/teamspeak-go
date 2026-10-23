@@ -4,6 +4,7 @@ package client_test
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -251,5 +252,51 @@ func TestIntegration_ViewWelcomeEqualsListing(t *testing.T) {
 	}
 	if v.Self == nil || v.Self.ID != c.ClientID() || v.Self.ChannelID != own {
 		t.Errorf("Self = %+v, ClientID = %d, ChannelID = %d", v.Self, c.ClientID(), own)
+	}
+}
+
+// A channel created while a client is connected is what the next client to
+// join is sent of it: the notification carries only what the creator gave, and
+// the view fills the rest with the server's defaults.
+func TestIntegration_ViewCreatedChannelEqualsWelcome(t *testing.T) {
+	admin := requireAdmin(t)
+	obs := requireSharedClient(t)
+	waitViewLive(t, obs)
+
+	created := listen(t, obs.OnChannelCreated)
+	cid := liveChannel(t, admin, teamspeak.ChannelCreateOptions{Name: uniqueName("vcd")})
+	await(t, created, "created", func(e teamspeak.ChannelCreatedEvent) bool { return e.ChannelID == cid })
+
+	later := liveClient(t, uniqueName("viewer"))
+	waitViewLive(t, later)
+
+	seen, ok := obs.View().Channel(cid)
+	if !ok {
+		t.Fatalf("channel %d is not in the first view", cid)
+	}
+	listed, ok := later.View().Channel(cid)
+	if !ok {
+		t.Fatalf("channel %d is not in the second view", cid)
+	}
+
+	// Derived or unknowable to the first view: the order is the server's to
+	// settle, the counts and the empty time come only with a listing, the codec
+	// encryption follows a server setting, the quota is TeamSpeak 6 only and
+	// the unique identifier only comes with a notification there.
+	drop := func(ch teamspeak.Channel) teamspeak.Channel {
+		ch = ch.Clone()
+		ch.Order, ch.TotalClients, ch.TotalFamilyClients, ch.NeededSubscribePower = 0, nil, nil, nil
+		ch.EmptyFor, ch.IsUnencrypted, ch.StorageQuota, ch.UID, ch.FilePath = nil, nil, nil, "", ""
+
+		return ch
+	}
+	if !reflect.DeepEqual(drop(seen), drop(listed)) {
+		t.Errorf("the first view holds\n%+v\nthe client that joined later holds\n%+v", drop(seen), drop(listed))
+	}
+	if seen.UID != "" && seen.UID != listed.UID {
+		t.Errorf("UID = %q in the first view, %q in the second", seen.UID, listed.UID)
+	}
+	if seen.Codec != 4 || seen.MaxClients != -1 {
+		t.Errorf("Codec = %d, MaxClients = %d, want 4 and -1", seen.Codec, seen.MaxClients)
 	}
 }

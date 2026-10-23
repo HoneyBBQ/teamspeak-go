@@ -220,9 +220,47 @@ func (t ChannelTree) Path(id ChannelID) []Channel {
 	return up
 }
 
+// createdChannelDefaults is what a channel holds when nothing was said of a
+// property: the server's defaults, as the welcome's channellist would present
+// a channel made with only a name. A notifychannelcreated carries just what
+// the creator gave, so a created channel starts from this row and takes the
+// notification over it. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0,
+// and guarded by a live test.
+//
+// Left out, so the channel does not claim them: channel_codec_is_unencrypted
+// (it may follow the server's codec encryption mode, which is not known
+// here), channel_storage_quota (TeamSpeak 6 only), channel_description
+// (channellist never carries it) and the unique identifier (the notification
+// carries it on TeamSpeak 6 only).
+var createdChannelDefaults = map[string]string{
+	"channel_name":                            "",
+	"channel_topic":                           "",
+	"channel_codec":                           "4",
+	"channel_codec_quality":                   "5",
+	"channel_maxclients":                      "-1",
+	"channel_maxfamilyclients":                "-1",
+	"channel_order":                           "0",
+	"channel_flag_permanent":                  "0",
+	"channel_flag_semi_permanent":             "0",
+	"channel_flag_default":                    "0",
+	"channel_flag_password":                   "0",
+	"channel_codec_latency_factor":            "1",
+	"channel_delete_delay":                    "0",
+	"channel_flag_maxclients_unlimited":       "1",
+	"channel_flag_maxfamilyclients_unlimited": "1",
+	"channel_flag_maxfamilyclients_inherited": "0",
+	"channel_needed_talk_power":               "0",
+	"channel_forced_silence":                  "0",
+	"channel_name_phonetic":                   "",
+	"channel_icon_id":                         "0",
+	"channel_banner_gfx_url":                  "",
+	"channel_banner_mode":                     "0",
+}
+
 // ApplyCreated returns the tree with the channel a ChannelCreatedEvent names
 // added under its parent, after the sibling the event's Order names. A channel
-// the tree already holds is replaced.
+// the tree already holds is replaced. What the event does not carry is the
+// server's default, not zero.
 func (t ChannelTree) ApplyCreated(evt ChannelCreatedEvent) ChannelTree {
 	w := t.edit()
 	if evt.ChannelID == 0 {
@@ -232,7 +270,9 @@ func (t ChannelTree) ApplyCreated(evt ChannelCreatedEvent) ChannelTree {
 		w.inconsistent = true
 		treeDetach(&w, evt.ChannelID)
 	}
-	ch := evt.Changes.Apply(Channel{ID: evt.ChannelID, ParentID: evt.ParentID})
+	base := parseChannel(createdChannelDefaults)
+	base.ID, base.ParentID = evt.ChannelID, evt.ParentID
+	ch := evt.Changes.Apply(base)
 	ch.ParentID = evt.ParentID
 	var pred ChannelID
 	if evt.Changes.Order != nil {
