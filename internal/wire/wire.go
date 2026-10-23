@@ -212,6 +212,13 @@ func ParseCode(raw string) errcode.Code {
 	return errcode.Code(code)
 }
 
+// signExtendedHigh is the top 32 bits of a negative 32-bit number
+// sign-extended to 64 bits, and signExtendedMin the smallest such number.
+const (
+	signExtendedHigh uint64 = math.MaxUint64 &^ math.MaxUint32
+	signExtendedMin  uint64 = signExtendedHigh | 1<<31
+)
+
 // ParseIconID reads an icon id, returning 0, which names no icon, for anything
 // unreadable.
 //
@@ -234,10 +241,14 @@ func ParseIconID[T ~uint32](raw string) T {
 	if err == nil {
 		return T(uint32(int32(signedID))) //nolint:gosec // the reinterpretation is the point
 	}
-	// A negative 32-bit number sign-extended to 64 bits and sent unsigned.
+	// A negative 32-bit number sign-extended to 64 bits and sent unsigned: its
+	// top 32 bits are all set, and its low 32 bits are the unsigned id, with
+	// the top one set.
 	wide, err := strconv.ParseUint(raw, 10, 64)
-	if err == nil && int64(wide) < 0 && int64(wide) >= math.MinInt32 { //nolint:gosec // the reinterpretation is the point
-		return T(uint32(int32(int64(wide)))) //nolint:gosec // within int32, checked above
+	if err == nil && wide >= signExtendedMin {
+		if low := wide - signExtendedHigh; low <= math.MaxUint32 {
+			return T(low)
+		}
 	}
 
 	return 0
