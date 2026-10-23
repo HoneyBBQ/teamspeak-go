@@ -64,8 +64,10 @@ func TestUploadFile_NegotiatesAndSends(t *testing.T) {
 	}}
 	var got []byte
 	done := make(chan struct{})
+	// The server closes once it has the file, as the real one does.
 	srv.serve = func(conn net.Conn) {
-		got, _ = io.ReadAll(conn)
+		got = make([]byte, 5)
+		_, _ = io.ReadFull(conn, got)
 		close(done)
 	}
 
@@ -83,21 +85,23 @@ func TestUploadFile_NegotiatesAndSends(t *testing.T) {
 	}
 }
 
-// The address the server names is the one dialled.
-func TestUploadFile_DialsTheAddressTheServerNames(t *testing.T) {
+// Measured on both servers, over ServerQuery and the voice protocol: the
+// answers name no address, so the host the connection uses is dialled, and one
+// that was named would not be.
+func TestUploadFile_DialsTheConnectionsHost(t *testing.T) {
 	srv := newTransferServer(t)
 	srv.rows["ftinitupload"] = []map[string]string{{
 		"clientftfid": "1", "serverftfid": "2", "ftkey": testKey, "port": "30033", "ip": "10.0.0.7",
 	}}
-	srv.serve = func(conn net.Conn) { _, _ = io.Copy(io.Discard, conn) }
+	srv.serve = func(conn net.Conn) { _, _ = io.ReadFull(conn, make([]byte, 1)) }
 
 	err := teamspeak.NewCommands(srv).UploadFile(t.Context(), "ts.example", 5, "/a", []byte("x"),
 		teamspeak.UploadFileOptions{Transfer: teamspeak.FileTransferOptions{Dialer: srv}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(srv.dialed) != 1 || srv.dialed[0] != "tcp 10.0.0.7:30033" {
-		t.Errorf("dialed %v, want the named address", srv.dialed)
+	if len(srv.dialed) != 1 || srv.dialed[0] != "tcp ts.example:30033" {
+		t.Errorf("dialed %v, want the connection's host", srv.dialed)
 	}
 }
 

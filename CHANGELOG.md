@@ -16,6 +16,12 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 - `BackoffPolicy.Validate` reports a reconnect backoff that cannot work, with an
   error wrapping the new `ErrInvalidBackoff`. `New` of the voice and ServerQuery
   clients runs it on `WithReconnect`'s policy.
+- `UploadFileOptions.Resume` and `DownloadFileOptions.SeekPosition` resume a
+  transfer through the one-call functions. `UploadFile` with `Resume` asks the
+  server how much of an interrupted upload it kept and sends the rest of
+  `data`, which is still the whole file; `DownloadFile` with `SeekPosition`
+  returns the file from that offset to its end. `FileUploadInfo.Size` and
+  `FileDownloadInfo.SeekPosition` carry what the negotiation fixed.
 
 ### Changed
 
@@ -37,6 +43,24 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   three times and while its context's deadline allows, and every other command
   waits with it. The server does not run a refused command, so the resend is
   safe. A refusal that cannot be retried is returned as before.
+- **Breaking:** `FileUploadInfo.IP` and `FileDownloadInfo.IP` are gone, and
+  `UploadFile` and `DownloadFile` always dial the `host` they are given.
+  Neither server sends an address in the negotiation, over ServerQuery or the
+  voice protocol, and the avatar and icon helpers already dialled the
+  connection's host. If you read `info.IP`, use the host you connected to.
+- **Breaking:** `UploadFileData` takes the size and position from the
+  negotiation: `data` must give exactly `info.Size - info.SeekPosition` bytes,
+  and a reader that gives fewer fails with `io.ErrUnexpectedEOF`, one that gives
+  more fails after the declared size. Code that builds a `FileUploadInfo` by
+  hand needs `Size`, and a `FileDownloadInfo` needs `SeekPosition`.
+- An upload returns once the server has closed the transfer connection, which
+  it does when it has the file, not when the last byte has left. `UploadAvatar`
+  and `UploadIcon` therefore announce a file the server holds. A connection that
+  closes early, or stays open for the idle timeout, fails the upload.
+- A download from a `SeekPosition` expects `Size - SeekPosition` bytes, which is
+  what the servers send; before, any seek failed as a short download.
+- A negotiation's port outside 1 to 65535 is refused with `ErrFileTransfer`,
+  where it was clamped.
 
 ### Fixed
 
@@ -63,6 +87,10 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 - Commands still waiting for the flood throttle when `Disconnect` starts return
   `ErrNotConnected` and are never sent; `Exec` and `ExecNoWait` did not check
   the status again after the wait.
+- Over ServerQuery a refusal of `InitFileUpload` or `InitFileDownload` arrives
+  in the answer's row, and was reported as `ErrNoData`; it is now the
+  `*ServerError` it is, so `errors.Is(err, errcode.FileNotFound)` (2051) and
+  `errors.Is(err, errcode.FileAlreadyExists)` (2050) match.
 
 ## v1.0.0-beta.15 (2026-10-23)
 

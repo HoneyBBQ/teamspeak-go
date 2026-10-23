@@ -5,8 +5,11 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/honeybbq/teamspeak-go/errcode"
 )
 
 // File transfer commands.
@@ -264,9 +267,61 @@ type FileUploadOptions struct {
 	// Overwrite replaces a file of the same name, which the server otherwise
 	// refuses.
 	Overwrite bool
-	// Resume continues an earlier, interrupted upload of the same file; the
-	// answer's SeekPosition says where to continue from.
+	// Resume continues an earlier, interrupted upload of the same file. The
+	// server keeps what the interrupted upload had received, and the answer's
+	// SeekPosition says how much that is: send the file from there. Measured
+	// on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0: resuming a file that is not
+	// there is refused with 2054 (errcode.FileInvalidPath), and Overwrite
+	// together with Resume with 2056 (errcode.FileOverwriteExcludesResume).
 	Resume bool
+}
+
+// transferRefusal is the refusal a file transfer negotiation reports inside a
+// successful answer, or nil when the rows hold none.
+//
+// Over ServerQuery ftinitupload and ftinitdownload answer "error id=0" even
+// when they refuse, and say so in the row instead (clientftfid=2 status=2058
+// msg=file\sis\sin\suse), with no ftkey. Left as it is, the answer reads as
+// no data and the reason is lost; this turns the row into the ServerError it
+// is. The voice protocol reports the refusal as a failure and never gets here.
+func transferRefusal(rows []map[string]string) error {
+	if len(rows) == 0 || rows[0]["ftkey"] != "" {
+		return nil
+	}
+	status, err := strconv.ParseUint(rows[0]["status"], 10, 32)
+	if err == nil && status != 0 {
+		return &ServerError{Code: errcode.Code(status), Message: rows[0]["msg"]}
+	}
+
+	return nil
+}
+
+// transferRow sends a negotiation and returns its answer row, or the server's
+// refusal; see transferRefusal.
+func (c *Commands) transferRow(ctx context.Context, command string, params []param) (map[string]string, error) {
+	rows, err := c.query(ctx, command, params, "cpw")
+	if err != nil {
+		return nil, err
+	}
+	err = transferRefusal(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return requireRow(rows, command, "ftkey")
+}
+
+// transferPort reads the file transfer port of a negotiation, which must be a
+// real one: the field is 16 bits wide, and neither 0 nor a larger number is a
+// port to dial.
+func transferPort(row map[string]string) (uint16, error) {
+	port := fieldUint(row, "port")
+	if port < 1 || port > math.MaxUint16 {
+		return 0, fmt.Errorf("%w: the server named the file transfer port %q, not 1 to 65535",
+			ErrFileTransfer, row["port"])
+	}
+
+	return uint16(port), nil
 }
 
 // InitFileUpload negotiates an upload and returns the key and port to dial.
@@ -274,11 +329,14 @@ type FileUploadOptions struct {
 // Pass the result to UploadFileData to send the data; it does not go through
 // this client. A refusal — no permission to upload, say — is returned as a
 // *ServerError, even though the voice protocol reports it in a separate
-// notification after the command itself has succeeded.
+// notification after the command itself has succeeded and ServerQuery in the
+// answer's row. The port is on the host the connection to the server uses:
+// measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0, neither the voice
+// protocol nor ServerQuery ever sends another address.
 func (c *Commands) InitFileUpload(
 	ctx context.Context, channelID ChannelID, path string, size uint64, opts FileUploadOptions,
 ) (*FileUploadInfo, error) {
-	row, err := c.queryRow(ctx, "ftinitupload", "ftkey", []param{
+	row, err := c.transferRow(ctx, "ftinitupload", []param{
 		uintArg("clientftfid", c.nextFileTransferID()),
 		strArg("name", asPath(path)),
 		idArg("cid", channelID),
@@ -289,15 +347,19 @@ func (c *Commands) InitFileUpload(
 		// proto is required: omitting it fails the whole call with 1539
 		// (parameter not found) rather than defaulting.
 		uintArg("proto", 0),
-	}, "cpw")
+	})
+	if err != nil {
+		return nil, err
+	}
+	port, err := transferPort(row)
 	if err != nil {
 		return nil, err
 	}
 
 	return &FileUploadInfo{
 		FileTransferKey:      fieldStr(row, "ftkey"),
-		IP:                   fieldStr(row, "ip"),
-		Port:                 fieldUint16(row, "port"),
+		Port:                 port,
+		Size:                 size,
 		SeekPosition:         fieldUint(row, "seekpos"),
 		ClientFileTransferID: ClientFileTransferID(fieldUint16(row, "clientftfid")),
 		ServerFileTransferID: ServerFileTransferID(fieldUint16(row, "serverftfid")),
@@ -309,33 +371,41 @@ type FileDownloadOptions struct {
 	// Password is the channel's password, "" for none.
 	Password string
 	// SeekPosition is the byte offset to start from, to resume a download; 0
-	// is the start of the file.
+	// is the start of the file. The answer's Size stays the whole file's, and
+	// the bytes sent are those from here to the end: measured on TeamSpeak 3
+	// 3.13.8 and TeamSpeak 6 6.0.0, a seekpos of 40000 on a 100000-byte file
+	// is answered with size 100000 and then 60000 bytes. An offset past the end
+	// is refused with 2057 (errcode.FileInvalidSize).
 	SeekPosition uint64
 }
 
 // InitFileDownload negotiates a download and returns the key, port and size to
 // dial. Pass the result to DownloadFileData. Refusals are returned as for
-// InitFileUpload.
+// InitFileUpload: a file that is not there is errcode.FileNotFound.
 func (c *Commands) InitFileDownload(
 	ctx context.Context, channelID ChannelID, path string, opts FileDownloadOptions,
 ) (*FileDownloadInfo, error) {
-	row, err := c.queryRow(ctx, "ftinitdownload", "ftkey", []param{
+	row, err := c.transferRow(ctx, "ftinitdownload", []param{
 		uintArg("clientftfid", c.nextFileTransferID()),
 		strArg("name", asPath(path)),
 		idArg("cid", channelID),
 		strArg("cpw", opts.Password),
 		uintArg("seekpos", opts.SeekPosition),
 		uintArg("proto", 0),
-	}, "cpw")
+	})
+	if err != nil {
+		return nil, err
+	}
+	port, err := transferPort(row)
 	if err != nil {
 		return nil, err
 	}
 
 	return &FileDownloadInfo{
 		FileTransferKey:      fieldStr(row, "ftkey"),
-		IP:                   fieldStr(row, "ip"),
-		Port:                 fieldUint16(row, "port"),
+		Port:                 port,
 		Size:                 fieldUint(row, "size"),
+		SeekPosition:         opts.SeekPosition,
 		ClientFileTransferID: ClientFileTransferID(fieldUint16(row, "clientftfid")),
 		ServerFileTransferID: ServerFileTransferID(fieldUint16(row, "serverftfid")),
 	}, nil
@@ -349,38 +419,47 @@ type UploadFileOptions struct {
 	// Password is the channel's password, "" for none.
 	Password string
 	// Overwrite replaces a file of the same name, which the server otherwise
-	// refuses.
+	// refuses. It cannot go with Resume.
 	Overwrite bool
+	// Resume continues an interrupted upload of the same file. data is still
+	// the whole file: the server says how much of the file it already
+	// holds, and only the rest is sent. See FileUploadOptions.Resume.
+	Resume bool
 }
 
 // UploadFile uploads data as one file in one call: it negotiates the upload
 // with InitFileUpload and sends the bytes with UploadFileData. host is the
-// address the file transfer port is reached on, normally the one the client
-// connected to; the address the server names in its answer, when it names one,
-// is dialled instead. For a stream, or a transfer to resume, call the two
-// yourself.
+// address the file transfer port is reached on, the one the client connected
+// to: the servers never name another. For a stream, call the two yourself.
 //
-// It returns once the connection that carried the data has closed. The server
-// finishes writing the file a moment later, so a listing taken at once can
-// still show it missing or short: measured on TeamSpeak 3 and 6 as under a
-// second.
+// It returns once the server has closed the transfer connection, which it does
+// when it has the file: measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0,
+// about 200 ms after the last byte of a 100000-byte file.
 //
 // A refusal, such as no permission to upload or a file that exists without
-// Overwrite, is the server's error as InitFileUpload returns it. The transfer's
-// own errors wrap ErrFileTransfer. WebQuery refuses the negotiation with 5120,
-// out of the scope of the key, so the call needs another transport.
+// Overwrite (errcode.FileAlreadyExists), is the server's error as
+// InitFileUpload returns it. The transfer's own errors wrap ErrFileTransfer.
+// WebQuery refuses the negotiation with 5120, out of the scope of the key, so
+// the call needs another transport.
 func (c *Commands) UploadFile(
 	ctx context.Context, host string, channelID ChannelID, path string, data []byte, opts UploadFileOptions,
 ) error {
 	info, err := c.InitFileUpload(ctx, channelID, path, uint64(len(data)), FileUploadOptions{
 		Password:  opts.Password,
 		Overwrite: opts.Overwrite,
+		Resume:    opts.Resume,
 	})
 	if err != nil {
 		return err
 	}
+	// What the server holds is not sent again. A position past the end is
+	// left for the transfer to refuse.
+	rest := data
+	if info.SeekPosition <= uint64(len(data)) {
+		rest = data[info.SeekPosition:]
+	}
 
-	return UploadFileData(ctx, transferAddress(host, info.IP), info, bytes.NewReader(data), opts.Transfer)
+	return UploadFileData(ctx, host, info, bytes.NewReader(rest), opts.Transfer)
 }
 
 // defaultDownloadFileLimit is DownloadFileOptions.MaxSize when it is zero.
@@ -393,26 +472,32 @@ type DownloadFileOptions struct {
 	Transfer FileTransferOptions
 	// Password is the channel's password, "" for none.
 	Password string
-	// MaxSize is the largest file DownloadFile will hold in memory. The server
-	// announces the size before the bytes, so a larger file is refused without
-	// being fetched. Zero means 64 MiB.
+	// SeekPosition starts the download there: the bytes are the file's from
+	// that offset to its end, which is how to resume a partial download.
+	SeekPosition uint64
+	// MaxSize is the most bytes DownloadFile will hold in memory. The server
+	// announces the size before the bytes, so a larger download is refused
+	// without being fetched. Zero means 64 MiB.
 	MaxSize uint64
 }
 
 // DownloadFile downloads one file in one call and returns its bytes: it
 // negotiates the download with InitFileDownload and receives the bytes with
-// DownloadFileData. host is as for UploadFile. For a file too large to hold,
-// or a transfer to resume, call the two yourself with a writer of your own.
+// DownloadFileData. host is as for UploadFile. For a file too large to hold
+// call the two yourself with a writer of your own.
 //
-// A file larger than MaxSize fails with an error wrapping ErrFileTransfer
-// before any byte is fetched, and the transfer the server had prepared is
-// stopped, so none is left listed as active. A refusal is the server's error
-// as InitFileDownload returns it, and a transfer error wraps ErrFileTransfer.
-// WebQuery refuses the negotiation as for UploadFile.
+// With SeekPosition the bytes are the file's from there to its end.
+//
+// A download of more than MaxSize bytes fails with an error wrapping
+// ErrFileTransfer before any byte is fetched, and the transfer the server had
+// prepared is stopped, so none is left listed as active. A refusal is the
+// server's error as InitFileDownload returns it, and a transfer error wraps
+// ErrFileTransfer. WebQuery refuses the negotiation as for UploadFile.
 func (c *Commands) DownloadFile(
 	ctx context.Context, host string, channelID ChannelID, path string, opts DownloadFileOptions,
 ) ([]byte, error) {
-	info, err := c.InitFileDownload(ctx, channelID, path, FileDownloadOptions{Password: opts.Password})
+	info, err := c.InitFileDownload(ctx, channelID, path,
+		FileDownloadOptions{Password: opts.Password, SeekPosition: opts.SeekPosition})
 	if err != nil {
 		return nil, err
 	}
@@ -420,38 +505,32 @@ func (c *Commands) DownloadFile(
 	if limit == 0 {
 		limit = defaultDownloadFileLimit
 	}
-	if info.Size > limit {
+	wanted, err := bytesToMove(info.Size, info.SeekPosition)
+	if err != nil {
+		return nil, err
+	}
+	if wanted > limit {
 		// The server holds the negotiated transfer, and lists it among the
 		// active ones, until it is used or stopped: a refusal that left it
 		// would leave a transfer nobody is going to dial.
 		_ = c.StopFileTransfer(context.WithoutCancel(ctx), info.ServerFileTransferID, FileTransferStopOptions{})
 
-		return nil, fmt.Errorf("%w: %s is %d bytes, over the %d the call holds in memory",
-			ErrFileTransfer, path, info.Size, limit)
+		return nil, fmt.Errorf("%w: %s is %d bytes from %d, over the %d the call holds in memory",
+			ErrFileTransfer, path, wanted, info.SeekPosition, limit)
 	}
 
 	var buf bytes.Buffer
 	// Sized up front when the announcement is a size a buffer can have; a
 	// larger one the caller allowed still grows as the bytes come.
-	if info.Size <= math.MaxInt32 {
-		buf.Grow(int(info.Size))
+	if wanted <= math.MaxInt32 {
+		buf.Grow(int(wanted))
 	}
-	err = DownloadFileData(ctx, transferAddress(host, info.IP), info, &buf, opts.Transfer)
+	err = DownloadFileData(ctx, host, info, &buf, opts.Transfer)
 	if err != nil {
 		return nil, err
 	}
 
 	return buf.Bytes(), nil
-}
-
-// transferAddress picks where to dial the file transfer port: the address the
-// server named, else the one the connection uses.
-func transferAddress(host, named string) string {
-	if named != "" {
-		return named
-	}
-
-	return host
 }
 
 // FileTreeEntry is one entry of a recursive listing.

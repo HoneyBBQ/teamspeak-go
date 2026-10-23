@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,10 +35,16 @@ type fileClient interface {
 	ListFilesRecursive(
 		ctx context.Context, cid teamspeak.ChannelID, path string, opts teamspeak.RecursiveFilesOptions,
 	) ([]teamspeak.FileTreeEntry, error)
+	InitFileUpload(
+		ctx context.Context, cid teamspeak.ChannelID, path string, size uint64, opts teamspeak.FileUploadOptions,
+	) (*teamspeak.FileUploadInfo, error)
+	GetFileInfo(
+		ctx context.Context, cid teamspeak.ChannelID, path string, opts teamspeak.FileOptions,
+	) (teamspeak.FileEntry, error)
 }
 
 // waitForFiles lists recursively until the server shows want, the sizes
-// included: it finishes writing an upload a moment after the connection closes.
+// included.
 func waitForFiles(
 	ctx context.Context, t *testing.T, c fileClient, cid teamspeak.ChannelID, want map[string]uint64,
 ) []teamspeak.FileTreeEntry {
@@ -79,7 +86,8 @@ func runFileTransfers(t *testing.T, actor fileClient, c *serverquery.Client) {
 		t.Fatalf("CreateDirectory: %v", err)
 	}
 	cleanup(t, "the files", func(ctx context.Context) error {
-		delErr := c.DeleteFile(ctx, cid, []string{"/docs", "/top.txt"}, teamspeak.FileOptions{})
+		delErr := c.DeleteFile(ctx, cid, []string{"/docs", "/top.txt", "/whole.bin", "/part.bin", "/short.bin", "/long.bin"},
+			teamspeak.FileOptions{})
 		if delErr != nil && !errors.Is(delErr, errcode.FileNotFound) && !errors.Is(delErr, errcode.FileInvalidPath) &&
 			serverCode(delErr) != 5120 {
 			return delErr
@@ -132,6 +140,7 @@ func runFileTransfers(t *testing.T, actor fileClient, c *serverquery.Client) {
 
 	assertRecursiveBounds(ctx, t, actor, cid)
 	assertTransferRefusals(ctx, t, actor, c, cid)
+	assertResumeAndSizes(ctx, t, actor, c, cid)
 }
 
 // assertRecursiveBounds checks MaxDepth and a listing that starts below the top.
@@ -168,8 +177,8 @@ func assertTransferRefusals(
 	t.Helper()
 	// A file that is there is refused without Overwrite, as the server says.
 	err := actor.UploadFile(ctx, transferHost, cid, "/top.txt", []byte("again"), teamspeak.UploadFileOptions{})
-	if err == nil {
-		t.Error("UploadFile over an existing file without Overwrite succeeded")
+	if !errors.Is(err, errcode.FileAlreadyExists) || serverCode(err) != 2050 {
+		t.Errorf("UploadFile over an existing file without Overwrite: %v, want the server's 2050", err)
 	}
 	// A file over the limit is refused before it is fetched.
 	_, err = actor.DownloadFile(ctx, transferHost, cid, "/docs/a.bin", teamspeak.DownloadFileOptions{MaxSize: 1000})
@@ -185,13 +194,127 @@ func assertTransferRefusals(
 		t.Errorf("after the refusals the server lists active transfers %+v, want none", active)
 	}
 	_, err = actor.DownloadFile(ctx, transferHost, cid, "/nothing.txt", teamspeak.DownloadFileOptions{})
-	if err == nil {
-		t.Error("DownloadFile of a missing file succeeded")
+	if !errors.Is(err, errcode.FileNotFound) || serverCode(err) != 2051 {
+		t.Errorf("DownloadFile of a missing file: %v, want the server's 2051", err)
 	}
 	_, err = actor.ListFilesRecursive(ctx, cid, "/nothing", teamspeak.RecursiveFilesOptions{})
 	if !errors.Is(err, errcode.FileNotFound) && !errors.Is(err, errcode.FileInvalidPath) && serverCode(err) != 2052 {
 		t.Errorf("ListFilesRecursive of a missing path: %v, want the server's refusal", err)
 	}
+}
+
+// cutUpload starts an upload of data into path and breaks it off after 40000
+// bytes, then waits until the server shows the partial file.
+func cutUpload(
+	ctx context.Context, t *testing.T, actor fileClient, cid teamspeak.ChannelID, path string, data []byte,
+) {
+	t.Helper()
+	up, err := actor.InitFileUpload(ctx, cid, path, uint64(len(data)), teamspeak.FileUploadOptions{})
+	if err != nil {
+		t.Fatalf("InitFileUpload: %v", err)
+	}
+	conn, err := teamspeak.DialFileTransfer(
+		ctx, transferHost, up.Port, up.FileTransferKey, teamspeak.FileTransferOptions{})
+	if err != nil {
+		t.Fatalf("DialFileTransfer: %v", err)
+	}
+	_, err = conn.Write(data[:40_000])
+	_ = conn.Close()
+	if err != nil {
+		t.Fatalf("writing the first part: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		info, infoErr := actor.GetFileInfo(ctx, cid, path, teamspeak.FileOptions{})
+		if infoErr == nil && info.Size == 40_000 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the partial file is %+v, %v, want 40000 bytes", info, infoErr)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// waitNoTransfers waits until none of the channel's transfers is running.
+// Closing the connection ends a transfer on the server. Other suites may
+// transfer too, so only this channel's files count.
+func waitNoTransfers(ctx context.Context, t *testing.T, c *serverquery.Client, cid teamspeak.ChannelID) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		active, err := c.ListActiveTransfers(ctx)
+		if err != nil && serverCode(err) != 5120 {
+			t.Fatalf("ListActiveTransfers: %v", err)
+		}
+		mine := slices.DeleteFunc(slices.Clone(active), func(a teamspeak.ActiveTransfer) bool {
+			return !strings.HasSuffix(a.Path, "channel_"+strconv.FormatUint(uint64(cid), 10))
+		})
+		if len(mine) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("transfers still active in the channel: %+v", mine)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+// assertResumeAndSizes checks what the upload and download calls promise about
+// the server's state: the file is there when the upload returns, a cut-off
+// upload resumes and a download starts from an offset, and a reader of the
+// wrong length fails.
+func assertResumeAndSizes(
+	ctx context.Context, t *testing.T, actor fileClient, c *serverquery.Client, cid teamspeak.ChannelID,
+) {
+	t.Helper()
+	data := make([]byte, 100_000)
+	for i := range data {
+		data[i] = byte(i * 7)
+	}
+
+	// The upload returns when the server has the file: the size is there at
+	// once, with no waiting.
+	err := actor.UploadFile(ctx, transferHost, cid, "/whole.bin", data, teamspeak.UploadFileOptions{})
+	if err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	info, err := actor.GetFileInfo(ctx, cid, "/whole.bin", teamspeak.FileOptions{})
+	if err != nil || info.Size != uint64(len(data)) {
+		t.Errorf("right after UploadFile the file is %+v, %v, want %d bytes", info, err, len(data))
+	}
+
+	// An upload cut off leaves a partial file, and resuming sends the rest.
+	cutUpload(ctx, t, actor, cid, "/part.bin", data)
+	err = actor.UploadFile(ctx, transferHost, cid, "/part.bin", data, teamspeak.UploadFileOptions{Resume: true})
+	if err != nil {
+		t.Fatalf("UploadFile with Resume: %v", err)
+	}
+	got, err := actor.DownloadFile(ctx, transferHost, cid, "/part.bin", teamspeak.DownloadFileOptions{})
+	if err != nil || !bytes.Equal(got, data) {
+		t.Errorf("the resumed file is %d bytes, %v, want the %d uploaded", len(got), err, len(data))
+	}
+
+	// A download from an offset brings the rest of the file.
+	tail, err := actor.DownloadFile(ctx, transferHost, cid, "/whole.bin",
+		teamspeak.DownloadFileOptions{SeekPosition: 40_000})
+	if err != nil || !bytes.Equal(tail, data[40_000:]) {
+		t.Errorf("DownloadFile from 40000 = %d bytes, %v, want the last %d", len(tail), err, len(data)-40_000)
+	}
+
+	// A reader of the wrong length fails, whichever way it is wrong.
+	for name, size := range map[string]int{"/short.bin": 1000, "/long.bin": 100} {
+		up, initErr := actor.InitFileUpload(ctx, cid, name, uint64(size), teamspeak.FileUploadOptions{})
+		if initErr != nil {
+			t.Fatalf("InitFileUpload %s: %v", name, initErr)
+		}
+		err = teamspeak.UploadFileData(ctx, transferHost, up, bytes.NewReader(data[:500]),
+			teamspeak.FileTransferOptions{})
+		if !errors.Is(err, teamspeak.ErrFileTransfer) {
+			t.Errorf("UploadFileData of 500 bytes declared as %d: %v, want ErrFileTransfer", size, err)
+		}
+	}
+	waitNoTransfers(ctx, t, c, cid)
 }
 
 func TestQueryFiles_OneCallTransfers(t *testing.T) {

@@ -106,6 +106,24 @@ func (c idleConn) Write(p []byte) (int, error) {
 // errTooMuchData is a download that sent more than the size announced.
 var errTooMuchData = errors.New("the server sent more data than the announced size")
 
+// errTooMuchUpload is an upload whose data gave more than the size declared.
+var errTooMuchUpload = errors.New("the data is longer than the declared size")
+
+// bytesToMove is how many bytes a negotiated transfer moves: the file's size
+// less the position it starts from. A position past the end is an error
+// wrapping ErrFileTransfer.
+func bytesToMove(size, seekPosition uint64) (uint64, error) {
+	if seekPosition > size {
+		return 0, fmt.Errorf("%w: the transfer starts at %d, outside a file of %d bytes",
+			ErrFileTransfer, seekPosition, size)
+	}
+	if size-seekPosition > math.MaxInt64 {
+		return 0, fmt.Errorf("%w: %d bytes are more than a transfer can move", ErrFileTransfer, size-seekPosition)
+	}
+
+	return size - seekPosition, nil
+}
+
 // sizedWriter writes to w at most size bytes, and fails on the first byte
 // beyond that without writing it.
 type sizedWriter struct {
@@ -155,8 +173,9 @@ type FileTransferDialDoneInfo struct {
 type FileTransferProgressInfo struct {
 	// Bytes is how many bytes have moved so far.
 	Bytes int64
-	// Total is the size from the upload or download info; 0 when it is not
-	// known, as for an upload, whose info does not carry one.
+	// Total is how many bytes the transfer will move, as its info fixes them:
+	// the file's size less the position it starts from. 0 for
+	// DialFileTransfer, which moves none.
 	Total int64
 }
 
@@ -249,6 +268,9 @@ func (r *transferRun) dial(
 	ctx context.Context, host string, port uint16, key string, opts FileTransferOptions,
 ) (net.Conn, error) {
 	addr := net.JoinHostPort(host, strconv.Itoa(int(port)))
+	if port == 0 {
+		return nil, fmt.Errorf("%w: dial %s: the file transfer port is 0, not 1 to 65535", ErrFileTransfer, addr)
+	}
 	if r.trace.DialStart != nil {
 		r.trace.DialStart(FileTransferDialStartInfo{Addr: addr})
 	}
@@ -381,7 +403,17 @@ func dialFileTransfer(ctx context.Context, addr, key string, opts FileTransferOp
 }
 
 // UploadFileData transfers data to the server using credentials from
-// InitFileUpload.
+// InitFileUpload. data is the file from info.SeekPosition on, and must give
+// exactly the bytes left of info.Size and then end: a reader that gives fewer
+// fails the upload with an error wrapping io.ErrUnexpectedEOF, one that gives
+// more fails it after the declared size, and the excess is not sent. In both
+// cases the connection is closed, which ends the transfer on the server.
+//
+// It returns once the server has closed the transfer connection, which it
+// does when it has the file. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6
+// 6.0.0: the server closes about 200 ms after the last byte of a 100000-byte
+// file. A connection that closes before every byte is written fails the
+// upload, and so does one that stays open for the idle timeout.
 //
 // If ctx is done first the connection is closed and the upload stops with an
 // error wrapping ctx's error. An upload waiting on data's Read notices at its
@@ -389,7 +421,11 @@ func dialFileTransfer(ctx context.Context, addr, key string, opts FileTransferOp
 func UploadFileData(
 	ctx context.Context, host string, info *FileUploadInfo, data io.Reader, opts FileTransferOptions,
 ) error {
-	run := newTransferRun(opts, 0)
+	expected, err := bytesToMove(info.Size, info.SeekPosition)
+	if err != nil {
+		return err
+	}
+	run := newTransferRun(opts, expected)
 	conn, err := run.dial(ctx, host, info.Port, info.FileTransferKey, opts)
 	if err != nil {
 		return run.failed(FileTransferStageDial, err)
@@ -401,9 +437,29 @@ func UploadFileData(
 		src = countingReader{r: data, run: run}
 	}
 	err = runOnConn(ctx, conn, func() error {
-		_, copyErr := io.Copy(idleConn{conn: conn, idle: opts.idle()}, src)
+		moving := idleConn{conn: conn, idle: opts.idle()}
+		n, copyErr := io.CopyN(moving, src, int64(expected)) //nolint:gosec // bytesToMove bounds it
+		if errors.Is(copyErr, io.EOF) {
+			return fmt.Errorf("%d of the declared %d bytes: %w", n, expected, io.ErrUnexpectedEOF)
+		}
+		if copyErr != nil {
+			return copyErr
+		}
+		// One more byte would be more than was declared. The server closes
+		// the connection at the declared size and ignores the rest, so the
+		// excess is only looked for, never sent.
+		var extra [1]byte
+		got, readErr := io.ReadFull(data, extra[:])
+		if got > 0 {
+			return errTooMuchUpload
+		}
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return readErr
+		}
+		// The bytes have left; the upload is over when the server says so.
+		_, waitErr := io.Copy(io.Discard, moving)
 
-		return copyErr
+		return waitErr
 	})
 	if err != nil {
 		return run.failed(FileTransferStageTransfer, fmt.Errorf("%w: upload: %w", ErrFileTransfer, err))
@@ -415,10 +471,14 @@ func UploadFileData(
 
 // DownloadFileData receives data from the server using credentials from
 // InitFileDownload, writing it to dest until the server closes the connection.
+// dest is not closed.
 //
-// The server announces the size, info.Size. A download that ends short of it
-// fails with an error wrapping io.ErrUnexpectedEOF; one that sends more fails
-// after the announced size, and the excess is not written to dest.
+// The server sends the file from info.SeekPosition to its end, so the size to
+// expect is info.Size less that: measured on TeamSpeak 3 3.13.8 and TeamSpeak
+// 6 6.0.0, a seekpos of 40000 on a 100000-byte file is answered with the whole
+// size and then 60000 bytes. A download that ends short of it fails with an
+// error wrapping io.ErrUnexpectedEOF; one that sends more fails after the
+// expected size, and the excess is not written to dest.
 //
 // If ctx is done first the connection is closed and the download stops with
 // an error wrapping ctx's error; dest keeps whatever had arrived. Every error
@@ -426,23 +486,27 @@ func UploadFileData(
 func DownloadFileData(
 	ctx context.Context, host string, info *FileDownloadInfo, dest io.Writer, opts FileTransferOptions,
 ) error {
-	run := newTransferRun(opts, info.Size)
+	expected, err := bytesToMove(info.Size, info.SeekPosition)
+	if err != nil {
+		return err
+	}
+	run := newTransferRun(opts, expected)
 	conn, err := run.dial(ctx, host, info.Port, info.FileTransferKey, opts)
 	if err != nil {
 		return run.failed(FileTransferStageDial, err)
 	}
 	defer func() { _ = conn.Close() }()
 
-	sized := &sizedWriter{w: dest, size: info.Size}
+	sized := &sizedWriter{w: dest, size: expected}
 	var sink io.Writer = sized
 	if run.trace.Progress != nil {
 		sink = countingWriter{w: sized, run: run}
 	}
 	err = runOnConn(ctx, conn, func() error {
 		_, copyErr := io.Copy(sink, idleConn{conn: conn, idle: opts.idle()})
-		if copyErr == nil && sized.written < info.Size {
-			// The connection closed before the announced size arrived.
-			return fmt.Errorf("%d of %d bytes: %w", sized.written, info.Size, io.ErrUnexpectedEOF)
+		if copyErr == nil && sized.written < expected {
+			// The connection closed before the expected size arrived.
+			return fmt.Errorf("%d of %d bytes: %w", sized.written, expected, io.ErrUnexpectedEOF)
 		}
 
 		return copyErr

@@ -144,9 +144,13 @@ func (r *transferRecorder) count(name string) int {
 func TestFileTransferTrace_UploadReportsTheFinalCount(t *testing.T) {
 	dialer, server := pipeDialer(t)
 	const size = 100<<10 + 7
-	go func() { _, _ = io.Copy(io.Discard, server) }()
+	// The server closes once it holds the key and the file.
+	go func() {
+		_, _ = io.ReadFull(server, make([]byte, len(traceKey)+size))
+		_ = server.Close()
+	}()
 	rec := &transferRecorder{}
-	info := &teamspeak.FileUploadInfo{FileTransferKey: traceKey, Port: 30033}
+	info := &teamspeak.FileUploadInfo{FileTransferKey: traceKey, Port: 30033, Size: size}
 
 	err := teamspeak.UploadFileData(t.Context(), "transfer.example", info,
 		bytes.NewReader(make([]byte, size)), tracedOptions(dialer, rec.trace()))
@@ -155,8 +159,8 @@ func TestFileTransferTrace_UploadReportsTheFinalCount(t *testing.T) {
 		t.Fatalf("UploadFileData: %v", err)
 	}
 	last := rec.progress[len(rec.progress)-1]
-	if last.Bytes != size || last.Total != 0 {
-		t.Errorf("final Progress = %+v, want %d of an unknown total", last, size)
+	if last.Bytes != size || last.Total != size {
+		t.Errorf("final Progress = %+v, want %d of %d", last, size, size)
 	}
 	if rec.count("Done") != 1 || rec.count("Failed") != 0 {
 		t.Errorf("order = %v", rec.order)
