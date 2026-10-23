@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log/slog"
+	"maps"
 	"reflect"
 	"strings"
 	"testing"
@@ -36,18 +37,19 @@ func fullClientRow() map[string]string {
 func TestParseClient_ReadsEveryField(t *testing.T) {
 	got := parseClient(fullClientRow())
 	want := ClientEntry{
-		ID: 7, ChannelID: 3, DatabaseID: 42, Nickname: "Ann", UID: "uidAnn=", IsAway: true,
-		AwayMessage: "lunch", IsTalker: true, ServerGroups: []ServerGroupID{6, 9}, ChannelGroupID: 8,
-		ChannelGroupInheritedChannelID: 3, IsInputMuted: new(true), IsOutputMuted: new(false),
+		ID: 7, ChannelID: 3, DatabaseID: 42, Nickname: "Ann", UID: new(UID("uidAnn=")), IsAway: new(true),
+		IsRecording: new(false), AwayMessage: new("lunch"), IsTalker: new(true),
+		ServerGroups: []ServerGroupID{6, 9}, ChannelGroupID: new(ChannelGroupID(8)),
+		ChannelGroupInheritedChannelID: new(ChannelID(3)), IsInputMuted: new(true), IsOutputMuted: new(false),
 		IsOutputOnlyMuted: new(false), HasInputHardware: new(true), HasOutputHardware: new(true),
 		IsChannelCommander: new(false), IsPrioritySpeaker: new(true), TalkPower: new(int32(75)),
-		IsRequestingTalk: new(true), TalkRequestMessage: "please", Description: "desc", MetaData: "meta",
-		Avatar: "abc123", IconID: 99, NicknamePhonetic: "an", UnreadMessages: new(int32(0)),
-		NeededServerQueryViewPower: new(int32(75)), Country: "SE", Version: "3.6.2", Platform: "Windows",
-		IP: "10.0.0.2", Badges: "overwolf=0", SignedBadges: "sb", MyTeamSpeakID: "mt",
-		MyTeamSpeakAvatar: "mta", Integrations: "int", UserTag: "tag", IsStreaming: new(true),
+		IsRequestingTalk: new(true), TalkRequestMessage: new("please"), Description: new("desc"), MetaData: new("meta"),
+		Avatar: new("abc123"), IconID: new(IconID(99)), NicknamePhonetic: new("an"), UnreadMessages: new(int32(0)),
+		NeededServerQueryViewPower: new(int32(75)), Country: new("SE"), Version: new("3.6.2"), Platform: new("Windows"),
+		IP: new("10.0.0.2"), Badges: new("overwolf=0"), SignedBadges: new("sb"), MyTeamSpeakID: new("mt"),
+		MyTeamSpeakAvatar: new("mta"), Integrations: new("int"), UserTag: new("tag"), IsStreaming: new(true),
 		Created: time.Unix(1600000000, 0), LastConnected: time.Unix(1700000001, 0),
-		IdleTime: 1500 * time.Millisecond, TalkRequestedAt: time.Unix(1700000000, 0),
+		IdleTime: new(1500 * time.Millisecond), TalkRequestedAt: time.Unix(1700000000, 0),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseClient = %+v\nwant %+v", got, want)
@@ -61,6 +63,63 @@ func TestParseClient_AbsentFlagFieldsAreUnknown(t *testing.T) {
 	want := ClientEntry{ID: 7, ChannelID: 3, Nickname: "Ann"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseClient = %+v, want %+v", got, want)
+	}
+}
+
+// What each clientlist flag brings, as measured on TeamSpeak 3 3.13.8 and
+// TeamSpeak 6 6.0.0: every row has the id, channel, database id, nickname and
+// type, and the rest comes with its flag.
+//
+//nolint:gocyclo,cyclop,funlen // one check per flag
+func TestParseClient_EachFlagBringsItsFields(t *testing.T) {
+	base := map[string]string{
+		"clid": "7", "cid": "3", "client_database_id": "9", "client_nickname": "Ann", "client_type": "1",
+	}
+	with := func(extra map[string]string) ClientEntry {
+		row := map[string]string{}
+		maps.Copy(row, base)
+		maps.Copy(row, extra)
+
+		return parseClient(row)
+	}
+
+	bare := parseClient(base)
+	wantBare := ClientEntry{ID: 7, ChannelID: 3, DatabaseID: 9, Nickname: "Ann", Type: 1}
+	if !reflect.DeepEqual(bare, wantBare) {
+		t.Errorf("no flag: %+v, want %+v", bare, wantBare)
+	}
+
+	away := with(map[string]string{"client_away": "0", "client_away_message": ""})
+	if away.IsAway == nil || *away.IsAway || away.AwayMessage == nil || *away.AwayMessage != "" {
+		t.Errorf("-away: IsAway %v, AwayMessage %v, want pointers to false and \"\"", away.IsAway, away.AwayMessage)
+	}
+	voice := with(map[string]string{"client_is_recording": "0", "client_is_talker": "0", "client_input_muted": "0"})
+	if voice.IsRecording == nil || voice.IsTalker == nil || voice.IsInputMuted == nil {
+		t.Errorf("-voice: %v %v %v, want all set", voice.IsRecording, voice.IsTalker, voice.IsInputMuted)
+	}
+	groups := with(map[string]string{
+		"client_servergroups": "", "client_channel_group_id": "8", "client_channel_group_inherited_channel_id": "0",
+	})
+	if groups.ServerGroups == nil || len(groups.ServerGroups) != 0 {
+		t.Errorf("-groups with none: ServerGroups = %#v, want an empty list that is not nil", groups.ServerGroups)
+	}
+	if groups.ChannelGroupID == nil || *groups.ChannelGroupID != 8 ||
+		groups.ChannelGroupInheritedChannelID == nil || *groups.ChannelGroupInheritedChannelID != 0 {
+		t.Errorf("-groups: %v %v", groups.ChannelGroupID, groups.ChannelGroupInheritedChannelID)
+	}
+	times := with(map[string]string{"client_idle_time": "0", "client_created": "5", "client_lastconnected": "0"})
+	if times.IdleTime == nil || *times.IdleTime != 0 || times.Created.IsZero() || !times.LastConnected.IsZero() {
+		t.Errorf("-times: %v %v %v", times.IdleTime, times.Created, times.LastConnected)
+	}
+	info := with(map[string]string{"client_version": "3.?.?", "client_platform": "Windows", "client_country": ""})
+	if info.Version == nil || info.Platform == nil || info.Country == nil || *info.Country != "" {
+		t.Errorf("-info -country: %v %v %v", info.Version, info.Platform, info.Country)
+	}
+	if icon := with(map[string]string{"client_icon_id": "0"}); icon.IconID != nil {
+		t.Errorf("-icon with none: IconID = %v, want nil", icon.IconID)
+	}
+	if uid := with(map[string]string{"client_unique_identifier": "u="}); uid.UID == nil || *uid.UID != "u=" {
+		t.Errorf("-uid: %v", uid.UID)
 	}
 }
 
@@ -91,6 +150,22 @@ func TestParseChannel_ReadsTheChannelInfoFields(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseChannel = %+v\nwant %+v", got, want)
+	}
+}
+
+// channellist carries no description, and channelinfo carries one, empty when
+// the channel has none.
+func TestParseChannel_DescriptionIsAbsentUnlessCarried(t *testing.T) {
+	if got := parseChannel(map[string]string{"cid": "5", "channel_name": "Lobby"}); got.Description != nil {
+		t.Errorf("a list row: Description = %q, want nil", *got.Description)
+	}
+	empty := parseChannel(map[string]string{"cid": "5", "channel_description": ""})
+	if empty.Description == nil || *empty.Description != "" {
+		t.Errorf("an empty description: %v, want a pointer to \"\"", empty.Description)
+	}
+	text := parseChannel(map[string]string{"cid": "5", "channel_description": "hi"})
+	if text.Description == nil || *text.Description != "hi" {
+		t.Errorf("a description: %v, want a pointer to hi", text.Description)
 	}
 }
 

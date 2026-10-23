@@ -603,8 +603,9 @@ func (c *Client) WaitView(ctx context.Context) error {
 //     read.
 //   - A channel's TotalClients and TotalFamilyClients are always nil: the
 //     server sends them when the client connects and never again.
-//   - A channel's Description is empty, as in a channel list; GetChannelInfo
-//     has it.
+//   - A channel's Description is nil, as in a channel list: no channel
+//     notification carries the text, and ChannelDescriptionChangedEvent only
+//     says it changed. GetChannelInfo has it.
 //   - The group lists are what the server last described, in full: it sends
 //     the whole list after every change to a group, and nothing about a
 //     group's permissions or members, which the view does not hold.

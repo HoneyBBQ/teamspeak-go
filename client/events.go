@@ -411,6 +411,7 @@ func (c *Client) dispatchEvent(evt Event) {
 		c.onCGChanged.Deliver(c.logger, eventbus.EventName(e), e, nil)
 	case ClientLeaveEvent:
 		c.onClientLeave.Deliver(c.logger, eventbus.EventName(e), e, func(v ClientLeaveEvent) ClientLeaveEvent {
+			v = servernotify.CloneClientLeave(v)
 			if v.Previous != nil {
 				v.Previous = new(v.Previous.Clone())
 			}
@@ -418,7 +419,7 @@ func (c *Client) dispatchEvent(evt Event) {
 			return v
 		})
 	case ClientMovedEvent:
-		c.onClientMoved.Deliver(c.logger, eventbus.EventName(e), e, nil)
+		c.onClientMoved.Deliver(c.logger, eventbus.EventName(e), e, servernotify.CloneClientMoved)
 	case PokeEvent:
 		c.onPoked.Deliver(c.logger, eventbus.EventName(e), e, nil)
 	case VoiceDataEvent:

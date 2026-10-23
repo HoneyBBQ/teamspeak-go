@@ -377,8 +377,9 @@ func (c *Commands) GetOwnPermission(ctx context.Context, perm Permission) (OwnPe
 //   - PermissionTargetChannelGroup: ChannelID and ChannelGroupID
 //   - PermissionTargetChannelClient: ChannelID and DatabaseID
 //
-// The others are 0. A row whose target is none of these is left out of the
-// results.
+// The others are 0. A row whose target is none of these is passed through: its
+// number is in Target, none of the typed ids is set, and ID1 and ID2 hold the
+// ids as sent.
 type PermissionLocation struct {
 	// ServerGroupID is the server group the permission is set on, for
 	// PermissionTargetServerGroup.
@@ -393,16 +394,22 @@ type PermissionLocation struct {
 	// ChannelGroupID is the channel group the permission is set on, for
 	// PermissionTargetChannelGroup.
 	ChannelGroupID ChannelGroupID
+	// ID1 and ID2 are the ids as the server sent them (id1, id2), set only for
+	// a Target that none of the PermissionTarget constants names; what they
+	// mean is then not known. For the others the typed ids above hold them.
+	ID1, ID2 uint64
 	// Permission is the permission found (p).
 	Permission PermissionID
 	// Target is what kind of thing the permission is set on (t), which says
-	// which of the ids above are set.
+	// which of the ids above are set. It is the number the server sent, so a
+	// kind newer than the constants reads as PermissionTarget(5).
 	Target PermissionTarget
 }
 
 // parseLocation reads a location from the wire's t, id1 and id2, whose
-// meaning depends on t. It reports false for a target it does not know.
-func parseLocation(row map[string]string) (PermissionLocation, bool) {
+// meaning depends on t. A target it does not know is passed through with the
+// raw ids.
+func parseLocation(row map[string]string) PermissionLocation {
 	loc := PermissionLocation{
 		Target:     PermissionTarget(fieldEnum(row, "t")),
 		Permission: PermissionID(fieldUint32(row, "p")),
@@ -422,10 +429,10 @@ func parseLocation(row map[string]string) (PermissionLocation, bool) {
 		loc.ChannelID = ChannelID(id1)
 		loc.DatabaseID = ClientDBID(id2)
 	default:
-		return PermissionLocation{}, false
+		loc.ID1, loc.ID2 = id1, id2
 	}
 
-	return loc, true
+	return loc
 }
 
 // FindPermission returns every place a permission is set.
@@ -437,9 +444,7 @@ func (c *Commands) FindPermission(ctx context.Context, perm Permission) ([]Permi
 
 	out := make([]PermissionLocation, 0, len(rows))
 	for _, row := range rows {
-		if loc, ok := parseLocation(row); ok {
-			out = append(out, loc)
-		}
+		out = append(out, parseLocation(row))
 	}
 
 	return out, nil
@@ -479,12 +484,8 @@ func (c *Commands) GetPermissionOverview(
 
 	out := make([]PermissionOverviewEntry, 0, len(rows))
 	for _, row := range rows {
-		loc, ok := parseLocation(row)
-		if !ok {
-			continue
-		}
 		out = append(out, PermissionOverviewEntry{
-			PermissionLocation: loc,
+			PermissionLocation: parseLocation(row),
 			Value:              fieldInt32(row, "v"),
 			Negated:            fieldBool(row, "n"),
 			Skip:               fieldBool(row, "s"),
@@ -517,7 +518,8 @@ type PrivilegeKey struct {
 	Token string
 	// Description is the key's description (token_description).
 	Description string
-	// ServerGroupID is the group a PrivilegeKeyServerGroup key grants.
+	// ServerGroupID is the group a PrivilegeKeyServerGroup key grants; 0 for any
+	// other type, including one the constants do not name.
 	ServerGroupID ServerGroupID
 	// ChannelGroupID and ChannelID are the group a PrivilegeKeyChannelGroup key
 	// grants and the channel it grants it in.
@@ -534,7 +536,8 @@ type PrivilegeKey struct {
 
 // parseKey reads a key. The wire carries the group as token_id1 and the
 // channel as token_id2, whichever kind of group it is; which typed field the
-// id belongs in depends on the token type.
+// id belongs in depends on the token type. A type the constants do not name
+// gets neither group nor channel: what its ids mean is not known.
 func parseKey(row map[string]string) PrivilegeKey {
 	key := PrivilegeKey{
 		Token:       fieldStr(row, "token"),
@@ -543,11 +546,13 @@ func parseKey(row map[string]string) PrivilegeKey {
 		Created:     fieldTime(row, "token_created"),
 		CustomSet:   parseCustomSet(fieldStr(row, "token_customset")),
 	}
-	if key.Type == PrivilegeKeyChannelGroup {
+	switch key.Type {
+	case PrivilegeKeyServerGroup:
+		key.ServerGroupID = ServerGroupID(fieldUint(row, "token_id1"))
+	case PrivilegeKeyChannelGroup:
 		key.ChannelGroupID = ChannelGroupID(fieldUint(row, "token_id1"))
 		key.ChannelID = ChannelID(fieldUint(row, "token_id2"))
-	} else {
-		key.ServerGroupID = ServerGroupID(fieldUint(row, "token_id1"))
+	default:
 	}
 
 	return key

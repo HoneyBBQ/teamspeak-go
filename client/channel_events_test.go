@@ -112,7 +112,7 @@ func TestChannelEdited_Reason9AnswerIsNoEventButIsANotification(t *testing.T) {
 // The roster is not a writer for any of them.
 func TestChannelEvents_LeaveWhatTheClientKnowsOfClients(t *testing.T) {
 	c := newTestClient(t)
-	before := teamspeak.ClientEntry{ID: 7, UID: "u7", Nickname: "A", ChannelID: 3}
+	before := teamspeak.ClientEntry{ID: 7, UID: new(teamspeak.UID("u7")), Nickname: "A", ChannelID: 3}
 	know(c, before)
 	for _, line := range []string{
 		"notifychannelcreated cid=3 cpid=0 channel_name=n",

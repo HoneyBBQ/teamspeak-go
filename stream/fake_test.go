@@ -225,7 +225,7 @@ func (h *fakeHost) notify(name string, params map[string]string) {
 func (h *fakeHost) see(id teamspeak.ClientID, streaming *bool) teamspeak.ClientEntry {
 	e := teamspeak.ClientEntry{
 		ID:          id,
-		UID:         teamspeak.UID(fmt.Sprintf("uid-%d", id)),
+		UID:         new(teamspeak.UID(fmt.Sprintf("uid-%d", id))),
 		Nickname:    fmt.Sprintf("client%d", id),
 		IsStreaming: streaming,
 	}

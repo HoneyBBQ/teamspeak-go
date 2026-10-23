@@ -254,6 +254,12 @@ func (c *Client) handleClientMoved(h *transport.PacketHandler, cmd *wire.Command
 		return
 	}
 	if info, ok := c.clients[evt.ClientID]; ok {
+		// TeamSpeak 3 sends no cfid on a move: the channel the roster had the
+		// client in is where it came from, and this is the last place to read it.
+		if evt.FromChannelID == nil {
+			from := info.ChannelID
+			evt.FromChannelID = &from
+		}
 		info.ChannelID = evt.TargetChannelID
 		c.clients[evt.ClientID] = info
 		c.view.revision++
@@ -275,8 +281,8 @@ func (c *Client) handleTextMessage(cmd *wire.Command) {
 
 	c.mu.Lock()
 	if info, ok := c.clients[msg.InvokerID]; ok {
-		if msg.InvokerUID == "" {
-			msg.InvokerUID = info.UID
+		if msg.InvokerUID == "" && info.UID != nil {
+			msg.InvokerUID = *info.UID
 		}
 		msg.InvokerGroups = slices.Clone(info.ServerGroups)
 	}
@@ -354,8 +360,9 @@ func (c *Client) handleClientChannelGroupChanged(h *transport.PacketHandler, cmd
 		return
 	}
 	if info, ok := c.clients[evt.ClientID]; ok && info.ChannelID == evt.ChannelID {
-		info.ChannelGroupID = evt.ChannelGroupID
-		info.ChannelGroupInheritedChannelID = evt.ChannelGroupInheritedChannelID
+		group, inherited := evt.ChannelGroupID, evt.ChannelGroupInheritedChannelID
+		info.ChannelGroupID = &group
+		info.ChannelGroupInheritedChannelID = &inherited
 		c.clients[evt.ClientID] = info
 		c.view.revision++
 	}

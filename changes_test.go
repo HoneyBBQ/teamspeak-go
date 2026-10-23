@@ -71,8 +71,8 @@ func TestChangesShareTheNamesOfTheOptions(t *testing.T) {
 
 func TestClientChangesApply_KeepsWhatIsNotNamed(t *testing.T) {
 	entry := ClientEntry{
-		ID: 7, Nickname: "Ann", IsAway: true, ServerGroups: []ServerGroupID{6},
-		IsInputMuted: new(true), Description: "d",
+		ID: 7, Nickname: "Ann", IsAway: new(true), ServerGroups: []ServerGroupID{6},
+		IsInputMuted: new(true), Description: new("d"),
 	}
 	got := ClientChanges{Nickname: new("Anna")}.Apply(entry)
 	want := entry
@@ -84,11 +84,12 @@ func TestClientChangesApply_KeepsWhatIsNotNamed(t *testing.T) {
 
 // A pointer to false or "" is a change; only nil is none.
 func TestClientChangesApply_ZeroValuesAreChanges(t *testing.T) {
-	entry := ClientEntry{IsAway: true, AwayMessage: "lunch", IsInputMuted: new(true), TalkPower: new(int32(5))}
+	entry := ClientEntry{IsAway: new(true), AwayMessage: new("lunch"), IsInputMuted: new(true), TalkPower: new(int32(5))}
 	got := ClientChanges{
 		IsAway: new(false), AwayMessage: new(""), IsInputMuted: new(false), TalkPower: new(int32(0)),
 	}.Apply(entry)
-	if got.IsAway || got.AwayMessage != "" || got.IsInputMuted == nil || *got.IsInputMuted ||
+	if got.IsAway == nil || *got.IsAway || got.AwayMessage == nil || *got.AwayMessage != "" ||
+		got.IsInputMuted == nil || *got.IsInputMuted ||
 		got.TalkPower == nil || *got.TalkPower != 0 {
 		t.Errorf("Apply = %+v, want everything cleared", got)
 	}

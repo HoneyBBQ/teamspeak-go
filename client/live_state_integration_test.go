@@ -52,7 +52,7 @@ func requireLivePair(t *testing.T) livePair {
 	clients, err := subject.ListClients(t.Context(), teamspeak.ClientListOptions{})
 	requireNoErr(t, err)
 	for _, entry := range clients {
-		if entry.UID == subject.UID() {
+		if entry.UID != nil && *entry.UID == subject.UID() {
 			dbid = entry.DatabaseID
 		}
 	}
@@ -310,8 +310,9 @@ func TestIntegration_AwayReachesABystanderAsExactlyTheChangedFields(t *testing.T
 		!slices.Equal(setFields(e.Changes), []string{"AwayMessage", "IsAway"}) || e.InvokerID != 0 {
 		t.Errorf("away update = %+v (fields %v)", e, setFields(e.Changes))
 	}
-	if entry := record(); !entry.IsAway || entry.AwayMessage != "lunch" {
-		t.Errorf("the observer's record: away %v, message %q", entry.IsAway, entry.AwayMessage)
+	if entry := record(); entry.IsAway == nil || !*entry.IsAway ||
+		entry.AwayMessage == nil || *entry.AwayMessage != "lunch" {
+		t.Errorf("the observer's record: away %v, message %v", entry.IsAway, entry.AwayMessage)
 	}
 
 	e = change(teamspeak.ClientUpdateOptions{IsAway: new(false), AwayMessage: new("")}, away)
@@ -319,8 +320,8 @@ func TestIntegration_AwayReachesABystanderAsExactlyTheChangedFields(t *testing.T
 	if *e.Changes.IsAway {
 		t.Errorf("the clear says away: %+v", e.Changes)
 	}
-	if entry := record(); entry.IsAway || entry.AwayMessage != "" {
-		t.Errorf("the observer's record is still away: %v %q", entry.IsAway, entry.AwayMessage)
+	if entry := record(); entry.IsAway == nil || *entry.IsAway || entry.AwayMessage == nil || *entry.AwayMessage != "" {
+		t.Errorf("the observer's record is still away: %v %v", entry.IsAway, entry.AwayMessage)
 	}
 }
 
@@ -356,20 +357,24 @@ func TestIntegration_ChannelGroupChangeIsReportedAndRefreshesTheRecord(t *testin
 
 	groups, err := admin.ListChannelGroups(ctx, teamspeak.ChannelGroupListOptions{})
 	requireNoErr(t, err)
-	before, _ := p.observer.KnownClientForTest(subjectID)
+	known, _ := p.observer.KnownClientForTest(subjectID)
+	if known.ChannelGroupID == nil {
+		t.Fatal("the observer's record of the subject holds no channel group")
+	}
+	original := *known.ChannelGroupID
 	var target teamspeak.ChannelGroupID
 	for _, g := range groups {
-		if g.Type == teamspeak.GroupRegular && g.ID != before.ChannelGroupID {
+		if g.Type == teamspeak.GroupRegular && g.ID != original {
 			target = g.ID
 		}
 	}
 	if target == 0 {
-		t.Skipf("the server has no regular channel group other than %d to switch to", before.ChannelGroupID)
+		t.Skipf("the server has no regular channel group other than %d to switch to", original)
 	}
 	t.Cleanup(func() {
 		restore, cancel := cleanupContext()
 		defer cancel()
-		_ = admin.SetClientChannelGroup(restore, before.ChannelGroupID, channel, p.subjectDBID)
+		_ = admin.SetClientChannelGroup(restore, original, channel, p.subjectDBID)
 	})
 
 	requireNoErr(t, admin.SetClientChannelGroup(ctx, target, channel, p.subjectDBID))
@@ -379,16 +384,18 @@ func TestIntegration_ChannelGroupChangeIsReportedAndRefreshesTheRecord(t *testin
 	if e.ChannelID != channel || e.InvokerName == "" || e.ChannelGroupInheritedChannelID != channel {
 		t.Errorf("event = %+v, want channel %d, an invoker, inherited from %d", e, channel, channel)
 	}
-	if after, _ := p.observer.KnownClientForTest(subjectID); after.ChannelGroupID != target {
-		t.Errorf("the observer's record holds channel group %d, want %d", after.ChannelGroupID, target)
+	if after, _ := p.observer.KnownClientForTest(subjectID); after.ChannelGroupID == nil ||
+		*after.ChannelGroupID != target {
+		t.Errorf("the observer's record holds channel group %v, want %d", after.ChannelGroupID, target)
 	}
 
-	requireNoErr(t, admin.SetClientChannelGroup(ctx, before.ChannelGroupID, channel, p.subjectDBID))
+	requireNoErr(t, admin.SetClientChannelGroup(ctx, original, channel, p.subjectDBID))
 	await(t, changed, "ClientChannelGroupChanged back", func(e client.ClientChannelGroupChangedEvent) bool {
-		return e.ClientID == subjectID && e.ChannelGroupID == before.ChannelGroupID
+		return e.ClientID == subjectID && e.ChannelGroupID == original
 	})
-	if after, _ := p.observer.KnownClientForTest(subjectID); after.ChannelGroupID != before.ChannelGroupID {
-		t.Errorf("the observer's record holds channel group %d after the restore, want %d",
-			after.ChannelGroupID, before.ChannelGroupID)
+	if after, _ := p.observer.KnownClientForTest(subjectID); after.ChannelGroupID == nil ||
+		*after.ChannelGroupID != original {
+		t.Errorf("the observer's record holds channel group %v after the restore, want %d",
+			after.ChannelGroupID, original)
 	}
 }

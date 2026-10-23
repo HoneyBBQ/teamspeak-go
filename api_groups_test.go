@@ -2,6 +2,7 @@ package teamspeak
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -142,6 +143,49 @@ func TestListPrivilegeKeys_ReadsTheCustomSet(t *testing.T) {
 	}
 	if !got[0].Created.Equal(time.Unix(1792225305, 0)) {
 		t.Errorf("created = %v", got[0].Created)
+	}
+}
+
+// A type the constants do not name has no group or channel: what its ids mean
+// is not known, and the server group was never the default.
+func TestListPrivilegeKeys_IdsFollowTheType(t *testing.T) {
+	s := &script{replies: []reply{{rows: []map[string]string{
+		{"token": "a", "token_type": "0", "token_id1": "6", "token_id2": "0"},
+		{"token": "b", "token_type": "1", "token_id1": "5", "token_id2": "2"},
+		{"token": "c", "token_type": "2", "token_id1": "6", "token_id2": "3"},
+	}}}}
+	got, err := NewCommands(s).ListPrivilegeKeys(t.Context())
+	if err != nil || len(got) != 3 {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if got[0].ServerGroupID != 6 || got[0].ChannelGroupID != 0 || got[0].ChannelID != 0 {
+		t.Errorf("a server group key = %+v", got[0])
+	}
+	if got[1].ServerGroupID != 0 || got[1].ChannelGroupID != 5 || got[1].ChannelID != 2 {
+		t.Errorf("a channel group key = %+v", got[1])
+	}
+	if got[2].Type != 2 || got[2].ServerGroupID != 0 || got[2].ChannelGroupID != 0 || got[2].ChannelID != 0 {
+		t.Errorf("a key of an unknown type = %+v, want its number and no ids", got[2])
+	}
+}
+
+// A row with a target the constants do not name is passed through, with the
+// number and the raw ids.
+func TestFindPermission_PassesAnUnknownTargetThrough(t *testing.T) {
+	s := &script{replies: []reply{{rows: []map[string]string{
+		{"t": "3", "id1": "4", "id2": "9", "p": "1"},
+		{"t": "99", "id1": "7", "id2": "8", "p": "2"},
+	}}}}
+	got, err := NewCommands(s).FindPermission(t.Context(), PermissionByID(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []PermissionLocation{
+		{Target: PermissionTargetChannelGroup, ChannelID: 4, ChannelGroupID: 9, Permission: 1},
+		{Target: 99, ID1: 7, ID2: 8, Permission: 2},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
 

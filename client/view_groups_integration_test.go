@@ -507,7 +507,8 @@ func TestIntegration_ViewPrevious(t *testing.T) {
 	e := await(t, left, "the bystander leaving", func(e teamspeak.ClientLeaveEvent) bool {
 		return e.ClientID == bystander.ClientID()
 	})
-	if e.Previous == nil || e.Previous.ID != held.ID || e.Previous.UID != held.UID ||
+	if e.Previous == nil || e.Previous.ID != held.ID || e.Previous.UID == nil || held.UID == nil ||
+		*e.Previous.UID != *held.UID ||
 		e.Previous.Nickname != held.Nickname || e.Previous.ChannelID != held.ChannelID ||
 		!slices.Equal(e.Previous.ServerGroups, held.ServerGroups) {
 		t.Errorf("Previous = %+v, the view held %+v", e.Previous, held)

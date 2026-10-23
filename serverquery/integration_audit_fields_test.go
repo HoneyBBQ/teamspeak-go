@@ -13,6 +13,15 @@ import (
 	"github.com/honeybbq/teamspeak-go/serverquery"
 )
 
+// idText prints an optional channel id.
+func idText(id *teamspeak.ChannelID) string {
+	if id == nil {
+		return "none"
+	}
+
+	return strconv.FormatUint(uint64(*id), 10)
+}
+
 func stamp() string { return strconv.FormatInt(time.Now().UnixNano(), 36) }
 
 // What the database lookups, whoami and serverlist carry beyond what they
@@ -195,8 +204,10 @@ func TestQueryAdmin_TempPasswordTargetChannelPassword(t *testing.T) {
 
 // The query client's enter, move and leave events name the channels, over the
 // transports that deliver events.
+//
+//nolint:gocyclo,cyclop,funlen // enter, admin move, own move and leave in one connection
 func TestQueryAdmin_EnterMoveLeaveChannels(t *testing.T) {
-	forEachTransport(t, 1, func(t *testing.T, c *serverquery.Client, family teamspeak.ServerFamily, transport string) {
+	forEachTransport(t, 1, func(t *testing.T, c *serverquery.Client, _ teamspeak.ServerFamily, transport string) {
 		if transport == "web" {
 			t.Skip("WebQuery delivers no events")
 		}
@@ -221,9 +232,10 @@ func TestQueryAdmin_EnterMoveLeaveChannels(t *testing.T) {
 
 		voice := voiceClient(t, "audit-"+stamp())
 		first := awaitEvent(t, enter, "enter")
-		t.Logf("%s: enter from %d reason %v in %d", transport, first.FromChannelID, first.Reason, first.ChannelID)
-		if first.Reason != teamspeak.ReasonNone || first.FromChannelID != 0 {
-			t.Errorf("a connect: from %d, reason %v", first.FromChannelID, first.Reason)
+		t.Logf("%s: enter from %s reason %v in %d", transport, idText(first.FromChannelID), first.Reason, first.ChannelID)
+		if first.Reason == nil || *first.Reason != teamspeak.ReasonNone ||
+			first.FromChannelID == nil || *first.FromChannelID != 0 {
+			t.Errorf("a connect: from %v, reason %v", first.FromChannelID, first.Reason)
 		}
 		original := first.ChannelID
 
@@ -232,20 +244,43 @@ func TestQueryAdmin_EnterMoveLeaveChannels(t *testing.T) {
 			t.Fatalf("MoveClient: %v", err)
 		}
 		move := awaitEvent(t, moved, "move")
-		t.Logf("%s: move from %d to %d", transport, move.FromChannelID, move.TargetChannelID)
-		wantFrom := original
-		if family == teamspeak.ServerFamilyTS3 {
-			// TeamSpeak 3 names no origin on a move.
-			wantFrom = 0
+		t.Logf("%s: move from %s to %d", transport, idText(move.FromChannelID), move.TargetChannelID)
+		// TeamSpeak 3 names no origin on a move; the client says where the
+		// client was.
+		if move.TargetChannelID != cid || move.FromChannelID == nil || *move.FromChannelID != original {
+			t.Errorf("move = from %v to %d, want from %d to %d", move.FromChannelID, move.TargetChannelID, original, cid)
 		}
-		if move.TargetChannelID != cid || move.FromChannelID != wantFrom {
-			t.Errorf("move = from %d to %d, want from %d to %d", move.FromChannelID, move.TargetChannelID, wantFrom, cid)
+		if move.Reason != teamspeak.ReasonMoved || move.InvokerID == 0 || move.InvokerName == "" {
+			t.Errorf("an admin move names its invoker: %+v", move)
 		}
+
+		// A client's own move names no invoker on either server, however well
+		// the client list knows the client.
+		err = voice.MoveClient(ctx, voice.ClientID(), original, teamspeak.ClientMoveOptions{})
+		if err != nil {
+			t.Fatalf("MoveClient (its own): %v", err)
+		}
+		own := awaitEvent(t, moved, "own move")
+		t.Logf("%s: own move from %s to %d, invoker %d %q", transport, idText(own.FromChannelID),
+			own.TargetChannelID, own.InvokerID, own.InvokerName)
+		if own.TargetChannelID != original || own.FromChannelID == nil || *own.FromChannelID != cid {
+			t.Errorf("own move = from %v to %d, want from %d to %d", own.FromChannelID, own.TargetChannelID, cid, original)
+		}
+		if own.Reason != teamspeak.ReasonNone || own.InvokerID != 0 || own.InvokerName != "" || own.InvokerUID != "" {
+			t.Errorf("a move of its own names an invoker: %+v", own)
+		}
+		err = voice.MoveClient(ctx, voice.ClientID(), cid, teamspeak.ClientMoveOptions{})
+		if err != nil {
+			t.Fatalf("MoveClient (back): %v", err)
+		}
+		_ = awaitEvent(t, moved, "move back")
 
 		_ = voice.Disconnect(ctx)
 		leave := awaitEvent(t, left, "leave")
-		t.Logf("%s: leave from %d to %d reason %v", transport, leave.FromChannelID, leave.TargetChannelID, leave.Reason)
-		if leave.FromChannelID != cid || leave.TargetChannelID != 0 || leave.Reason != teamspeak.ReasonDisconnect {
+		t.Logf("%s: leave from %s to %s reason %v", transport, idText(leave.FromChannelID),
+			idText(leave.TargetChannelID), leave.Reason)
+		if leave.FromChannelID == nil || *leave.FromChannelID != cid || leave.TargetChannelID == nil ||
+			*leave.TargetChannelID != 0 || leave.Reason != teamspeak.ReasonDisconnect {
 			t.Errorf("leave = %+v, want from %d to 0, a disconnect", leave, cid)
 		}
 	})

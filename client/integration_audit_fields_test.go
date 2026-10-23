@@ -96,8 +96,8 @@ func TestIntegration_ChannelsOnEnterMoveLeave(t *testing.T) {
 	enter := await(t, entered, "the mover coming into view", func(e client.ClientEnterEvent) bool {
 		return e.ID == mover.ClientID()
 	})
-	t.Logf("enter: from %d, reason %v, in %d", enter.FromChannelID, enter.Reason, enter.ChannelID)
-	if enter.Reason != teamspeak.ReasonSubscription || enter.ChannelID != cid {
+	t.Logf("enter: from %v, reason %v, in %d", enter.FromChannelID, enter.Reason, enter.ChannelID)
+	if enter.Reason == nil || *enter.Reason != teamspeak.ReasonSubscription || enter.ChannelID != cid {
 		t.Errorf("enter = reason %v in %d, want a subscription in %d", enter.Reason, enter.ChannelID, cid)
 	}
 
@@ -106,17 +106,18 @@ func TestIntegration_ChannelsOnEnterMoveLeave(t *testing.T) {
 	move := await(t, moved, "the mover moving out", func(e client.ClientMovedEvent) bool {
 		return e.ClientID == mover.ClientID()
 	})
-	t.Logf("moved: from %d to %d, reason %v", move.FromChannelID, move.TargetChannelID, move.Reason)
-	if move.TargetChannelID != home || (move.FromChannelID != 0 && move.FromChannelID != cid) {
-		t.Errorf("move = from %d to %d, want from 0 or %d to %d", move.FromChannelID, move.TargetChannelID, cid, home)
+	t.Logf("moved: from %v to %d, reason %v", move.FromChannelID, move.TargetChannelID, move.Reason)
+	// TeamSpeak 3 names no origin; the client says where the mover was.
+	if move.TargetChannelID != home || move.FromChannelID == nil || *move.FromChannelID != cid {
+		t.Errorf("move = from %v to %d, want from %d to %d", move.FromChannelID, move.TargetChannelID, cid, home)
 	}
 
 	requireNoErr(t, mover.Disconnect(t.Context()))
 	got := await(t, left, "the mover leaving", func(e client.ClientLeaveEvent) bool {
 		return e.ClientID == mover.ClientID() && e.Reason == teamspeak.ReasonDisconnect
 	})
-	t.Logf("leave: from %d to %d, reason %v", got.FromChannelID, got.TargetChannelID, got.Reason)
-	if got.TargetChannelID != 0 || got.FromChannelID != home {
+	t.Logf("leave: from %v to %v, reason %v", got.FromChannelID, got.TargetChannelID, got.Reason)
+	if got.TargetChannelID == nil || *got.TargetChannelID != 0 || got.FromChannelID == nil || *got.FromChannelID != home {
 		t.Errorf("leave = %+v, want a disconnect from %d", got, home)
 	}
 }

@@ -51,7 +51,7 @@ func dbIDOf(t *testing.T, via, c *client.Client) teamspeak.ClientDBID {
 	clients, err := via.ListClients(t.Context(), teamspeak.ClientListOptions{})
 	requireNoErr(t, err)
 	for _, e := range clients {
-		if e.UID == c.UID() {
+		if e.UID != nil && *e.UID == c.UID() {
 			return e.DatabaseID
 		}
 	}
@@ -333,9 +333,11 @@ func TestIntegration_MetaDataIsSeenOnEnterAndInUpdates(t *testing.T) {
 	updated := listen(t, observer.OnClientUpdated)
 
 	joiner := liveClient(t, "meta-joiner", client.WithMetaData("first meta"))
-	enter := await(t, entered, "the joiner's enter", func(e client.ClientEnterEvent) bool { return e.UID == joiner.UID() })
-	if enter.MetaData != "first meta" {
-		t.Errorf("MetaData on enter = %q, want %q", enter.MetaData, "first meta")
+	enter := await(t, entered, "the joiner's enter", func(e client.ClientEnterEvent) bool {
+		return e.UID != nil && *e.UID == joiner.UID()
+	})
+	if enter.MetaData == nil || *enter.MetaData != "first meta" {
+		t.Errorf("MetaData on enter = %v, want %q", enter.MetaData, "first meta")
 	}
 
 	requireNoErr(t, joiner.UpdateClient(t.Context(), teamspeak.ClientUpdateOptions{MetaData: new("second meta")}))

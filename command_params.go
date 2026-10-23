@@ -517,10 +517,54 @@ func requireRow(rows []map[string]string, command, key string) (map[string]strin
 	return rows[0], nil
 }
 
-// fieldIDList reads a comma-separated list of ids, as client_servergroups
-// arrives.
-func fieldIDList[T ~uint64](row map[string]string, key string) []T {
-	return parseIDList[T](row[key])
+// fieldOptIDList reads a comma-separated list of ids, as client_servergroups
+// arrives, that an answer may leave out: nil when the key is absent, and an
+// empty list, not nil, when the server sent it empty.
+func fieldOptIDList[T ~uint64](row map[string]string, key string) []T {
+	raw, ok := row[key]
+	if !ok {
+		return nil
+	}
+	list := parseIDList[T](raw)
+	if list == nil {
+		list = []T{}
+	}
+
+	return list
+}
+
+// fieldOptStr reads a string an answer may leave out: nil when the key is
+// absent, and a pointer to the value, "" included, when the server sent it. An
+// empty string and "not reported" mean different things.
+func fieldOptStr[T ~string](row map[string]string, key string) *T {
+	raw, ok := row[key]
+	if !ok {
+		return nil
+	}
+	value := T(raw)
+
+	return &value
+}
+
+// fieldOptID reads an id an answer may leave out: nil when the key is absent or
+// empty, otherwise a pointer to it, 0 included.
+func fieldOptID[T ~uint64](row map[string]string, key string) *T {
+	if row[key] == "" {
+		return nil
+	}
+	value := T(fieldUint(row, key))
+
+	return &value
+}
+
+// fieldOptIconID reads an icon id an answer may leave out: nil when the key is
+// absent, and nil for icon 0, which is none.
+func fieldOptIconID(row map[string]string, key string) *IconID {
+	if icon := fieldIconID(row, key); icon != 0 {
+		return &icon
+	}
+
+	return nil
 }
 
 // fieldUint16 reads a field the protocol defines as a 16-bit id, clamping rather

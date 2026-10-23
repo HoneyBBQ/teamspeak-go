@@ -32,8 +32,8 @@ func TestHandleClientEnterView_AddsToClients(t *testing.T) {
 	if info.ChannelID != 10 {
 		t.Errorf("expected channelID 10, got %d", info.ChannelID)
 	}
-	if info.UID != "uid123" {
-		t.Errorf("expected uid 'uid123', got %q", info.UID)
+	if info.UID == nil || *info.UID != "uid123" {
+		t.Errorf("expected uid 'uid123', got %v", info.UID)
 	}
 }
 
@@ -322,7 +322,7 @@ func TestHandleClientMoved_TriggersCallback(t *testing.T) {
 func TestHandleTextMessage_CallsCallback(t *testing.T) {
 	c := newTestClient(t)
 	c.mu.Lock()
-	c.clients[2] = teamspeak.ClientEntry{ID: 2, UID: "invokeruid"}
+	c.clients[2] = teamspeak.ClientEntry{ID: 2, UID: new(teamspeak.UID("invokeruid"))}
 	c.mu.Unlock()
 
 	msgs := make(chan TextMessageEvent, 1)
@@ -353,7 +353,7 @@ func TestHandleTextMessage_CallsCallback(t *testing.T) {
 func TestHandleTextMessage_FallbackToClientCacheUID(t *testing.T) {
 	c := newTestClient(t)
 	c.mu.Lock()
-	c.clients[99] = teamspeak.ClientEntry{ID: 99, UID: "cacheduid"}
+	c.clients[99] = teamspeak.ClientEntry{ID: 99, UID: new(teamspeak.UID("cacheduid"))}
 	c.mu.Unlock()
 
 	msgs := make(chan TextMessageEvent, 1)
@@ -513,14 +513,16 @@ func TestHandleClientEnterView_CarriesTheOriginAndReason(t *testing.T) {
 		"notifycliententerview cfid=1 ctid=6 reasonid=1 clid=13 client_nickname=ProbeB client_type=0"))
 
 	first, second := <-entered, <-entered
-	if first.FromChannelID != 0 || first.Reason != teamspeak.ReasonSubscription || first.ChannelID != 6 {
-		t.Errorf("subscription enter = from %d, %v, channel %d", first.FromChannelID, first.Reason, first.ChannelID)
+	if first.FromChannelID == nil || *first.FromChannelID != 0 || first.Reason == nil ||
+		*first.Reason != teamspeak.ReasonSubscription || first.ChannelID != 6 {
+		t.Errorf("subscription enter = from %v, %v, channel %d", first.FromChannelID, first.Reason, first.ChannelID)
 	}
 	if !first.TalkRequestedAt.Equal(time.Unix(1792335264, 0)) {
 		t.Errorf("TalkRequestedAt = %v", first.TalkRequestedAt)
 	}
-	if second.FromChannelID != 1 || second.Reason != teamspeak.ReasonMoved {
-		t.Errorf("moved enter = from %d, %v", second.FromChannelID, second.Reason)
+	if second.FromChannelID == nil || *second.FromChannelID != 1 || second.Reason == nil ||
+		*second.Reason != teamspeak.ReasonMoved {
+		t.Errorf("moved enter = from %v, %v", second.FromChannelID, second.Reason)
 	}
 	c.mu.Lock()
 	stored := c.clients[12]
@@ -542,11 +544,45 @@ func TestHandleClientMovedAndLeft_CarryTheChannels(t *testing.T) {
 	c.handleClientLeftView(c.handler, wire.ParseCommand(
 		"notifyclientleftview cfid=6 clid=13 ctid=0 reasonid=8 reasonmsg=Shutdown"))
 
-	if m := <-moved; m.FromChannelID != 1 || m.TargetChannelID != 6 {
+	if m := <-moved; m.FromChannelID == nil || *m.FromChannelID != 1 || m.TargetChannelID != 6 {
 		t.Errorf("move = %+v", m)
 	}
-	if l := <-left; l.FromChannelID != 6 || l.TargetChannelID != 0 {
+	if l := <-left; l.FromChannelID == nil || *l.FromChannelID != 6 ||
+		l.TargetChannelID == nil || *l.TargetChannelID != 0 {
 		t.Errorf("leave = %+v", l)
+	}
+}
+
+// Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0: a client's own move
+// names no invoker, and TeamSpeak 3 sends no cfid on any move. The event leaves
+// the invoker empty, and reads where the client came from in the roster, which
+// the move then updates.
+func TestHandleClientMoved_OwnMoveWithoutCfidComesFromTheRoster(t *testing.T) {
+	c := newTestClient(t)
+	moved := make(chan ClientMovedEvent, 3)
+	c.OnClientMoved(func(e ClientMovedEvent) { moved <- e })
+	c.mu.Lock()
+	c.clients[13] = teamspeak.ClientEntry{ID: 13, Nickname: "B", UID: new(teamspeak.UID("u13")), ChannelID: 2}
+	c.mu.Unlock()
+
+	c.handleClientMoved(c.handler, wire.ParseCommand("notifyclientmoved ctid=4 reasonid=0 clid=13"))
+	c.handleClientMoved(c.handler, wire.ParseCommand(
+		"notifyclientmoved ctid=2 reasonid=1 invokerid=11 invokername=Admin invokeruid=adm clid=13"))
+	c.handleClientMoved(c.handler, wire.ParseCommand("notifyclientmoved ctid=5 reasonid=0 clid=99"))
+
+	own := <-moved
+	if own.FromChannelID == nil || *own.FromChannelID != 2 || own.TargetChannelID != 4 {
+		t.Errorf("own move = %+v, want from 2 to 4", own)
+	}
+	if own.InvokerID != 0 || own.InvokerName != "" || own.InvokerUID != "" {
+		t.Errorf("own move names an invoker: %+v", own)
+	}
+	admin := <-moved
+	if admin.FromChannelID == nil || *admin.FromChannelID != 4 || admin.InvokerID != 11 || admin.InvokerName != "Admin" {
+		t.Errorf("admin move = %+v, want from 4 by Admin", admin)
+	}
+	if unknown := <-moved; unknown.FromChannelID != nil {
+		t.Errorf("a client never seen moved from %d, want no origin", *unknown.FromChannelID)
 	}
 }
 

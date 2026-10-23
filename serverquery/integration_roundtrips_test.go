@@ -239,7 +239,7 @@ func TestQueryAdmin_EditClient(t *testing.T) {
 				t.Fatalf("the voice client %d is not in the client list", clid)
 			}
 
-			return listed[i].IsTalker
+			return listed[i].IsTalker != nil && *listed[i].IsTalker
 		}
 		if talker() {
 			t.Fatal("the client is a talker in a channel that needs talk power it lacks")

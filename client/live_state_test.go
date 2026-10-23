@@ -52,7 +52,9 @@ func collect(t *testing.T) (*Client, func() []Event) {
 // not edited under them.
 func TestClientUpdated_RefreshesTheGroupsATextMessageCarries(t *testing.T) {
 	c, events := collect(t)
-	before := teamspeak.ClientEntry{ID: 5, UID: "u5", Nickname: "Ann", ServerGroups: []teamspeak.ServerGroupID{6}}
+	before := teamspeak.ClientEntry{
+		ID: 5, UID: new(teamspeak.UID("u5")), Nickname: "Ann", ServerGroups: []teamspeak.ServerGroupID{6},
+	}
 	know(c, before)
 
 	c.handleCommandLines(c.handler,
@@ -165,11 +167,14 @@ func TestClientUpdated_UnknownClientIsNotAdded(t *testing.T) {
 
 func TestClientUpdated_ClearsWhatItNamesWithAZero(t *testing.T) {
 	c := newTestClient(t)
-	know(c, teamspeak.ClientEntry{ID: 5, IsAway: true, AwayMessage: "lunch", ServerGroups: []teamspeak.ServerGroupID{6}})
+	know(c, teamspeak.ClientEntry{
+		ID: 5, IsAway: new(true), AwayMessage: new("lunch"), ServerGroups: []teamspeak.ServerGroupID{6},
+	})
 
 	c.handleCommandLines(c.handler, "notifyclientupdated clid=5 client_away=0 client_away_message= client_servergroups=")
 	e, _ := known(c, 5)
-	if e.IsAway || e.AwayMessage != "" || e.ServerGroups == nil || len(e.ServerGroups) != 0 {
+	if e.IsAway == nil || *e.IsAway || e.AwayMessage == nil || *e.AwayMessage != "" ||
+		e.ServerGroups == nil || len(e.ServerGroups) != 0 {
 		t.Errorf("entry = %+v, want away cleared and no groups", e)
 	}
 }
@@ -208,7 +213,8 @@ func TestClientUpdated_ChangesAreTheEventsOwn(t *testing.T) {
 		t.Errorf("the second handler saw the first's edit: %+v", e.Changes)
 	}
 	settle(t, c)
-	if entry, _ := known(c, 5); !slices.Equal(entry.ServerGroups, []teamspeak.ServerGroupID{6, 7}) || !entry.IsAway {
+	if entry, _ := known(c, 5); !slices.Equal(entry.ServerGroups, []teamspeak.ServerGroupID{6, 7}) ||
+		entry.IsAway == nil || !*entry.IsAway {
 		t.Errorf("the client list was edited through an event: %+v", entry)
 	}
 }
@@ -227,18 +233,19 @@ func TestClientEnter_PointersAreTheEventsOwn(t *testing.T) {
 
 func TestClientChannelGroupChanged_RefreshesOnlyTheChannelTheClientIsIn(t *testing.T) {
 	c, events := collect(t)
-	know(c, teamspeak.ClientEntry{ID: 5, ChannelID: 10, ChannelGroupID: 8})
+	know(c, teamspeak.ClientEntry{ID: 5, ChannelID: 10, ChannelGroupID: new(teamspeak.ChannelGroupID(8))})
 
 	// A group in a channel it is not in.
 	c.handleCommandLines(c.handler,
 		"notifyclientchannelgroupchanged clid=5 cid=11 cgid=4 cgi=11 invokerid=2 invokername=Admin invokeruid=adm")
-	if e, _ := known(c, 5); e.ChannelGroupID != 8 || e.ChannelGroupInheritedChannelID != 0 {
+	if e, _ := known(c, 5); e.ChannelGroupID == nil || *e.ChannelGroupID != 8 || e.ChannelGroupInheritedChannelID != nil {
 		t.Errorf("a foreign channel's group was taken: %+v", e)
 	}
 
 	c.handleCommandLines(c.handler,
 		"notifyclientchannelgroupchanged clid=5 cid=10 cgid=4 cgi=3 invokerid=0 invokername=Server invokeruid=")
-	if e, _ := known(c, 5); e.ChannelGroupID != 4 || e.ChannelGroupInheritedChannelID != 3 {
+	if e, _ := known(c, 5); e.ChannelGroupID == nil || *e.ChannelGroupID != 4 ||
+		e.ChannelGroupInheritedChannelID == nil || *e.ChannelGroupInheritedChannelID != 3 {
 		t.Errorf("entry = %+v, want group 4 inherited from 3", e)
 	}
 

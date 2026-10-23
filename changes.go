@@ -119,18 +119,18 @@ func (c ClientChanges) Apply(e ClientEntry) ClientEntry {
 	e = e.Clone()
 	set(&e.Created, c.Created)
 	set(&e.LastConnected, c.LastConnected)
-	set(&e.IdleTime, c.IdleTime)
+	setPtr(&e.IdleTime, c.IdleTime)
 	set(&e.Nickname, c.Nickname)
-	set(&e.UID, c.UID)
+	setPtr(&e.UID, c.UID)
 	setList(&e.ServerGroups, c.ServerGroups)
 	set(&e.ChannelID, c.ChannelID)
-	set(&e.ChannelGroupID, c.ChannelGroupID)
+	setPtr(&e.ChannelGroupID, c.ChannelGroupID)
 	set(&e.Type, c.Type)
-	set(&e.IsAway, c.IsAway)
-	set(&e.IsRecording, c.IsRecording)
-	set(&e.IsTalker, c.IsTalker)
+	setPtr(&e.IsAway, c.IsAway)
+	setPtr(&e.IsRecording, c.IsRecording)
+	setPtr(&e.IsTalker, c.IsTalker)
 	set(&e.DatabaseID, c.DatabaseID)
-	set(&e.AwayMessage, c.AwayMessage)
+	setPtr(&e.AwayMessage, c.AwayMessage)
 	setPtr(&e.IsInputMuted, c.IsInputMuted)
 	setPtr(&e.IsOutputMuted, c.IsOutputMuted)
 	setPtr(&e.IsOutputOnlyMuted, c.IsOutputOnlyMuted)
@@ -141,25 +141,25 @@ func (c ClientChanges) Apply(e ClientEntry) ClientEntry {
 	setPtr(&e.TalkPower, c.TalkPower)
 	setPtr(&e.IsRequestingTalk, c.IsRequestingTalk)
 	set(&e.TalkRequestedAt, c.TalkRequestedAt)
-	set(&e.TalkRequestMessage, c.TalkRequestMessage)
-	set(&e.Description, c.Description)
-	set(&e.MetaData, c.MetaData)
-	set(&e.Avatar, c.Avatar)
-	set(&e.IconID, c.IconID)
-	set(&e.NicknamePhonetic, c.NicknamePhonetic)
+	setPtr(&e.TalkRequestMessage, c.TalkRequestMessage)
+	setPtr(&e.Description, c.Description)
+	setPtr(&e.MetaData, c.MetaData)
+	setPtr(&e.Avatar, c.Avatar)
+	setIcon(&e.IconID, c.IconID)
+	setPtr(&e.NicknamePhonetic, c.NicknamePhonetic)
 	setPtr(&e.UnreadMessages, c.UnreadMessages)
 	setPtr(&e.NeededServerQueryViewPower, c.NeededServerQueryViewPower)
-	set(&e.ChannelGroupInheritedChannelID, c.ChannelGroupInheritedChannelID)
-	set(&e.Country, c.Country)
-	set(&e.Version, c.Version)
-	set(&e.Platform, c.Platform)
-	set(&e.IP, c.IP)
-	set(&e.Badges, c.Badges)
-	set(&e.SignedBadges, c.SignedBadges)
-	set(&e.MyTeamSpeakID, c.MyTeamSpeakID)
-	set(&e.MyTeamSpeakAvatar, c.MyTeamSpeakAvatar)
-	set(&e.Integrations, c.Integrations)
-	set(&e.UserTag, c.UserTag)
+	setPtr(&e.ChannelGroupInheritedChannelID, c.ChannelGroupInheritedChannelID)
+	setPtr(&e.Country, c.Country)
+	setPtr(&e.Version, c.Version)
+	setPtr(&e.Platform, c.Platform)
+	setPtr(&e.IP, c.IP)
+	setPtr(&e.Badges, c.Badges)
+	setPtr(&e.SignedBadges, c.SignedBadges)
+	setPtr(&e.MyTeamSpeakID, c.MyTeamSpeakID)
+	setPtr(&e.MyTeamSpeakAvatar, c.MyTeamSpeakAvatar)
+	setPtr(&e.Integrations, c.Integrations)
+	setPtr(&e.UserTag, c.UserTag)
 	setPtr(&e.IsStreaming, c.IsStreaming)
 
 	return e
@@ -246,7 +246,7 @@ func (c ChannelChanges) Apply(ch Channel) Channel {
 	set(&ch.UID, c.UID)
 	set(&ch.Name, c.Name)
 	set(&ch.Topic, c.Topic)
-	set(&ch.Description, c.Description)
+	setPtr(&ch.Description, c.Description)
 	set(&ch.ParentID, c.ParentID)
 	set(&ch.Order, c.Order)
 	set(&ch.IconID, c.IconID)
@@ -295,6 +295,18 @@ func setPtr[T any](dst **T, change *T) {
 	}
 }
 
+// setIcon is setPtr for an icon: an icon of 0 is none, which the record holds
+// as nil.
+func setIcon(dst **IconID, change *IconID) {
+	switch {
+	case change == nil:
+	case *change == 0:
+		*dst = nil
+	default:
+		*dst = clonePtr(change)
+	}
+}
+
 // setList is set for a list, which the record gets a copy of. A pointer to an
 // empty list sets an empty list.
 func setList[T any](dst *[]T, change *[]T) {
@@ -318,8 +330,34 @@ func clonePtr[T any](p *T) *T {
 // would change together; Clone gives the copy pointers and a list of its own.
 // Use it before handing a record on, or keeping one, when either side may
 // edit it.
+//
+//nolint:funlen // one line per field
 func (e ClientEntry) Clone() ClientEntry {
 	e.ServerGroups = slices.Clone(e.ServerGroups)
+	e.UID = clonePtr(e.UID)
+	e.ChannelGroupID = clonePtr(e.ChannelGroupID)
+	e.IsAway = clonePtr(e.IsAway)
+	e.IsRecording = clonePtr(e.IsRecording)
+	e.IsTalker = clonePtr(e.IsTalker)
+	e.IdleTime = clonePtr(e.IdleTime)
+	e.AwayMessage = clonePtr(e.AwayMessage)
+	e.TalkRequestMessage = clonePtr(e.TalkRequestMessage)
+	e.Description = clonePtr(e.Description)
+	e.MetaData = clonePtr(e.MetaData)
+	e.Avatar = clonePtr(e.Avatar)
+	e.IconID = clonePtr(e.IconID)
+	e.NicknamePhonetic = clonePtr(e.NicknamePhonetic)
+	e.ChannelGroupInheritedChannelID = clonePtr(e.ChannelGroupInheritedChannelID)
+	e.Country = clonePtr(e.Country)
+	e.Version = clonePtr(e.Version)
+	e.Platform = clonePtr(e.Platform)
+	e.IP = clonePtr(e.IP)
+	e.Badges = clonePtr(e.Badges)
+	e.SignedBadges = clonePtr(e.SignedBadges)
+	e.MyTeamSpeakID = clonePtr(e.MyTeamSpeakID)
+	e.MyTeamSpeakAvatar = clonePtr(e.MyTeamSpeakAvatar)
+	e.Integrations = clonePtr(e.Integrations)
+	e.UserTag = clonePtr(e.UserTag)
 	e.IsInputMuted = clonePtr(e.IsInputMuted)
 	e.IsOutputMuted = clonePtr(e.IsOutputMuted)
 	e.IsOutputOnlyMuted = clonePtr(e.IsOutputOnlyMuted)
@@ -341,6 +379,7 @@ func (e ClientEntry) Clone() ClientEntry {
 // Clone gives the copy pointers of its own. Use it before handing a record on,
 // or keeping one, when either side may edit it.
 func (ch Channel) Clone() Channel {
+	ch.Description = clonePtr(ch.Description)
 	ch.TotalClients = clonePtr(ch.TotalClients)
 	ch.TotalFamilyClients = clonePtr(ch.TotalFamilyClients)
 	ch.NeededSubscribePower = clonePtr(ch.NeededSubscribePower)

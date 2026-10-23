@@ -127,13 +127,14 @@ func TestClientEnter(t *testing.T) {
 	want := teamspeak.ClientEntry{
 		ID:             4,
 		Nickname:       "Ann",
-		UID:            "uid=",
+		UID:            new(teamspeak.UID("uid=")),
 		ChannelID:      9,
-		ChannelGroupID: 10,
+		ChannelGroupID: new(teamspeak.ChannelGroupID(10)),
 		Type:           teamspeak.ClientTypeVoice,
 		ServerGroups:   []teamspeak.ServerGroupID{6, 7},
-		IsAway:         true,
-		IsTalker:       true,
+		IsAway:         new(true),
+		IsRecording:    new(false),
+		IsTalker:       new(true),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ClientEnter = %+v, want %+v", got, want)
@@ -395,20 +396,24 @@ func TestClientEnter_ClampsAndLeavesOutNumbers(t *testing.T) {
 // Recorded from TeamSpeak 3.13.8 and 6.0.0-beta13.1.
 func TestClientEnterOrigin(t *testing.T) {
 	for _, tc := range []struct {
+		from   *teamspeak.ChannelID
+		reason *teamspeak.Reason
 		line   string
-		from   teamspeak.ChannelID
-		reason teamspeak.Reason
 	}{
 		// Connecting.
-		{"notifycliententerview cfid=0 ctid=1 reasonid=0 clid=34", 0, teamspeak.ReasonNone},
+		{new(teamspeak.ChannelID(0)), new(teamspeak.ReasonNone), "notifycliententerview cfid=0 ctid=1 reasonid=0 clid=34"},
 		// Coming into view through a subscribed channel.
-		{"notifycliententerview cfid=0 ctid=7 reasonid=2 clid=34", 0, teamspeak.ReasonSubscription},
-		{"notifycliententerview cfid=3 ctid=7 reasonid=1 clid=34", 3, teamspeak.ReasonMoved},
-		{"notifycliententerview ctid=7 clid=34", 0, teamspeak.ReasonNone},
+		{
+			new(teamspeak.ChannelID(0)), new(teamspeak.ReasonSubscription),
+			"notifycliententerview cfid=0 ctid=7 reasonid=2 clid=34",
+		},
+		{new(teamspeak.ChannelID(3)), new(teamspeak.ReasonMoved), "notifycliententerview cfid=3 ctid=7 reasonid=1 clid=34"},
+		// A row that names neither says neither.
+		{nil, nil, "notifycliententerview ctid=7 clid=34"},
 	} {
 		from, reason := servernotify.ClientEnterOrigin(row(tc.line))
-		if from != tc.from || reason != tc.reason {
-			t.Errorf("%q = %d, %v; want %d, %v", tc.line, from, reason, tc.from, tc.reason)
+		if !reflect.DeepEqual(from, tc.from) || !reflect.DeepEqual(reason, tc.reason) {
+			t.Errorf("%q = %v, %v; want %v, %v", tc.line, from, reason, tc.from, tc.reason)
 		}
 	}
 }
@@ -417,25 +422,30 @@ func TestClientEnterOrigin(t *testing.T) {
 func TestClientMoved_ReadsTheChannelItCameFrom(t *testing.T) {
 	ts6 := servernotify.ClientMoved(row(
 		"notifyclientmoved cfid=6 clid=13 ctid=1 reasonid=4 reasonmsg=probe invokerid=11 invokername=a invokeruid=u"))
-	if ts6.FromChannelID != 6 || ts6.TargetChannelID != 1 {
+	if ts6.FromChannelID == nil || *ts6.FromChannelID != 6 || ts6.TargetChannelID != 1 {
 		t.Errorf("TeamSpeak 6 move = %+v", ts6)
 	}
 	ts3 := servernotify.ClientMoved(row(
 		"notifyclientmoved clid=35 ctid=7 invokerid=33 invokername=a invokeruid=u reasonid=1"))
-	if ts3.FromChannelID != 0 || ts3.TargetChannelID != 7 {
-		t.Errorf("TeamSpeak 3 move = %+v", ts3)
+	if ts3.FromChannelID != nil || ts3.TargetChannelID != 7 {
+		t.Errorf("TeamSpeak 3 move = %+v, want no origin: the client fills it in", ts3)
 	}
 }
 
 // Both servers send cfid on a leave, and ctid 0 for a disconnect.
 func TestClientLeave_ReadsTheChannelsItNames(t *testing.T) {
 	got := servernotify.ClientLeave(row("notifyclientleftview cfid=7 ctid=0 reasonid=8 reasonmsg=Shutdown clid=35"))
-	if got.FromChannelID != 7 || got.TargetChannelID != 0 || got.Reason != teamspeak.ReasonDisconnect {
+	if got.FromChannelID == nil || *got.FromChannelID != 7 || got.TargetChannelID == nil ||
+		*got.TargetChannelID != 0 || got.Reason != teamspeak.ReasonDisconnect {
 		t.Errorf("disconnect = %+v", got)
 	}
 	got = servernotify.ClientLeave(row("notifyclientleftview cfid=1 ctid=9 reasonid=2 clid=35"))
-	if got.FromChannelID != 1 || got.TargetChannelID != 9 {
+	if got.FromChannelID == nil || *got.FromChannelID != 1 || got.TargetChannelID == nil || *got.TargetChannelID != 9 {
 		t.Errorf("out of view = %+v", got)
+	}
+	if got = servernotify.ClientLeave(row("notifyclientleftview reasonid=2 clid=35")); got.FromChannelID != nil ||
+		got.TargetChannelID != nil {
+		t.Errorf("a leave naming no channel = %+v, want neither set", got)
 	}
 }
 
@@ -451,5 +461,47 @@ func TestClientEnter_ReadsTheTalkRequestTime(t *testing.T) {
 	update := servernotify.ClientChanges(map[string]string{"client_talk_request": "1792335264"})
 	if update.TalkRequestedAt == nil || !update.TalkRequestedAt.Equal(time.Unix(1792335264, 0)) {
 		t.Errorf("update = %v", update.TalkRequestedAt)
+	}
+}
+
+// Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0: an enter notification
+// carries every field of a record but the times, version, platform and address,
+// the empty ones as keys with no value. A key that is there is a value, "" and
+// 0 included; one that is not is absent.
+//
+//nolint:gocyclo,cyclop // one check per field
+func TestClientEnter_EmptyIsAValueAndAbsentIsNil(t *testing.T) {
+	got := servernotify.ClientEnter(map[string]string{
+		"clid": "4", "ctid": "2", "client_nickname": "Ann", "client_type": "0", "client_database_id": "15",
+		"client_away": "0", "client_away_message": "", "client_description": "", "client_country": "",
+		"client_servergroups": "", "client_icon_id": "0", "client_channel_group_inherited_channel_id": "0",
+	})
+	if got.IsAway == nil || *got.IsAway || got.AwayMessage == nil || *got.AwayMessage != "" ||
+		got.Description == nil || got.Country == nil {
+		t.Errorf("empty values read as absent: %+v", got)
+	}
+	if got.ServerGroups == nil || len(got.ServerGroups) != 0 {
+		t.Errorf("ServerGroups = %#v, want an empty list that is not nil", got.ServerGroups)
+	}
+	if got.ChannelGroupInheritedChannelID == nil || *got.ChannelGroupInheritedChannelID != 0 {
+		t.Errorf("ChannelGroupInheritedChannelID = %v, want a pointer to 0", got.ChannelGroupInheritedChannelID)
+	}
+	if got.IconID != nil {
+		t.Errorf("IconID = %v, want nil for icon 0", got.IconID)
+	}
+	if got.UID != nil || got.ChannelGroupID != nil || got.IsRecording != nil || got.IsTalker != nil ||
+		got.Version != nil || got.Platform != nil || got.IP != nil || got.IdleTime != nil || got.MetaData != nil {
+		t.Errorf("a key the row lacks read as present: %+v", got)
+	}
+	if got.DatabaseID != 15 || got.Type != teamspeak.ClientTypeVoice {
+		t.Errorf("DatabaseID, Type = %d, %v", got.DatabaseID, got.Type)
+	}
+}
+
+// A client's own move names no invoker, on either server.
+func TestClientMoved_OwnMoveNamesNoInvoker(t *testing.T) {
+	got := servernotify.ClientMoved(row("notifyclientmoved ctid=4 reasonid=0 clid=13"))
+	if got.InvokerID != 0 || got.InvokerName != "" || got.InvokerUID != "" || got.Reason != teamspeak.ReasonNone {
+		t.Errorf("own move = %+v", got)
 	}
 }
