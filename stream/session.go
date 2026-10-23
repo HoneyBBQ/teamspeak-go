@@ -34,9 +34,10 @@ func (s *Streams) usable() error {
 
 func (s *Streams) observe() connState {
 	return connState{
-		self:   s.host.ClientID(),
-		status: s.host.Status(),
-		p2p:    s.host.ServerCapabilities().HasExtension(extensionP2P),
+		self:    s.host.ClientID(),
+		session: s.host.Session(),
+		status:  s.host.Status(),
+		p2p:     s.host.ServerCapabilities().HasExtension(extensionP2P),
 	}
 }
 
@@ -172,6 +173,9 @@ func (s *Streams) learnLocked(info Info) {
 
 // endLocked is a stream over, for whatever hangs on it; it is forgotten.
 func (s *Streams) endLocked(id ID, reason uint32, cause EndCause) {
+	if cause != EndCauseGone {
+		s.stoppedIDs.add(id)
+	}
 	var info *Info
 	if i := slices.IndexFunc(s.infos, func(x Info) bool { return x.ID == id }); i >= 0 {
 		removed := s.infos[i]
@@ -206,8 +210,9 @@ func (s *Streams) endLocked(id ID, reason uint32, cause EndCause) {
 //
 // The client delivers its disconnected event after the fact, and a Publish or a
 // Watch may have started on the next connection by then, so a disconnect ends
-// only what was started under another client id than the connection that is up
-// now, c. Everything else a reset forgets reaches this Streams through the
+// only what was started in another session than the one that is up now, c: a
+// client id says nothing, as a reconnect may be given the one the last session
+// had. Everything else a reset forgets reaches this Streams through the
 // client's events, which are delivered in order, so a lagging one does not
 // reach what the next connection made.
 func (s *Streams) resetLocked(cause EndCause, c connState) []func(context.Context) error {
@@ -217,8 +222,8 @@ func (s *Streams) resetLocked(cause EndCause, c connState) []func(context.Contex
 		err = ErrClosed
 		goodbyes = s.farewellsLocked()
 	}
-	survives := func(owner teamspeak.ClientID) bool {
-		return cause == EndCauseDisconnected && c.status == client.StatusConnected && owner != 0 && owner == c.self
+	survives := func(session uint64) bool {
+		return cause == EndCauseDisconnected && c.status == client.StatusConnected && session != 0 && session == c.session
 	}
 	s.gen++
 	s.cancelConn()
@@ -226,14 +231,15 @@ func (s *Streams) resetLocked(cause EndCause, c connState) []func(context.Contex
 		s.conn, s.cancelConn = context.WithCancel(context.Background())
 	}
 	for att := range s.attempts {
-		if !survives(att.owner) {
+		if !survives(att.session) {
 			att.settleLocked(nil, err)
 			delete(s.attempts, att)
 		}
 	}
 	s.orphans.clear()
-	for _, t := range s.gone {
-		t.Stop()
+	s.stoppedIDs.clear()
+	for _, g := range s.gone {
+		g.timer.Stop()
 	}
 	clear(s.gone)
 	clear(s.asked)
@@ -246,17 +252,17 @@ func (s *Streams) resetLocked(cause EndCause, c connState) []func(context.Contex
 
 // endSessionsLocked ends the published streams and the watches that do not
 // survive, with cause; a watch still waiting fails with err.
-func (s *Streams) endSessionsLocked(cause EndCause, err error, survives func(teamspeak.ClientID) bool) {
+func (s *Streams) endSessionsLocked(cause EndCause, err error, survives func(uint64) bool) {
 	published := slices.SortedFunc(maps.Values(s.published), func(a, b *Published) int { return cmpID(a.id, b.id) })
 	for _, p := range published {
-		if !survives(p.owner) {
+		if !survives(p.session) {
 			delete(s.published, p.id)
 			p.finishLocked(EndedEvent{Cause: cause})
 		}
 	}
 	for _, id := range slices.SortedFunc(maps.Keys(s.watching), cmpID) {
 		w := s.watching[id]
-		if survives(w.owner) {
+		if survives(w.session) {
 			continue
 		}
 		delete(s.watching, id)
@@ -306,16 +312,24 @@ func (s *Streams) forgetLocked(clid teamspeak.ClientID) {
 		return
 	}
 	// The stop notification may follow at once, with the reason: it wins.
-	s.gone[clid] = time.AfterFunc(goneGrace, func() { s.goneFired(clid) })
+	g := &goneTimer{}
+	g.timer = time.AfterFunc(goneGrace, func() { s.goneFired(clid, g) })
+	s.gone[clid] = g
 }
 
-func (s *Streams) goneFired(clid teamspeak.ClientID) {
+// goneTimer is the wait before a client's streams are ended as gone. Its
+// identity is what says a firing is the current wait: a stopped timer can
+// still fire, and the client may be waiting on a newer one by then.
+type goneTimer struct {
+	timer *time.Timer
+}
+
+func (s *Streams) goneFired(clid teamspeak.ClientID, g *goneTimer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// A timer that was stopped can still fire; whether this one is current is
-	// settled here, under the lock, by whether the client is still waiting.
-	if s.gone[clid] == nil || s.closed {
+	// Whether this timer is current is settled here, under the lock.
+	if s.gone[clid] != g || s.closed {
 		return
 	}
 	delete(s.gone, clid)
@@ -327,8 +341,8 @@ func (s *Streams) goneFired(clid teamspeak.ClientID) {
 }
 
 func (s *Streams) cancelGoneLocked(clid teamspeak.ClientID) {
-	if t := s.gone[clid]; t != nil {
-		t.Stop()
+	if g := s.gone[clid]; g != nil {
+		g.timer.Stop()
 		delete(s.gone, clid)
 	}
 }
@@ -597,12 +611,15 @@ func (s *Streams) finishAttempt(base context.Context, att *attempt, rows []map[s
 		att.settleLocked(nil, err)
 	case !have:
 		att.settleLocked(nil, errNoStream)
+	case s.stoppedIDs.has(info.ID):
+		// Stopped before its own answer came: there is nothing to adopt.
+		att.settleLocked(nil, &EndedError{StreamID: info.ID})
 	case att.abandoned:
 		s.orphanLocked(info)
 		att.settled = true
 		stop = true
 	default:
-		att.settleLocked(s.adoptLocked(info, att.owner), nil)
+		att.settleLocked(s.adoptLocked(info, att.session), nil)
 	}
 	s.mu.Unlock()
 
@@ -634,7 +651,7 @@ func (s *Streams) stopOrphan(base context.Context, id ID, closed bool) {
 
 // adoptLocked is the stream of a Publish that is waiting: learned if the
 // notification has not been, and published.
-func (s *Streams) adoptLocked(info Info, owner teamspeak.ClientID) *Published {
+func (s *Streams) adoptLocked(info Info, session uint64) *Published {
 	s.learnLocked(info)
 	p := s.published[info.ID]
 	if p == nil {
@@ -643,7 +660,7 @@ func (s *Streams) adoptLocked(info Info, owner teamspeak.ClientID) *Published {
 			initial = *known
 		}
 		p = newPublished(s, initial.clone())
-		p.owner = owner
+		p.session = session
 		s.published[info.ID] = p
 	}
 
@@ -658,7 +675,7 @@ func (s *Streams) orphanLocked(info Info) {
 }
 
 func (s *Streams) watch(ctx context.Context, id ID, streamer teamspeak.ClientID, opts WatchOptions) (*View, error) {
-	self := s.host.ClientID()
+	session := s.host.Session()
 	s.mu.Lock()
 	switch {
 	case s.closed:
@@ -676,7 +693,7 @@ func (s *Streams) watch(ctx context.Context, id ID, streamer teamspeak.ClientID,
 
 		return nil, err
 	}
-	w := &watch{streamer: streamer, owner: self, done: make(chan struct{})}
+	w := &watch{streamer: streamer, session: session, done: make(chan struct{})}
 	s.watching[id] = w
 	s.closedViews.remove(id)
 	s.mu.Unlock()
@@ -720,6 +737,12 @@ func (s *Streams) ask(ctx context.Context, w *watch, id ID, message string) (*Vi
 		}
 
 		return w.view, false, w.err
+	}
+	if _, ended := errors.AsType[*EndedError](err); ended {
+		// 5635 on a join request: the stream is gone, whatever this client heard.
+		s.endLocked(id, 0, EndCauseGone)
+
+		return nil, false, err
 	}
 	// Abandoned here, in the same breath as the decision: from now on an
 	// answer finds no watch.
@@ -795,7 +818,7 @@ func withDefaultTimeout(ctx context.Context, d time.Duration) (context.Context, 
 // values) for the wait and the announcement window, and its goroutine ends when
 // that context does.
 func (s *Streams) startAttempt(ctx, waitCtx context.Context, req teamspeak.Request) (*attempt, error) {
-	att := &attempt{done: make(chan struct{}), owner: s.host.ClientID()}
+	att := &attempt{done: make(chan struct{}), session: s.host.Session()}
 	deadline, _ := waitCtx.Deadline()
 	base := context.WithoutCancel(ctx)
 	sendCtx, cancel := context.WithTimeout(base, time.Until(deadline)+announceWindow)

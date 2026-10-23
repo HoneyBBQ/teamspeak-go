@@ -12,6 +12,10 @@ import (
 // lookupTimeout bounds the lookup of a requester who is out of view.
 const lookupTimeout = 10 * time.Second
 
+// maxLookups is how many lookups of requesters out of view of one stream run at
+// once.
+const maxLookups = 8
+
 // maxClosedViewers is how many viewers whose peer is over are remembered, to
 // ignore what they still send.
 const maxClosedViewers = 1024
@@ -30,20 +34,22 @@ type Published struct {
 	pending map[teamspeak.ClientID]*JoinRequest
 	// resolving are the viewers asked about, until the answer comes back, so
 	// that a repeat is no new request.
-	resolving map[teamspeak.ClientID]struct{}
+	// Each is the request's own token: a lookup answers for the request it was
+	// made for, not for whatever request the same client id has by then.
+	resolving map[teamspeak.ClientID]*lookup
 	// closedViewers are the viewers whose peer is over: what they still send is
 	// not worth a report.
 	closedViewers *lru[teamspeak.ClientID]
 	id            ID
-	// queue holds the requests waiting for the one ahead of them to be
-	// announced, so that they are announced in the order they came, whatever
-	// the lookups take.
-	queue   []lookup
+	// queue holds the requests waiting to be announced, in the order they came:
+	// the lookups run side by side, and a request waits for the ones ahead of
+	// it, whatever the lookups take.
+	queue   []*lookup
 	initial Info
-	// owner is this client's id on the connection that started the stream.
-	owner teamspeak.ClientID
-	// working is whether the goroutine that drains queue is running.
-	working bool
+	// session is the client's session that started the stream.
+	session uint64
+	// looking is how many lookups are out.
+	looking int
 	done    bool
 }
 
@@ -51,8 +57,11 @@ type Published struct {
 type lookup struct {
 	message string
 	viewer  Viewer
-	// known is whether viewer is complete: the client was in view.
-	known bool
+	// ready is whether viewer is complete: the client was in view, or the
+	// lookup is over.
+	ready bool
+	// looking is whether the lookup is out.
+	looking bool
 }
 
 func newPublished(s *Streams, initial Info) *Published {
@@ -62,7 +71,7 @@ func newPublished(s *Streams, initial Info) *Published {
 		initial:       initial,
 		peers:         make(map[teamspeak.ClientID]*ViewerPeer),
 		pending:       make(map[teamspeak.ClientID]*JoinRequest),
-		resolving:     make(map[teamspeak.ClientID]struct{}),
+		resolving:     make(map[teamspeak.ClientID]*lookup),
 		closedViewers: newLRU[teamspeak.ClientID](maxClosedViewers),
 	}
 	// Reported once for the stream, not for every event past the bound.
@@ -176,54 +185,60 @@ func (p *Published) requestLocked(clid teamspeak.ClientID, message string, entry
 	if _, resolving := p.resolving[clid]; p.done || p.peers[clid] != nil || resolving || p.pending[clid] != nil {
 		return
 	}
-	p.resolving[clid] = struct{}{}
-	w := lookup{message: message, viewer: Viewer{ClientID: clid}}
+	w := &lookup{message: message, viewer: Viewer{ClientID: clid}}
 	if entry != nil {
 		w.viewer = Viewer{ClientID: clid, UID: entry.UID, Nickname: entry.Nickname}
-		w.known = true
+		w.ready = true
 	}
-	// Nothing to wait for, and nothing ahead of it to wait for: at once.
-	if w.known && !p.working {
-		p.announceLocked(w)
-
-		return
-	}
+	p.resolving[clid] = w
 	p.queue = append(p.queue, w)
-	if !p.working {
+	p.advanceLocked()
+}
+
+// advanceLocked starts the lookups that may start, then announces the requests
+// whose turn it is. A request that needs no lookup, with none ahead of it, is
+// announced at once.
+func (p *Published) advanceLocked() {
+	for _, w := range p.queue {
+		if w.ready || w.looking || p.resolving[w.viewer.ClientID] != w {
+			continue
+		}
+		if p.looking >= maxLookups {
+			break
+		}
 		ctx := p.s.conn
-		p.working = p.s.spawnLocked(func() { p.drain(ctx) })
-	}
-}
-
-// drain announces the queued requests, one after another.
-func (p *Published) drain(ctx context.Context) {
-	for {
-		p.s.mu.Lock()
-		if p.done || len(p.queue) == 0 {
-			p.queue, p.working = nil, false
-			p.s.mu.Unlock()
-
-			return
+		if p.s.spawnLocked(func() { p.lookup(ctx, w) }) {
+			w.looking = true
+			p.looking++
 		}
-		w := p.queue[0]
+	}
+	for len(p.queue) > 0 {
+		head := p.queue[0]
+		current := p.resolving[head.viewer.ClientID] == head && !p.done
+		if current && !head.ready {
+			break
+		}
 		p.queue = p.queue[1:]
-		p.s.mu.Unlock()
-
-		if !w.known {
-			w.viewer = p.s.identity(ctx, w.viewer.ClientID)
+		if current {
+			p.announceLocked(head)
 		}
-		p.s.mu.Lock()
-		p.announceLocked(w)
-		p.s.mu.Unlock()
 	}
 }
 
-func (p *Published) announceLocked(w lookup) {
+// lookup asks the server who the requester of w is, and passes it on.
+func (p *Published) lookup(ctx context.Context, w *lookup) {
+	viewer := p.s.identity(ctx, w.viewer.ClientID)
+
+	p.s.mu.Lock()
+	defer p.s.mu.Unlock()
+
+	w.viewer, w.ready, w.looking = viewer, true, false
+	p.looking--
+	p.advanceLocked() //nolint:contextcheck // the lookups run on the connection context, which advanceLocked reads itself
+}
+
+func (p *Published) announceLocked(w *lookup) {
 	clid := w.viewer.ClientID
-	// Withdrawn, or the stream over, while the lookup was out.
-	if _, ok := p.resolving[clid]; !ok || p.done {
-		return
-	}
 	delete(p.resolving, clid)
 	if p.s.deniedLocked(w.viewer) {
 		return
@@ -237,7 +252,14 @@ func (p *Published) announceLocked(w lookup) {
 // dropPendingLocked is a client that left view: a request of its that nobody
 // answered is forgotten, as the client id may be reused.
 func (p *Published) dropPendingLocked(clid teamspeak.ClientID) {
-	delete(p.resolving, clid)
+	if w := p.resolving[clid]; w != nil {
+		delete(p.resolving, clid)
+		// One whose lookup is out stays until it answers, which counts it.
+		if !w.looking {
+			p.queue = slices.DeleteFunc(p.queue, func(x *lookup) bool { return x == w })
+		}
+		p.advanceLocked()
+	}
 	if r := p.pending[clid]; r != nil {
 		r.closeLocked(RequestWithdrawn)
 		delete(p.pending, clid)
@@ -271,6 +293,8 @@ func (p *Published) finishLocked(e EndedEvent) {
 		return
 	}
 	p.done = true
+	p.queue = nil
+	clear(p.resolving)
 	for clid, r := range p.pending {
 		r.closeLocked(RequestEnded)
 		delete(p.pending, clid)

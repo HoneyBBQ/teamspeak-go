@@ -41,6 +41,9 @@ const (
 	// maxOrphans is how many streams stopped for a Publish that gave up are
 	// remembered, to ignore their late rows.
 	maxOrphans = 16
+	// maxStopped is how many stopped streams are remembered, so that a late
+	// answer does not bring one back.
+	maxStopped = 256
 	// maxDenied is how many denied clients Options.RememberDenied remembers.
 	maxDenied = 1024
 )
@@ -66,12 +69,15 @@ type Streams struct {
 	offs      []func()
 	infos     []Info
 	asked     map[teamspeak.ClientID]struct{}
-	gone      map[teamspeak.ClientID]*time.Timer
+	gone      map[teamspeak.ClientID]*goneTimer
 	published map[ID]*Published
 	watching  map[ID]*watch
 	attempts  map[*attempt]struct{}
 	denied    *lru[teamspeak.UID]
 	orphans   *lru[ID]
+	// stoppedIDs are the streams that were stopped, so that an answer to a
+	// setupstream that comes after its stream's stop does not adopt a dead stream.
+	stoppedIDs *lru[ID]
 	// farewellErrs are the failures of the commands that end a closed
 	// Streams' sessions; Close returns them. closeDone is set once it has.
 	farewellErrs []error
@@ -122,12 +128,13 @@ func newStreams(h host, opts Options) *Streams {
 		logger:      cmpLogger(opts.Logger),
 		remember:    opts.RememberDenied,
 		asked:       make(map[teamspeak.ClientID]struct{}),
-		gone:        make(map[teamspeak.ClientID]*time.Timer),
+		gone:        make(map[teamspeak.ClientID]*goneTimer),
 		published:   make(map[ID]*Published),
 		watching:    make(map[ID]*watch),
 		attempts:    make(map[*attempt]struct{}),
 		denied:      newLRU[teamspeak.UID](maxDenied),
 		orphans:     newLRU[ID](maxOrphans),
+		stoppedIDs:  newLRU[ID](maxStopped),
 		closedViews: newLRU[ID](maxClosedViewers),
 	}
 	s.cmds = teamspeak.NewCommands(teamspeak.ExecutorFunc(h.Send))
@@ -176,9 +183,10 @@ func cmpLogger(l *slog.Logger) *slog.Logger {
 
 // connState is what the callbacks read of the client before they take the lock.
 type connState struct {
-	status client.Status
-	self   teamspeak.ClientID
-	p2p    bool
+	session uint64
+	status  client.Status
+	self    teamspeak.ClientID
+	p2p     bool
 }
 
 func endedOr(err error, id ID) error {
@@ -206,8 +214,8 @@ type attempt struct {
 	err error
 	// done is closed when the outcome is settled.
 	done chan struct{}
-	// owner is this client's id on the connection the command was sent on.
-	owner teamspeak.ClientID
+	// session is the client's session the command was sent on.
+	session uint64
 	// abandoned is set once the caller has stopped waiting: an announcement
 	// then is not theirs to receive.
 	abandoned bool
@@ -256,11 +264,11 @@ type watch struct {
 	err  error
 	view *View
 	// done is closed when the outcome is settled.
-	done     chan struct{}
-	early    []string
+	done  chan struct{}
+	early []string
+	// session is the client's session that asked.
+	session  uint64
 	streamer teamspeak.ClientID
-	// owner is this client's id on the connection that asked.
-	owner teamspeak.ClientID
 	// overflowed is whether the overflow of early was reported.
 	overflowed bool
 	settled    bool

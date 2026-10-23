@@ -62,7 +62,7 @@ linters:
         linters: [gosmopolitan]
       # The bodies passed to run, and to synctest.Test, are tests, run in a
       # bubble over a fake client, not helpers.
-      - path: 'stream/(requests|streams|watch|fuzz)_test\.go'
+      - path: 'stream/(requests|streams|watch|fuzz|lifecycle)_test\.go'
         linters: [thelper]
       - path: 'stream/.*_test\.go'
         linters: [gosec]

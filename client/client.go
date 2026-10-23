@@ -268,6 +268,7 @@ type Client struct {
 	status           Status
 	mu               sync.Mutex
 	clid             teamspeak.ClientID
+	session          uint64
 }
 
 // String describes the client by its address, nickname and status. It, and

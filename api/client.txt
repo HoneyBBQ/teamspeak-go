@@ -271,6 +271,7 @@ method (Client) SendServerMessage(ctx context.Context, message string) error
 method (*Client) SendVoice(data []byte, codec teamspeak.Codec, _ VoiceOptions) error
 method (*Client) SendWhisper(data []byte, targets WhisperTargets, codec teamspeak.Codec) error
 method (*Client) ServerCapabilities() ServerCapabilities
+method (*Client) Session() uint64
 method (Client) SetChannelGroupIcon(ctx context.Context, cgid teamspeak.ChannelGroupID, icon teamspeak.IconID) error
 method (Client) SetChannelIcon(ctx context.Context, cid teamspeak.ChannelID, icon teamspeak.IconID) error
 method (Client) SetClientChannelGroup(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, channelID teamspeak.ChannelID, clientDBID teamspeak.ClientDBID) error

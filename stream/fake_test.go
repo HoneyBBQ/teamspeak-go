@@ -54,6 +54,7 @@ type fakeHost struct {
 	status  client.Status
 	nextRC  int
 	self    teamspeak.ClientID
+	session uint64
 }
 
 type subscription struct {
@@ -65,6 +66,7 @@ func newFakeHost() *fakeHost {
 	return &fakeHost{
 		status:  client.StatusConnected,
 		self:    1,
+		session: 1,
 		family:  client.ServerFamilyTS6,
 		version: "6.0.0-beta13.1",
 		exts:    []string{"FILETIME", extensionP2P},
@@ -117,6 +119,13 @@ func (h *fakeHost) ClientID() teamspeak.ClientID {
 	defer h.mu.Unlock()
 
 	return h.self
+}
+
+func (h *fakeHost) Session() uint64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return h.session
 }
 
 func (h *fakeHost) Status() client.Status {
@@ -255,6 +264,7 @@ func (h *fakeHost) disconnect() {
 func (h *fakeHost) reconnectQuietly(self teamspeak.ClientID) {
 	h.mu.Lock()
 	h.status, h.self = client.StatusConnected, self
+	h.session++
 	h.mu.Unlock()
 }
 
@@ -266,6 +276,7 @@ func (h *fakeHost) deliverDisconnected() {
 func (h *fakeHost) connect() {
 	h.mu.Lock()
 	h.status = client.StatusConnected
+	h.session++
 	h.mu.Unlock()
 	emit(h, "connected", client.ConnectedEvent{})
 }
