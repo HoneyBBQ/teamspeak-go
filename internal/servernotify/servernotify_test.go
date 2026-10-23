@@ -234,6 +234,23 @@ func TestClientEnter_ReadsARowAsTheListDoes(t *testing.T) {
 	}
 }
 
+// A clientlist row names the channel cid and has no ctid; an enter notification
+// names it ctid, and its cfid is the channel it came from, never the one it is in.
+func TestClientEnter_ReadsTheChannelOfAListRowAndOfAnEnter(t *testing.T) {
+	list := servernotify.ClientEnter(map[string]string{"clid": "5", "cid": "3", "client_nickname": "Ann"})
+	if list.ChannelID != 3 {
+		t.Errorf("a list row's channel = %d, want 3", list.ChannelID)
+	}
+	enter := servernotify.ClientEnter(map[string]string{"clid": "5", "cfid": "1", "ctid": "6", "client_nickname": "Ann"})
+	if enter.ChannelID != 6 {
+		t.Errorf("an enter's channel = %d, want 6", enter.ChannelID)
+	}
+	left := servernotify.ClientEnter(map[string]string{"clid": "5", "cfid": "1", "ctid": "0", "cid": "3"})
+	if left.ChannelID != 0 {
+		t.Errorf("an enter naming ctid 0 read channel %d, want 0", left.ChannelID)
+	}
+}
+
 func TestClientEnter_AbsentFieldsAreUnknown(t *testing.T) {
 	got := servernotify.ClientEnter(map[string]string{"clid": "7", "ctid": "3", "client_nickname": "Ann"})
 	want := teamspeak.ClientEntry{ID: 7, ChannelID: 3, Nickname: "Ann"}

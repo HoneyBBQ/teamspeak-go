@@ -22,7 +22,8 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
-// ClientEnter reads notifycliententerview into the client it describes.
+// ClientEnter reads notifycliententerview into the client it describes. A
+// clientlist row names the same fields, so it reads here too.
 //
 // The server leaves out of a row whatever the row before it had, so the row
 // must already be resolved (wire.SplitRows does that); every field here is one
@@ -35,7 +36,7 @@ func ClientEnter(params map[string]string) teamspeak.ClientEntry {
 		ID:             ParseClientID(params["clid"]),
 		Nickname:       params["client_nickname"],
 		UID:            teamspeak.UID(params["client_unique_identifier"]),
-		ChannelID:      ParseChannelID(params["ctid"]),
+		ChannelID:      enterChannel(params),
 		ChannelGroupID: teamspeak.ChannelGroupID(channelGroup),
 		Type:           teamspeak.ClientType(clientType),
 		ServerGroups:   ParseIDList[teamspeak.ServerGroupID](params["client_servergroups"]),
@@ -76,6 +77,18 @@ func ClientEnter(params map[string]string) teamspeak.ClientEntry {
 		UserTag:                        params["client_user_tag"],
 		IsStreaming:                    optBool(params, "client_is_streaming"),
 	}
+}
+
+// enterChannel reads the channel a client is in. An enter notification names it
+// ctid, next to cfid for the channel it came from; a clientlist row names it
+// cid. ctid wins when both are there, so an enter is never read by a key that
+// is not its own.
+func enterChannel(params map[string]string) teamspeak.ChannelID {
+	if ctid, ok := params["ctid"]; ok {
+		return ParseChannelID(ctid)
+	}
+
+	return ParseChannelID(params["cid"])
 }
 
 // uintOrZero reads a decimal uint64, 0 for anything unreadable.
