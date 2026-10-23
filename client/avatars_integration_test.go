@@ -166,3 +166,38 @@ func TestLive_IconOverTheSizeLimitIsRefused(t *testing.T) {
 		t.Errorf("UploadIcon over the limit = %v, want error 2565", err)
 	}
 }
+
+// The server sends one icon id in three forms: unsigned in channelinfo, signed
+// in servergrouplist, and sign-extended to 64 bits in the voice protocol's
+// notifychanneledited. An id above 2^31 shows them apart.
+func TestLive_IconAbove2To31ReadsTheSameThroughAnEditAndAQuery(t *testing.T) {
+	p := requireLivePair(t)
+	admin := requireAdmin(t)
+	const id = teamspeak.IconID(3009859579)
+	cid, err := admin.CreateChannel(t.Context(), teamspeak.ChannelCreateOptions{
+		Name: fmt.Sprintf("ts-go-iconf-%d", time.Now().UnixNano()%1e6),
+	})
+	requireNoErr(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := cleanupContext()
+		defer cancel()
+		_ = admin.DeleteChannel(ctx, cid, teamspeak.ChannelDeleteOptions{Force: true})
+	})
+	edited := listen(t, p.observer.OnChannelEdited)
+
+	requireNoErr(t, admin.SetChannelIcon(t.Context(), cid, id))
+	e := await(t, edited, "the icon in channelEdited", func(e teamspeak.ChannelEditedEvent) bool {
+		return e.ChannelID == cid && e.Changes.IconID != nil
+	})
+	if *e.Changes.IconID != id {
+		t.Errorf("channelEdited IconID = %d, want %d", *e.Changes.IconID, id)
+	}
+	if ch, ok := p.observer.View().Channel(cid); !ok || ch.IconID != id {
+		t.Errorf("the view's IconID = %d (held %v), want %d", ch.IconID, ok, id)
+	}
+	ch, err := admin.GetChannelInfo(t.Context(), cid)
+	requireNoErr(t, err)
+	if ch.IconID != id {
+		t.Errorf("channelinfo IconID = %d, want %d", ch.IconID, id)
+	}
+}

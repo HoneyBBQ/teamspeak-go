@@ -286,8 +286,8 @@ func TestParseCode(t *testing.T) {
 
 type iconID uint32
 
-// The server sends an icon's CRC32 signed as often as not; both forms name
-// the same file.
+// The server sends an icon's CRC32 unsigned, signed, or signed and
+// sign-extended to 64 bits; every form names the same file.
 func TestParseIconID(t *testing.T) {
 	cases := map[string]iconID{
 		"2766950830":  2766950830,
@@ -298,6 +298,14 @@ func TestParseIconID(t *testing.T) {
 		"icon":        0,
 		"4294967296":  0,
 		"-2147483649": 0,
+		// Sign-extended to 64 bits, as notifychanneledited sends them.
+		"18446744072424443899": 3009859579,
+		"18446744073709551615": 4294967295,
+		"18446744071562067968": 2147483648,
+		// Above 32 bits but not a sign-extended 32-bit number.
+		"18446744071562067967": 0,
+		"9223372036854775808":  0,
+		"18446744073709551616": 0,
 	}
 	for raw, want := range cases {
 		if got := wire.ParseIconID[iconID](raw); got != want {

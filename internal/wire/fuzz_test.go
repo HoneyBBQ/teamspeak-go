@@ -155,7 +155,8 @@ func checkRowsKeepTheirParts(t *testing.T, line, name, rest string, rows []strin
 }
 
 // FuzzParseIconID checks that an icon id reads the same whether the server
-// sends it as an unsigned number or as the signed one it is reinterpreted as,
+// sends it as an unsigned number, as the signed one it is reinterpreted as, or
+// as that signed one sign-extended to 64 bits,
 // and that no other text panics it or an error id's reader.
 func FuzzParseIconID(f *testing.F) {
 	f.Add("", uint32(0))
@@ -186,6 +187,10 @@ func FuzzParseIconID(f *testing.F) {
 		}
 		if got := wire.ParseIconID[uint32](signed); got != id {
 			t.Fatalf("ParseIconID(%q) = %d, want %d", signed, got, id)
+		}
+		wide := strconv.FormatUint(uint64(int64(int32(id))), 10)
+		if got := wire.ParseIconID[uint32](wide); got != id {
+			t.Fatalf("ParseIconID(%q) = %d, want %d", wide, got, id)
 		}
 	})
 }

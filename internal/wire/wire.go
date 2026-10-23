@@ -7,6 +7,7 @@
 package wire
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -214,10 +215,13 @@ func ParseCode(raw string) errcode.Code {
 // ParseIconID reads an icon id, returning 0, which names no icon, for anything
 // unreadable.
 //
-// An icon id is the CRC32 of the icon file, and the server sends it either as
-// that unsigned number or reinterpreted as a signed 32-bit one — -2004712318
-// for 2290254978. Reading only the unsigned form turned every icon whose CRC
-// has the top bit set into "no icon".
+// An icon id is the CRC32 of the icon file, and the server sends it in three
+// forms. Measured on TeamSpeak 3 and 6 for one icon: channelinfo sends it
+// unsigned (3009859579), servergrouplist reinterpreted as a signed 32-bit
+// number (-1285107717), and the voice protocol's notifychanneledited as that
+// negative number sign-extended to 64 bits, unsigned (18446744072424443899).
+// Reading only the unsigned form turned every icon whose CRC has the top bit
+// set into "no icon".
 //
 // Generic so that this package needs no IconID type of its own, and the root
 // package, which defines that type, can use it.
@@ -229,6 +233,11 @@ func ParseIconID[T ~uint32](raw string) T {
 	signedID, err := strconv.ParseInt(raw, 10, 32)
 	if err == nil {
 		return T(uint32(int32(signedID))) //nolint:gosec // the reinterpretation is the point
+	}
+	// A negative 32-bit number sign-extended to 64 bits and sent unsigned.
+	wide, err := strconv.ParseUint(raw, 10, 64)
+	if err == nil && int64(wide) < 0 && int64(wide) >= math.MinInt32 { //nolint:gosec // the reinterpretation is the point
+		return T(uint32(int32(int64(wide)))) //nolint:gosec // within int32, checked above
 	}
 
 	return 0
