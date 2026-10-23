@@ -921,6 +921,7 @@ func TestTrace_SessionStartReportsTheNicknameTheTalkPowerAndInitServerWithoutSec
 	c.handleCommand(c.currentHandler(), "initserver aclid=7 acn=TestBot1 client_talk_power=75 "+
 		"virtualserver_name=My\\sServer virtualserver_id=4 virtualserver_unique_identifier=abc= "+
 		"virtualserver_hostmessage=hello virtualserver_hostmessage_mode=2 virtualserver_version=3.13.7 "+
+		"virtualserver_capability_extensions=FILETIME,STREAM_P2P "+
 		"client_server_password=pw client_default_channel_password=cp client_default_token=tok "+
 		"client_key_offset=99 virtualserver_welcomemessage=hi")
 	_ = waitResult(t, result)
@@ -944,8 +945,31 @@ func TestTrace_SessionStartReportsTheNicknameTheTalkPowerAndInitServerWithoutSec
 	if again := c.ServerCapabilities(); again.ServerID != 4 || again.HostMessageMode != 2 {
 		t.Errorf("ServerCapabilities() = %+v", again)
 	}
-	// The hook's map is its own.
+	// The hook's map and slice are its own.
 	got.InitServer["x"] = "y"
+	if !slices.Equal(caps.Extensions, []string{"FILETIME", "STREAM_P2P"}) {
+		t.Errorf("Extensions = %q", caps.Extensions)
+	}
+	caps.Extensions[0] = "changed"
+	if again := c.ServerCapabilities(); !again.HasExtension("FILETIME") {
+		t.Errorf("a hook changed the client's extensions: %q", again.Extensions)
+	}
+}
+
+func TestServerCapabilitiesIsACopy(t *testing.T) {
+	c := traceClient(t)
+	result := startConnect(t.Context(), t, c)
+	serverKeyExchange(c)
+	c.handleCommand(c.currentHandler(), "initserver aclid=7 virtualserver_version=6.0.0 "+
+		"virtualserver_capability_extensions=FILETIME,STREAM_P2P")
+	_ = waitResult(t, result)
+
+	got := c.ServerCapabilities()
+	got.Extensions[1] = "changed"
+	got.Extensions = append(got.Extensions[:1], "other")
+	if again := c.ServerCapabilities(); !slices.Equal(again.Extensions, []string{"FILETIME", "STREAM_P2P"}) {
+		t.Errorf("changing a copy changed the client's extensions: %q", again.Extensions)
+	}
 }
 
 func TestTrace_SessionStartNicknameFallsBackToTheRequestedOne(t *testing.T) {

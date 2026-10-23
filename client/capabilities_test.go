@@ -1,9 +1,9 @@
 package client_test
 
 import (
+	"slices"
 	"testing"
 
-	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/client"
 	"github.com/honeybbq/teamspeak-go/identity"
 )
@@ -46,25 +46,13 @@ func TestParseServerCapabilities(t *testing.T) {
 	}
 }
 
-// initserver names the server, its icon, banner and welcome message alongside
-// the version. The icon id arrives signed here, as some servers send it.
-func TestParseServerCapabilities_ServerInfo(t *testing.T) {
+// initserver carries the welcome message alongside the version. The name, icon
+// and banner are not kept here: the view follows their edits.
+func TestParseServerCapabilities_WelcomeMessage(t *testing.T) {
 	got := client.ParseServerCapabilities(map[string]string{
-		"virtualserver_version":            "3.13.8 [Build: 1779874471]",
-		"virtualserver_name":               "TeamSpeak ]I[ Server",
-		"virtualserver_icon_id":            "-1528016466",
-		"virtualserver_hostbanner_gfx_url": "  https://example.com/banner.png\n",
-		"virtualserver_welcomemessage":     "Welcome to [B]TeamSpeak[/B]",
+		"virtualserver_version":        "3.13.8 [Build: 1779874471]",
+		"virtualserver_welcomemessage": "Welcome to [B]TeamSpeak[/B]",
 	})
-	if got.Name != "TeamSpeak ]I[ Server" {
-		t.Errorf("Name = %q", got.Name)
-	}
-	if got.IconID != teamspeak.IconID(2766950830) {
-		t.Errorf("IconID = %d, want 2766950830", got.IconID)
-	}
-	if got.HostBannerImageURL != "https://example.com/banner.png" {
-		t.Errorf("HostBannerImageURL = %q, want it trimmed", got.HostBannerImageURL)
-	}
 	if got.WelcomeMessage != "Welcome to [B]TeamSpeak[/B]" {
 		t.Errorf("WelcomeMessage = %q", got.WelcomeMessage)
 	}
@@ -73,13 +61,49 @@ func TestParseServerCapabilities_ServerInfo(t *testing.T) {
 	}
 }
 
-func TestParseServerCapabilities_NoServerInfo(t *testing.T) {
-	got := client.ParseServerCapabilities(map[string]string{
-		"virtualserver_version":            "6.1.0",
-		"virtualserver_icon_id":            "0",
-		"virtualserver_hostbanner_gfx_url": "   ",
-	})
-	if got.IconID != 0 || got.HostBannerImageURL != "" || got.Name != "" || got.WelcomeMessage != "" {
-		t.Errorf("got %+v, want no icon, banner, name or welcome message", got)
+func TestParseServerCapabilities_NoWelcomeMessage(t *testing.T) {
+	got := client.ParseServerCapabilities(map[string]string{"virtualserver_version": "6.1.0"})
+	if got.WelcomeMessage != "" || got.Extensions != nil {
+		t.Errorf("got %+v, want no welcome message or extensions", got)
+	}
+}
+
+func TestParseServerCapabilities_Extensions(t *testing.T) {
+	tests := []struct {
+		name string
+		list string
+		want []string
+	}{
+		// As TeamSpeak 6 6.0.0-beta13.1 sends them.
+		{"ts6", "FILETIME,STREAM_P2P", []string{"FILETIME", "STREAM_P2P"}},
+		// TeamSpeak 3 sends the key empty.
+		{"ts3", "", nil},
+		{"blanks and repeats", " B ,,A,B, ", []string{"B", "A"}},
+		{"only separators", " , ,", nil},
+		{"names the SDK does not know", "SOMETHING_NEW,FILETIME", []string{"SOMETHING_NEW", "FILETIME"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := client.ParseServerCapabilities(map[string]string{"virtualserver_capability_extensions": tt.list})
+			if !slices.Equal(got.Extensions, tt.want) {
+				t.Errorf("Extensions = %q, want %q", got.Extensions, tt.want)
+			}
+		})
+	}
+	if got := client.ParseServerCapabilities(nil).Extensions; len(got) != 0 {
+		t.Errorf("Extensions without the key = %q, want none", got)
+	}
+}
+
+func TestServerCapabilities_HasExtension(t *testing.T) {
+	got := client.ParseServerCapabilities(map[string]string{"virtualserver_capability_extensions": "FILETIME,STREAM_P2P"})
+	if !got.HasExtension("STREAM_P2P") || !got.HasExtension("FILETIME") {
+		t.Errorf("HasExtension misses a name in %q", got.Extensions)
+	}
+	if got.HasExtension("STREAM") || got.HasExtension("stream_p2p") || got.HasExtension("") {
+		t.Errorf("HasExtension matched a name that is not in %q", got.Extensions)
+	}
+	if client.ParseServerCapabilities(nil).HasExtension("STREAM_P2P") {
+		t.Error("an empty record has an extension")
 	}
 }

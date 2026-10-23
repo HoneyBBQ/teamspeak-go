@@ -288,10 +288,18 @@ func TestIntegration_ServerCapabilities(t *testing.T) {
 	if caps.UIDAlgorithm != want {
 		t.Errorf("UIDAlgorithm = %q, want %q for family %q", caps.UIDAlgorithm, want, caps.Family)
 	}
-	// Every virtual server has a name; initserver carries it.
-	if caps.Name == "" {
+	// Every virtual server has a name; the view holds it from initserver.
+	view := c.View()
+	if view.ServerName() == "" {
 		t.Error("expected the virtual server's name from initserver")
 	}
-	t.Logf("server info: name=%q icon=%d banner=%q welcome=%q",
-		caps.Name, caps.IconID, caps.HostBannerImageURL, caps.WelcomeMessage)
+	t.Logf("server info: name=%q icon=%d banner=%q welcome=%q extensions=%q",
+		view.ServerName(), view.ServerIconID(), view.ServerBannerImageURL(), caps.WelcomeMessage, caps.Extensions)
+	// TeamSpeak 3 names no extension; TeamSpeak 6 names peer to peer streams.
+	if caps.Family == client.ServerFamilyTS3 && len(caps.Extensions) != 0 {
+		t.Errorf("Extensions = %q on TeamSpeak 3, want none", caps.Extensions)
+	}
+	if caps.Family == client.ServerFamilyTS6 && !caps.HasExtension("STREAM_P2P") {
+		t.Errorf("Extensions = %q on TeamSpeak 6, want STREAM_P2P among them", caps.Extensions)
+	}
 }

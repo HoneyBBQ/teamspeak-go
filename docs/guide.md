@@ -12,7 +12,7 @@ How to connect, handle events, send commands, move files and manage an identity.
 | `Status() client.Status` | `StatusDisconnected`, `StatusConnecting` or `StatusConnected` |
 | `ClientID() teamspeak.ClientID` | Our clid, assigned by the server |
 | `ChannelID() teamspeak.ChannelID` | The channel we are in |
-| `ServerCapabilities()` | What the server said about itself in the handshake: version, family, uid hash, name, icon, banner and welcome message |
+| `ServerCapabilities()` | What the server said about itself in the handshake: version, family, uid hash, protocol extensions and welcome message |
 | `UID() teamspeak.UID` | Our own uid, hashed as the server does |
 
 ## Events
@@ -81,10 +81,23 @@ is filled in by the time `Connect` returns:
 
 ```go
 caps := c.ServerCapabilities()
-fmt.Println(caps.Name, caps.Family, caps.Version)
-// caps.IconID is the icon's CRC32 (0 for none), unsigned even when the server
-// sends it signed; caps.HostBannerImageURL and caps.WelcomeMessage are as set
-// on the server.
+fmt.Println(caps.Family, caps.Version, caps.WelcomeMessage)
+// caps.Extensions names the optional protocol features the server says it
+// supports, such as "FILETIME" and "STREAM_P2P": empty on TeamSpeak 3.
+if caps.HasExtension("STREAM_P2P") {
+	// ...
+}
+```
+
+It holds only what lasts the connection. The server's name, icon and banner can
+be edited while a client is connected, so they are read from the view, which
+follows the edits:
+
+```go
+v := c.View()
+fmt.Println(v.ServerName())
+// v.ServerIconID() is the icon's CRC32 (0 for none), unsigned even when the
+// server sends it signed; v.ServerBannerImageURL() is "" for none.
 ```
 
 ## Commands

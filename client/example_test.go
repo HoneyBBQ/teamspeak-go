@@ -35,7 +35,7 @@ func ExampleNew() { //nolint:testableexamples // connects to a server, so it is 
 	defer func() { _ = c.Disconnect(context.WithoutCancel(ctx)) }()
 
 	caps := c.ServerCapabilities()
-	fmt.Printf("connected to %q, %s %s\n", caps.Name, caps.Family, caps.Version)
+	fmt.Printf("connected to %q, %s %s\n", c.View().ServerName(), caps.Family, caps.Version)
 }
 
 // A handler is registered before connecting, so it hears the events that
