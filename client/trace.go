@@ -528,7 +528,7 @@ func (c *Client) startSessionLocked(initserver map[string]string) func() {
 	a.sessionStartedAt = time.Now()
 	stamp, traced := c.stampLocked()
 	info := SessionStartInfo{
-		ClientID: c.clid, Capabilities: c.capabilities,
+		ClientID: c.clid, Capabilities: c.capabilities.clone(),
 		Attempt: stamp.number, Reconnect: stamp.reconnect,
 	}
 	if traced && c.trace.SessionStart != nil {

@@ -407,6 +407,51 @@ func TestViewServerSeedLeavesOutTheClientsOwnParameters(t *testing.T) {
 	}
 }
 
+// The name, icon and banner are read from the view, which follows the server's
+// edits; the handshake's record holds what lasts the connection and stays as it
+// was.
+func TestViewServerNameIconAndBanner(t *testing.T) {
+	cl := connecting(t)
+	feed(cl, "initserver virtualserver_name=Before virtualserver_icon_id=0 virtualserver_hostbanner_gfx_url "+
+		"virtualserver_version=3.13.8 virtualserver_capability_extensions=FILETIME aclid=3",
+		"channellist cid=1 cpid=0 channel_name=A channel_order=0", "channellistfinished")
+	settle(t, cl)
+	if v := cl.View(); v.ServerName() != "Before" || v.ServerIconID() != 0 || v.ServerBannerImageURL() != "" {
+		t.Errorf("after initserver: name %q, icon %d, banner %q", v.ServerName(), v.ServerIconID(), v.ServerBannerImageURL())
+	}
+	if v := (ServerView{}); v.ServerName() != "" || v.ServerIconID() != 0 || v.ServerBannerImageURL() != "" {
+		t.Error("an empty view names a server")
+	}
+	caps := cl.ServerCapabilities()
+
+	feed(cl, `notifyserveredited reasonid=10 invokerid=5 invokername=admin invokeruid=u5 virtualserver_name=Renamed `+
+		`virtualserver_icon_id=-1528016466 virtualserver_hostbanner_gfx_url=\shttps:\/\/example.com\/banner.png\s`)
+	v := cl.View()
+	if v.ServerName() != "Renamed" {
+		t.Errorf("ServerName = %q", v.ServerName())
+	}
+	// The server sends the CRC32 as a signed 32-bit number; the icon file is
+	// named by the unsigned one.
+	if v.ServerIconID() != 2766950830 {
+		t.Errorf("ServerIconID = %d, want 2766950830", v.ServerIconID())
+	}
+	if v.ServerBannerImageURL() != "https://example.com/banner.png" {
+		t.Errorf("ServerBannerImageURL = %q, want it trimmed", v.ServerBannerImageURL())
+	}
+	if !reflect.DeepEqual(cl.ServerCapabilities(), caps) {
+		t.Errorf("ServerCapabilities changed with the edit: %+v, was %+v", cl.ServerCapabilities(), caps)
+	}
+
+	feed(cl, "notifyserveredited virtualserver_icon_id=2766950830")
+	if got := cl.View().ServerIconID(); got != 2766950830 {
+		t.Errorf("ServerIconID of the unsigned form = %d", got)
+	}
+	feed(cl, "notifyserveredited virtualserver_icon_id=x")
+	if got := cl.View().ServerIconID(); got != 0 {
+		t.Errorf("ServerIconID of garbage = %d, want 0", got)
+	}
+}
+
 //nolint:funlen // one scenario, read top to bottom
 func TestViewServerFollowsEditsAndAnswers(t *testing.T) {
 	cl := connecting(t)

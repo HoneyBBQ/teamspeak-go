@@ -199,12 +199,13 @@ func (c *Client) SendGroupWhisper(data []byte, target GroupWhisperTarget, codec 
 
 // ServerCapabilities reports what the connected server is: version, generation,
 // and the uid hash it uses. Populated from initserver; before connecting the
-// family reads as unknown.
+// family reads as unknown. The record is a copy: changing its Extensions
+// changes nothing in the client.
 func (c *Client) ServerCapabilities() ServerCapabilities {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.capabilities
+	return c.capabilities.clone()
 }
 
 // UID returns our own client_unique_identifier, hashed with the

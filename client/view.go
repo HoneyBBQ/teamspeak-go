@@ -761,6 +761,27 @@ func (v ServerView) ClientsIn(id teamspeak.ChannelID) []teamspeak.ClientEntry {
 	return cloneEntries(v.byChannel[id])
 }
 
+// ServerName returns the virtual server's name (virtualserver_name) as Server
+// holds it now, which follows the server's edits; "" before the server has said.
+func (v ServerView) ServerName() string {
+	return v.Server["virtualserver_name"]
+}
+
+// ServerIconID returns the server's icon (virtualserver_icon_id) as Server
+// holds it now, or 0 for none. The server sends the icon's CRC32, sometimes as
+// a negative 32-bit number; this is the unsigned value, which names the icon
+// file.
+func (v ServerView) ServerIconID() teamspeak.IconID {
+	return wire.ParseIconID[teamspeak.IconID](v.Server["virtualserver_icon_id"])
+}
+
+// ServerBannerImageURL returns the host banner image's URL
+// (virtualserver_hostbanner_gfx_url) as Server holds it now, or "" when none is
+// set.
+func (v ServerView) ServerBannerImageURL() string {
+	return strings.TrimSpace(v.Server["virtualserver_hostbanner_gfx_url"])
+}
+
 // ServerGroup returns the server group, or false when the view does not hold
 // it. A client's server groups can name one the view does not hold, for a
 // moment after the group is deleted, or if the list is late.

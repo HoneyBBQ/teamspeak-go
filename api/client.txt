@@ -384,17 +384,16 @@ field ResolvedAddr.Addr string
 field ResolvedAddr.Source string
 type ServerCapabilities struct
 field ServerCapabilities.Version string
-field ServerCapabilities.Name string
-field ServerCapabilities.HostBannerImageURL string
 field ServerCapabilities.WelcomeMessage string
 field ServerCapabilities.Family ServerFamily
 field ServerCapabilities.UIDAlgorithm identity.UIDAlgorithm
 field ServerCapabilities.ServerUID string
 field ServerCapabilities.HostMessage string
+field ServerCapabilities.Extensions []string
 field ServerCapabilities.Major int
 field ServerCapabilities.ServerID teamspeak.ServerID
 field ServerCapabilities.HostMessageMode teamspeak.HostMessageMode
-field ServerCapabilities.IconID teamspeak.IconID
+method (ServerCapabilities) HasExtension(name string) bool
 type ServerEditedEvent = teamspeak.ServerEditedEvent
 type ServerFamily = teamspeak.ServerFamily
 type ServerView struct
@@ -413,7 +412,10 @@ method (ServerView) Client(id teamspeak.ClientID) (teamspeak.ClientEntry, bool)
 method (ServerView) Clients() []teamspeak.ClientEntry
 method (ServerView) ClientsIn(id teamspeak.ChannelID) []teamspeak.ClientEntry
 method (ServerView) Path(id teamspeak.ChannelID) []teamspeak.Channel
+method (ServerView) ServerBannerImageURL() string
 method (ServerView) ServerGroup(id teamspeak.ServerGroupID) (teamspeak.ServerGroup, bool)
+method (ServerView) ServerIconID() teamspeak.IconID
+method (ServerView) ServerName() string
 type SessionEndInfo struct
 field SessionEndInfo.Cause error
 field SessionEndInfo.Duration time.Duration

@@ -1,12 +1,12 @@
 package client
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/identity"
-	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
 // ServerCapabilities describes what the connected server is, and what that
@@ -18,18 +18,17 @@ import (
 // client_unique_identifier the other server never sends.
 //
 // Everything here comes from the handshake — initserver carries
-// virtualserver_version, the one place the server names itself, along with its
-// name, icon, banner and welcome message — so reading it costs no extra round
-// trip. It is one record of what the handshake said rather than a getter per
-// field.
+// virtualserver_version, the one place the server names itself, along with the
+// protocol extensions it supports and the messages it greets a client with —
+// so reading it costs no extra round trip. It is one record of what the
+// handshake said rather than a getter per field. Only what holds for the whole
+// connection is kept: the server's name, icon and banner can be edited while a
+// client is connected, so they are read from the view, which follows the
+// edits: ServerView.ServerName, ServerView.ServerIconID and
+// ServerView.ServerBannerImageURL.
 type ServerCapabilities struct {
 	// Version is the virtualserver_version string as the server sent it.
 	Version string
-	// Name is the virtual server's name (virtualserver_name).
-	Name string
-	// HostBannerImageURL is the host banner image's URL
-	// (virtualserver_hostbanner_gfx_url), or "" when none is set.
-	HostBannerImageURL string
 	// WelcomeMessage is the message shown on connecting
 	// (virtualserver_welcomemessage), as the server sent it, BBCode included.
 	WelcomeMessage string
@@ -47,6 +46,17 @@ type ServerCapabilities struct {
 	// HostMessage is the message the server asks clients to show
 	// (virtualserver_hostmessage), or "" when none is set.
 	HostMessage string
+	// Extensions lists the optional protocol features the server says it
+	// supports (virtualserver_capability_extensions), in the server's order
+	// and each once, such as FILETIME and STREAM_P2P. It is empty when the
+	// server names none, as a TeamSpeak 3 server does; test one with
+	// HasExtension.
+	//
+	// It is what the server claims, read as sent; the SDK does not refuse a
+	// command because a name is missing from it. ServerCapabilities and the
+	// trace hooks hand out a copy, so changing the slice changes nothing in
+	// the client.
+	Extensions []string
 	// Major is the parsed major version, or 0 when it could not be parsed.
 	Major int
 	// ServerID is the virtual server's id (virtualserver_id).
@@ -56,10 +66,34 @@ type ServerCapabilities struct {
 	// teamspeak.HostMessageMode does not name; compare it against the
 	// constants.
 	HostMessageMode teamspeak.HostMessageMode
-	// IconID is the server's icon (virtualserver_icon_id), or 0 for none. The
-	// server sends the icon's CRC32, sometimes as a negative 32-bit number;
-	// this is the unsigned value, which names the icon file.
-	IconID teamspeak.IconID
+}
+
+// HasExtension reports whether the server named the extension, such as
+// "STREAM_P2P". The names are compared as sent, so case matters.
+func (c ServerCapabilities) HasExtension(name string) bool {
+	return slices.Contains(c.Extensions, name)
+}
+
+// clone returns c with a slice of its own, so a copy handed out cannot be used
+// to change the client's record.
+func (c ServerCapabilities) clone() ServerCapabilities {
+	c.Extensions = slices.Clone(c.Extensions)
+
+	return c
+}
+
+// parseExtensions reads the names of a comma-separated extension list, without
+// blanks or repeats, in order. It returns nil when there are none.
+func parseExtensions(list string) []string {
+	var names []string
+	for name := range strings.SplitSeq(list, ",") {
+		name = strings.TrimSpace(name)
+		if name != "" && !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+
+	return names
 }
 
 // parseServerCapabilities reads what a server says about itself in initserver.
@@ -80,18 +114,16 @@ func parseServerCapabilities(initserver map[string]string) ServerCapabilities {
 	}
 
 	return ServerCapabilities{
-		ServerID:           teamspeak.ServerID(serverID),
-		ServerUID:          initserver["virtualserver_unique_identifier"],
-		HostMessage:        initserver["virtualserver_hostmessage"],
-		HostMessageMode:    teamspeak.HostMessageMode(hostMessageMode),
-		Version:            version,
-		Major:              major,
-		Family:             teamspeak.ServerFamilyForVersion(version),
-		UIDAlgorithm:       identity.UIDAlgorithmForVersion(version),
-		Name:               initserver["virtualserver_name"],
-		IconID:             wire.ParseIconID[teamspeak.IconID](initserver["virtualserver_icon_id"]),
-		HostBannerImageURL: strings.TrimSpace(initserver["virtualserver_hostbanner_gfx_url"]),
-		WelcomeMessage:     initserver["virtualserver_welcomemessage"],
+		ServerID:        teamspeak.ServerID(serverID),
+		ServerUID:       initserver["virtualserver_unique_identifier"],
+		HostMessage:     initserver["virtualserver_hostmessage"],
+		HostMessageMode: teamspeak.HostMessageMode(hostMessageMode),
+		Version:         version,
+		Major:           major,
+		Family:          teamspeak.ServerFamilyForVersion(version),
+		UIDAlgorithm:    identity.UIDAlgorithmForVersion(version),
+		Extensions:      parseExtensions(initserver["virtualserver_capability_extensions"]),
+		WelcomeMessage:  initserver["virtualserver_welcomemessage"],
 	}
 }
 

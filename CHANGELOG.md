@@ -3,6 +3,31 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- `ServerCapabilities.Extensions` lists the names in the server's
+  `virtualserver_capability_extensions`, in the server's order and each once:
+  `FILETIME` and `STREAM_P2P` on TeamSpeak 6, empty on TeamSpeak 3. Test one
+  with `caps.HasExtension("STREAM_P2P")`. The SDK does not refuse a command
+  because a name is missing. `ServerCapabilities()` and the trace hooks hand out
+  a copy, so changing `Extensions` changes nothing in the client.
+- `ServerView.ServerName()`, `ServerIconID()` and `ServerBannerImageURL()` read
+  the server's name, icon and banner from the view, which follows the server's
+  edits.
+
+### Changed
+
+- **Breaking:** `ServerCapabilities` keeps only what lasts the connection.
+  `Name`, `IconID` and `HostBannerImageURL` are gone: they were read once from
+  `initserver` and went stale when the server was edited, while the view
+  followed the edit. Write `c.View().ServerName()`, `c.View().ServerIconID()`
+  (the unsigned CRC32 as before, 0 for none) and
+  `c.View().ServerBannerImageURL()` (`""` for none) instead. The rest stay:
+  what identifies the server, and `WelcomeMessage`, `HostMessage` and
+  `HostMessageMode`, which are what the server greeted this connection with.
+
 ## v1.0.0-beta.14 (2026-10-23)
 
 ### Added

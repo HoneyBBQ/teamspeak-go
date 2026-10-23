@@ -332,6 +332,23 @@ func TestIntegration_ViewGroupsChurnDuringJoin(t *testing.T) {
 	w.untilGroupsMatch(t, admin, "after the churn")
 }
 
+// serverSettingsToRestore picks, from serverinfo, the settings that
+// TestIntegration_ViewServerProperties edits. The icon and the banner are only
+// there when the server sends them.
+func serverSettingsToRestore(info teamspeak.Properties) teamspeak.Properties {
+	restore := teamspeak.Properties{}
+	for _, key := range []string{
+		"virtualserver_name", "virtualserver_welcomemessage", "virtualserver_maxclients",
+		"virtualserver_icon_id", "virtualserver_hostbanner_gfx_url",
+	} {
+		if value, ok := info[key]; ok {
+			restore[key] = value
+		}
+	}
+
+	return restore
+}
+
 // The name is announced with the edit; the welcome message and the client limit
 // are not, and the view has them again only once the client asks for them.
 //
@@ -347,9 +364,7 @@ func TestIntegration_ViewServerProperties(t *testing.T) {
 	t.Cleanup(func() {
 		ctx, cancel := cleanupContext()
 		defer cancel()
-		restoreErr := admin.EditServer(ctx, teamspeak.Properties{
-			"virtualserver_name": oldName, "virtualserver_welcomemessage": oldWelcome, "virtualserver_maxclients": oldMax,
-		})
+		restoreErr := admin.EditServer(ctx, serverSettingsToRestore(info))
 		if restoreErr != nil {
 			t.Errorf("cleanup: restoring the server: %v", restoreErr)
 		}
@@ -367,7 +382,10 @@ func TestIntegration_ViewServerProperties(t *testing.T) {
 
 	newName := uniqueName("srv")
 	requireNoErr(t, admin.EditServer(t.Context(), teamspeak.Properties{"virtualserver_name": newName}))
-	w.until(t, "after the name", nameIs(newName))
+	v = w.until(t, "after the name", nameIs(newName))
+	if v.ServerName() != newName {
+		t.Errorf("ServerName = %q, want %q", v.ServerName(), newName)
+	}
 
 	// An edit that is announced without its setting. A later edit that is
 	// announced with its key proves the earlier notification has been handled.
@@ -400,6 +418,20 @@ func TestIntegration_ViewServerProperties(t *testing.T) {
 	if v.Server["virtualserver_welcomemessage"] != newWelcome || v.Server["virtualserver_maxclients"] != newMax {
 		t.Errorf("after the answer: welcome %q, max clients %q",
 			v.Server["virtualserver_welcomemessage"], v.Server["virtualserver_maxclients"])
+	}
+
+	// An icon and a banner: current once the edit is announced or
+	// servergetvariables has been answered. The server refuses a signed icon id
+	// in an edit (convert error), though it may send one.
+	newBanner := "https://example.com/" + newName + ".png"
+	requireNoErr(t, admin.EditServer(t.Context(), teamspeak.Properties{
+		"virtualserver_icon_id": "2766950830", "virtualserver_hostbanner_gfx_url": newBanner,
+	}))
+	_, err = w.c.GetServerVariables(t.Context())
+	requireNoErr(t, err)
+	v = w.c.View()
+	if v.ServerIconID() != 2766950830 || v.ServerBannerImageURL() != newBanner {
+		t.Errorf("after the edit: icon %d, banner %q", v.ServerIconID(), v.ServerBannerImageURL())
 	}
 
 	// Every setting the view holds is what the server says, and none is a counter.
