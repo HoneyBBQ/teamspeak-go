@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ import (
 )
 
 func TestUnsupportedServer_RefusesPublishAndWatchBeforeSendingAnything(t *testing.T) {
-	runWith(t, Options{}, func(h *fakeHost) { h.family, h.version = client.ServerFamilyTS3, "3.13.8" },
+	runWith(t, Options{}, func(h *fakeHost) { h.family, h.version, h.exts = client.ServerFamilyTS3, "3.13.8", nil },
 		func(t *testing.T, e *env) {
 			var unsupported *UnsupportedError
 			_, err := e.s.Publish(t.Context(), PublishOptions{Name: "x"})
@@ -36,7 +37,7 @@ func TestUnsupportedServer_RefusesPublishAndWatchBeforeSendingAnything(t *testin
 }
 
 func TestUnsupportedServer_NamesWhatTheServerIs(t *testing.T) {
-	runWith(t, Options{}, func(h *fakeHost) { h.family, h.version = client.ServerFamilyTS3, "3.13.8" },
+	runWith(t, Options{}, func(h *fakeHost) { h.family, h.version, h.exts = client.ServerFamilyTS3, "3.13.8", nil },
 		func(t *testing.T, e *env) {
 			_, err := e.s.Publish(t.Context(), PublishOptions{Name: "x"})
 			var u *UnsupportedError
@@ -49,9 +50,37 @@ func TestUnsupportedServer_NamesWhatTheServerIs(t *testing.T) {
 		})
 }
 
+// The server's own claim decides, not its version: a TeamSpeak 6 server that
+// does not name the extension is refused, and one that does is used.
+func TestUnsupportedServer_GoesByTheExtensionNotTheFamily(t *testing.T) {
+	runWith(t, Options{}, func(h *fakeHost) { h.exts = []string{"FILETIME"} },
+		func(t *testing.T, e *env) {
+			if e.s.Supported() {
+				t.Error("Supported = true without STREAM_P2P")
+			}
+			_, err := e.s.Publish(t.Context(), PublishOptions{Name: "x"})
+			var u *UnsupportedError
+			if !errors.As(err, &u) || u.Family != client.ServerFamilyTS6 || !slices.Equal(u.Extensions, []string{"FILETIME"}) {
+				t.Fatalf("err = %#v", err)
+			}
+			if !strings.Contains(err.Error(), "FILETIME") {
+				t.Errorf("message %q does not name the extensions", err)
+			}
+			if e.h.count() != 0 {
+				t.Errorf("sent %d commands, want none", e.h.count())
+			}
+		})
+	runWith(t, Options{}, func(h *fakeHost) { h.family, h.version = client.ServerFamilyUnknown, "7" },
+		func(t *testing.T, e *env) {
+			if !e.s.Supported() {
+				t.Error("Supported = false on a server that names STREAM_P2P")
+			}
+		})
+}
+
 func TestUnsupportedServer_TreatsAServerNotYetKnownAsUnsupported(t *testing.T) {
 	runWith(t, Options{}, func(h *fakeHost) {
-		h.family, h.version, h.status = client.ServerFamilyUnknown, "", client.StatusDisconnected
+		h.family, h.version, h.exts, h.status = client.ServerFamilyUnknown, "", nil, client.StatusDisconnected
 	},
 		func(t *testing.T, e *env) {
 			_, err := e.s.Publish(t.Context(), PublishOptions{Name: "x"})
@@ -66,7 +95,8 @@ func TestUnsupportedServer_TreatsAServerNotYetKnownAsUnsupported(t *testing.T) {
 }
 
 func TestUnsupportedServer_SendsNothingWhenAClientSeemsToStream(t *testing.T) {
-	runWith(t, Options{}, func(h *fakeHost) { h.family = client.ServerFamilyTS3 }, func(t *testing.T, e *env) {
+	ts3 := func(h *fakeHost) { h.family, h.exts = client.ServerFamilyTS3, nil }
+	runWith(t, Options{}, ts3, func(t *testing.T, e *env) {
 		e.h.enter(7, new(true))
 		e.h.setStreaming(8, true)
 		e.settle()

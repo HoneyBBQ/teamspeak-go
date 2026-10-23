@@ -47,6 +47,7 @@ type fakeHost struct {
 	subs    map[string][]*subscription
 	family  teamspeak.ServerFamily
 	version string
+	exts    []string
 	log     []sent
 	setups  []*pendingSetup
 	mu      sync.Mutex
@@ -66,6 +67,7 @@ func newFakeHost() *fakeHost {
 		self:    1,
 		family:  client.ServerFamilyTS6,
 		version: "6.0.0-beta13.1",
+		exts:    []string{"FILETIME", extensionP2P},
 		entries: make(map[teamspeak.ClientID]teamspeak.ClientEntry),
 		subs:    make(map[string][]*subscription),
 	}
@@ -128,7 +130,7 @@ func (h *fakeHost) ServerCapabilities() client.ServerCapabilities {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	return client.ServerCapabilities{Family: h.family, Version: h.version}
+	return client.ServerCapabilities{Family: h.family, Version: h.version, Extensions: h.exts}
 }
 
 func (h *fakeHost) Entries() []teamspeak.ClientEntry {

@@ -28,6 +28,12 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ### Changed
 
+- **Breaking:** the `stream` package goes by what the server says it supports,
+  not by its version: `Supported`, `Publish` and `Watch` need the server to name
+  `STREAM_P2P` among its extensions (`ServerCapabilities().Extensions`), as
+  TeamSpeak 6 does. A server that does not name it gets an
+  `*stream.UnsupportedError` before anything is sent, whatever its version, and
+  the error now carries the `Extensions` the server named.
 - **Breaking:** `ServerCapabilities` keeps only what lasts the connection.
   `Name`, `IconID` and `HostBannerImageURL` are gone: they were read once from
   `initserver` and went stale when the server was edited, while the view

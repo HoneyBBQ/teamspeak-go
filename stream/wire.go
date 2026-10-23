@@ -24,6 +24,10 @@ import (
 // turn a send into a silent drop.
 const maxCommandLineBytes = 9150
 
+// extensionP2P is the extension a server names in
+// virtualserver_capability_extensions when it does peer to peer streams.
+const extensionP2P = "STREAM_P2P"
+
 // ---- Commands ----------------------------------------------------------------
 
 func newRequest(command string, params ...[2]string) teamspeak.Request {

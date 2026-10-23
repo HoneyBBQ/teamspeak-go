@@ -146,6 +146,7 @@ method (*TransportUnsupportedError) Error() string
 type UnsupportedError struct
 field UnsupportedError.Version string
 field UnsupportedError.Family client.ServerFamily
+field UnsupportedError.Extensions []string
 method (*UnsupportedError) Error() string
 type View struct
 embed View *Peer

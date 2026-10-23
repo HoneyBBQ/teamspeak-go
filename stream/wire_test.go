@@ -395,9 +395,19 @@ func TestErrors_Messages(t *testing.T) {
 	}{
 		{
 			&UnsupportedError{Family: "ts3", Version: "3.13.8"},
-			"stream: streams need a TeamSpeak 6 server; this is ts3 (3.13.8)",
+			"stream: streams need a server that names STREAM_P2P among its extensions" +
+				"; this is ts3 (3.13.8), which names none",
 		},
-		{&UnsupportedError{}, "stream: streams need a TeamSpeak 6 server; this is an unknown server"},
+		{
+			&UnsupportedError{Family: "ts6", Version: "6.0.0", Extensions: []string{"FILETIME"}},
+			"stream: streams need a server that names STREAM_P2P among its extensions" +
+				"; this is ts6 (6.0.0), which names FILETIME",
+		},
+		{
+			&UnsupportedError{},
+			"stream: streams need a server that names STREAM_P2P among its extensions" +
+				"; this is an unknown server, which names none",
+		},
 		{&JoinDeniedError{StreamID: "a", Message: "no"}, "stream: the stream's owner denied the request to watch it: no"},
 		{&JoinDeniedError{StreamID: "a"}, "stream: the stream's owner denied the request to watch it"},
 		{&PayloadTooLargeError{Command: "x", Size: 9, Limit: 5}, "stream: x is 9 bytes escaped; the server takes at most 5"},

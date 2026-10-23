@@ -3,6 +3,7 @@ package stream
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/client"
@@ -29,21 +30,24 @@ var (
 	errNoOffer   = errors.New("stream: the publisher accepted the request without an offer")
 )
 
-// UnsupportedError reports that the connected server does not do streams: only
-// TeamSpeak 6 does. A TeamSpeak 3 server answers none of the stream commands,
-// not even with an error, so Publish and Watch return this before sending
-// instead of waiting out a timeout. A server the client has not identified
-// yet, because it has not connected, counts as unsupported.
+// UnsupportedError reports that the connected server does not say it does peer
+// to peer streams: its extensions (virtualserver_capability_extensions) do not
+// name STREAM_P2P. A TeamSpeak 3 server names none, and answers none of the
+// stream commands, not even with an error, so Publish and Watch return this
+// before sending instead of waiting out a timeout. Before the client has
+// connected no server has named any, and it counts as unsupported the same way.
 type UnsupportedError struct {
 	// Version is the virtualserver_version the server sent; empty before the
 	// client has connected.
 	Version string
-	// Family is the server generation the client found; never
-	// client.ServerFamilyTS6.
+	// Family is the server generation the client found.
 	Family client.ServerFamily
+	// Extensions are the extensions the server named, STREAM_P2P not among
+	// them.
+	Extensions []string
 }
 
-// Error describes the server.
+// Error describes the server and the extensions it named.
 func (e *UnsupportedError) Error() string {
 	what := "an unknown server"
 	if e.Family != client.ServerFamilyUnknown {
@@ -52,8 +56,13 @@ func (e *UnsupportedError) Error() string {
 	if e.Version != "" {
 		what += " (" + e.Version + ")"
 	}
+	named := "none"
+	if len(e.Extensions) > 0 {
+		named = strings.Join(e.Extensions, ", ")
+	}
 
-	return "stream: streams need a TeamSpeak 6 server; this is " + what
+	return "stream: streams need a server that names " + extensionP2P +
+		" among its extensions; this is " + what + ", which names " + named
 }
 
 // TransportUnsupportedError reports that a stream's media does not travel the
