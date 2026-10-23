@@ -542,14 +542,18 @@ type FileTreeEntry struct {
 	Path string
 }
 
+// defaultMaxDepth is how far ListFilesRecursive goes down unless told otherwise.
+const defaultMaxDepth = 16
+
 // RecursiveFilesOptions are ListFilesRecursive's optional parameters.
 type RecursiveFilesOptions struct {
 	// Password is the channel's password, "" for none.
 	Password string
 	// MaxDepth bounds how deep the listing goes, counted as find's -maxdepth
 	// counts: 1 lists only the entries of the path itself, 2 adds the entries of
-	// its directories, and so on. Zero means no bound; a negative value is
-	// refused with ErrInvalidCommand.
+	// its directories, and so on. Zero is the default, 16; there is no unbounded
+	// walk, since every level is a round trip. A negative value is refused with
+	// ErrInvalidCommand.
 	MaxDepth int
 }
 
@@ -567,6 +571,9 @@ func (c *Commands) ListFilesRecursive(
 		return nil, fmt.Errorf("%w: a negative depth", ErrInvalidCommand)
 	}
 
+	if opts.MaxDepth == 0 {
+		opts.MaxDepth = defaultMaxDepth
+	}
 	var out []FileTreeEntry
 
 	return out, c.walkFiles(ctx, channelID, asPath(path), 1, opts, &out)
@@ -583,7 +590,7 @@ func (c *Commands) walkFiles(
 	for _, entry := range entries {
 		full := prefix + entry.Name
 		*out = append(*out, FileTreeEntry{Path: full, FileEntry: entry})
-		if entry.IsDirectory && (opts.MaxDepth == 0 || depth < opts.MaxDepth) {
+		if entry.IsDirectory && depth < opts.MaxDepth {
 			err = c.walkFiles(ctx, channelID, full, depth+1, opts, out)
 			if err != nil {
 				return err

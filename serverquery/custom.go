@@ -44,9 +44,9 @@ type Transport interface {
 // not a raw or SSH session, and answers each command on its own, can ignore
 // `quit`.
 //
-// The optional keep-alive the SSH transport has, and the byte counts of
-// [Client.Stats], are not part of a [Transport]: Stats reports the zero value
-// for a custom one.
+// The keep-alive of [WithKeepAlive], and the byte counts of [Client.Stats], are
+// not part of a [Transport]: a custom transport is never sent the keep-alive,
+// and Stats reports the zero value for it.
 //
 // An open that returns an error ends the attempt with an error wrapping both
 // [ErrDial] and its own. [New] refuses a nil open with [ErrInvalidConfig].

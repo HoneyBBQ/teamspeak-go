@@ -28,6 +28,13 @@ func TestDefaultShouldRetry(t *testing.T) {
 		{&teamspeak.ServerError{Code: errcode.ClientInvalidPassword}, "a refused query login", false},
 		{&teamspeak.ServerError{Code: errcode.ServerInvalidID}, "a server id that names nothing", false},
 		{&teamspeak.ServerError{Code: errcode.ConnectFailedBanned}, "a ban", false},
+		{&teamspeak.ServerError{Code: errcode.ServerIsNotRunning}, "a server that is not running", false},
+		{&teamspeak.ServerError{Code: errcode.ClientNotLoggedIn}, "a session that is not logged in", false},
+		{&teamspeak.ServerError{Code: errcode.PermissionsClientInsufficient}, "a missing permission", false},
+		{refusedAt("use", errcode.Undefined), "a use refused with any code", false},
+		{refusedAt("login", errcode.Undefined), "a login refused with any code", false},
+		{refusedAt("use", errcode.ClientIsFlooding), "a use refused by the flood limit", true},
+		{refusedAt("version", errcode.Undefined), "another step refused", true},
 		{fmt.Errorf("%w: 127.0.0.1:10022: key mismatch", ErrHostKey), "a host key that changed", false},
 		{fmt.Errorf("%w: 127.0.0.1:10022: key is unknown", ErrHostKey), "a host key that is unknown", false},
 		// The refusal arrives wrapped by the dial and by the failed handshake, so
@@ -42,4 +49,9 @@ func TestDefaultShouldRetry(t *testing.T) {
 			t.Errorf("%s: DefaultShouldRetry = %v, want %v", tc.name, got, tc.want)
 		}
 	}
+}
+
+// refusedAt is the error a handshake step the server refused with code ends in.
+func refusedAt(step string, code errcode.Code) error {
+	return (&Client{}).wrapHandshake(step, &teamspeak.ServerError{Code: code})
 }

@@ -122,6 +122,11 @@ func SSH(addr, user, password string) Dialer {
 // guestUser is the SSH user name TeamSpeak 6 serves its guest ServerQuery
 // access under, and the one name [SSH] refuses, so that a guest connection is
 // only ever the one [SSHGuest] asks for.
+//
+// Measured on TeamSpeak 6 6.0.0-beta13.1: the user "guest" logs in as a guest
+// whatever password it is given, the administrator's included, so a password
+// sent with it is silently ignored and the access is not the account's. The
+// server matches the name exactly: "GUEST" is refused.
 const guestUser = "guest"
 
 // SSHGuest returns a Dialer for ServerQuery over SSH at addr that connects as
@@ -198,7 +203,7 @@ func (d sshDialer) credentialError() error {
 	case d.user == "":
 		return fmt.Errorf("%w: the ssh dialer has no user; use SSHGuest to connect as the guest user",
 			ErrInvalidConfig)
-	case strings.EqualFold(d.user, guestUser):
+	case d.user == guestUser:
 		return fmt.Errorf("%w: %q is the server's guest user, which takes no password; "+
 			"use SSHGuest to connect as a guest", ErrInvalidConfig, d.user)
 	case d.password == "":

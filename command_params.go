@@ -38,14 +38,52 @@ func invalidArg(reason string) param {
 }
 
 // firstInvalid returns the error of the first parameter that cannot be sent.
+//
+// A key is a protocol identifier, written to the line as it is: one with a
+// space, a newline or a pipe in it would add parameters, rows or a whole
+// command to what the caller meant. Only a key a server could have named is
+// sent.
 func firstInvalid(params []param) error {
 	for _, p := range params {
 		if p.err != nil {
 			return p.err
 		}
+		// A parameter with no key and no value is the omitted one.
+		keys := []string{p.Key}
+		if p.Key == "" && p.Value == nil && p.rows == nil {
+			keys = nil
+		}
+		for _, row := range p.table {
+			for _, kv := range row {
+				keys = append(keys, kv[0])
+			}
+		}
+		for _, key := range keys {
+			if !validKey(key) {
+				return fmt.Errorf("%w: %q is not a parameter name", ErrInvalidCommand, key)
+			}
+		}
 	}
 
 	return nil
+}
+
+// validKey reports whether key is a parameter name: letters, digits and
+// underscores, with one leading "-" for a flag such as -uid. Every key measured
+// on TeamSpeak 3 and 6, in a command or an answer, is of this form.
+func validKey(key string) bool {
+	key = strings.TrimPrefix(key, "-")
+	if key == "" {
+		return false
+	}
+	for i := range len(key) {
+		c := key[i]
+		if c != '_' && (c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+			return false
+		}
+	}
+
+	return true
 }
 
 // strArg encodes a string parameter.

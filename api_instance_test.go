@@ -1,6 +1,7 @@
 package teamspeak
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -210,4 +211,39 @@ func TestDeployServerSnapshot_ReadsTheMapping(t *testing.T) {
 	if err != nil || got != nil {
 		t.Errorf("without -mapping: %v, %v, want nil", got, err)
 	}
+}
+
+// A settings key is a protocol identifier: one that would add a parameter or a
+// command to the line is refused before anything is sent.
+func TestSettingsKeysAreProtocolIdentifiers(t *testing.T) {
+	for _, key := range []string{
+		"virtualserver_name x=1", "a\nlogout", "a|b", "a=b", "", "a b", "-", "a\\sb", "näme", "a\rb",
+	} {
+		s := &script{}
+		c := NewCommands(s)
+		for name, err := range map[string]error{
+			"EditServer":   c.EditServer(t.Context(), Properties{key: "v"}),
+			"EditInstance": c.EditInstance(t.Context(), Properties{key: "v"}),
+			"CreateServer": createServerErr(c, key),
+		} {
+			if !errors.Is(err, ErrInvalidCommand) {
+				t.Errorf("%s with key %q: err = %v, want ErrInvalidCommand", name, key, err)
+			}
+		}
+		if len(s.sent) != 0 {
+			t.Errorf("key %q: sent %q, want nothing", key, s.sent)
+		}
+	}
+	s := &script{}
+	err := NewCommands(s).EditServer(t.Context(),
+		Properties{"virtualserver_name": "x", "virtualserver_hostbanner_gfx_interval": "1"})
+	if err != nil || len(s.sent) != 1 {
+		t.Errorf("valid keys: err = %v, sent %q", err, s.sent)
+	}
+}
+
+func createServerErr(c *Commands, key string) error {
+	_, err := c.CreateServer(context.Background(), "n", Properties{key: "v"})
+
+	return err
 }

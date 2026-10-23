@@ -2,6 +2,7 @@ package serverquery
 
 import (
 	"log/slog"
+	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 )
@@ -133,6 +134,27 @@ func WithoutEvents() Option {
 func WithReconnect(options teamspeak.ReconnectOptions) Option {
 	return optionFunc(func(c *Client) {
 		c.reconnectOptions = &options
+	})
+}
+
+// WithKeepAlive sets how long a raw TCP or SSH session may sit idle before the
+// client sends `version` to keep it open. The default is two minutes; zero
+// turns it off, and a negative interval is refused by [New] with
+// [ErrInvalidConfig].
+//
+// Measured on TeamSpeak 3 3.13.8 (raw TCP and SSH) and TeamSpeak 6
+// 6.0.0-beta13.1 (SSH): the server closes a query session that has sent no
+// command for 300 seconds, and a session that sends one every 200 seconds stays
+// open. Notifications arriving do not count: a raw TCP session on TeamSpeak 3
+// that received nine and sent nothing was closed at 300 seconds all the same.
+// The command is sent only when none has been for this long, so a busy client
+// sends nothing extra. WebQuery has no session to keep, and a [Custom]
+// transport is left to its own owner.
+//
+// Experimental: this package may change in a minor release.
+func WithKeepAlive(idle time.Duration) Option {
+	return optionFunc(func(c *Client) {
+		c.keepAlive = idle
 	})
 }
 

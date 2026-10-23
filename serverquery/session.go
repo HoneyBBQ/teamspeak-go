@@ -229,11 +229,27 @@ func (c *Client) connect(ctx context.Context, kind connectKind) error {
 	c.mu.Lock()
 	c.engine = eng
 	c.status = teamspeak.StatusConnected
+	keepAlive := c.keepAlive
 	c.mu.Unlock()
+	if keepAlive > 0 && keepsSession(dialer) {
+		eng.KeepAlive(context.WithoutCancel(ctx), keepAlive, "version")
+	}
 
 	emit(c, &c.onConnected, "Connected", teamspeak.ConnectedEvent{Reconnected: !kind.fromCaller})
 
 	return nil
+}
+
+// keepsSession reports whether the dialer's connection is a raw TCP or SSH
+// session, which the server closes when it idles. WebQuery has none, and a
+// custom transport is its owner's.
+func keepsSession(dialer Dialer) bool {
+	switch dialer.(type) {
+	case tcpDialer, sshDialer:
+		return true
+	}
+
+	return false
 }
 
 // guestRefusal says so when a guest connection failed because the server offers
@@ -408,6 +424,13 @@ func (c *Client) registerCategories(ctx context.Context, eng *engine.Client, cat
 // wrapHandshake names the step that failed, so a failed Connect says which
 // part of the session the server refused.
 func (c *Client) wrapHandshake(step string, err error) error {
+	if step == "login" || step == "use" {
+		serverErr, ok := errors.AsType[*teamspeak.ServerError](err)
+		if ok && serverErr.Code != errcode.ClientIsFlooding {
+			return &handshakeRefusalError{step: step, err: err}
+		}
+	}
+
 	return fmt.Errorf("%s: %w", step, err)
 }
 
@@ -461,11 +484,18 @@ func (c *Client) registerCategory(ctx context.Context, eng *engine.Client, categ
 // not its groups, and a self-move carries no invoker at all, so both are
 // filled from here.
 //
+// `-away` and `-voice` make the records carry away and mute state as well, in
+// the same one command. The roster is a snapshot taken once, when connecting,
+// and kept up to date by the enter, leave and move notifications only: a
+// ServerQuery connection is not sent clientupdated, so the groups, the away
+// flag and the mute state are as of the listing and do not follow later
+// changes.
+//
 // Failing to read it is not fatal: the session works, and a missing group list
 // only leaves a field empty.
 func (c *Client) readClientList(ctx context.Context, eng *engine.Client) {
 	rows, err := eng.Exec(ctx, wire.BuildCommandOrdered("clientlist",
-		[][2]string{{"-uid", ""}, {"-groups", ""}}))
+		[][2]string{{"-uid", ""}, {"-groups", ""}, {"-away", ""}, {"-voice", ""}}))
 	if err != nil {
 		c.logger.WarnContext(ctx, "could not read the client list, so event fields it fills will be empty",
 			slog.Any("error", err))
@@ -504,9 +534,11 @@ func (c *Client) finishAttempt(err error, reconnect bool) {
 	c.mu.Unlock()
 
 	c.logger.Debug("connection attempt failed", slog.Any("error", err))
+	// A failed Connect is never retried; an attempt of the reconnect loop is
+	// retried when the policy says so, which is what the event reports.
 	emit(c, &c.onDisconnected, "Disconnected", teamspeak.DisconnectedEvent{
 		Err:           err,
-		WillReconnect: reconnect,
+		WillReconnect: reconnect && c.willRetry(err, c.nextAttempt()),
 	})
 }
 
@@ -529,8 +561,6 @@ func (c *Client) handleClosed(cause error) {
 	}
 	c.status = teamspeak.StatusDisconnected
 	c.engine, c.transport = nil, nil
-	options := c.reconnectOptions
-	reconnect := options != nil
 	c.mu.Unlock()
 
 	if cause == nil {
@@ -538,6 +568,7 @@ func (c *Client) handleClosed(cause error) {
 	}
 	c.logger.Warn("the query connection ended", slog.Any("error", cause))
 
+	reconnect := c.willRetry(cause, c.nextAttempt())
 	emit(c, &c.onDisconnected, "Disconnected", teamspeak.DisconnectedEvent{
 		Err:           cause,
 		WillReconnect: reconnect,
