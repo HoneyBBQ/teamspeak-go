@@ -41,27 +41,30 @@ type Client struct {
 	keepAlive time.Duration
 	// verdict and loopAttempt belong to the reconnect loop: the policy's answer
 	// for the failure just announced, and the attempt the loop is on.
-	verdict         *retryVerdict
-	loopAttempt     int
-	nickname        string
-	selfNickname    string
-	family          teamspeak.ServerFamily
-	version         string
-	categories      []Category
-	cmdMiddlewares  []teamspeak.CommandMiddleware
-	subs            subscribers
-	onKicked        eventbus.Subscribers[teamspeak.KickedEvent]
-	onDisconnected  eventbus.Subscribers[teamspeak.DisconnectedEvent]
-	onConnected     eventbus.Subscribers[teamspeak.ConnectedEvent]
-	events          eventbus.Queue
-	status          teamspeak.Status
-	mu              sync.Mutex
-	selfID          teamspeak.ClientID
-	namedID         bool
-	namedPort       bool
-	stopped         bool
-	reconnecting    bool
-	registerEvents  bool
+	verdict        *retryVerdict
+	loopAttempt    int
+	nickname       string
+	selfNickname   string
+	family         teamspeak.ServerFamily
+	version        string
+	categories     []Category
+	cmdMiddlewares []teamspeak.CommandMiddleware
+	subs           subscribers
+	onKicked       eventbus.Subscribers[teamspeak.KickedEvent]
+	onDisconnected eventbus.Subscribers[teamspeak.DisconnectedEvent]
+	onConnected    eventbus.Subscribers[teamspeak.ConnectedEvent]
+	events         eventbus.Queue
+	status         teamspeak.Status
+	mu             sync.Mutex
+	selfID         teamspeak.ClientID
+	namedID        bool
+	namedPort      bool
+	stopped        bool
+	reconnecting   bool
+	registerEvents bool
+	// eventsPending is set while the session has no server: the events are
+	// registered by the first Use.
+	eventsPending   bool
 	eventsRequested bool
 }
 

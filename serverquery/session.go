@@ -353,14 +353,26 @@ func (c *Client) handshake(ctx context.Context, eng *engine.Client, opts handsha
 		return c.wrapHandshake("whoami", err)
 	}
 
+	// Notifications and the client list belong to a selected server. Measured
+	// on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0 (raw TCP and SSH): with none
+	// selected version and whoami answer, while servernotifyregister,
+	// clientlist and clientupdate are refused with 1024 (invalid serverID). So a
+	// client with no server connects for the instance-level commands, and Use
+	// registers the events the first time it selects one.
+	pending := false
 	if opts.registerEvents {
-		err = c.registerCategories(ctx, eng, opts.categories)
-		if err != nil {
-			return err
+		if opts.server == nil {
+			pending = true
+		} else {
+			err = c.registerCategories(ctx, eng, opts.categories)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
 	c.mu.Lock()
+	c.eventsPending = pending
 	c.family = family
 	c.version = version
 	c.mu.Unlock()
@@ -393,7 +405,9 @@ func (c *Client) authenticate(ctx context.Context, eng *engine.Client, opts hand
 		}
 	}
 
-	if opts.nickname != "" {
+	// The nickname is a property of the client on a server, so with none
+	// selected there is nothing to name.
+	if opts.nickname != "" && opts.server != nil {
 		_, err := eng.Exec(ctx, wire.BuildCommandOrdered("clientupdate",
 			[][2]string{{"client_nickname", opts.nickname}}))
 		if err != nil {

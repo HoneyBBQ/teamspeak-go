@@ -7,6 +7,18 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 ### Fixed
 
+- A ServerQuery client made with no `WithServer` or `WithServerPort` now
+  connects, as its documentation says, instead of failing `Connect` with `1024
+  invalid serverID`. With no server selected the server refuses
+  `servernotifyregister`, `clientlist` and `clientupdate`, so Connect skips
+  them (and a `WithNickname`, which has no server to name the client on) and the
+  client serves the instance-level commands; the first successful `Use`
+  registers the events and reads the client list, as Connect does with a
+  server. `StopFileTransfer` and the package documentation now say that a
+  transfer of your own that has finished, or that nobody connected to for about
+  10 seconds after it was negotiated, no longer exists either, so stopping it
+  crashes TeamSpeak 6 too (measured on TeamSpeak 3 3.13.8 and TeamSpeak 6
+  6.0.0).
 - A ServerQuery client over raw TCP or SSH no longer fails a command the server
   refused as flooding (`error id=524`, `please wait 1 seconds`) when the pause
   fits in the command's deadline: it holds the queue for twice the pause the

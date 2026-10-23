@@ -287,7 +287,7 @@ func TestConnect_RunsTheHandshakeInOrder(t *testing.T) {
 // for, and bans is not among them.
 func TestConnect_RegistersTheDefaultCategories(t *testing.T) {
 	d := newFakeDialer(true)
-	c := newClient(t, d)
+	c := newClient(t, d, WithServer(1))
 
 	done := make(chan error, 1)
 	go func() { done <- c.Connect(context.Background()) }()
@@ -320,7 +320,7 @@ func TestConnect_RegistersTheDefaultCategories(t *testing.T) {
 // bans is registered only when it is named.
 func TestWithEvents_RegistersBansWhenAsked(t *testing.T) {
 	d := newFakeDialer(true)
-	c := newClient(t, d, WithEvents(CategoryBans))
+	c := newClient(t, d, WithServer(1), WithEvents(CategoryBans))
 
 	done := make(chan error, 1)
 	go func() { done <- c.Connect(context.Background()) }()
@@ -347,7 +347,7 @@ func TestWithEvents_RegistersTokenUsedOnlyWhenAsked(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := newFakeDialer(true)
-			c := newClient(t, d, tc.opt)
+			c := newClient(t, d, WithServer(1), tc.opt)
 
 			done := make(chan error, 1)
 			go func() { done <- c.Connect(context.Background()) }()
@@ -571,7 +571,7 @@ func TestConnect_DeliversConnected(t *testing.T) {
 // from what the client knows.
 func TestNotification_TextMessageIsDelivered(t *testing.T) {
 	d := newFakeDialer(true)
-	c := newClient(t, d)
+	c := newClient(t, d, WithServer(1))
 
 	done := make(chan error, 1)
 	go func() { done <- c.Connect(context.Background()) }()

@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
+	engine "github.com/honeybbq/teamspeak-go/internal/serverquery"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
@@ -120,6 +121,10 @@ func (c *Client) Logout(ctx context.Context) error {
 // client was configured with events, it reads the new server's client list as
 // Connect does.
 //
+// A client connected with no server has registered no events yet, as the
+// server refuses that with none selected: the first successful Use registers
+// them, and then reads the client list.
+//
 // Selecting the server the connection is already on changes nothing, a new
 // nickname included. A server that is not there, or not running, is refused
 // with 1033, and a
@@ -160,9 +165,30 @@ func (c *Client) Use(ctx context.Context, server ServerSelector, opts UseOptions
 	if err != nil {
 		return fmt.Errorf("whoami after use: %w", err)
 	}
+
+	return c.learnServer(ctx, eng)
+}
+
+// learnServer does for the server just selected what Connect does for the one
+// it selects: register the events a client with no server could not yet, or
+// read the client list again.
+func (c *Client) learnServer(ctx context.Context, eng *engine.Client) error {
 	c.mu.Lock()
-	listClients := c.registerEvents && len(c.categories) > 0 && c.dialer.SupportsNotifications()
+	events := c.registerEvents && c.dialer.SupportsNotifications()
+	categories, pending := c.categories, c.eventsPending && events
+	listClients := events && len(categories) > 0
 	c.mu.Unlock()
+	if pending {
+		err := c.registerCategories(ctx, eng, categories)
+		if err != nil {
+			return err
+		}
+		c.mu.Lock()
+		c.eventsPending = false
+		c.mu.Unlock()
+
+		return nil
+	}
 	if listClients {
 		c.readClientList(ctx, eng)
 	}
