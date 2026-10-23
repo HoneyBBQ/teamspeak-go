@@ -159,4 +159,11 @@
 // This package is experimental and ships as such: it may change in a minor
 // release, unlike the rest of the module, which follows semantic versioning
 // from v1.0.0. Every exported name here may change.
+//
+// # Documentation
+//
+// The [ServerQuery guide] covers the transports, events, the SSH host key
+// policy and reconnection.
+//
+// [ServerQuery guide]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/serverquery.md
 package serverquery
