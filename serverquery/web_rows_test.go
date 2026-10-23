@@ -71,9 +71,10 @@ func sameRows(t *testing.T, body string, want []map[string]string) {
 	}
 }
 
-// A command with rows goes as an array of objects: the first carries what the
-// rows share and the flag, the later ones only their own key. This is the form
-// measured on TeamSpeak 3 and 6.
+// A command with rows goes as an array of objects, each carrying what the rows
+// share and the flag as well as its own key, as the JavaScript client sends it.
+// TeamSpeak 3 and 6 accept this form and the one that names the shared
+// parameters in the first object only.
 func TestWeb_RowsGoAsAnArrayOfObjects(t *testing.T) {
 	url, bodies := webRecording(t)
 	c := webClient(t, url)
@@ -89,12 +90,12 @@ func TestWeb_RowsGoAsAnArrayOfObjects(t *testing.T) {
 	}
 	sameRows(t, got[0], []map[string]string{
 		{"-continueonerror": "", "reasonid": "5", "reasonmsg": "bye now", "clid": "4"},
-		{"clid": "9"},
-		{"clid": "12"},
+		{"-continueonerror": "", "reasonid": "5", "reasonmsg": "bye now", "clid": "9"},
+		{"-continueonerror": "", "reasonid": "5", "reasonmsg": "bye now", "clid": "12"},
 	})
 }
 
-// Rows of several keys keep their own, and the shared target is in the first.
+// Rows of several keys keep their own, and the shared target is in every one.
 func TestWeb_RowsOfSeveralKeys(t *testing.T) {
 	url, bodies := webRecording(t)
 	c := webClient(t, url)
@@ -112,7 +113,7 @@ func TestWeb_RowsOfSeveralKeys(t *testing.T) {
 	}
 	sameRows(t, got[0], []map[string]string{
 		{"sgid": "9", "permsid": "i_a", "permvalue": "5", "permnegated": "0", "permskip": "0"},
-		{"permsid": "b_b", "permvalue": "1", "permnegated": "1", "permskip": "1"},
+		{"sgid": "9", "permsid": "b_b", "permvalue": "1", "permnegated": "1", "permskip": "1"},
 	})
 }
 

@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
@@ -135,7 +136,10 @@ type Client struct {
 	// strayKey is the key of a row that was waited for and did not come before
 	// its answer was given up on. Should it arrive later, it belongs to that
 	// command, and is dropped rather than handed to the next one.
-	strayKey  string
+	strayKey string
+	// lastSent is when a command was last written, in Unix nanoseconds: what the
+	// server counts a session's idleness from.
+	lastSent  atomic.Int64
 	mu        sync.Mutex
 	closeOnce sync.Once
 	closed    bool
@@ -151,6 +155,36 @@ func New(transport Transport) *Client {
 	go c.readLoop()
 
 	return c
+}
+
+// KeepAlive sends line whenever no command has been sent for every, until the
+// connection ends, so that a server that closes an idle session does not close
+// this one. Only commands sent count, as the server counts them: what the
+// server sends does not. A busy connection sends nothing extra. A failed line
+// is the connection dropping, which its own end reports.
+func (c *Client) KeepAlive(ctx context.Context, every time.Duration, line string) {
+	c.lastSent.Store(time.Now().UnixNano())
+	go func() {
+		timer := time.NewTimer(every)
+		defer timer.Stop()
+		for {
+			select {
+			case <-c.done:
+				return
+			case <-timer.C:
+			}
+			wait := every
+			idle := time.Since(time.Unix(0, c.lastSent.Load()))
+			if idle >= every {
+				attempt, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
+				_, _ = c.Exec(attempt, line)
+				cancel()
+			} else {
+				wait = every - idle
+			}
+			timer.Reset(wait)
+		}
+	}()
 }
 
 // Send executes a typed command; it is the Executor the typed commands run
@@ -244,6 +278,7 @@ func (c *Client) send(ctx context.Context, line string) (*pending, error) {
 	}
 	c.pending = p
 	c.mu.Unlock()
+	c.lastSent.Store(time.Now().UnixNano())
 
 	err := c.transport.WriteLine(ctx, line)
 	if err != nil {

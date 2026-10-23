@@ -22,6 +22,17 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   `data`, which is still the whole file; `DownloadFile` with `SeekPosition`
   returns the file from that offset to its end. `FileUploadInfo.Size` and
   `FileDownloadInfo.SeekPosition` carry what the negotiation fixed.
+- `serverquery.WithKeepAlive` sets how long a raw TCP or SSH session may sit
+  idle before the client sends `version` to keep it open; two minutes by
+  default, zero turns it off. The server closes a query session that has sent no
+  command for 300 seconds (measured on TeamSpeak 3 3.13.8 over raw TCP and SSH,
+  and on TeamSpeak 6 6.0.0-beta13.1 over SSH, where one that sends a command
+  every 200 seconds stays open), so a long-lived connection used to drop on
+  its own. Nothing is sent while the client is busy, over WebQuery, or over a
+  `Custom` transport.
+- `serverquery.ErrLineTooLong`: a raw TCP or SSH connection ends with it when
+  the server sends a line longer than 256 MiB, rather than reading on without
+  bound.
 
 ### Changed
 
@@ -61,6 +72,24 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   what the servers send; before, any seek failed as a short download.
 - A negotiation's port outside 1 to 65535 is refused with `ErrFileTransfer`,
   where it was clamped.
+- `ListFilesRecursive`: `MaxDepth` 0 now means the default, 16, instead of no
+  bound. There is no unbounded walk; pass a larger `MaxDepth` for a deeper tree.
+  This is the meaning the TypeScript client has.
+- `serverquery.SSH` refuses only the exact user name `guest`, not `Guest` or
+  `GUEST`: TeamSpeak 6 matches the name exactly, logs `guest` in as a guest
+  whatever password comes with it, and refuses `GUEST`.
+- A WebQuery command with several rows sends the parameters its rows share in
+  every row, as the TypeScript client does, instead of in the first row only;
+  TeamSpeak 3 and 6 accept both.
+- The client's roster is read with `clientlist -uid -groups -away -voice`, so a
+  client's away and mute state is known from the start. The roster is a snapshot
+  taken on connecting, kept up to date by the enter, leave and move
+  notifications only: a ServerQuery connection is not sent `clientupdated`.
+- A parameter name must be letters, digits and underscores, with one leading
+  `-` for a flag. `EditServer`, `EditInstance` and `CreateServer` refuse a
+  settings key that is anything else with `ErrInvalidCommand` before sending,
+  where a key with a space or a newline in it added parameters or a command to
+  the line.
 
 ### Fixed
 
@@ -91,6 +120,16 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   in the answer's row, and was reported as `ErrNoData`; it is now the
   `*ServerError` it is, so `errors.Is(err, errcode.FileNotFound)` (2051) and
   `errors.Is(err, errcode.FileAlreadyExists)` (2050) match.
+- WebQuery no longer follows a redirect: the api key is a header, and a
+  followed redirect sent it to whatever host the answer named. A 3xx answer is
+  a `*WebQueryHTTPError` with its status. The client passed in
+  `WebOptions.Client` is not modified.
+- The reconnect loop gives up at any refused `login` or `use` (except the query
+  flood limit, which clears by itself) and at 1033, "server is not running",
+  and `OnDisconnected` reports `WillReconnect` as the loop will act: the
+  caller's `ShouldRetry` is asked once per failure.
+- `String()` of a WebQuery dialer and `Stats().Address` no longer include a
+  user name or password from the URL.
 
 ## v1.0.0-beta.15 (2026-10-23)
 

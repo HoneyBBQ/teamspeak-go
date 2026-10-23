@@ -57,6 +57,7 @@ func TestListFilesRecursive_MaxDepth(t *testing.T) {
 		paths []string
 	}{
 		{1, 1, []string{"/docs", "/a.txt"}},
+		{0, 3, []string{"/docs", "/docs/inner", "/docs/inner/deep.txt", "/a.txt"}},
 		{2, 2, []string{"/docs", "/docs/inner", "/a.txt"}},
 	} {
 		s := &script{replies: []reply{

@@ -147,6 +147,13 @@
 // [WithoutEvents] turns it off. `bans` is opt-in, because TeamSpeak 3 refuses
 // it.
 //
+// The client keeps a roster of who is on the server, to fill the fields a
+// notification leaves out, such as a sender's groups: it is a snapshot taken
+// on connecting (`clientlist -uid -groups -away -voice`), kept up to date by the
+// enter, leave and move notifications. A ServerQuery connection is not sent
+// clientupdated, so a client's groups, away flag and mute state are as of the
+// listing, or of the moment it entered view, and do not follow later changes.
+//
 // Over a transport that cannot deliver events, an On… call for a server event
 // returns a function that does nothing and logs once at Warn, rather than
 // failing: the WebQuery api key the server prints is accepted for the commands

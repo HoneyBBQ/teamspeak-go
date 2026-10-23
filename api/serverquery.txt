@@ -11,6 +11,7 @@ var ErrAuth error
 var ErrDial error
 var ErrHostKey error
 var ErrInvalidConfig error
+var ErrLineTooLong error
 var ErrMissingDependency error
 var ErrNoGuestAccess error
 func ByID(id teamspeak.ServerID) ServerSelector
@@ -34,6 +35,7 @@ func WebGuestWith(baseURL string, options WebOptions) Dialer
 func WebWith(baseURL string, apiKey string, options WebOptions) Dialer
 func WithCommandMiddleware(mw ...teamspeak.CommandMiddleware) Option
 func WithEvents(categories ...Category) Option
+func WithKeepAlive(idle time.Duration) Option
 func WithLogger(logger *slog.Logger) Option
 func WithNickname(nickname string) Option
 func WithReconnect(options teamspeak.ReconnectOptions) Option

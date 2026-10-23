@@ -47,6 +47,15 @@ var ErrNoGuestAccess = errors.New("the server does not offer guest access (TeamS
 // mistaken for an attack, nor the other way round.
 var ErrHostKey = errors.New("the ssh host key was not accepted")
 
+// ErrLineTooLong reports a connection the server sent a line longer than 256
+// MiB on, which ends the connection. ServerQuery writes an answer's rows on one
+// line, so the limit is the largest answer: a client database listing is about
+// 240 bytes a client, so the limit holds about a million of them, and the
+// longest answer measured on TeamSpeak 3 and 6, the permission list, is under
+// 100 KiB. A server that sends more is not speaking ServerQuery, and reading
+// on would only fill memory.
+var ErrLineTooLong = errors.New("the server sent a line longer than the limit")
+
 // ErrMissingDependency reports a transport whose dependency was left out of
 // the build. It is teamspeak.ErrMissingDependency, so a caller matching either
 // name matches both.

@@ -32,7 +32,11 @@ type WebOptions struct {
 	// can hang.
 	//
 	// It is also where a proxy, a custom transport or an instrumented
-	// RoundTripper goes. The client is not modified, so one may be shared.
+	// RoundTripper goes. The client is not modified, so one may be shared; the
+	// requests are made through a copy that never follows a redirect, whatever
+	// the client's own CheckRedirect says, since a followed redirect would send
+	// the api key to whatever host it names. A 3xx answer is an error carrying
+	// its status, as [WebQueryHTTPError].
 	Client *http.Client
 }
 
@@ -86,10 +90,15 @@ func WebWith(baseURL, apiKey string, options WebOptions) Dialer {
 }
 
 func newWebDialer(baseURL, apiKey string, options WebOptions) webDialer {
-	client := options.Client
-	if client == nil {
-		client = &http.Client{}
+	client := &http.Client{}
+	if options.Client != nil {
+		copied := *options.Client
+		client = &copied
 	}
+	// The api key travels in a header, and a client follows a redirect with
+	// its headers: to another host that is the key handed over. The answer is
+	// the 3xx itself.
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 	return webDialer{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, client: client}
 }
@@ -132,7 +141,19 @@ func WebGuestWith(baseURL string, options WebOptions) Dialer {
 func (d webDialer) SupportsNotifications() bool { return false }
 
 // String names the transport by its base URL, never the api key.
-func (d webDialer) String() string { return "web " + d.baseURL }
+func (d webDialer) String() string { return "web " + withoutUserinfo(d.baseURL) }
+
+// withoutUserinfo is rawURL without a user or password a caller put in it,
+// which a name for the transport, or its stats, must not carry.
+func withoutUserinfo(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.User == nil {
+		return rawURL
+	}
+	u.User = nil
+
+	return u.String()
+}
 
 // credentials reports that there is no login command here: the api key
 // is the login.
@@ -194,17 +215,21 @@ type webQuery struct {
 // error line that ends it.
 func (w *webQuery) WriteLine(ctx context.Context, line string) error {
 	// A command with rows, name=a|name=b, goes as a JSON array with an object
-	// per row. The first row carries the parameters the rows share, as it does
-	// on the line, and the later rows only their own: measured on TeamSpeak 3
-	// and 6, which both read the array as the line.
-	segments := strings.Split(line, "|")
-	cmd := wire.ParseCommand(segments[0])
+	// per row. Each object carries the parameters its rows share as well as its
+	// own, as the batch is read on the line, where a row leaves out what the
+	// row before it had: measured on TeamSpeak 3 3.13.8 and TeamSpeak 6
+	// 6.0.0-beta13.1, which accept the shared parameters in the first object
+	// only and in every object alike, with the same result for a batch of
+	// permissions. Repeating them leaves nothing to the server's reading of a
+	// row that omits a field.
+	rowLines := wire.SplitRows(line)
+	cmd := wire.ParseCommand(rowLines[0])
 	if cmd == nil {
 		return fmt.Errorf("%w: empty command line", errEmptyCommand)
 	}
 	var rows []map[string]string
-	for _, segment := range segments[1:] {
-		row := wire.ParseCommand(segment)
+	for _, rowLine := range rowLines[1:] {
+		row := wire.ParseCommand(rowLine)
 		if row == nil {
 			return fmt.Errorf("%w: an empty row in %s", errEmptyCommand, cmd.Name)
 		}
@@ -261,7 +286,7 @@ func (w *webQuery) Close() error {
 func (w *webQuery) stats() TransportStats {
 	return TransportStats{
 		Transport:     "web",
-		Address:       w.base.String(),
+		Address:       withoutUserinfo(w.base.String()),
 		ConnectedAt:   w.opened,
 		BytesSent:     w.bytesSent.Load(),
 		BytesReceived: w.bytesReceived.Load(),
@@ -505,9 +530,9 @@ func valueText(value any) string {
 }
 
 // paramsBody renders a command's parameters as the JSON WebQuery takes them
-// in: an object, or an array of objects when the command has rows after the
-// first, which is the row of the parameters. A parameter with no value is sent
-// as an empty string, which is how WebQuery spells a bare flag such as -groups.
+// in: an object, or an array of objects, one per row, when the command has
+// rows after the first. A parameter with no value is sent as an empty string,
+// which is how WebQuery spells a bare flag such as -groups.
 func paramsBody(params map[string]string, rows []map[string]string) []byte {
 	var doc any = nonNil(params)
 	if len(rows) > 0 {
