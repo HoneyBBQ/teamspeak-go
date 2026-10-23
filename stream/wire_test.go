@@ -2,6 +2,7 @@ package stream
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -38,6 +39,14 @@ func TestValueTables_NumberTheNamesAsTheServerDoes(t *testing.T) {
 	if got := Accessibility(4).String(); got != "Accessibility(4)" || Accessibility(4).known() {
 		t.Errorf("Accessibility(4) = %q", got)
 	}
+	if got := TransportP2P.String(); got != "p2p" || !TransportP2P.known() {
+		t.Errorf("TransportP2P = %q", got)
+	}
+	for _, other := range []Transport{0, 2} {
+		if got, want := other.String(), fmt.Sprintf("Transport(%d)", other); got != want || other.known() {
+			t.Errorf("Transport(%d) = %q, want %q", other, got, want)
+		}
+	}
 }
 
 // The server stores any integer, so a stream from another client may carry one.
@@ -45,6 +54,45 @@ func TestInfoFrom_PassesANumberWithNoNameThrough(t *testing.T) {
 	info, ok := infoFrom(map[string]string{"id": "a", "clid": "2", "type": "9", "accessibility": "4"}, nil)
 	if !ok || *info.Source != 9 || *info.Accessibility != 4 {
 		t.Errorf("info = %+v", info)
+	}
+}
+
+// Only 1 has been seen; another value is the server's word, passed through.
+func TestInfoFrom_ReadsTheTransportAndKeepsItWhenTheRowLacksIt(t *testing.T) {
+	info, _ := infoFrom(map[string]string{"id": "a", "clid": "2", "mode": "1"}, nil)
+	if info.Transport == nil || *info.Transport != TransportP2P {
+		t.Errorf("mode=1: transport = %v", info.Transport)
+	}
+	other, _ := infoFrom(map[string]string{"id": "a", "mode": "2"}, &info)
+	if other.Transport == nil || *other.Transport != 2 || other.Transport.String() != "Transport(2)" {
+		t.Errorf("mode=2: transport = %v", other.Transport)
+	}
+	if *info.Transport != TransportP2P {
+		t.Error("the merge changed what it merged over")
+	}
+	kept, _ := infoFrom(map[string]string{"id": "a", "viewer": "1"}, &other)
+	if kept.Transport == nil || *kept.Transport != 2 {
+		t.Errorf("a row without mode: transport = %v", kept.Transport)
+	}
+	none, _ := infoFrom(map[string]string{"id": "a"}, nil)
+	unreadable, _ := infoFrom(map[string]string{"id": "a", "mode": "x"}, nil)
+	if none.Transport != nil || unreadable.Transport != nil {
+		t.Errorf("transport = %v, %v; want none reported", none.Transport, unreadable.Transport)
+	}
+}
+
+func TestInfo_SeesATransportChangeAndCopiesIt(t *testing.T) {
+	a := Info{ID: "a", Transport: new(TransportP2P)}
+	if !a.equal(a.clone()) {
+		t.Error("a copy differs")
+	}
+	if a.equal(Info{ID: "a", Transport: new(Transport(2))}) || a.equal(Info{ID: "a"}) {
+		t.Error("a change of transport is not seen")
+	}
+	c := a.clone()
+	*c.Transport = 2
+	if *a.Transport != TransportP2P {
+		t.Error("clone shares the transport")
 	}
 }
 
@@ -220,7 +268,7 @@ func TestInfoFrom_ReadsTheAnnouncementWhichNamesTheAccessibilityAccess(t *testin
 	}, nil)
 	want := Info{
 		ID: "u-1", ClientID: 5, Name: "Demo", Audio: true, Source: new(SourceScreen),
-		Bitrate: new(58208), Accessibility: new(AccessibilityPublic), ViewerLimit: new(0),
+		Bitrate: new(58208), Accessibility: new(AccessibilityPublic), Transport: new(TransportP2P), ViewerLimit: new(0),
 	}
 	if !ok || !reflect.DeepEqual(info, want) {
 		t.Errorf("info = %+v, want %+v", info, want)

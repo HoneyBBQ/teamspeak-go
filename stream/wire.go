@@ -385,6 +385,9 @@ func infoFrom(params map[string]string, known *Info) (Info, bool) {
 	if n := wireNumber(params, "accessibility", "access"); n != nil {
 		info.Accessibility = new(Accessibility(*n))
 	}
+	if n := wireNumber(params, "mode"); n != nil {
+		info.Transport = new(Transport(*n))
+	}
 	if n := intField(params, "bitrate"); n != nil {
 		info.Bitrate = n
 	}

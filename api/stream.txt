@@ -25,6 +25,7 @@ const SourceNone Source = 0
 const SourceScreen Source = 2
 const SourceSession Source = 4
 const SourceWindow Source = 3
+const TransportP2P Transport = 1
 const WarningOfferWithoutAudio WarningCode = "offer-without-audio"
 var ErrAlreadyWatching error
 var ErrClosed error
@@ -51,6 +52,7 @@ type Info struct
 field Info.Source *Source
 field Info.Bitrate *int
 field Info.Accessibility *Accessibility
+field Info.Transport *Transport
 field Info.ViewerLimit *int
 field Info.Viewers *int
 field Info.ID ID
@@ -135,6 +137,12 @@ method (*Streams) OnWarning(handler func(WarningEvent)) func()
 method (*Streams) Publish(ctx context.Context, opts PublishOptions) (*Published, error)
 method (*Streams) Supported() bool
 method (*Streams) Watch(ctx context.Context, id ID, opts WatchOptions) (*View, error)
+type Transport uint32
+method (Transport) String() string
+type TransportUnsupportedError struct
+field TransportUnsupportedError.StreamID ID
+field TransportUnsupportedError.Transport Transport
+method (*TransportUnsupportedError) Error() string
 type UnsupportedError struct
 field UnsupportedError.Version string
 field UnsupportedError.Family client.ServerFamily

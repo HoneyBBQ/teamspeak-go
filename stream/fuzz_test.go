@@ -73,13 +73,13 @@ func FuzzParseSignal(f *testing.F) {
 // FuzzInfoFrom reads rows of any shape without panicking, and merging a row over
 // what is known leaves the known value alone.
 func FuzzInfoFrom(f *testing.F) {
-	f.Add("a", "5", "Demo", "2", "1", "58208", "0", "1", "2")
-	f.Add("", "", "", "", "", "", "", "", "")
-	f.Add("a", "99999", "", "-1", "x", "99999999999999999999", "-", "0", "")
-	f.Fuzz(func(t *testing.T, id, clid, name, typ, access, bitrate, limit, audio, viewer string) {
+	f.Add("a", "5", "Demo", "2", "1", "58208", "0", "1", "2", "1")
+	f.Add("", "", "", "", "", "", "", "", "", "")
+	f.Add("a", "99999", "", "-1", "x", "99999999999999999999", "-", "0", "", "x")
+	f.Fuzz(func(t *testing.T, id, clid, name, typ, access, bitrate, limit, audio, viewer, mode string) {
 		params := map[string]string{
 			"id": id, "clid": clid, "name": name, "type": typ, "access": access,
-			"bitrate": bitrate, "viewer_limit": limit, "audio": audio, "viewer": viewer,
+			"bitrate": bitrate, "viewer_limit": limit, "audio": audio, "viewer": viewer, "mode": mode,
 		}
 		info, ok := infoFrom(params, nil)
 		if ok != (id != "") {
