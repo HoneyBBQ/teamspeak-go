@@ -3,8 +3,10 @@ package teamspeak
 import (
 	"fmt"
 	"math/rand/v2"
+	"reflect"
 	"slices"
 	"testing"
+	"time"
 )
 
 func channelIDs(channels []Channel) []ChannelID {
@@ -576,4 +578,49 @@ func FuzzChannelTree(f *testing.F) {
 			requireWellFormed(t, tree)
 		}
 	})
+}
+
+func TestChannelTree_ApplyCreatedHoldsTheServersDefaults(t *testing.T) {
+	order := ChannelID(0)
+	evt := ChannelCreatedEvent{
+		ChannelID: 8,
+		Changes:   ChannelChanges{Name: new("Gamma"), Order: &order, IsPermanent: new(true)},
+	}
+	got, ok := NewChannelTree(nil).ApplyCreated(evt).Get(8)
+	if !ok {
+		t.Fatal("channel 8 is not in the tree")
+	}
+
+	// IsUnencrypted and StorageQuota stay nil: a notification does not say, so
+	// the view does not claim them.
+	want := Channel{
+		ID: 8, Name: "Gamma", IsPermanent: true,
+		Codec: 4, CodecQuality: 5, MaxClients: -1, MaxFamilyClients: -1,
+		CodecLatencyFactor:          new(int32(1)),
+		IsMaxClientsUnlimited:       new(true),
+		IsMaxFamilyClientsUnlimited: new(true),
+		IsMaxFamilyClientsInherited: new(false),
+		IsForcedSilence:             new(false),
+		DeleteDelay:                 new(time.Duration(0)),
+		BannerMode:                  new(int32(0)),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("created channel = %+v, want %+v", got, want)
+	}
+}
+
+func TestChannelTree_ApplyCreatedLetsTheEventOverrideADefault(t *testing.T) {
+	evt := ChannelCreatedEvent{
+		ChannelID: 8,
+		Changes: ChannelChanges{
+			Codec: new(Codec(5)), MaxClients: new(int32(3)), Topic: new("hi"), HasPassword: new(true),
+		},
+	}
+	ch, _ := NewChannelTree(nil).ApplyCreated(evt).Get(8)
+	if ch.Codec != 5 || ch.MaxClients != 3 || ch.Topic != "hi" || !ch.HasPassword {
+		t.Errorf("the event's values were not kept: %+v", ch)
+	}
+	if ch.CodecQuality != 5 || ch.MaxFamilyClients != -1 {
+		t.Errorf("CodecQuality = %d, MaxFamilyClients = %d, want the defaults", ch.CodecQuality, ch.MaxFamilyClients)
+	}
 }
