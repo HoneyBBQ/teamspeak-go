@@ -738,12 +738,13 @@ func (c *Client) execOn(
 		// afford: nothing is sent until then, and the command, which the
 		// server did not run, goes out again.
 		wait, flooded := servererr.FloodRetryDelay(err)
-		if !flooded || goodbye || refused >= servererr.FloodRetries || !servererr.Affordable(ctx, wait) {
+		hold := servererr.FloodHold(wait)
+		if !flooded || goodbye || refused >= servererr.FloodRetries || !servererr.Affordable(ctx, hold) {
 			return rows, err
 		}
 		c.logger.DebugContext(ctx, "the server asked for a pause",
 			slog.String("command", parsed.Name), slog.Duration("wait", wait))
-		c.throttle.hold(wait + servererr.FloodHoldMargin)
+		c.throttle.hold(hold)
 	}
 }
 

@@ -43,9 +43,16 @@ func Parse(params map[string]string) *teamspeak.ServerError {
 // out.
 const FloodRetries = 3
 
-// FloodHoldMargin is added to the server's wait, which counts down to the
-// millisecond.
-const FloodHoldMargin = 10 * time.Millisecond
+// FloodHold is how long to pause for a refusal that asked for wait. The wait
+// is a floor: on the voice protocol a resend after exactly the wait is refused
+// again, and one after half as long again goes through; on ServerQuery a resend
+// after exactly 1 second was refused 2 times in 5, and one after 2.2 seconds
+// went through 5 times in 5 (TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0). Every
+// refusal costs a retry and lengthens the server's pause, so the pause is
+// twice the wait.
+func FloodHold(wait time.Duration) time.Duration {
+	return 2 * wait
+}
 
 // Affordable reports whether ctx lasts longer than wait.
 func Affordable(ctx context.Context, wait time.Duration) bool {

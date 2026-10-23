@@ -228,10 +228,11 @@ func (c *Client) Exec(ctx context.Context, line string) ([]map[string]string, er
 	for refused := 0; ; refused++ {
 		rows, err := c.execOnce(ctx, name, line)
 		wait, flooded := servererr.FloodRetryDelay(err)
-		if !flooded || refused >= servererr.FloodRetries || !servererr.Affordable(ctx, wait) {
+		hold := servererr.FloodHold(wait)
+		if !flooded || refused >= servererr.FloodRetries || !servererr.Affordable(ctx, hold) {
 			return rows, err
 		}
-		pause := time.NewTimer(wait + servererr.FloodHoldMargin)
+		pause := time.NewTimer(hold)
 		select {
 		case <-pause.C:
 		case <-c.done:

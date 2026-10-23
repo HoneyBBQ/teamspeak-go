@@ -9,14 +9,18 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
 - A ServerQuery client over raw TCP or SSH no longer fails a command the server
   refused as flooding (`error id=524`, `please wait 1 seconds`) when the pause
-  fits in the command's deadline: it holds the queue for the pause the server
-  names and sends the command again, up to three times. The server does not run
+  fits in the command's deadline: it holds the queue for twice the pause the
+  server names and sends the command again, up to three times. The server does not run
   a refused command, and asking again before the pause is over only prolongs it
   (and then the address is banned for the instance's `serverquery_ban_time`). A
   pause longer than the command has left, such as a ban, still fails the command
   with the server's error at once. WebQuery is unchanged: the server closes the
   connection of a flooding client without an answer. Measured on TeamSpeak 3
   3.13.8 and TeamSpeak 6 6.0.0.
+- The voice client, which already waited out a flood refusal, now pauses for
+  twice the wait the server names rather than the wait itself: a resend as the
+  wait ends was often refused again, and every refusal lengthens the server's
+  pause.
 
 ## v1.0.0-beta.16 (2026-10-23)
 

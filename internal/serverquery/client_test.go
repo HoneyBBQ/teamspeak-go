@@ -745,12 +745,13 @@ func TestClient_SendsACommandAgainAfterThePauseAFloodRefusalNames(t *testing.T) 
 		done := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "whoami") })
 		synctest.Wait()
 		tr.receive(flooded)
-		time.Sleep(2 * time.Second)
+		// Twice the 2 seconds the server named: still held at 3.9 seconds.
+		time.Sleep(3900 * time.Millisecond)
 		synctest.Wait()
 		if sent := tr.sentLines(); len(sent) != 1 {
 			t.Fatalf("sent %q before the pause was over, want one line", sent)
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(120 * time.Millisecond)
 		synctest.Wait()
 		tr.receive("client_id=1", "error id=0 msg=ok")
 		synctest.Wait()
@@ -773,12 +774,12 @@ func TestClient_HoldsTheCommandsQueuedBehindAFloodRefusal(t *testing.T) {
 		second := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "second") })
 		synctest.Wait()
 		tr.receive(flooded)
-		time.Sleep(2 * time.Second)
+		time.Sleep(3900 * time.Millisecond)
 		synctest.Wait()
 		if sent := tr.sentLines(); !reflect.DeepEqual(sent, []string{"first"}) {
 			t.Fatalf("sent %q during the pause, want only first", sent)
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(120 * time.Millisecond)
 		synctest.Wait()
 		tr.receive("a=1", "error id=0 msg=ok")
 		synctest.Wait()
@@ -800,11 +801,13 @@ func TestClient_HoldsTheCommandsQueuedBehindAFloodRefusal(t *testing.T) {
 func TestClient_StopsSendingAFloodedCommandAfterAFewRefusals(t *testing.T) {
 	floodFixture(t, func(t *testing.T, c *serverquery.Client, tr *fakeTransport) {
 		t.Helper()
-		done := run(func() ([]map[string]string, error) { return c.Exec(t.Context(), "whoami") })
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		defer cancel()
+		done := run(func() ([]map[string]string, error) { return c.Exec(ctx, "whoami") })
 		for range servererr.FloodRetries + 1 {
 			synctest.Wait()
 			tr.receive(flooded)
-			time.Sleep(2020 * time.Millisecond)
+			time.Sleep(4020 * time.Millisecond)
 		}
 		synctest.Wait()
 
