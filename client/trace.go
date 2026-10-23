@@ -532,7 +532,7 @@ func (c *Client) startSessionLocked(initserver map[string]string) func() {
 		Attempt: stamp.number, Reconnect: stamp.reconnect,
 	}
 	if traced && c.trace.SessionStart != nil {
-		info.InitServer, info.Nickname, info.TalkPower = initServerInfo(initserver, c.nickname)
+		info.InitServer, info.Nickname, info.TalkPower = initServerInfo(initserver, c.requestedNickname)
 	}
 
 	return func() {

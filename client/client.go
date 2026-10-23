@@ -175,7 +175,15 @@ type Client struct {
 	// evtChain is the event middleware wrapped around dispatchEvent.
 	evtChain func(Event)
 	addr     string
+	// nickname is what the server reports for this client now. It differs from
+	// requestedNickname when the server renamed the client, because the
+	// requested one was taken or an admin edited it.
 	nickname string
+	// requestedNickname is what the caller asked for: New's, or the one a
+	// clientupdate of this client's own last changed. Every connection attempt
+	// sends it, so a server-assigned "bot1" is not asked for again after a
+	// drop.
+	requestedNickname string
 	// uidAlgorithm is the hash the connected server uses for
 	// client_unique_identifier, learned from virtualserver_version during
 	// initserver: SHA-1 on TS3, SHA-256 on TS6.
@@ -309,14 +317,15 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 		status:            StatusDisconnected,
 		// Silent unless the application asks: a library has no business
 		// writing to the application's default logger.
-		logger:   slog.New(slog.DiscardHandler),
-		addr:     addr,
-		nickname: nickname,
-		clients:  make(map[teamspeak.ClientID]teamspeak.ClientEntry),
-		throttle: newCommandThrottle(),
-		cmdTrack: newCommandTracker(),
-		attempt:  newConnectAttempt(),
-		stop:     make(chan struct{}),
+		logger:            slog.New(slog.DiscardHandler),
+		addr:              addr,
+		nickname:          nickname,
+		requestedNickname: nickname,
+		clients:           make(map[teamspeak.ClientID]teamspeak.ClientEntry),
+		throttle:          newCommandThrottle(),
+		cmdTrack:          newCommandTracker(),
+		attempt:           newConnectAttempt(),
+		stop:              make(chan struct{}),
 	}
 
 	c.typedCommands = teamspeak.NewCommands(c)

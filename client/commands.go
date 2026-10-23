@@ -737,10 +737,29 @@ func (c *Client) execOn(ctx context.Context, h *transport.PacketHandler, cmd str
 
 	select {
 	case res := <-ch:
+		if res.Err == nil {
+			c.noteRename(parsed)
+		}
+
 		return res.Data, res.Err
 	case <-ctx.Done():
 		return nil, fmt.Errorf("%s: %w", parsed.Name, ctx.Err())
 	}
+}
+
+// noteRename makes a nickname the server accepted in this client's own
+// clientupdate the one it asks for on every reconnection.
+func (c *Client) noteRename(cmd *wire.Command) {
+	if cmd.Name != "clientupdate" {
+		return
+	}
+	nickname, ok := cmd.Params["client_nickname"]
+	if !ok {
+		return
+	}
+	c.mu.Lock()
+	c.requestedNickname = nickname
+	c.mu.Unlock()
 }
 
 // handleVoicePacket parses an incoming voice or whisper packet and dispatches a

@@ -4,6 +4,8 @@ package client_test
 
 import (
 	"context"
+	"regexp"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -82,6 +84,72 @@ func TestIntegration_ReconnectsAfterADrop(t *testing.T) {
 	}
 
 	t.Fatalf("did not reconnect within the deadline (status=%v clid=%d)", c.Status(), c.ClientID())
+}
+
+// A client that asked for a taken name is renamed by the server ("name" becomes
+// "name1"). After a drop it must ask for "name" again: asking for "name1" while
+// the old session still holds it would give "name12", and so on at every drop.
+//
+//nolint:funlen // one scenario, step by step
+func TestIntegration_ReconnectAsksForTheRequestedNickname(t *testing.T) {
+	addr := requireTeamSpeakAddr(t)
+	const requested = "go-nick-taken"
+
+	holderID, err := identity.Generate(context.Background(), 8)
+	if err != nil {
+		t.Fatalf("GenerateIdentity: %v", err)
+	}
+	holder := newClient(t, holderID, addr, requested, integrationClientOptions(nil)...)
+	requireNoErr(t, connectWithRetries(t.Context(), t, holder))
+	t.Cleanup(func() { _ = holder.Disconnect(context.Background()) })
+
+	id, err := identity.Generate(context.Background(), 8)
+	if err != nil {
+		t.Fatalf("GenerateIdentity: %v", err)
+	}
+	opts := append(integrationClientOptions(nil),
+		client.WithReconnect(client.ReconnectOptions{
+			Backoff: client.BackoffPolicy{InitialDelay: 500 * time.Millisecond, MaxDelay: 4 * time.Second, Factor: 2},
+		}),
+	)
+	c := newClient(t, id, addr, requested, opts...)
+	requireNoErr(t, connectWithRetries(t.Context(), t, c))
+	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
+
+	nameOf := func() string {
+		rows, listErr := c.ListClients(t.Context(), teamspeak.ClientListOptions{})
+		if listErr != nil {
+			t.Fatalf("ListClients: %v", listErr)
+		}
+		for _, row := range rows {
+			if row.ID == c.ClientID() {
+				return row.Nickname
+			}
+		}
+
+		return ""
+	}
+	first := nameOf()
+	if first == requested || !strings.HasPrefix(first, requested) {
+		t.Fatalf("nickname = %q, want %q with a suffix", first, requested)
+	}
+	firstID := c.ClientID()
+
+	requireNoErr(t, paceConnect(t.Context()))
+	requireNoErr(t, c.DropConnectionForTest())
+
+	deadline := time.Now().Add(90 * time.Second)
+	for c.Status() != client.StatusConnected || c.ClientID() == firstID || c.ClientID() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("did not reconnect within the deadline (status=%v)", c.Status())
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	// One digit more would mean it asked for the name it was given.
+	if got := nameOf(); !regexp.MustCompile("^" + requested + `\d$`).MatchString(got) {
+		t.Errorf("nickname after the reconnect = %q, want %q and one digit", got, requested)
+	}
 }
 
 func TestIntegration_NoReconnectAfterExplicitDisconnect(t *testing.T) {

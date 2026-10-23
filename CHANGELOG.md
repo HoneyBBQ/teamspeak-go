@@ -28,6 +28,20 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   what identifies the server, and `WelcomeMessage`, `HostMessage` and
   `HostMessageMode`, which are what the server greeted this connection with.
 
+### Fixed
+
+- A client that reconnects now asks for the nickname it was given, not the one
+  the server called it. When the requested name was taken the server assigns a
+  suffixed one ("bot" becomes "bot1"), and the reconnect used to ask for "bot1"
+  and get "bot12" while the old session still held it, drifting further on
+  every drop; an admin's rename stuck across reconnects in the same way. Every
+  connection attempt now sends the requested name, which a successful
+  `clientupdate` of the client's own nickname changes. The nickname the server
+  reports for the client, in events, the client list and `SessionStartInfo`,
+  is unchanged.
+- `(*Commands).UpdateClient` sends `ClientUpdateOptions.Nickname`. It was
+  accepted and left out of the command.
+
 ## v1.0.0-beta.14 (2026-10-23)
 
 ### Added

@@ -216,8 +216,8 @@ func (c *Client) buildClientInitCommand(tc *crypto.Crypt) string {
 	hwid := base64.StdEncoding.EncodeToString(hwidSum[:])
 	c.mu.Lock()
 	opts := *c.clientInitOptions
+	nickname := c.requestedNickname
 	c.mu.Unlock()
-	nickname, _ := c.describe()
 
 	return wire.BuildCommandOrdered("clientinit", [][2]string{
 		{"client_nickname", nickname},
