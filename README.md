@@ -42,7 +42,7 @@
 ## Install
 
 ```bash
-go get github.com/honeybbq/teamspeak-go@v1.0.0-beta.15
+go get github.com/honeybbq/teamspeak-go@v1.0.0-beta.16
 ```
 
 1.0 is in beta: `go get` without a version still picks v0.2, because Go skips pre-releases unless you name one. Go 1.26 or newer is required. Coming from v0.x? [CHANGELOG.md](CHANGELOG.md) has the full list of changes and a migration table.
