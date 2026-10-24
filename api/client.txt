@@ -286,6 +286,7 @@ method (Client) SetCustomProperty(ctx context.Context, clientDBID teamspeak.Clie
 method (Client) SetQueryLogin(ctx context.Context, name string) (teamspeak.QueryLoginCreated, error)
 method (Client) SetServerGroupIcon(ctx context.Context, sgid teamspeak.ServerGroupID, icon teamspeak.IconID) error
 method (Client) SetServerIcon(ctx context.Context, icon teamspeak.IconID) error
+method (*Client) SetVoiceReceiver(fn func(VoicePacket))
 method (Client) StartServer(ctx context.Context, id teamspeak.ServerID) error
 method (*Client) Status() Status
 method (Client) StopFileTransfer(ctx context.Context, serverFileTransferID teamspeak.ServerFileTransferID, opts teamspeak.FileTransferStopOptions) error
@@ -472,6 +473,16 @@ type ViewStatus int
 method (ViewStatus) String() string
 type VoiceDataEvent = teamspeak.VoiceDataEvent
 type VoiceOptions struct
+type VoicePacket struct
+field VoicePacket.ReceivedAt time.Time
+field VoicePacket.Data []byte
+field VoicePacket.Generation uint32
+field VoicePacket.Speaker teamspeak.ClientID
+field VoicePacket.Seq uint16
+field VoicePacket.PacketID uint16
+field VoicePacket.Codec teamspeak.Codec
+field VoicePacket.Whisper bool
+field VoicePacket.Encrypted bool
 type WelcomeDoneInfo struct
 field WelcomeDoneInfo.ChannelID teamspeak.ChannelID
 field WelcomeDoneInfo.Channels int

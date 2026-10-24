@@ -832,9 +832,10 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 		return
 	}
 
+	receiver := c.voiceReceiver.Load()
 	// Audio arrives fifty times a second per speaker; build no event nobody
 	// will see.
-	if !c.onVoiceData.Any() && len(c.eventMiddlewares) == 0 {
+	if receiver == nil && !c.onVoiceData.Any() && len(c.eventMiddlewares) == 0 {
 		return
 	}
 
@@ -844,6 +845,13 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 
 	speakerID := teamspeak.ClientID(binary.BigEndian.Uint16(p.Data[2:4]))
 	if speakerID == selfID {
+		return
+	}
+
+	if receiver != nil {
+		c.receiveVoice(*receiver, p, speakerID)
+	}
+	if !c.onVoiceData.Any() && len(c.eventMiddlewares) == 0 {
 		return
 	}
 

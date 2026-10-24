@@ -54,3 +54,24 @@ func (c *Client) KnownClientForTest(id teamspeak.ClientID) (teamspeak.ClientEntr
 
 	return e, ok
 }
+
+// SendVoiceEncryptedForTest sends a voice frame encrypted instead of in the
+// clear, to measure how the server treats it.
+func (c *Client) SendVoiceEncryptedForTest(data []byte, codec teamspeak.Codec) error {
+	h := c.connectedHandler()
+	if h == nil {
+		return teamspeak.ErrNotConnected
+	}
+
+	return h.SendVoicePacketEncrypted(data, byte(codec))
+}
+
+// SeedVoiceCounterForTest sets the next outer id of the Voice or VoiceWhisper
+// packets sent, so a test can reach the 16-bit wrap quickly.
+func (c *Client) SeedVoiceCounterForTest(whisper bool, id uint16, gen uint32) {
+	t := transport.PacketTypeVoice
+	if whisper {
+		t = transport.PacketTypeVoiceWhisper
+	}
+	c.connectedHandler().SeedPacketCounter(t, id, gen)
+}

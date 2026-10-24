@@ -136,8 +136,11 @@ var smallBufPool = sync.Pool{
 }
 
 type pooledBuffer struct {
-	buf []byte
-	n   int
+	// readAt is when the read returned, taken before anything else touches the
+	// datagram.
+	readAt time.Time
+	buf    []byte
+	n      int
 }
 
 // PacketHandler runs one voice protocol connection: it sends packets with the
@@ -476,6 +479,7 @@ func (h *PacketHandler) receiveLoop() {
 	for {
 		buf := getPooledBytes(&bufPool, udpReadBufferSize)
 		n, err := h.conn.Read(buf)
+		readAt := time.Now()
 		if err == nil && n > maxDatagramSize {
 			h.logger.Debug("datagram too large, dropping it", slog.Int("min_length", n))
 			putPooledBytes(&bufPool, buf)
@@ -502,7 +506,7 @@ func (h *PacketHandler) receiveLoop() {
 		}
 
 		select {
-		case h.packetProcessCh <- &pooledBuffer{buf: buf, n: n}:
+		case h.packetProcessCh <- &pooledBuffer{buf: buf, n: n, readAt: readAt}:
 		default:
 			h.logger.Warn("packet process channel full, dropping packet")
 			putPooledBytes(&bufPool, buf)
@@ -524,7 +528,7 @@ func (h *PacketHandler) processLoop() {
 
 				return
 			}
-			h.handleRawPacketSafely(pb.buf[:pb.n])
+			h.handleRawPacketSafely(pb.buf[:pb.n], pb.readAt)
 			putPooledBytes(&bufPool, pb.buf)
 			if h.closed.Load() {
 				return
@@ -537,7 +541,7 @@ func (h *PacketHandler) processLoop() {
 // parsing, decryption, reassembly, decompression or OnPacket — into a closed
 // connection whose cause wraps ErrPacketHandling, rather than a crashed
 // process.
-func (h *PacketHandler) handleRawPacketSafely(raw []byte) {
+func (h *PacketHandler) handleRawPacketSafely(raw []byte, readAt time.Time) {
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -548,10 +552,17 @@ func (h *PacketHandler) handleRawPacketSafely(raw []byte) {
 		_ = h.closeWith(fmt.Errorf("%w: %v", ErrPacketHandling, r))
 	}()
 
-	h.handleRawPacket(raw)
+	h.handleRawPacketAt(raw, readAt)
 }
 
 func (h *PacketHandler) handleRawPacket(raw []byte) {
+	h.handleRawPacketAt(raw, time.Now())
+}
+
+// handleRawPacketAt handles one datagram that the read returned at readAt; the
+// packet's ReceivedAt is that moment, not the later one the process loop gets
+// to it.
+func (h *PacketHandler) handleRawPacketAt(raw []byte, readAt time.Time) {
 	if len(raw) < 11 {
 		return
 	}
@@ -568,7 +579,7 @@ func (h *PacketHandler) handleRawPacket(raw []byte) {
 	if p.Type() == PacketTypeInit1 && h.TsCrypt.InitComplete() {
 		return
 	}
-	p.ReceivedAt = time.Now()
+	p.ReceivedAt = readAt
 
 	decrypted, ok := h.decryptPacketData(p, header, ciphertext, tag)
 	if !ok {
@@ -742,6 +753,7 @@ func (h *PacketHandler) decryptPacketData(
 		return nil, false
 	}
 	gen := h.resolvePacketGeneration(p)
+	p.GenerationID = gen
 
 	if !h.TsCrypt.InitComplete() {
 		plaintext, err := h.TsCrypt.Decrypt(byte(p.Type()), p.ID, gen, header, ciphertext, tag, true, unencrypted)
@@ -1235,6 +1247,26 @@ func (h *PacketHandler) doResend(rp *resendPacket, now time.Time) {
 //
 // Payload layout: u16 voice packet ID, u8 codec, then the frame.
 func (h *PacketHandler) SendVoicePacket(data []byte, codec byte) error {
+	return h.sendVoice(data, codec, false)
+}
+
+// SendVoicePacketEncrypted is SendVoicePacket with the payload encrypted under
+// the session key instead of sent in the clear. Experimental.
+func (h *PacketHandler) SendVoicePacketEncrypted(data []byte, codec byte) error {
+	return h.sendVoice(data, codec, true)
+}
+
+// SeedPacketCounter sets the next id and generation the handler sends for
+// packet type t. It exists so a test can reach the 16-bit wrap of a voice id
+// without sending 65536 packets; nothing in the SDK calls it. Experimental.
+func (h *PacketHandler) SeedPacketCounter(t PacketType, id uint16, gen uint32) {
+	h.mu.Lock()
+	h.packetCounter[t] = id
+	h.generationCounter[t] = gen
+	h.mu.Unlock()
+}
+
+func (h *PacketHandler) sendVoice(data []byte, codec byte, encrypt bool) error {
 	if !h.IsOpen() {
 		return ErrNotOpen
 	}
@@ -1255,8 +1287,12 @@ func (h *PacketHandler) SendVoicePacket(data []byte, codec byte) error {
 	voicePayload[2] = codec
 	copy(voicePayload[voiceHeaderSize:], data)
 
+	typeFlagged := byte(PacketTypeVoice) | byte(PacketFlagUnencrypted)
+	if encrypt {
+		typeFlagged = byte(PacketTypeVoice)
+	}
 	p := &Packet{
-		TypeFlagged:  byte(PacketTypeVoice) | byte(PacketFlagUnencrypted),
+		TypeFlagged:  typeFlagged,
 		ID:           pID,
 		GenerationID: pGen,
 		Data:         voicePayload,
@@ -1267,10 +1303,23 @@ func (h *PacketHandler) SendVoicePacket(data []byte, codec byte) error {
 
 	final := getPooledBytes(&bufPool, tagSize+headerSize+payloadLen)
 
-	fakeSig := h.TsCrypt.FakeSignature()
-	copy(final[0:8], fakeSig[:])
-	copy(final[8:13], header)
-	copy(final[13:], voicePayload)
+	if encrypt {
+		ciphertext, tag, err := h.TsCrypt.Encrypt(byte(PacketTypeVoice), pID, pGen, header, voicePayload, false, false)
+		if err != nil {
+			putPooledBytes(&bufPool, final)
+			putPooledBytes(&voicePayloadPool, voicePayload)
+
+			return err
+		}
+		copy(final[0:8], tag)
+		copy(final[8:13], header)
+		copy(final[13:], ciphertext)
+	} else {
+		fakeSig := h.TsCrypt.FakeSignature()
+		copy(final[0:8], fakeSig[:])
+		copy(final[8:13], header)
+		copy(final[13:], voicePayload)
+	}
 
 	_, err := h.write(final[:tagSize+headerSize+payloadLen])
 
