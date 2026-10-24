@@ -605,6 +605,10 @@ func TestIntegration_X5_T10_Timestamps(t *testing.T) {
 	}
 	l.Printf("receiver packets %d, OnVoiceData events %d", len(pkts), b.eventCount())
 
+	base := time.Now()
+	_, err := b.c.GetServerInfo(t.Context())
+	l.Printf("baseline command round trip with no voice load and the fast receiver: %s (err=%v)", time.Since(base), err)
+
 	// A receiver that takes 30 ms per packet while packets arrive every 20 ms:
 	// the synchronous call is on the receive path, so everything behind it waits.
 	b.reset()
@@ -613,7 +617,7 @@ func TestIntegration_X5_T10_Timestamps(t *testing.T) {
 	b.mu.Unlock()
 	x5Send(t, 100, 0, x5Interval, x5Voice(a))
 	started := time.Now()
-	_, err := b.c.GetServerInfo(t.Context())
+	_, err = b.c.GetServerInfo(t.Context())
 	l.Printf("while the slow receiver (30 ms/packet) is behind: a command round trip took %s (err=%v)", time.Since(started), err)
 	time.Sleep(3500 * time.Millisecond) // 100 packets x 30 ms
 	b.mu.Lock()

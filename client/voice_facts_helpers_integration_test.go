@@ -23,7 +23,9 @@ import (
 	"github.com/honeybbq/teamspeak-go/identity"
 )
 
-// Helpers of the voice-facts experiment (X5). The tests record raw
+// Helpers of the voice-facts experiment (X5), which runs only with X5=1: it
+// takes about three minutes against a server, more than the suite's package
+// timeout leaves room for. The tests record raw
 // observations of what the servers do to voice packets; X5_LOG_DIR, when set,
 // is a directory they write one log per test and server into.
 
@@ -47,6 +49,9 @@ type x5Log struct {
 
 func newX5Log(t *testing.T) *x5Log {
 	t.Helper()
+	if os.Getenv("X5") == "" {
+		t.Skip("the X5 voice-facts experiment takes about three minutes a server; set X5=1 to run it")
+	}
 	l := &x5Log{t: t}
 	dir := os.Getenv("X5_LOG_DIR")
 	if dir == "" {
