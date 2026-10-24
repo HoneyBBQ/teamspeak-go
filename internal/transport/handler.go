@@ -1303,30 +1303,43 @@ func (h *PacketHandler) sendVoice(data []byte, codec byte, encrypt bool) error {
 
 	final := getPooledBytes(&bufPool, tagSize+headerSize+payloadLen)
 
-	if encrypt {
-		ciphertext, tag, err := h.TsCrypt.Encrypt(byte(PacketTypeVoice), pID, pGen, header, voicePayload, false, false)
-		if err != nil {
-			putPooledBytes(&bufPool, final)
-			putPooledBytes(&voicePayloadPool, voicePayload)
+	err := h.sealVoice(final, header, voicePayload, p, encrypt)
+	if err != nil {
+		putPooledBytes(&bufPool, final)
+		putPooledBytes(&voicePayloadPool, voicePayload)
 
-			return err
-		}
-		copy(final[0:8], tag)
-		copy(final[8:13], header)
-		copy(final[13:], ciphertext)
-	} else {
-		fakeSig := h.TsCrypt.FakeSignature()
-		copy(final[0:8], fakeSig[:])
-		copy(final[8:13], header)
-		copy(final[13:], voicePayload)
+		return err
 	}
 
-	_, err := h.write(final[:tagSize+headerSize+payloadLen])
+	_, err = h.write(final[:tagSize+headerSize+payloadLen])
 
 	putPooledBytes(&bufPool, final)
 	putPooledBytes(&voicePayloadPool, voicePayload)
 
 	return err
+}
+
+// sealVoice writes the tag, header and payload of voice packet p into final:
+// the payload encrypted under the session key, or in the clear under the fake
+// signature.
+func (h *PacketHandler) sealVoice(final, header, payload []byte, p *Packet, encrypt bool) error {
+	if !encrypt {
+		fakeSig := h.TsCrypt.FakeSignature()
+		copy(final[0:8], fakeSig[:])
+		copy(final[8:13], header)
+		copy(final[13:], payload)
+
+		return nil
+	}
+	ciphertext, tag, err := h.TsCrypt.Encrypt(byte(PacketTypeVoice), p.ID, p.GenerationID, header, payload, false, false)
+	if err != nil {
+		return err
+	}
+	copy(final[0:8], tag)
+	copy(final[8:13], header)
+	copy(final[13:], ciphertext)
+
+	return nil
 }
 
 // SendWhisperPacket sends an unencrypted VoiceWhisper packet in its direct
