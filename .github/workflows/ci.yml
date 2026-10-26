@@ -72,12 +72,16 @@ jobs:
           go-version: ${{ matrix.go-version }}
           cache: true
       - name: Run tests
-        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic -short ./...
+        # -coverpkg=./... counts a line as covered when a test in any package
+        # runs it, the same measure the integration job reports, so the two
+        # merge on Codecov. The stream/e2e module is not part of ./... .
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic -coverpkg=./... -short ./...
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.txt
+          flags: unit
           fail_ci_if_error: false
 
   # The server images are pinned by digest in ci/images, where Dependabot keeps
@@ -281,7 +285,8 @@ jobs:
           # One package at a time (-p 1): they all use the one live server,
           # and server-wide state or load from one must not reach another.
           # -timeout applies to each package on its own, so it is unchanged.
-          go test -v -race -p 1 -tags integration -timeout 300s ./...
+          go test -v -race -p 1 -tags integration -timeout 300s \
+            -covermode=atomic -coverpkg=./... -coverprofile="$RUNNER_TEMP/cover-all.txt" ./...
       # Two WebRTC peers carry a stream over the live server, with the stream
       # package doing the signalling. A module of its own, so it is not part of
       # ./... above. Before the instance tests, which stop the server.
@@ -309,4 +314,17 @@ jobs:
           . "$TS3_FIXTURE_ENV"
           set +a
           TEAMSPEAK_QUERY_DESTRUCTIVE=1 TEAMSPEAK_QUERY_STOP_INSTANCE=1 \
-            go test -v -race -count=1 -tags integration -timeout 300s -run '^TestInstance' ./serverquery/
+            go test -v -race -count=1 -tags integration -timeout 300s \
+              -covermode=atomic -coverpkg=./... -coverprofile="$RUNNER_TEMP/cover-instance.txt" \
+              -run '^TestInstance' ./serverquery/
+      # One upload per leg, flagged by server generation. Codecov merges it
+      # with the unit upload for the same commit. The WebRTC end-to-end test
+      # is a separate module and is not measured.
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ${{ runner.temp }}/cover-all.txt,${{ runner.temp }}/cover-instance.txt
+          flags: integration-${{ matrix.server.name == 'TS3' && 'ts3' || 'ts6' }}
+          fail_ci_if_error: false
