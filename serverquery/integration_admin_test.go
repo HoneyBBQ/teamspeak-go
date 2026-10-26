@@ -650,6 +650,12 @@ func TestQueryAdmin_FindClientsWith(t *testing.T) {
 
 			return
 		}
+		// The voice client learns its own channel from the enter-view
+		// notification, which can arrive just after Connect returns.
+		deadline := time.Now().Add(5 * time.Second)
+		for voice.ChannelID() == 0 && time.Now().Before(deadline) {
+			time.Sleep(20 * time.Millisecond)
+		}
 		if with[0].ChannelID != voice.ChannelID() || with[0].ChannelUID == "" {
 			t.Errorf("channel %d (%q), want %d and a unique id", with[0].ChannelID, with[0].ChannelUID, voice.ChannelID())
 		}
