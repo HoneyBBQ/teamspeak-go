@@ -4,7 +4,7 @@
 // through the voice receiver. Scaffolding, not library code: it favours
 // readable measurement over the style limits.
 
-//nolint:funlen,govet,intrange,lll,prealloc,thelper,unparam
+//nolint:funlen,govet,lll,prealloc,thelper,unparam
 package client_test
 
 import (
@@ -350,7 +350,6 @@ func TestIntegration_X5_T10_Timestamps(t *testing.T) {
 		t.Error("OnVoiceData stopped working with a receiver set")
 	}
 	l.Printf("receiver packets %d, OnVoiceData events %d", len(pkts), b.eventCount())
-
 }
 
 // T10b: a slow OnVoiceData handler costs events, never the receiver's packets.

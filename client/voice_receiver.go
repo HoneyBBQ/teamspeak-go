@@ -2,10 +2,15 @@ package client
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
+	"sync"
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
+
+	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
 // VoicePacket is one voice or whisper packet another client sent, as the
@@ -85,7 +90,42 @@ type VoiceReceiverOptions struct {
 // for a second consumer that sees every packet, make a second receiver.
 //
 // Experimental: VoiceReceiver may still change in a minor release.
-type VoiceReceiver struct{}
+type VoiceReceiver struct {
+	c *Client
+	// notify wakes one waiting Read; it holds at most one token.
+	notify chan struct{}
+	// done is closed by Close.
+	done chan struct{}
+	// slots is the ring of held packets: count of them from head on.
+	slots []voiceSlot
+	head  int
+	count int
+	// dropped counts the packets pushed out of a full ring.
+	dropped uint64
+	closed  bool
+	mu      sync.Mutex
+}
+
+// voiceSlot is one held packet. Its data starts as a slice of the receiver's
+// one preallocated buffer and grows only for a frame larger than voiceSlotSize.
+type voiceSlot struct {
+	at       time.Time
+	data     []byte
+	session  uint64
+	clientID teamspeak.ClientID
+	seq      uint16
+	codec    teamspeak.Codec
+	whisper  bool
+}
+
+const (
+	// defaultVoiceCapacity is VoiceReceiverOptions.Capacity's default.
+	defaultVoiceCapacity = 1024
+	// voiceSlotSize is the frame size a slot holds without growing: more than
+	// the voice frames the servers relay, which fit a datagram of about 500
+	// bytes.
+	voiceSlotSize = 512
+)
 
 // ErrVoiceReceiverClosed is what Read returns once Close was called.
 //
@@ -100,7 +140,78 @@ var ErrVoiceReceiverClosed = errors.New("voice receiver closed")
 //
 // Experimental: NewVoiceReceiver may still change in a minor release.
 func (c *Client) NewVoiceReceiver(opts VoiceReceiverOptions) (*VoiceReceiver, error) {
-	return &VoiceReceiver{}, nil
+	capacity := opts.Capacity
+	if capacity < 0 {
+		return nil, fmt.Errorf("%w: voice receiver capacity %d is negative", ErrInvalidConfig, capacity)
+	}
+	if capacity == 0 {
+		capacity = defaultVoiceCapacity
+	}
+	r := &VoiceReceiver{
+		c:      c,
+		notify: make(chan struct{}, 1),
+		done:   make(chan struct{}),
+		slots:  make([]voiceSlot, capacity),
+	}
+	// One allocation for every slot, so that taking a packet in allocates
+	// nothing. The capacity limit keeps a slot's append from running into the
+	// next one.
+	backing := make([]byte, capacity*voiceSlotSize)
+	for i := range r.slots {
+		r.slots[i].data = backing[i*voiceSlotSize : i*voiceSlotSize : (i+1)*voiceSlotSize]
+	}
+
+	c.voiceMu.Lock()
+	defer c.voiceMu.Unlock()
+	old := c.voiceReceivers.Load()
+	var next []*VoiceReceiver
+	if old != nil {
+		next = append(next, *old...)
+	}
+	next = append(next, r)
+	c.voiceReceivers.Store(&next)
+
+	return r, nil
+}
+
+// removeVoiceReceiver takes r out of the receivers the client delivers to.
+func (c *Client) removeVoiceReceiver(r *VoiceReceiver) {
+	c.voiceMu.Lock()
+	defer c.voiceMu.Unlock()
+	old := c.voiceReceivers.Load()
+	if old == nil {
+		return
+	}
+	next := make([]*VoiceReceiver, 0, len(*old))
+	for _, other := range *old {
+		if other != r {
+			next = append(next, other)
+		}
+	}
+	c.voiceReceivers.Store(&next)
+}
+
+// hasVoiceReceivers reports whether any receiver wants packets.
+func (c *Client) hasVoiceReceivers() bool {
+	rs := c.voiceReceivers.Load()
+
+	return rs != nil && len(*rs) > 0
+}
+
+// deliverVoice copies the packet p of speaker into every receiver. It takes a
+// lock per receiver for the length of a copy and never waits for a consumer:
+// the goroutine that processes the connection's packets runs it.
+func (c *Client) deliverVoice(p *transport.Packet, session uint64, speaker teamspeak.ClientID) {
+	rs := c.voiceReceivers.Load()
+	if rs == nil {
+		return
+	}
+	seq := binary.BigEndian.Uint16(p.Data[0:2])
+	codec := teamspeak.Codec(p.Data[4])
+	whisper := p.Type() == transport.PacketTypeVoiceWhisper
+	for _, r := range *rs {
+		r.push(session, speaker, whisper, seq, codec, p.Data[5:], p.ReceivedAt)
+	}
 }
 
 // Read waits for the next packet and stores it in p, reusing p.Data's
@@ -113,7 +224,40 @@ func (c *Client) NewVoiceReceiver(opts VoiceReceiverOptions) (*VoiceReceiver, er
 //
 // Experimental: Read may still change in a minor release.
 func (r *VoiceReceiver) Read(ctx context.Context, p *VoicePacket) error {
-	return ErrVoiceReceiverClosed
+	for {
+		r.mu.Lock()
+		if r.closed {
+			r.mu.Unlock()
+
+			return ErrVoiceReceiverClosed
+		}
+		err := ctx.Err()
+		if err != nil {
+			r.mu.Unlock()
+
+			return fmt.Errorf("read voice packet: %w", err)
+		}
+		if r.count > 0 {
+			more := r.take(p)
+			r.mu.Unlock()
+			if more {
+				// Another Read may be waiting for what is left.
+				select {
+				case r.notify <- struct{}{}:
+				default:
+				}
+			}
+
+			return nil
+		}
+		r.mu.Unlock()
+
+		select {
+		case <-r.notify:
+		case <-r.done:
+		case <-ctx.Done():
+		}
+	}
 }
 
 // TryRead stores the next packet in p, as Read does, if one is waiting, and
@@ -123,7 +267,14 @@ func (r *VoiceReceiver) Read(ctx context.Context, p *VoicePacket) error {
 //
 // Experimental: TryRead may still change in a minor release.
 func (r *VoiceReceiver) TryRead(p *VoicePacket) bool {
-	return false
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || r.count == 0 {
+		return false
+	}
+	r.take(p)
+
+	return true
 }
 
 // Dropped reports how many packets the receiver has dropped, since it was
@@ -132,7 +283,10 @@ func (r *VoiceReceiver) TryRead(p *VoicePacket) bool {
 //
 // Experimental: Dropped may still change in a minor release.
 func (r *VoiceReceiver) Dropped() uint64 {
-	return 0
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.dropped
 }
 
 // Close stops the receiver and discards what it holds. A Read waiting
@@ -142,5 +296,57 @@ func (r *VoiceReceiver) Dropped() uint64 {
 //
 // Experimental: Close may still change in a minor release.
 func (r *VoiceReceiver) Close() error {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+
+		return nil
+	}
+	r.closed = true
+	r.count = 0
+	close(r.done)
+	r.mu.Unlock()
+
+	r.c.removeVoiceReceiver(r)
+
 	return nil
+}
+
+// push holds the packet, dropping the oldest held one if the ring is full.
+func (r *VoiceReceiver) push(
+	session uint64, id teamspeak.ClientID, whisper bool, seq uint16, codec teamspeak.Codec, frame []byte, at time.Time,
+) {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+
+		return
+	}
+	if r.count == len(r.slots) {
+		r.head = (r.head + 1) % len(r.slots)
+		r.count--
+		r.dropped++
+	}
+	s := &r.slots[(r.head+r.count)%len(r.slots)]
+	r.count++
+	s.session, s.clientID, s.whisper, s.seq, s.codec, s.at = session, id, whisper, seq, codec, at
+	s.data = append(s.data[:0], frame...)
+	r.mu.Unlock()
+
+	select {
+	case r.notify <- struct{}{}:
+	default:
+	}
+}
+
+// take moves the oldest held packet into p, and reports whether it is
+// followed by another. r.mu is held.
+func (r *VoiceReceiver) take(p *VoicePacket) bool {
+	s := &r.slots[r.head]
+	p.Session, p.ClientID, p.Whisper, p.Seq, p.Codec, p.ReceivedAt = s.session, s.clientID, s.whisper, s.seq, s.codec, s.at
+	p.Data = append(p.Data[:0], s.data...)
+	r.head = (r.head + 1) % len(r.slots)
+	r.count--
+
+	return r.count > 0
 }

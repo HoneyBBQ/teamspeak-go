@@ -325,17 +325,6 @@ func x5Send(t *testing.T, n, first int, interval time.Duration, send func(i int,
 
 func x5Settle() { time.Sleep(1200 * time.Millisecond) }
 
-// x5Streams groups packets by speaker and whisper, in arrival order.
-func x5Streams(pkts []x5Pkt) map[string][]x5Pkt {
-	out := map[string][]x5Pkt{}
-	for _, p := range pkts {
-		k := fmt.Sprintf("spk=%d whisper=%t", p.Speaker, p.Whisper)
-		out[k] = append(out[k], p)
-	}
-
-	return out
-}
-
 // x5Summary describes how the Seq of one stream relates to the frame numbers
 // that were sent and to each other.
 func x5Summary(pkts []x5Pkt) string {
@@ -376,17 +365,6 @@ func x5Hist(m map[int]int) string {
 	}
 
 	return "{" + strings.Join(parts, ", ") + "}"
-}
-
-func x5Dump(l *x5Log, label string, pkts []x5Pkt) {
-	l.raw("--- %s: %d packets", label, len(pkts))
-	var t0 time.Time
-	for i, p := range pkts {
-		if i == 0 {
-			t0 = p.At
-		}
-		l.raw("%s t=%.3fms", p, float64(p.At.Sub(t0).Microseconds())/1000)
-	}
 }
 
 func x5Durations(d []time.Duration) string {

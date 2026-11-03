@@ -753,7 +753,6 @@ func (h *PacketHandler) decryptPacketData(
 		return nil, false
 	}
 	gen := h.resolvePacketGeneration(p)
-	p.GenerationID = gen
 
 	if !h.TsCrypt.InitComplete() {
 		plaintext, err := h.TsCrypt.Decrypt(byte(p.Type()), p.ID, gen, header, ciphertext, tag, true, unencrypted)

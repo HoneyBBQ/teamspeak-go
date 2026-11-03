@@ -834,12 +834,13 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 
 	// Audio arrives fifty times a second per speaker; build no event nobody
 	// will see.
-	if !c.onVoiceData.Any() && len(c.eventMiddlewares) == 0 {
+	if !c.hasVoiceReceivers() && !c.onVoiceData.Any() && len(c.eventMiddlewares) == 0 {
 		return
 	}
 
 	c.mu.Lock()
 	selfID := c.clid
+	session := c.session
 	c.mu.Unlock()
 
 	speakerID := teamspeak.ClientID(binary.BigEndian.Uint16(p.Data[2:4]))
@@ -847,6 +848,7 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 		return
 	}
 
+	c.deliverVoice(p, session, speakerID)
 	if !c.onVoiceData.Any() && len(c.eventMiddlewares) == 0 {
 		return
 	}

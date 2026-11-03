@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -248,9 +249,14 @@ type Client struct {
 	onViewReady      subscribers[ViewReadyEvent]
 	onViewChanged    subscribers[ViewChangedEvent]
 	status           Status
-	mu               sync.Mutex
-	clid             teamspeak.ClientID
-	session          uint64
+	// voiceReceivers is the list of receivers of voice, replaced whole under
+	// voiceMu whenever one is made or closed, so that the goroutine delivering
+	// packets reads it without a lock.
+	voiceReceivers atomic.Pointer[[]*VoiceReceiver]
+	voiceMu        sync.Mutex
+	mu             sync.Mutex
+	clid           teamspeak.ClientID
+	session        uint64
 }
 
 // String describes the client by its address, nickname and status. It, and
@@ -277,7 +283,8 @@ func (c *Client) LogValue() slog.Value {
 	)
 }
 
-// ErrInvalidConfig reports a client New cannot build as configured.
+// ErrInvalidConfig reports a client New cannot build as configured, or a voice
+// receiver NewVoiceReceiver cannot.
 var ErrInvalidConfig = errors.New("invalid client configuration")
 
 // New returns a client that will connect to addr as id, under nickname. It does

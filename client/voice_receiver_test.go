@@ -49,16 +49,16 @@ func setSession(c *Client, n uint64) {
 func TestVoiceReceiver_FillsInThePacketFacts(t *testing.T) {
 	cases := []struct {
 		name    string
+		audio   []byte
 		seq     uint16
 		speaker uint16
 		codec   byte
 		whisper bool
-		audio   []byte
 	}{
-		{"voice", 513, 42, 4, false, []byte{9, 8, 7}},
-		{"whisper", 0, 43, 5, true, []byte{1}},
-		{"highest seq", 0xFFFF, 44, 255, false, []byte{1, 2}},
-		{"unnamed codec", 1, 45, 99, false, []byte{3}},
+		{"voice", []byte{9, 8, 7}, 513, 42, 4, false},
+		{"whisper", []byte{1}, 0, 43, 5, true},
+		{"highest seq", []byte{1, 2}, 0xFFFF, 44, 255, false},
+		{"unnamed codec", []byte{3}, 1, 45, 99, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -148,10 +148,10 @@ func TestVoiceReceiver_TryReadNeverBlocksAndKeepsOrder(t *testing.T) {
 	if r.TryRead(&p) {
 		t.Fatal("TryRead on an empty receiver returned true")
 	}
-	for i := uint16(0); i < 5; i++ {
+	for i := range uint16(5) {
 		c.handleVoicePacket(serverVoice(i, 42, 4, false, []byte{byte(i)}))
 	}
-	for i := uint16(0); i < 5; i++ {
+	for i := range uint16(5) {
 		if !r.TryRead(&p) || p.Seq != i {
 			t.Fatalf("read %d: got seq %d", i, p.Seq)
 		}
@@ -192,7 +192,7 @@ func TestVoiceReceiver_CapacityDefaultAndInvalid(t *testing.T) {
 	}
 
 	r := newReceiver(t, c, 0)
-	for i := 0; i < 1030; i++ {
+	for i := range 1030 {
 		c.handleVoicePacket(serverVoice(uint16(i), 42, 4, false, []byte{1}))
 	}
 	if r.Dropped() != 6 {
@@ -218,7 +218,7 @@ func TestVoiceReceiver_FullDropsTheOldestAndCountsPerReceiver(t *testing.T) {
 	events := make(chan VoiceDataEvent, 100)
 	c.OnVoiceData(func(e VoiceDataEvent) { events <- e })
 
-	for i := uint16(0); i < 10; i++ {
+	for i := range uint16(10) {
 		c.handleVoicePacket(serverVoice(i, 42, 4, false, []byte{byte(i)}))
 	}
 	if small.Dropped() != 6 || big.Dropped() != 0 {
@@ -233,12 +233,12 @@ func TestVoiceReceiver_FullDropsTheOldestAndCountsPerReceiver(t *testing.T) {
 	if small.TryRead(&p) {
 		t.Error("small held more than its capacity")
 	}
-	for want := uint16(0); want < 10; want++ {
+	for want := range uint16(10) {
 		if !big.TryRead(&p) || p.Seq != want {
 			t.Fatalf("big: got seq %d, want %d", p.Seq, want)
 		}
 	}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		select {
 		case <-events:
 		case <-time.After(time.Second):
@@ -290,27 +290,30 @@ func TestVoiceReceiver_CloseWakesAReadAndLaterReadsFail(t *testing.T) {
 		}()
 	}
 	time.Sleep(50 * time.Millisecond)
-	if err := r.Close(); err != nil {
+	err := r.Close()
+	if err != nil {
 		t.Fatalf("Close = %v", err)
 	}
 	for range 3 {
 		select {
-		case err := <-errs:
-			if !errors.Is(err, ErrVoiceReceiverClosed) {
-				t.Errorf("woken Read = %v, want ErrVoiceReceiverClosed", err)
+		case woken := <-errs:
+			if !errors.Is(woken, ErrVoiceReceiverClosed) {
+				t.Errorf("woken Read = %v, want ErrVoiceReceiverClosed", woken)
 			}
 		case <-time.After(time.Second):
 			t.Fatal("Close did not wake every Read")
 		}
 	}
 	var p VoicePacket
-	if err := r.Read(t.Context(), &p); !errors.Is(err, ErrVoiceReceiverClosed) {
+	err = r.Read(t.Context(), &p)
+	if !errors.Is(err, ErrVoiceReceiverClosed) {
 		t.Errorf("Read after Close = %v", err)
 	}
 	if r.TryRead(&p) {
 		t.Error("TryRead after Close returned true")
 	}
-	if err := r.Close(); err != nil {
+	err = r.Close()
+	if err != nil {
 		t.Errorf("second Close = %v", err)
 	}
 	// Packets for a closed receiver are ignored, not a panic.
@@ -324,7 +327,8 @@ func TestVoiceReceiver_CloseDiscardsWhatItHolds(t *testing.T) {
 	_ = r.Close()
 
 	var p VoicePacket
-	if err := r.Read(t.Context(), &p); !errors.Is(err, ErrVoiceReceiverClosed) {
+	err := r.Read(t.Context(), &p)
+	if !errors.Is(err, ErrVoiceReceiverClosed) {
 		t.Errorf("Read = %v, want ErrVoiceReceiverClosed even with a packet held", err)
 	}
 }
@@ -367,7 +371,8 @@ func TestVoiceReceiver_AnEndedContextTakesNoPacket(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	var p VoicePacket
-	if err := r.Read(ctx, &p); !errors.Is(err, ctx.Err()) {
+	err := r.Read(ctx, &p)
+	if !errors.Is(err, ctx.Err()) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 	if !r.TryRead(&p) || p.Seq != 1 {
@@ -382,7 +387,8 @@ func TestVoiceReceiver_ClosedWinsOverAnEndedContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	var p VoicePacket
-	if err := r.Read(ctx, &p); !errors.Is(err, ErrVoiceReceiverClosed) {
+	err := r.Read(ctx, &p)
+	if !errors.Is(err, ErrVoiceReceiverClosed) {
 		t.Errorf("err = %v, want ErrVoiceReceiverClosed", err)
 	}
 }
@@ -485,10 +491,9 @@ func TestVoiceReceiver_DoesNotAllocateInSteadyState(t *testing.T) {
 	if n := testing.AllocsPerRun(200, func() { c.handleVoicePacket(pkt) }); n != 0 {
 		t.Errorf("the receive path allocates %v times per packet, want 0", n)
 	}
-	// The receiver is full by now: dropping the oldest allocates nothing either.
 	ctx := t.Context()
-	if n := testing.AllocsPerRun(200, func() { _ = r.Read(ctx, &p) }); n != 0 {
-		t.Errorf("Read allocates %v times, want 0", n)
+	if n := testing.AllocsPerRun(200, func() { c.handleVoicePacket(pkt); _ = r.Read(ctx, &p) }); n != 0 {
+		t.Errorf("receive and Read allocate %v times per packet, want 0", n)
 	}
 }
 
@@ -514,14 +519,14 @@ func TestVoiceReceiver_NothingSlowHoldsUpTheConnection(t *testing.T) {
 	c.OnVoiceData(func(VoiceDataEvent) { <-release })
 
 	start := time.Now()
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		c.handleVoicePacket(serverVoice(uint16(i), 42, 4, false, make([]byte, 100)))
 	}
 	if d := time.Since(start); d > time.Second {
 		t.Fatalf("500 packets took %v to take in", d)
 	}
 	var p VoicePacket
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		err := live.Read(ctx, &p)
 		cancel()
@@ -543,7 +548,7 @@ func TestVoiceReceiver_OnVoiceDataIsUnchanged(t *testing.T) {
 		var mu sync.Mutex
 		var got []VoiceDataEvent
 		c.OnVoiceData(func(e VoiceDataEvent) { mu.Lock(); got = append(got, e); mu.Unlock() })
-		for i := uint16(0); i < 5; i++ {
+		for i := range uint16(5) {
 			c.handleVoicePacket(serverVoice(i, 42, 4, false, []byte{byte(i)}))
 		}
 		deadline := time.Now().Add(time.Second)
@@ -566,7 +571,8 @@ func TestVoiceReceiver_OnVoiceDataIsUnchanged(t *testing.T) {
 		t.Fatalf("events without a receiver %d, with one %d, want 5 each", len(without), len(with))
 	}
 	for i := range with {
-		if with[i].ClientID != without[i].ClientID || string(with[i].Data) != string(without[i].Data) || with[i].Codec != without[i].Codec {
+		w, wo := with[i], without[i]
+		if w.ClientID != wo.ClientID || string(w.Data) != string(wo.Data) || w.Codec != wo.Codec {
 			t.Errorf("event %d differs: %+v vs %+v", i, with[i], without[i])
 		}
 	}
@@ -575,7 +581,7 @@ func TestVoiceReceiver_OnVoiceDataIsUnchanged(t *testing.T) {
 func TestVoiceReceiver_SkipsTheEventMiddleware(t *testing.T) {
 	seen := 0
 	var mu sync.Mutex
-	counting := func(next func(Event)) func(Event) {
+	counting := func(func(Event)) func(Event) {
 		return func(e Event) {
 			if _, ok := e.(VoiceDataEvent); ok {
 				mu.Lock()
@@ -602,9 +608,7 @@ func TestVoiceReceiver_ConcurrentUseIsSafe(t *testing.T) {
 	for i := range rs {
 		rs[i] = newReceiver(t, c, 16)
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for i := 0; ; i++ {
 			select {
 			case <-stop:
@@ -613,34 +617,10 @@ func TestVoiceReceiver_ConcurrentUseIsSafe(t *testing.T) {
 			}
 			c.handleVoicePacket(serverVoice(uint16(i), 42, 4, i%3 == 0, make([]byte, 80)))
 		}
-	}()
+	})
 	for _, r := range rs {
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			var p VoicePacket
-			for {
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-				err := r.Read(ctx, &p)
-				cancel()
-				if err != nil {
-					return
-				}
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			var p VoicePacket
-			for {
-				select {
-				case <-stop:
-					return
-				default:
-				}
-				_ = r.TryRead(&p)
-				_ = r.Dropped()
-			}
-		}()
+		wg.Go(func() { readUntilClosed(t.Context(), r) })
+		wg.Go(func() { pollUntil(stop, r) })
 	}
 	extra, _ := c.NewVoiceReceiver(VoiceReceiverOptions{})
 	time.Sleep(100 * time.Millisecond)
@@ -650,6 +630,31 @@ func TestVoiceReceiver_ConcurrentUseIsSafe(t *testing.T) {
 	}
 	close(stop)
 	wg.Wait()
+}
+
+func readUntilClosed(ctx context.Context, r *VoiceReceiver) {
+	var p VoicePacket
+	for {
+		rctx, cancel := context.WithTimeout(ctx, time.Second)
+		err := r.Read(rctx, &p)
+		cancel()
+		if err != nil {
+			return
+		}
+	}
+}
+
+func pollUntil(stop <-chan struct{}, r *VoiceReceiver) {
+	var p VoicePacket
+	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
+		_ = r.TryRead(&p)
+		_ = r.Dropped()
+	}
 }
 
 func FuzzVoiceReceiver(f *testing.F) {
@@ -684,7 +689,7 @@ func BenchmarkVoiceReceiver_Receive(b *testing.B) {
 			}
 			for range n {
 				r, _ := c.NewVoiceReceiver(VoiceReceiverOptions{Capacity: 64})
-				defer r.Close()
+				b.Cleanup(func() { _ = r.Close() })
 			}
 			pkt := serverVoice(1, 42, 4, false, make([]byte, 120))
 			b.ReportAllocs()
