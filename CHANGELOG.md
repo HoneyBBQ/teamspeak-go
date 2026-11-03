@@ -25,6 +25,17 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   `ResolveSourceDirect` name the values of `ResolvedAddr.Source`.
 - `ResolverOptions.NicknameService` points the nickname lookup at another
   endpoint, such as a test double or a mirror.
+- **Experimental:** `Client.NewVoiceReceiver` returns a `VoiceReceiver` that
+  holds the voice and whisper packets the client receives in a bounded buffer,
+  for the caller to take with `Read(ctx, &p)` or `TryRead(&p)` into a
+  `VoicePacket`: the speaker's `ClientID`, whether it was a `Whisper`, the
+  speaker's own `Seq`, the `Codec`, the frame in `Data`, the `ReceivedAt` time of
+  the socket read, and the `Session` it arrived in. Unlike `OnVoiceData`, it
+  does not go through the event queue, so no handler can delay it, and the
+  client never waits for it: a full buffer drops its oldest packet and counts it
+  in `Dropped`. A receiver survives reconnection. `VoiceReceiverOptions` sets
+  its `Capacity`, `ErrVoiceReceiverClosed` is what `Read` returns after `Close`,
+  and `ErrInvalidConfig` now also reports a negative capacity.
 
 ### Fixed
 

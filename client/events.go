@@ -269,6 +269,9 @@ func (c *Client) OnClientMoved(handler func(ClientMovedEvent)) func() {
 //
 // A panic in handler is recovered and logged at Error with the event type;
 // the other handlers and later events are still delivered.
+//
+// For packet order, arrival times and whispers, and delivery that no handler
+// can hold up, use NewVoiceReceiver.
 func (c *Client) OnVoiceData(handler func(VoiceDataEvent)) func() {
 	return c.onVoiceData.Add(handler)
 }
