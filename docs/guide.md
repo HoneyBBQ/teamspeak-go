@@ -124,6 +124,23 @@ its oldest packets and counts them in `Dropped`; the connection, the events and
 the other receivers go on. Every receiver gets every packet, so a second
 consumer makes a second receiver. `VoiceReceiver` is experimental.
 
+### What the server relays
+
+The server decides whose voice reaches whom, and drops the rest without an
+error. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0-beta13.1:
+
+- A speaker's voice to its channel is relayed while it may talk there: its
+  `IsTalker` is set, or its talk power is at least the channel's needed talk
+  power. Being a priority speaker does not change that. A whisper does not need
+  talk power.
+- Neither is relayed while the speaker is away, input-muted, or without input
+  hardware, as it last told the server with `UpdateClient`. A bot that sets
+  `IsAway` is not heard.
+- A listener gets neither while it is output-muted or without output hardware.
+  Being away or input-muted does not stop it hearing.
+- Voice reaches only the clients in the channel. Subscribing to another channel
+  shows its clients, not its voice.
+
 ### Connection ping
 
 `c.RoundTrip()` returns the keepalive round trip of the voice connection, a

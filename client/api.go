@@ -20,6 +20,14 @@ type VoiceOptions struct{}
 // or CodecOpusMusic. An empty frame marks the end of speech: the server relays
 // it, and voice receivers get a VoicePacket with empty Data. Without an open
 // connection it returns teamspeak.ErrNotConnected.
+//
+// The server relays it only while this client may talk in the channel, its
+// IsTalker set or its talk power at least the channel's needed talk power,
+// and is not away, input-muted or without input hardware, as it last told the
+// server with UpdateClient; otherwise the frame is dropped without an error.
+// A listener gets it only while it is not output-muted and has output
+// hardware. Subscribing to a channel does not bring its voice. Measured on
+// TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0-beta13.1.
 func (c *Client) SendVoice(data []byte, codec teamspeak.Codec, _ VoiceOptions) error {
 	h := c.connectedHandler()
 	if h == nil {
@@ -69,8 +77,9 @@ type WhisperTargets struct {
 // than 32 clients ErrTooManyWhisperTargets, and with more than 255 channels
 // ErrTooManyWhisperChannels. Whether a target hears it is the server's
 // decision, from the bot's i_client_whisper_power against the target's
-// i_client_needed_whisper_power. Without an open connection it returns
-// teamspeak.ErrNotConnected.
+// i_client_needed_whisper_power. Talk power does not apply to a whisper, but
+// the rest of what decides whether voice is relayed does: see SendVoice.
+// Without an open connection it returns teamspeak.ErrNotConnected.
 func (c *Client) SendWhisper(data []byte, targets WhisperTargets, codec teamspeak.Codec) error {
 	clients := make([]uint16, len(targets.Clients))
 	for i, id := range targets.Clients {

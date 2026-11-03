@@ -61,6 +61,17 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   command is refused (measured on TeamSpeak 3 3.13.8 and TeamSpeak 6
   6.0.0-beta13.1). The client's debug log no longer calls each row
   "insufficient permissions".
+- `SubscribeChannel` and `commands.ChannelSubscribe` said a subscription
+  brings the channel's voice; it does not, voice reaches only the clients in
+  the channel. The subscription methods and the view now say that joining or
+  moving into a channel subscribes to it without a `ChannelSubscribedEvent`,
+  that leaving keeps the subscription, and that the channel the client is in
+  cannot be unsubscribed from. `SendVoice`, `SendWhisper`, the
+  `ClientUpdateOptions` fields and the guide's new "What the server relays" say
+  when the server drops voice: a speaker without talk power (channel voice
+  only), away, input-muted or without input hardware, and a listener
+  output-muted or without output hardware. Measured on TeamSpeak 3 3.13.8 and
+  TeamSpeak 6 6.0.0-beta13.1.
 
 ## v1.0.0-beta.20 (2026-11-03)
 

@@ -240,16 +240,21 @@ type ClientUpdateOptions struct {
 	// Badges are our badges, in the client's own format (client_badges).
 	Badges *string
 	// IsInputMuted is whether our microphone is muted (client_input_muted).
+	// While it is, the server relays none of our voice or whispers.
 	IsInputMuted *bool
 	// IsOutputMuted is whether our speakers are muted (client_output_muted).
+	// While they are, the server sends us no voice or whispers.
 	IsOutputMuted *bool
 	// HasInputHardware is whether we have a working microphone
-	// (client_input_hardware).
+	// (client_input_hardware). Without one, the server relays none of our
+	// voice or whispers.
 	HasInputHardware *bool
 	// HasOutputHardware is whether we have working speakers
-	// (client_output_hardware).
+	// (client_output_hardware). Without them, the server sends us no voice or
+	// whispers.
 	HasOutputHardware *bool
-	// IsAway is whether we are away (client_away).
+	// IsAway is whether we are away (client_away). While we are, the server
+	// relays none of our voice or whispers; we still hear others.
 	IsAway *bool
 	// IsChannelCommander is whether we speak as channel commander
 	// (client_is_channel_commander).
