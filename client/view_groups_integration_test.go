@@ -527,6 +527,7 @@ func TestIntegration_ViewChangedCoalesces(t *testing.T) {
 	w := watchedClient(t, uniqueName("vnobs"))
 	w.untilGroupsMatch(t, admin, "at the start")
 	start := len(w.seen())
+	before := w.c.View().Revision
 
 	// The burst: each creation is a change of the group list.
 	createGroups(t, admin, prefix, groupCount)
@@ -549,7 +550,7 @@ func TestIntegration_ViewChangedCoalesces(t *testing.T) {
 	})
 
 	// Quiet: the last event names the revision the view is at.
-	w.until(t, "the last event", func(v client.ServerView) (bool, string) {
+	v := w.until(t, "the last event", func(v client.ServerView) (bool, string) {
 		events := w.seen()
 		if len(events) == 0 {
 			return false, "no event"
@@ -558,11 +559,26 @@ func TestIntegration_ViewChangedCoalesces(t *testing.T) {
 		return events[len(events)-1].Revision == v.Revision, fmt.Sprintf("last event %d, view %d",
 			events[len(events)-1].Revision, v.Revision)
 	})
-	events := w.seen()[start:]
-	changes := 2*groupCount + 2 + 1
-	if n := len(events); n < 1 || n > changes {
-		t.Errorf("%d ViewChangedEvents for %d changes", n, changes)
+	// The bound is the revisions the view moved through, not the changes made
+	// here: anything else that happens on the server meanwhile, such as a
+	// client of an earlier test leaving, moves the view too. An event queued
+	// before the burst may arrive after it, naming an earlier revision; it is
+	// not one of these.
+	var events []client.ViewChangedEvent
+	for _, e := range w.seen()[start:] {
+		if e.Revision > before {
+			events = append(events, e)
+		}
 	}
-	t.Logf("%d ViewChangedEvents for %d group creations, two channel creations and a move",
-		len(events), 2*groupCount)
+	moved := v.Revision - before
+	if n := uint64(len(events)); n < 1 || n > moved {
+		t.Errorf("%d ViewChangedEvents for %d revisions", n, moved)
+	}
+	for i := 1; i < len(events); i++ {
+		if events[i].Revision <= events[i-1].Revision {
+			t.Errorf("event %d names revision %d after revision %d", i, events[i].Revision, events[i-1].Revision)
+		}
+	}
+	t.Logf("%d ViewChangedEvents for %d revisions, from %d group creations, two channel creations and a move",
+		len(events), moved, 2*groupCount)
 }
