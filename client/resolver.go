@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"log/slog"
+	"net"
+	"net/http"
 
 	"github.com/honeybbq/teamspeak-go/internal/discovery"
 )
@@ -41,6 +43,15 @@ func LookupTSDNS(ctx context.Context, server, host string) ([]string, error) {
 type ResolverOptions struct {
 	// Logger receives debug tracing; nil is slog.Default().
 	Logger *slog.Logger
+	// DNS answers the resolver's SRV lookups (_ts3._udp.<host> and
+	// _tsdns._tcp.<domain>); nil is net.DefaultResolver. Set its Dial to use
+	// another DNS server, or DNS over a custom transport. Only the SRV
+	// lookups use it: the host names in the answers, and the address the
+	// client finally dials, are looked up by the client as usual.
+	DNS *net.Resolver
+	// HTTPClient makes the nickname lookup's request; nil is a client with a
+	// five-second timeout. Set it for a proxy or a test.
+	HTTPClient *http.Client
 	// NicknameService is the nickname lookup endpoint, for a test double or a
 	// mirror; empty is https://named.myteamspeak.com/lookup. It is used only
 	// when NicknameLookup is true: setting it does not turn the lookup on. The
@@ -67,7 +78,13 @@ var _ AddrResolver = (*Resolver)(nil)
 
 // NewResolver returns a Resolver configured by options.
 func NewResolver(options ResolverOptions) *Resolver {
-	return &Resolver{resolver: discovery.NewResolver(options.Logger, options.NicknameLookup, options.NicknameService)}
+	return &Resolver{resolver: discovery.NewResolver(discovery.Options{
+		Logger:          options.Logger,
+		DNS:             options.DNS,
+		HTTPClient:      options.HTTPClient,
+		NicknameService: options.NicknameService,
+		LookupNicknames: options.NicknameLookup,
+	})}
 }
 
 // Resolve returns the addresses to try for addr, in order. addr is host or

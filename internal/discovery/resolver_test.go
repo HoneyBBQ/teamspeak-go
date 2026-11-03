@@ -12,7 +12,9 @@ import (
 )
 
 func newTestResolver() *Resolver {
-	return NewResolver(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})), false, "")
+	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})
+
+	return NewResolver(Options{Logger: slog.New(handler)})
 }
 
 func TestGetDomainListSingleSegment(t *testing.T) {

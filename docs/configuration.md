@@ -36,7 +36,10 @@ timeCommands := func(next teamspeak.Executor) teamspeak.Executor {
 at named.myteamspeak.com first. It is off by default, since the lookup tells
 MyTeamSpeak which server you are connecting to; without it a dot-less address
 is resolved like any host. `ResolverOptions.NicknameService` points the lookup
-at another endpoint, such as a test double or a mirror.
+at another endpoint, such as a test double or a mirror. `ResolverOptions.HTTPClient`
+makes the lookup's request (a proxy, a test), and `ResolverOptions.DNS` is the
+`*net.Resolver` that answers the SRV lookups (set its `Dial` for another DNS
+server or DoH); host names in the answers are still looked up as usual.
 
 `client.NewResolver(client.ResolverOptions{})` is the resolution the client uses
 by default, and a `*Resolver` can be called on its own or wrapped and passed to
