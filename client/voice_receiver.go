@@ -49,6 +49,9 @@ type VoicePacket struct {
 	// packet that was lost or is still to come; the network and the server can
 	// both reorder packets, and the client delivers them as they arrived.
 	//
+	// A client that connects again counts from 0 again, under another client
+	// id (measured on TeamSpeak 3 and 6).
+	//
 	// The speaker's client chooses Seq, so it is no fact to trust: bound any
 	// wait or buffer it drives.
 	Seq uint16
