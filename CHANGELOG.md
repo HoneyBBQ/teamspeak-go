@@ -3,6 +3,15 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- `ResolverOptions.DNS` takes a `*net.Resolver` to answer the resolver's SRV
+  lookups, for another DNS server or DNS over a custom transport, and
+  `ResolverOptions.HTTPClient` makes the nickname lookup's request, for a proxy
+  or a test.
+
 ## v1.0.0-beta.19 (2026-11-03)
 
 ### Added

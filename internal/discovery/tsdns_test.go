@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -137,7 +138,7 @@ func TestResolverNicknameService(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	on := NewResolver(nil, true, srv.URL)
+	on := NewResolver(Options{LookupNicknames: true, NicknameService: srv.URL})
 	got, err := on.Resolve(t.Context(), "mynick")
 	if err != nil || len(got) != 1 || got[0].Addr != "127.0.0.1:9999" || got[0].Source != SourceDirect {
 		t.Fatalf("Resolve = %+v, %v", got, err)
@@ -147,7 +148,7 @@ func TestResolverNicknameService(t *testing.T) {
 	}
 
 	before := calls.Load()
-	off := NewResolver(nil, false, srv.URL)
+	off := NewResolver(Options{NicknameService: srv.URL})
 	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 	_, _ = off.Resolve(ctx, "othernick")
@@ -157,17 +158,66 @@ func TestResolverNicknameService(t *testing.T) {
 }
 
 func TestResolverNicknameServiceInvalidFallsThrough(t *testing.T) {
-	r := NewResolver(nil, true, "ftp://example.invalid/lookup")
+	r := NewResolver(Options{LookupNicknames: true, NicknameService: "ftp://example.invalid/lookup"})
 	got, err := r.Resolve(t.Context(), "127.0.0.1:1")
 	if err != nil || len(got) != 1 {
 		t.Fatalf("Resolve = %+v, %v", got, err)
 	}
-	_, err = lookupNickname(t.Context(), "ftp://example.invalid/lookup", "x")
+	_, err = lookupNickname(t.Context(), nil, "ftp://example.invalid/lookup", "x")
 	if !errors.Is(err, errNicknameScheme) {
 		t.Fatalf("err = %v", err)
 	}
-	_, err = lookupNickname(t.Context(), "://bad", "x")
+	_, err = lookupNickname(t.Context(), nil, "://bad", "x")
 	if err == nil {
 		t.Fatal("unparsable endpoint accepted")
+	}
+}
+
+var errNoDNS = errors.New("no dns here")
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func TestResolverHTTPClient(t *testing.T) {
+	var gotName atomic.Value
+	hc := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotName.Store(req.URL.Query().Get("name"))
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader("127.0.0.1:9999\n")),
+			Header:     http.Header{},
+			Request:    req,
+		}, nil
+	})}
+	r := NewResolver(Options{LookupNicknames: true, HTTPClient: hc})
+	got, err := r.Resolve(t.Context(), "mynick")
+	if err != nil || len(got) != 1 || got[0].Addr != "127.0.0.1:9999" || got[0].Source != SourceDirect {
+		t.Fatalf("Resolve = %+v, %v", got, err)
+	}
+	if name, _ := gotName.Load().(string); name != "mynick" {
+		t.Fatalf("transport saw name %q", name)
+	}
+}
+
+func TestResolverDNS(t *testing.T) {
+	var dials atomic.Int32
+	dns := &net.Resolver{
+		PreferGo: true,
+		Dial: func(context.Context, string, string) (net.Conn, error) {
+			dials.Add(1)
+
+			return nil, errNoDNS
+		},
+	}
+	r := NewResolver(Options{DNS: dns})
+	r.lookupTSDNS = func(context.Context, string, string) ([]string, error) { return nil, nil }
+	got, err := r.Resolve(t.Context(), "voice.example.com")
+	if err != nil || len(got) != 1 || got[0].Addr != "voice.example.com:9987" || got[0].Source != SourceDirect {
+		t.Fatalf("Resolve = %+v, %v", got, err)
+	}
+	if dials.Load() == 0 {
+		t.Fatal("custom DNS resolver was not used")
 	}
 }

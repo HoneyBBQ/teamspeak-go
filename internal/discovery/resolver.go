@@ -59,9 +59,10 @@ type ResolvedAddr struct {
 
 // Resolver resolves TeamSpeak-style addresses (nickname, SRV, TSDNS) with TTL cache.
 type Resolver struct {
-	log   *slog.Logger
-	cache map[string][]ResolvedAddr
-	// lookupSRV is net.DefaultResolver.LookupSRV; tests replace it.
+	log        *slog.Logger
+	httpClient *http.Client
+	cache      map[string][]ResolvedAddr
+	// lookupSRV is the DNS resolver's LookupSRV; tests replace it.
 	lookupSRV func(ctx context.Context, service, proto, name string) (string, []*net.SRV, error)
 	// lookupTSDNS is LookupTSDNS; tests replace it to reach a local server.
 	lookupTSDNS func(ctx context.Context, server, host string) ([]string, error)
@@ -73,21 +74,41 @@ type Resolver struct {
 	lookupNicknames bool
 }
 
-// NewResolver returns a Resolver using log for debug tracing (nil →
-// slog.Default). lookupNicknames sends a dot-less name to MyTeamSpeak's
-// nickname service first; without it such a name is resolved like any host.
-// nicknameService is that service's endpoint, empty for NicknameLookup.
-func NewResolver(log *slog.Logger, lookupNicknames bool, nicknameService string) *Resolver {
+// Options configures NewResolver.
+type Options struct {
+	// Logger receives debug tracing; nil is slog.Default().
+	Logger *slog.Logger
+	// DNS answers the SRV lookups; nil is net.DefaultResolver.
+	DNS *net.Resolver
+	// HTTPClient makes the nickname request; nil is a client with a
+	// five-second timeout.
+	HTTPClient *http.Client
+	// NicknameService is the nickname lookup endpoint, empty for
+	// NicknameLookup.
+	NicknameService string
+	// LookupNicknames sends a dot-less name to MyTeamSpeak's nickname service
+	// first; without it such a name is resolved like any host.
+	LookupNicknames bool
+}
+
+// NewResolver returns a Resolver configured by o.
+func NewResolver(o Options) *Resolver {
+	log := o.Logger
 	if log == nil {
 		log = slog.Default()
+	}
+	dns := o.DNS
+	if dns == nil {
+		dns = net.DefaultResolver
 	}
 
 	return &Resolver{
 		log:             log,
 		cache:           make(map[string][]ResolvedAddr),
-		lookupNicknames: lookupNicknames,
-		nicknameService: nicknameService,
-		lookupSRV:       net.DefaultResolver.LookupSRV,
+		lookupNicknames: o.LookupNicknames,
+		nicknameService: o.NicknameService,
+		httpClient:      o.HTTPClient,
+		lookupSRV:       dns.LookupSRV,
 		lookupTSDNS:     LookupTSDNS,
 	}
 }
@@ -179,7 +200,7 @@ func (r *Resolver) resolveNicknameAddr(ctx context.Context, host string) (string
 	if endpoint == "" {
 		endpoint = NicknameLookup
 	}
-	nickAddr, err := lookupNickname(ctx, endpoint, host)
+	nickAddr, err := lookupNickname(ctx, r.httpClient, endpoint, host)
 	if err != nil || nickAddr == "" {
 		r.log.Debug("nickname resolution failed", slog.String("nickname", host), slog.Any("error", err))
 
@@ -319,8 +340,9 @@ func getDomainList(host string) []string {
 // hold it.
 const maxResponseSize = 8 << 10
 
-// lookupNickname asks the nickname service at endpoint for nickname.
-func lookupNickname(ctx context.Context, endpoint, nickname string) (string, error) {
+// lookupNickname asks the nickname service at endpoint for nickname, with
+// client, or a client with a five-second timeout when client is nil.
+func lookupNickname(ctx context.Context, client *http.Client, endpoint, nickname string) (string, error) {
 	lookupURL, err := url.Parse(endpoint)
 	if err != nil {
 		return "", err
@@ -337,7 +359,9 @@ func lookupNickname(ctx context.Context, endpoint, nickname string) (string, err
 		return "", err
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err

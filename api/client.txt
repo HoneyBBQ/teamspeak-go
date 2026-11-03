@@ -394,6 +394,8 @@ type Resolver struct
 method (*Resolver) Resolve(ctx context.Context, addr string) ([]ResolvedAddr, error)
 type ResolverOptions struct
 field ResolverOptions.Logger *slog.Logger
+field ResolverOptions.DNS *net.Resolver
+field ResolverOptions.HTTPClient *http.Client
 field ResolverOptions.NicknameService string
 field ResolverOptions.NicknameLookup bool
 type ServerCapabilities struct
