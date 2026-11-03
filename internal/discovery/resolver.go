@@ -61,6 +61,10 @@ type ResolvedAddr struct {
 type Resolver struct {
 	log   *slog.Logger
 	cache map[string][]ResolvedAddr
+	// lookupSRV is net.DefaultResolver.LookupSRV; tests replace it.
+	lookupSRV func(ctx context.Context, service, proto, name string) (string, []*net.SRV, error)
+	// lookupTSDNS is LookupTSDNS; tests replace it to reach a local server.
+	lookupTSDNS func(ctx context.Context, server, host string) ([]string, error)
 	// nicknameService is the lookup endpoint; empty is NicknameLookup.
 	nicknameService string
 	mu              sync.RWMutex
@@ -83,6 +87,8 @@ func NewResolver(log *slog.Logger, lookupNicknames bool, nicknameService string)
 		cache:           make(map[string][]ResolvedAddr),
 		lookupNicknames: lookupNicknames,
 		nicknameService: nicknameService,
+		lookupSRV:       net.DefaultResolver.LookupSRV,
+		lookupTSDNS:     LookupTSDNS,
 	}
 }
 
@@ -186,7 +192,7 @@ func (r *Resolver) resolveNicknameAddr(ctx context.Context, host string) (string
 
 func (r *Resolver) resolveSRV(ctx context.Context, host string) ([]ResolvedAddr, bool) {
 	r.log.Debug("trying dns srv", slog.String("host", host))
-	_, srvs, err := net.DefaultResolver.LookupSRV(ctx, "ts3", "udp", host)
+	_, srvs, err := r.lookupSRV(ctx, "ts3", "udp", host)
 	if err != nil || len(srvs) == 0 {
 		r.log.Debug("dns srv failed", slog.String("host", host), slog.Any("error", err))
 
@@ -221,7 +227,7 @@ func srvAddrs(srvs []*net.SRV) []ResolvedAddr {
 func (r *Resolver) resolveTSDNSSRV(ctx context.Context, domains []string, queryHost string) ([]string, bool) {
 	for _, domain := range domains {
 		r.log.Debug("trying tsdns srv", slog.String("domain", domain))
-		_, srvs, err := net.DefaultResolver.LookupSRV(ctx, "tsdns", "tcp", domain)
+		_, srvs, err := r.lookupSRV(ctx, "tsdns", "tcp", domain)
 		if err != nil || len(srvs) == 0 {
 			r.log.Debug("tsdns srv failed", slog.String("domain", domain))
 
@@ -229,7 +235,7 @@ func (r *Resolver) resolveTSDNSSRV(ctx context.Context, domains []string, queryH
 		}
 		for _, srv := range srvs {
 			target := strings.TrimSuffix(srv.Target, ".")
-			entries, queryErr := LookupTSDNS(
+			entries, queryErr := r.lookupTSDNS(
 				ctx, net.JoinHostPort(target, strconv.FormatUint(uint64(srv.Port), 10)), queryHost,
 			)
 			if queryErr == nil && len(entries) > 0 {
@@ -246,7 +252,7 @@ func (r *Resolver) resolveTSDNSSRV(ctx context.Context, domains []string, queryH
 func (r *Resolver) resolveTSDNSDirect(ctx context.Context, domains []string, queryHost string) ([]string, bool) {
 	for _, domain := range domains {
 		r.log.Debug("trying tsdns direct", slog.String("domain", domain))
-		entries, err := LookupTSDNS(ctx, net.JoinHostPort(domain, TSDNSDefaultPort), queryHost)
+		entries, err := r.lookupTSDNS(ctx, net.JoinHostPort(domain, TSDNSDefaultPort), queryHost)
 		if err == nil && len(entries) > 0 {
 			r.log.Debug("tsdns direct succeeded", slog.String("domain", domain), slog.Any("result", entries))
 
