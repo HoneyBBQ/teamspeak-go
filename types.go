@@ -11,6 +11,11 @@ import (
 // instanceinfo — whose fields depend on the server's version and the caller's
 // permissions, and the settings EditServer and EditInstance pass through. The
 // prop package names their keys.
+//
+// A value is the wire text. Write a numeric enumeration such as BannerMode as
+// its number, strconv.Itoa(int(v)), and a boolean as "1" or "0": the String
+// method of an enumeration names it for people, not for the server, so
+// fmt.Sprint(v) would send its name instead of its number.
 type Properties map[string]string
 
 // ClientEntry is a connected client, as clientlist or notifycliententerview
