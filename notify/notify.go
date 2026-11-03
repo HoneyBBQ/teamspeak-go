@@ -118,9 +118,11 @@ const (
 	// ClientNameFromUID is notifyclientnamefromuid: reply to clientgetnamefromuid:
 	// the database id and nickname of the client with that unique id.
 	ClientNameFromUID = "notifyclientnamefromuid"
-	// ClientNeededPermissions is notifyclientneededpermissions: a command failed
-	// or a feature is unavailable because this client lacks a permission; it names
-	// the permission id and the value needed.
+	// ClientNeededPermissions is notifyclientneededpermissions: this client's own
+	// values of a fixed set of permissions a client UI uses (permid and
+	// permvalue): the nonzero ones while it joins, then the ones that change with
+	// its groups or their permissions. Not sent when a command is refused: that
+	// is the command's error, 2568 with failed_permid.
 	ClientNeededPermissions = "notifyclientneededpermissions"
 	// ClientPermHints is notifyclientpermhints: the permissions this client holds
 	// changed; a bit set of hints tells which kinds of permission changed.

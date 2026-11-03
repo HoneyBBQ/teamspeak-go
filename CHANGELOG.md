@@ -39,6 +39,16 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 
   `p.Data` is reused by the next `Read`; copy it to keep it.
 
+### Fixed
+
+- `notify.ClientNeededPermissions` described a refusal: a command failed and
+  the permission it needed. The server sends no such thing. It sends this
+  client's own values of a fixed set of permissions, the nonzero ones while it
+  joins and then the ones that change with its groups, and nothing when a
+  command is refused (measured on TeamSpeak 3 3.13.8 and TeamSpeak 6
+  6.0.0-beta13.1). The client's debug log no longer calls each row
+  "insufficient permissions".
+
 ## v1.0.0-beta.20 (2026-11-03)
 
 ### Added
