@@ -29,8 +29,8 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   connection as a `RoundTripEstimate` of `Mean` and `Deviation` over the last 10
   pongs, or false before the first pong (about 5 seconds after connecting) and
   when not connected. It is the value the client reports as `connection_ping`
-  when the server asks for its connection info, so what other clients see as
-  its ping; a client cannot read its own from the server.
+  when the server asks for its connection info; other clients see it as it was
+  when the server last asked. A client cannot read its own from the server.
 
 ### Changed
 

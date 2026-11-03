@@ -280,9 +280,11 @@ type RoundTripEstimate struct {
 // is false before the first pong and when the client is not connected.
 //
 // It is the value this client reports as connection_ping and
-// connection_ping_deviation when the server asks for its connection info, so
-// it is what other clients see as this client's ping. A client cannot read its
-// own connection_ping from the server: getconnectioninfo for itself has no such
+// connection_ping_deviation when the server asks for its connection info, and
+// the server keeps what it was told: the ping other clients see for this one
+// is this value as it was when the server last asked, not as it is now
+// (measured on TeamSpeak 3 and 6). A client cannot read its own
+// connection_ping from the server: getconnectioninfo for itself has no such
 // field.
 func (c *Client) RoundTrip() (RoundTripEstimate, bool) {
 	h := c.connectedHandler()

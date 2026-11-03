@@ -128,8 +128,9 @@ consumer makes a second receiver. `VoiceReceiver` is experimental.
 
 `c.RoundTrip()` returns the keepalive round trip of the voice connection, a
 `Mean` and `Deviation` over the last 10 pongs, and false before the first pong
-(pings go every 5 seconds) or when not connected. It is what other clients see
-as this client's ping; the server does not report it back to the client itself.
+(pings go every 5 seconds) or when not connected. It is the ping this client
+reports when the server asks, and other clients see it as it was then, not as it
+is now; the server does not report it back to the client itself.
 
 ### Server info
 
