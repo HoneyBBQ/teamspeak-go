@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -249,11 +248,9 @@ type Client struct {
 	onViewReady      subscribers[ViewReadyEvent]
 	onViewChanged    subscribers[ViewChangedEvent]
 	status           Status
-	// voiceReceiver is the receiver SetVoiceReceiver set, or nil.
-	voiceReceiver atomic.Pointer[func(VoicePacket)]
-	mu            sync.Mutex
-	clid          teamspeak.ClientID
-	session       uint64
+	mu               sync.Mutex
+	clid             teamspeak.ClientID
+	session          uint64
 }
 
 // String describes the client by its address, nickname and status. It, and

@@ -1,12 +1,14 @@
 //go:build integration
 
-// The X5 experiment's scaffolding, not library code: it favours readable
+// Scaffolding of the live voice-receiver tests (the X5 measurements and the
+// receiver's contract tests), not library code: it favours readable
 // measurement over the style limits.
 
 //nolint:errcheck,funcorder,funlen,goprintffuncname,gosec,govet,lll,unparam
 package client_test
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -23,11 +25,11 @@ import (
 	"github.com/honeybbq/teamspeak-go/identity"
 )
 
-// Helpers of the voice-facts experiment (X5), which runs only with X5=1: it
-// takes about three minutes against a server, more than the suite's package
-// timeout leaves room for. The tests record raw
-// observations of what the servers do to voice packets; X5_LOG_DIR, when set,
-// is a directory they write one log per test and server into.
+// Helpers of the live voice tests. The contract tests of the voice receiver
+// run in every integration run. The long X5 measurements of what the servers
+// do to voice packets run only with X5=1: they take minutes a server, more
+// than the suite's package timeout leaves room for. X5_LOG_DIR, when set, is a
+// directory the tests write one log per test and server into.
 
 // x5Frame is the audio of frame n: an Opus silence TOC and the frame number, so
 // that a received packet says which one it was whatever happened to its ids.
@@ -47,11 +49,18 @@ type x5Log struct {
 	f *os.File
 }
 
+// newX5Log is newVoiceLog for a long measurement, which runs only with X5=1.
 func newX5Log(t *testing.T) *x5Log {
 	t.Helper()
 	if os.Getenv("X5") == "" {
-		t.Skip("the X5 voice-facts experiment takes about three minutes a server; set X5=1 to run it")
+		t.Skip("the X5 voice measurements take minutes a server; set X5=1 to run them")
 	}
+
+	return newVoiceLog(t)
+}
+
+func newVoiceLog(t *testing.T) *x5Log {
+	t.Helper()
 	l := &x5Log{t: t}
 	dir := os.Getenv("X5_LOG_DIR")
 	if dir == "" {
@@ -85,38 +94,34 @@ func (l *x5Log) raw(format string, args ...any) {
 	}
 }
 
-// x5Pkt is what the receiver saw of one packet.
+// x5Pkt is what the receiver gave of one packet.
 type x5Pkt struct {
-	At        time.Time
-	Dispatch  time.Time // when the receiver ran
-	Gen       uint32
-	Speaker   teamspeak.ClientID
-	Seq       uint16
-	PacketID  uint16
-	Frame     int
-	Len       int // len(Data)
-	Codec     teamspeak.Codec
-	Whisper   bool
-	Encrypted bool
+	At       time.Time // VoicePacket.ReceivedAt
+	Dispatch time.Time // when the read returned
+	Session  uint64
+	Speaker  teamspeak.ClientID
+	Seq      uint16
+	Frame    int
+	Len      int // len(Data)
+	Codec    teamspeak.Codec
+	Whisper  bool
 }
 
 func (p x5Pkt) String() string {
-	return fmt.Sprintf("spk=%d frame=%d seq=%d pid=%d gen=%d whisper=%t enc=%t codec=%d len=%d",
-		p.Speaker, p.Frame, p.Seq, p.PacketID, p.Gen, p.Whisper, p.Encrypted, p.Codec, p.Len)
+	return fmt.Sprintf("session=%d spk=%d frame=%d seq=%d whisper=%t codec=%d len=%d",
+		p.Session, p.Speaker, p.Frame, p.Seq, p.Whisper, p.Codec, p.Len)
 }
 
-// x5Peer is a connected client with a recording voice receiver and a tap on its
-// socket.
+// x5Peer is a connected client with a receiver that a goroutine reads into a
+// list, and a tap on its socket.
 type x5Peer struct {
 	c    *client.Client
+	rx   *client.VoiceReceiver
 	tap  *x5Tap
 	mu   sync.Mutex
 	pkts []x5Pkt
 	// events counts OnVoiceData deliveries.
 	events int
-	// onPacket, when set, runs inside the receiver after the packet is
-	// recorded.
-	onPacket func(x5Pkt)
 }
 
 func (p *x5Peer) packets() []x5Pkt {
@@ -131,7 +136,9 @@ func (p *x5Peer) reset() {
 	p.pkts = nil
 	p.events = 0
 	p.mu.Unlock()
-	p.tap.reset()
+	if p.tap != nil {
+		p.tap.reset()
+	}
 }
 
 func (p *x5Peer) eventCount() int {
@@ -141,37 +148,51 @@ func (p *x5Peer) eventCount() int {
 	return p.events
 }
 
-// x5Connect connects a client over a tapped socket, with the voice receiver
-// and an OnVoiceData counter installed.
-func x5Connect(t *testing.T, nickname string) *x5Peer {
+// x5Connect connects a client over a tapped socket, with a voice receiver
+// being read and an OnVoiceData counter installed.
+func x5Connect(t *testing.T, nickname string, extra ...client.Option) *x5Peer {
+	t.Helper()
+
+	return x5ConnectWith(t, nickname, true, extra...)
+}
+
+// x5ConnectWith is x5Connect, with the socket tapped or, for a client that
+// must be able to reconnect, the client's own: it does not close a socket it
+// was given, so a dropped connection over one cannot be redone.
+func x5ConnectWith(t *testing.T, nickname string, tapped bool, extra ...client.Option) *x5Peer {
 	t.Helper()
 	addr := requireTeamSpeakAddr(t)
-	var lc net.ListenConfig
-	pc, err := lc.ListenPacket(t.Context(), "udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("ListenPacket: %v", err)
+	opts := integrationClientOptions(nil)
+	var tap *x5Tap
+	if tapped {
+		var lc net.ListenConfig
+		pc, err := lc.ListenPacket(t.Context(), "udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("ListenPacket: %v", err)
+		}
+		t.Cleanup(func() { _ = pc.Close() })
+		tap = &x5Tap{PacketConn: pc}
+		opts = append(opts, client.WithPacketConn(tap))
 	}
-	t.Cleanup(func() { _ = pc.Close() })
-	tap := &x5Tap{PacketConn: pc}
 	id, err := identity.Generate(t.Context(), 8)
 	requireNoErr(t, err)
-	c := newClient(t, id, addr, nickname, append(integrationClientOptions(nil), client.WithPacketConn(tap))...)
-	p := &x5Peer{c: c, tap: tap}
-	c.SetVoiceReceiver(func(v client.VoicePacket) {
-		now := time.Now()
-		rec := x5Pkt{
-			At: v.ReceivedAt, Dispatch: now, Gen: v.Generation, Speaker: v.Speaker, Seq: v.Seq,
-			PacketID: v.PacketID, Frame: x5FrameNo(v.Data), Len: len(v.Data), Codec: v.Codec,
-			Whisper: v.Whisper, Encrypted: v.Encrypted,
+	c := newClient(t, id, addr, nickname, append(opts, extra...)...)
+	rx, err := c.NewVoiceReceiver(client.VoiceReceiverOptions{Capacity: 4096})
+	requireNoErr(t, err)
+	p := &x5Peer{c: c, rx: rx, tap: tap}
+	go func() {
+		var v client.VoicePacket
+		for rx.Read(context.Background(), &v) == nil {
+			rec := x5Pkt{
+				At: v.ReceivedAt, Dispatch: time.Now(), Session: v.Session, Speaker: v.ClientID, Seq: v.Seq,
+				Frame: x5FrameNo(v.Data), Len: len(v.Data), Codec: v.Codec, Whisper: v.Whisper,
+			}
+			p.mu.Lock()
+			p.pkts = append(p.pkts, rec)
+			p.mu.Unlock()
 		}
-		p.mu.Lock()
-		p.pkts = append(p.pkts, rec)
-		fn := p.onPacket
-		p.mu.Unlock()
-		if fn != nil {
-			fn(rec)
-		}
-	})
+	}()
+	t.Cleanup(func() { _ = rx.Close() })
 	c.OnVoiceData(func(client.VoiceDataEvent) {
 		p.mu.Lock()
 		p.events++
@@ -315,37 +336,27 @@ func x5Streams(pkts []x5Pkt) map[string][]x5Pkt {
 	return out
 }
 
-// x5Summary describes how the ids of one stream relate to the frame numbers
+// x5Summary describes how the Seq of one stream relates to the frame numbers
 // that were sent and to each other.
 func x5Summary(pkts []x5Pkt) string {
 	if len(pkts) == 0 {
 		return "no packets"
 	}
 	offsets := map[int]int{}
-	pidMinusSeq := map[int]int{}
 	seqSteps := map[int]int{}
-	pidSteps := map[int]int{}
-	enc, plain, end := 0, 0, 0
+	end := 0
 	for i, p := range pkts {
 		if p.Frame >= 0 {
 			offsets[(int(p.Seq)-p.Frame)&0xffff]++
 		} else {
 			end++
 		}
-		pidMinusSeq[(int(p.PacketID)-int(p.Seq))&0xffff]++
-		if p.Encrypted {
-			enc++
-		} else {
-			plain++
-		}
 		if i > 0 {
 			seqSteps[(int(p.Seq)-int(pkts[i-1].Seq))&0xffff]++
-			pidSteps[(int(p.PacketID)-int(pkts[i-1].PacketID))&0xffff]++
 		}
 	}
 
-	return fmt.Sprintf("n=%d encrypted=%d plain=%d empty=%d | seq-frame offsets %s | pid-seq %s | seq steps %s | pid steps %s",
-		len(pkts), enc, plain, end, x5Hist(offsets), x5Hist(pidMinusSeq), x5Hist(seqSteps), x5Hist(pidSteps))
+	return fmt.Sprintf("n=%d empty=%d | seq-frame offsets %s | seq steps %s", len(pkts), end, x5Hist(offsets), x5Hist(seqSteps))
 }
 
 func x5Hist(m map[int]int) string {

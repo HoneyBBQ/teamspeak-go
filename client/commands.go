@@ -832,10 +832,9 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 		return
 	}
 
-	receiver := c.voiceReceiver.Load()
 	// Audio arrives fifty times a second per speaker; build no event nobody
 	// will see.
-	if receiver == nil && !c.onVoiceData.Any() && len(c.eventMiddlewares) == 0 {
+	if !c.onVoiceData.Any() && len(c.eventMiddlewares) == 0 {
 		return
 	}
 
@@ -848,9 +847,6 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 		return
 	}
 
-	if receiver != nil {
-		c.receiveVoice(*receiver, p, speakerID)
-	}
 	if !c.onVoiceData.Any() && len(c.eventMiddlewares) == 0 {
 		return
 	}
