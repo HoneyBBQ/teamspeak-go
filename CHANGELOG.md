@@ -3,6 +3,42 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- **Experimental:** `Client.NewVoiceReceiver` returns a `VoiceReceiver` that
+  holds the voice and whisper packets the client receives in a bounded buffer,
+  for the caller to take with `Read(ctx, &p)` or `TryRead(&p)` into a
+  `VoicePacket`: the speaker's `ClientID`, whether it was a `Whisper`, the
+  speaker's own `Seq`, the `Codec`, the frame in `Data`, the `ReceivedAt` time of
+  the socket read, and the `Session` it arrived in. It does not go through the
+  event queue, so no handler can delay it, and the client never waits for it:
+  a full buffer drops its oldest packet and counts it in `Dropped`. A receiver
+  survives reconnection. `VoiceReceiverOptions` sets its `Capacity`,
+  `ErrVoiceReceiverClosed` is what `Read` returns after `Close`, and
+  `ErrInvalidConfig` now also reports a negative capacity.
+
+### Changed
+
+- **Breaking:** `Client.OnVoiceData` and `VoiceDataEvent` (also as
+  `client.VoiceDataEvent`) are removed. Voice no longer enters the event queue,
+  and event middleware no longer sees it; the queue now carries only control
+  events and never drops one. Take voice with a `VoiceReceiver`, which a slow
+  consumer cannot stall and which also gives the packet order, the arrival time
+  and whether it was a whisper. To migrate, replace the handler with:
+
+  ```go
+  rx, err := c.NewVoiceReceiver(client.VoiceReceiverOptions{})
+  // handle err; defer rx.Close()
+  var p client.VoicePacket
+  for rx.Read(ctx, &p) == nil { // in a goroutine of its own
+      handle(p.ClientID, p.Codec, p.Data) // empty Data is the end of speech
+  }
+  ```
+
+  `p.Data` is reused by the next `Read`; copy it to keep it.
+
 ## v1.0.0-beta.20 (2026-11-03)
 
 ### Added
@@ -25,36 +61,6 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   `ResolveSourceDirect` name the values of `ResolvedAddr.Source`.
 - `ResolverOptions.NicknameService` points the nickname lookup at another
   endpoint, such as a test double or a mirror.
-- **Experimental:** `Client.NewVoiceReceiver` returns a `VoiceReceiver` that
-  holds the voice and whisper packets the client receives in a bounded buffer,
-  for the caller to take with `Read(ctx, &p)` or `TryRead(&p)` into a
-  `VoicePacket`: the speaker's `ClientID`, whether it was a `Whisper`, the
-  speaker's own `Seq`, the `Codec`, the frame in `Data`, the `ReceivedAt` time of
-  the socket read, and the `Session` it arrived in. It does not go through the
-  event queue, so no handler can delay it, and the client never waits for it: a full buffer drops its oldest packet and counts it
-  in `Dropped`. A receiver survives reconnection. `VoiceReceiverOptions` sets
-  its `Capacity`, `ErrVoiceReceiverClosed` is what `Read` returns after `Close`,
-  and `ErrInvalidConfig` now also reports a negative capacity.
-
-### Changed
-
-- **Breaking:** `Client.OnVoiceData` and `VoiceDataEvent` (also as
-  `client.VoiceDataEvent`) are removed. Voice no longer enters the event queue,
-  and event middleware no longer sees it; the queue now carries only control
-  events and never drops one. Take voice with a `VoiceReceiver`, which a slow
-  consumer cannot stall and which also gives the packet order, the arrival time
-  and whether it was a whisper. To migrate, replace the handler with:
-
-  ```go
-  rx, err := c.NewVoiceReceiver(client.VoiceReceiverOptions{})
-  // handle err; defer rx.Close()
-  var p client.VoicePacket
-  for rx.Read(ctx, &p) == nil { // in a goroutine of its own
-      handle(p.ClientID, p.Codec, p.Data) // empty Data is the end of speech
-  }
-  ```
-
-  `p.Data` is reused by the next `Read`; copy it to keep it.
 
 ### Fixed
 
