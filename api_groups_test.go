@@ -51,6 +51,78 @@ func TestGetOwnPermission_ZeroAndNothing(t *testing.T) {
 	}
 }
 
+// One command with a row per permission, answered in the order asked: a
+// duplicate twice, and a 0 as 0.
+func TestGetOwnPermissions(t *testing.T) {
+	s := &script{replies: []reply{{rows: []map[string]string{
+		{"permid": "1", "permsid": "b_a", "permvalue": "1"},
+		{"permid": "2", "permsid": "i_b", "permvalue": "0"},
+		{"permid": "1", "permsid": "b_a", "permvalue": "1"},
+	}}}}
+	got, err := NewCommands(s).GetOwnPermissions(t.Context(),
+		[]Permission{PermissionByName("b_a"), PermissionByName("i_b"), PermissionByName("b_a")})
+	want := []OwnPermission{{Name: "b_a", ID: 1, Value: 1}, {Name: "i_b", ID: 2}, {Name: "b_a", ID: 1, Value: 1}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, %v, want %+v", got, err, want)
+	}
+	if len(s.sent) != 1 || s.sent[0] != "permget permsid=b_a|permsid=i_b|permsid=b_a" {
+		t.Errorf("sent %q", s.sent)
+	}
+}
+
+func TestGetOwnPermissions_NoneSendsNothing(t *testing.T) {
+	s := &script{}
+	got, err := NewCommands(s).GetOwnPermissions(t.Context(), nil)
+	if got != nil || err != nil || len(s.sent) != 0 {
+		t.Errorf("got %v, %v, sent %q", got, err, s.sent)
+	}
+}
+
+// A list that mixes names and ids is sent as the names and then the ids, and
+// the rows come back in the order asked.
+func TestGetOwnPermissions_MixedSplitsInTwo(t *testing.T) {
+	s := &script{replies: []reply{
+		{rows: []map[string]string{
+			{"permid": "2", "permsid": "i_b", "permvalue": "20"},
+			{"permid": "2", "permsid": "i_b", "permvalue": "20"},
+		}},
+		{rows: []map[string]string{
+			{"permid": "1", "permsid": "b_a", "permvalue": "10"},
+			{"permid": "3", "permsid": "b_c", "permvalue": "30"},
+		}},
+	}}
+	got, err := NewCommands(s).GetOwnPermissions(t.Context(), []Permission{
+		PermissionByID(1), PermissionByName("i_b"), PermissionByID(3), PermissionByName("i_b"),
+	})
+	want := []OwnPermission{
+		{Name: "b_a", ID: 1, Value: 10}, {Name: "i_b", ID: 2, Value: 20},
+		{Name: "b_c", ID: 3, Value: 30}, {Name: "i_b", ID: 2, Value: 20},
+	}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, %v, want %+v", got, err, want)
+	}
+	if want := []string{"permget permsid=i_b|permsid=i_b", "permget permid=1|permid=3"}; !reflect.DeepEqual(s.sent, want) {
+		t.Errorf("sent %q, want %q", s.sent, want)
+	}
+}
+
+func TestGetOwnPermissions_RefusalsAndErrors(t *testing.T) {
+	// Refused before anything is sent, even when the bad one comes last.
+	s := &script{}
+	_, err := NewCommands(s).GetOwnPermissions(t.Context(), []Permission{PermissionByName("b_a"), {}})
+	if !errors.Is(err, ErrInvalidCommand) || len(s.sent) != 0 {
+		t.Errorf("invalid permission: err = %v, sent %q", err, s.sent)
+	}
+
+	// 2562 refuses the command and returns nothing.
+	refusal := errors.New("error id=2562 msg=invalid\\sparameter")
+	s = &script{replies: []reply{{err: refusal}}}
+	got, err := NewCommands(s).GetOwnPermissions(t.Context(), []Permission{PermissionByName("b_no_such_permission")})
+	if got != nil || !errors.Is(err, refusal) {
+		t.Errorf("got %v, %v, want nil and the server's error", got, err)
+	}
+}
+
 func TestServerGroupPermissionByType(t *testing.T) {
 	line := encoded(t, func(c *Commands) error {
 		return c.AddServerGroupPermissionByType(t.Context(), GroupAutoUpdateServerAdmin,

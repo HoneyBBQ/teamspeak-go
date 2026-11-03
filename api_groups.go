@@ -361,11 +361,74 @@ func (c *Commands) GetOwnPermission(ctx context.Context, perm Permission) (OwnPe
 		return OwnPermission{}, err
 	}
 
+	return parseOwnPermission(row), nil
+}
+
+// parseOwnPermission reads one permget row.
+func parseOwnPermission(row map[string]string) OwnPermission {
 	return OwnPermission{
 		Name:  fieldStr(row, "permsid"),
 		ID:    PermissionID(fieldUint32(row, "permid")),
 		Value: fieldInt32(row, "permvalue"),
-	}, nil
+	}
+}
+
+// GetOwnPermissions returns the values of several permissions for this
+// connection's own client in one command (permget with a row per permission),
+// as GetOwnPermission does for one. Asking for none sends nothing and returns
+// a nil slice.
+//
+// Measured on TeamSpeak 3 3.13.8 and 6 beta13.1 over ServerQuery, WebQuery and
+// the voice protocol: the server answers one row per permission asked, in the
+// order asked; a permission asked twice is answered twice, and one whose value
+// is 0 is answered with 0. One permission it does not know refuses the whole
+// command with 2562, "invalid permission ID", and nothing is returned. Needs
+// b_client_permissionoverview_own.
+//
+// TeamSpeak 6's WebQuery answers a row that names a permission by name with the
+// permission of an earlier row that named one by id. A list that mixes
+// PermissionByID and PermissionByName is therefore sent as two commands, the
+// names and then the ids, and the rows are put back in the order asked. An
+// invalid Permission is refused before anything is sent.
+func (c *Commands) GetOwnPermissions(ctx context.Context, perms []Permission) ([]OwnPermission, error) {
+	if len(perms) == 0 {
+		return nil, nil
+	}
+
+	var byName, byID []int
+	for i, perm := range perms {
+		switch {
+		case perm.name != "":
+			byName = append(byName, i)
+		case perm.id != 0:
+			byID = append(byID, i)
+		default:
+			return nil, fmt.Errorf("permget: %w: no permission given", ErrInvalidCommand)
+		}
+	}
+
+	out := make([]OwnPermission, len(perms))
+	for _, group := range [][]int{byName, byID} {
+		if len(group) == 0 {
+			continue
+		}
+		asked := make([]Permission, len(group))
+		for j, i := range group {
+			asked[j] = perms[i]
+		}
+		rows, err := c.query(ctx, "permget", []param{permissionNames(asked)})
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) != len(group) {
+			return nil, fmt.Errorf("%w: permget answered %d rows for %d permissions", ErrNoData, len(rows), len(group))
+		}
+		for j, i := range group {
+			out[i] = parseOwnPermission(rows[j])
+		}
+	}
+
+	return out, nil
 }
 
 // PermissionLocation is one place a permission is set, as permfind and

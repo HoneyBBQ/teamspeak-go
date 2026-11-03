@@ -124,6 +124,13 @@ its oldest packets and counts them in `Dropped`; the connection, the events and
 the other receivers go on. Every receiver gets every packet, so a second
 consumer makes a second receiver. `VoiceReceiver` is experimental.
 
+### Connection ping
+
+`c.RoundTrip()` returns the keepalive round trip of the voice connection, a
+`Mean` and `Deviation` over the last 10 pongs, and false before the first pong
+(pings go every 5 seconds) or when not connected. It is what other clients see
+as this client's ping; the server does not report it back to the client itself.
+
 ### Server info
 
 `ServerCapabilities()` is read from `initserver`, so it costs no round trip and
@@ -183,6 +190,12 @@ err = c.SendChannelMessage(ctx, "hello")
 // A permission is named by id or by name; the zero Permission is refused.
 // The perm package has a constant for every name the servers list.
 err = c.AddChannelPermission(ctx, cid, teamspeak.PermissionByName(perm.ChannelNeededJoinPower), 50)
+
+// Several of the connection's own permissions come in one command, in the order
+// asked; a name the server does not know refuses all of them with 2562.
+own, err := c.GetOwnPermissions(ctx, []teamspeak.Permission{
+	teamspeak.PermissionByName(perm.ClientBanList), teamspeak.PermissionByName(perm.ChannelNeededJoinPower),
+})
 
 // 0 bans permanently; anything else is sent in whole seconds. The server bans
 // the client's uid and IP (and MyTeamSpeak id); over the voice protocol it

@@ -335,6 +335,51 @@ func TestQueryAdmin_OwnPermission(t *testing.T) {
 	})
 }
 
+// Several own permissions come in one command, in the order asked, a
+// duplicate twice and a zero as zero, and match single reads whether the list
+// names them, numbers them or mixes the two.
+func TestQueryAdmin_OwnPermissions(t *testing.T) {
+	forEachTransport(t, 1, func(t *testing.T, c *serverquery.Client, _ teamspeak.ServerFamily, _ string) {
+		ctx := adminCtx(t)
+		names := []string{perm.ClientBanList, perm.ClientPermissionOverviewOwn, perm.ClientBanList}
+		asked := make([]teamspeak.Permission, len(names))
+		for i, name := range names {
+			asked[i] = teamspeak.PermissionByName(name)
+		}
+		got, err := c.GetOwnPermissions(ctx, asked)
+		skipUnlessAllowed(t, err, "GetOwnPermissions")
+		if err != nil {
+			t.Fatalf("GetOwnPermissions: %v", err)
+		}
+		if len(got) != len(asked) {
+			t.Fatalf("%d rows for %d permissions: %+v", len(got), len(asked), got)
+		}
+		for i, perm := range asked {
+			single, err := c.GetOwnPermission(ctx, perm)
+			if err != nil || got[i] != single {
+				t.Errorf("row %d = %+v, want %+v as read alone (%v)", i, got[i], single, err)
+			}
+		}
+
+		// Name, id, name: the mix the server's WebQuery answers wrongly in one command.
+		mixed := []teamspeak.Permission{asked[0], teamspeak.PermissionByID(got[1].ID), asked[1], asked[0]}
+		both, err := c.GetOwnPermissions(ctx, mixed)
+		if err != nil || len(both) != len(mixed) {
+			t.Fatalf("mixed: %+v, %v", both, err)
+		}
+		for i, want := range []teamspeak.OwnPermission{got[0], got[1], got[1], got[0]} {
+			if both[i] != want {
+				t.Errorf("mixed row %d = %+v, want %+v", i, both[i], want)
+			}
+		}
+
+		none, err := c.GetOwnPermissions(ctx, []teamspeak.Permission{asked[0], teamspeak.PermissionByName("b_no_such_permission")})
+		if code := serverCode(err); code != 2562 || none != nil {
+			t.Errorf("an unknown permission: %v, %v, want nil and code 2562", none, err)
+		}
+	})
+}
+
 // Bans carry a MyTeamSpeak id and a last nickname, page, and are found.
 func TestQueryAdmin_Bans(t *testing.T) {
 	forEachTransport(t, 1, func(t *testing.T, c *serverquery.Client, family teamspeak.ServerFamily, transport string) {

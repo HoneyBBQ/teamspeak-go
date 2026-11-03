@@ -18,6 +18,19 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   survives reconnection. `VoiceReceiverOptions` sets its `Capacity`,
   `ErrVoiceReceiverClosed` is what `Read` returns after `Close`, and
   `ErrInvalidConfig` now also reports a negative capacity.
+- `Commands.GetOwnPermissions` reads several of this connection's own
+  permissions in one `permget`, a row per permission, and returns the values
+  in the order asked, a duplicate twice and a zero as zero. One permission the
+  server does not know refuses the whole command with 2562. A list that mixes
+  `PermissionByID` and `PermissionByName` is sent as two commands, because
+  TeamSpeak 6's WebQuery answers a named row with an earlier row's permission
+  when the two kinds share a command.
+- `Client.RoundTrip` returns the keepalive ping round trip of the voice
+  connection as a `RoundTripEstimate` of `Mean` and `Deviation` over the last 10
+  pongs, or false before the first pong (about 5 seconds after connecting) and
+  when not connected. It is the value the client reports as `connection_ping`
+  when the server asks for its connection info, so what other clients see as
+  its ping; a client cannot read its own from the server.
 
 ### Changed
 

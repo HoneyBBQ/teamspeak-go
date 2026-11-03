@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 
@@ -262,4 +263,36 @@ func (c *Client) waitConnected(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// RoundTripEstimate is the keepalive round trip of the voice connection.
+type RoundTripEstimate struct {
+	// Mean is the mean round trip over the last 10 pongs.
+	Mean time.Duration
+	// Deviation is the standard deviation of those round trips.
+	Deviation time.Duration
+}
+
+// RoundTrip returns the keepalive round trip of the voice connection: the mean
+// and the standard deviation of the ping-to-pong time over the last 10 pongs.
+// Pings go every 5 seconds, so the first value comes about 5 seconds after
+// connecting, and each connection, a reconnect included, starts over. The bool
+// is false before the first pong and when the client is not connected.
+//
+// It is the value this client reports as connection_ping and
+// connection_ping_deviation when the server asks for its connection info, so
+// it is what other clients see as this client's ping. A client cannot read its
+// own connection_ping from the server: getconnectioninfo for itself has no such
+// field.
+func (c *Client) RoundTrip() (RoundTripEstimate, bool) {
+	h := c.connectedHandler()
+	if h == nil {
+		return RoundTripEstimate{}, false
+	}
+	rtt, ok := h.RoundTrip()
+	if !ok {
+		return RoundTripEstimate{}, false
+	}
+
+	return RoundTripEstimate{Mean: rtt.Mean, Deviation: rtt.Deviation}, true
 }
