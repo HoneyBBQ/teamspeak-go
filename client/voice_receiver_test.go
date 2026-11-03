@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
@@ -654,6 +655,46 @@ func BenchmarkVoiceReceiver_Receive(b *testing.B) {
 			b.ResetTimer()
 			for range b.N {
 				c.handleVoicePacket(pkt)
+			}
+		})
+	}
+}
+
+// A Read whose context ends as a packet arrives can take the wakeup meant for
+// that packet. It must pass it on, or another Read waits with a packet held.
+func TestVoiceReceiver_AnEndedReadPassesOnItsWakeup(t *testing.T) {
+	for range 200 {
+		synctest.Test(t, func(t *testing.T) {
+			r := &VoiceReceiver{notify: make(chan struct{}, 1), done: make(chan struct{}), slots: make([]voiceSlot, 4)}
+			ctxA, cancelA := context.WithCancel(t.Context())
+			ctxB, cancelB := context.WithCancel(t.Context())
+			defer cancelB()
+			errA, errB := make(chan error, 1), make(chan error, 1)
+			go func() {
+				var p VoicePacket
+				errA <- r.Read(ctxA, &p)
+			}()
+			go func() {
+				var p VoicePacket
+				errB <- r.Read(ctxB, &p)
+			}()
+			synctest.Wait()
+
+			r.push(1, 2, false, 3, 0, nil, time.Time{})
+			cancelA()
+			synctest.Wait()
+
+			err := <-errA
+			if err == nil {
+				return // A took the packet before it saw its context end.
+			}
+			select {
+			case err := <-errB:
+				if err != nil {
+					t.Fatalf("B: %v", err)
+				}
+			default:
+				t.Fatal("A ended with its wakeup, and B waits with a packet held")
 			}
 		})
 	}

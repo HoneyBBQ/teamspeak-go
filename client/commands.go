@@ -824,9 +824,9 @@ func (c *Client) noteRename(cmd *wire.Command) {
 //
 // A packet with no audio is how a speaker's end of speech arrives: the server
 // relays the empty frame a client sends when it stops talking, and it is
-// delivered to receivers with empty Data. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6
-// 6.0.0: the frames of SendVoice arrive as 45-byte packets and an empty one as
-// a 5-byte packet.
+// delivered to receivers with empty Data. Measured on TeamSpeak 3 3.13.8 and
+// TeamSpeak 6 6.0.0: the frames of SendVoice arrive as 45-byte packets and an
+// empty one as a 5-byte packet.
 func (c *Client) handleVoicePacket(p *transport.Packet) {
 	if len(p.Data) < 5 {
 		return

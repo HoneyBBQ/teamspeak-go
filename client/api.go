@@ -17,8 +17,8 @@ type VoiceOptions struct{}
 
 // SendVoice sends one encoded audio frame, normally teamspeak.CodecOpusVoice
 // or CodecOpusMusic. An empty frame marks the end of speech: the server relays
-// it, and listeners get a VoiceDataEvent with empty Data. Without an open connection it returns
-// teamspeak.ErrNotConnected.
+// it, and voice receivers get a VoicePacket with empty Data. Without an open
+// connection it returns teamspeak.ErrNotConnected.
 func (c *Client) SendVoice(data []byte, codec teamspeak.Codec, _ VoiceOptions) error {
 	h := c.connectedHandler()
 	if h == nil {

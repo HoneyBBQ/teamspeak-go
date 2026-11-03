@@ -72,7 +72,8 @@ type VoiceReceiverOptions struct {
 	// Capacity is how many packets the receiver holds until Read takes them;
 	// 0 means 1024, about two seconds of ten people talking at once. When it
 	// is full, a packet arriving drops the oldest one held, and Dropped counts
-	// it. A negative Capacity is ErrInvalidConfig.
+	// it. The receiver allocates 512 bytes per packet of Capacity up front,
+	// 512 KiB by default. A negative Capacity is ErrInvalidConfig.
 	Capacity int
 }
 
@@ -236,7 +237,13 @@ func (r *VoiceReceiver) Read(ctx context.Context, p *VoicePacket) error {
 		}
 		err := ctx.Err()
 		if err != nil {
+			held := r.count > 0
 			r.mu.Unlock()
+			if held {
+				// This Read may have taken the wakeup of a packet it leaves:
+				// pass it on to another Read.
+				r.wake()
+			}
 
 			return fmt.Errorf("read voice packet: %w", err)
 		}
@@ -245,10 +252,7 @@ func (r *VoiceReceiver) Read(ctx context.Context, p *VoicePacket) error {
 			r.mu.Unlock()
 			if more {
 				// Another Read may be waiting for what is left.
-				select {
-				case r.notify <- struct{}{}:
-				default:
-				}
+				r.wake()
 			}
 
 			return nil
@@ -336,6 +340,11 @@ func (r *VoiceReceiver) push(
 	s.data = append(s.data[:0], frame...)
 	r.mu.Unlock()
 
+	r.wake()
+}
+
+// wake lets one waiting Read, or the next one, look for a packet.
+func (r *VoiceReceiver) wake() {
 	select {
 	case r.notify <- struct{}{}:
 	default:
