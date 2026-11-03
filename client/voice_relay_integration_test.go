@@ -41,6 +41,28 @@ func relayCount(t *testing.T, s, l *x5Peer, whisper bool) int {
 	return len(vrFrom(l.packets(), s.c.ClientID(), whisper))
 }
 
+// relayHeard is relayCount for a check that wants packets: it tries up to
+// three times, since a state change the server has answered may take a moment
+// to reach its relay. A check that wants none counts once: no packet is the
+// state to hold, and a retry would only hide one that got through.
+func relayHeard(t *testing.T, s, l *x5Peer, whisper bool) int {
+	t.Helper()
+	got := 0
+	for attempt := 1; attempt <= 3; attempt++ {
+		got = relayCount(t, s, l, whisper)
+		if got > 0 {
+			if attempt > 1 {
+				t.Logf("relayed on attempt %d", attempt)
+			}
+
+			return got
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	return got
+}
+
 // relayExpect counts both kinds of packet and checks each against want.
 func relayExpect(t *testing.T, what string, s, l *x5Peer, wantVoice, wantWhisper bool) {
 	t.Helper()
@@ -50,7 +72,12 @@ func relayExpect(t *testing.T, what string, s, l *x5Peer, wantVoice, wantWhisper
 		if whisper {
 			want, kind = wantWhisper, "whisper"
 		}
-		got := relayCount(t, s, l, whisper)
+		var got int
+		if want {
+			got = relayHeard(t, s, l, whisper)
+		} else {
+			got = relayCount(t, s, l, whisper)
+		}
 		switch {
 		case want && got == 0:
 			t.Errorf("%s: no %s was relayed, want some", what, kind)
@@ -61,21 +88,30 @@ func relayExpect(t *testing.T, what string, s, l *x5Peer, wantVoice, wantWhisper
 }
 
 // relayState applies set to p's own client state and returns a function that
-// applies reset; reset also runs when the test ends, if it has not run.
+// applies reset and reports a failure to; reset also runs when the test ends,
+// if it has not run.
 func relayState(t *testing.T, p *x5Peer, set, reset teamspeak.ClientUpdateOptions) func() {
 	t.Helper()
 	done := false
-	restore := func() {
+	apply := func() error {
 		if done {
-			return
+			return nil
 		}
 		done = true
 		ctx, cancel := cleanupContext()
 		defer cancel()
-		_ = p.c.UpdateClient(ctx, reset)
+		err := p.c.UpdateClient(ctx, reset)
 		time.Sleep(300 * time.Millisecond)
+
+		return err
 	}
-	t.Cleanup(restore)
+	t.Cleanup(func() { _ = apply() })
+	restore := func() {
+		err := apply()
+		if err != nil {
+			t.Errorf("resetting the client state: %v", err)
+		}
+	}
 	requireNoErr(t, p.c.UpdateClient(t.Context(), set))
 	time.Sleep(300 * time.Millisecond)
 
@@ -120,10 +156,13 @@ func relayPair(t *testing.T, name string) (*x5Peer, *x5Peer) {
 		t.Skipf("the speaker is in channel %d and the listener in %d: they need the same channel", s.c.ChannelID(), l.c.ChannelID())
 	}
 	// The listener must know the speaker, or nothing it hears can be told from it.
-	for deadline := time.Now().Add(liveEventWait); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if _, ok := l.c.View().Client(s.c.ClientID()); ok {
-			break
-		}
+	known := false
+	for deadline := time.Now().Add(liveEventWait); !known && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		_, known = l.c.View().Client(s.c.ClientID())
+	}
+	if !known {
+		t.Fatalf("the listener (id %d, channel %d, %s) does not know the speaker (id %d, channel %d, %s) after %s",
+			l.c.ClientID(), l.c.ChannelID(), l.c.Status(), s.c.ClientID(), s.c.ChannelID(), s.c.Status(), liveEventWait)
 	}
 	time.Sleep(500 * time.Millisecond)
 
@@ -150,7 +189,7 @@ func TestIntegration_VoiceRelay_SpeakerStateStopsIt(t *testing.T) {
 			restore := relayState(t, s, tc.set, tc.reset)
 			relayExpect(t, "speaker "+tc.name, s, l, false, false)
 			restore()
-			if got := relayCount(t, s, l, false); got == 0 {
+			if got := relayHeard(t, s, l, false); got == 0 {
 				t.Errorf("after the reset no voice was relayed")
 			}
 		})
@@ -173,7 +212,7 @@ func TestIntegration_VoiceRelay_ListenerStateStopsIt(t *testing.T) {
 			restore := relayState(t, l, tc.set, tc.reset)
 			if tc.stops {
 				relayExpect(t, "listener "+tc.name, s, l, false, false)
-			} else if got := relayCount(t, s, l, false); got == 0 {
+			} else if got := relayHeard(t, s, l, false); got == 0 {
 				t.Errorf("listener %s: no voice was relayed, want some", tc.name)
 			}
 			restore()
@@ -193,7 +232,7 @@ func TestIntegration_VoiceRelay_TalkPower(t *testing.T) {
 	if got := relayCount(t, s, l, false); got != 0 {
 		t.Errorf("without talk power %d voice packets were relayed, want 0", got)
 	}
-	if got := relayCount(t, s, l, true); got == 0 {
+	if got := relayHeard(t, s, l, true); got == 0 {
 		t.Errorf("without talk power no whisper was relayed, want some: a whisper needs none")
 	}
 
@@ -218,7 +257,7 @@ func TestIntegration_VoiceRelay_TalkPower(t *testing.T) {
 	})
 	requireNoErr(t, admin.EditClient(t.Context(), s.c.ClientID(), teamspeak.ClientEditOptions{IsTalker: &talker}))
 	time.Sleep(500 * time.Millisecond)
-	if got := relayCount(t, s, l, false); got == 0 {
+	if got := relayHeard(t, s, l, false); got == 0 {
 		t.Errorf("as talker no voice was relayed, want some")
 	}
 	requireNoErr(t, admin.EditClient(t.Context(), s.c.ClientID(), teamspeak.ClientEditOptions{IsTalker: &notTalker}))
@@ -304,7 +343,7 @@ func TestIntegration_VoiceRelay_UnsubscribingTheCurrentChannelDoesNothing(t *tes
 	if _, ok := l.c.View().Client(s.c.ClientID()); !ok {
 		t.Errorf("after unsubscribing the current channel the view lost the speaker")
 	}
-	if got := relayCount(t, s, l, false); got == 0 {
+	if got := relayHeard(t, s, l, false); got == 0 {
 		t.Errorf("after unsubscribing the current channel no voice was relayed, want some")
 	}
 }

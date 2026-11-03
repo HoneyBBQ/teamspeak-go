@@ -242,7 +242,7 @@ func TestIntegration_VoiceReceiver(t *testing.T) {
 		}
 	})
 
-	t.Run("EndOfSpeechAndOneByteFramesAreDeliveredInOrder", func(t *testing.T) {
+	t.Run("EndOfSpeechAndOneByteFramesTakeASeqLikeAnyFrame", func(t *testing.T) {
 		send := func(data []byte) {
 			requireNoErr(t, a.c.SendVoice(data, teamspeak.CodecOpusVoice, client.VoiceOptions{}))
 		}
@@ -258,13 +258,16 @@ func TestIntegration_VoiceReceiver(t *testing.T) {
 		send(nil)
 		vrWait(b, 19, 2*time.Second)
 
+		// The server and the network may reorder packets: put them in Seq
+		// order, as a receiver does, before reading the sequence.
 		pkts := b.packets()
+		slices.SortStableFunc(pkts, func(x, y x5Pkt) int { return int(int16(x.Seq - y.Seq)) })
 		var shorts []int
 		for i, p := range pkts {
 			if p.Len <= 1 {
 				shorts = append(shorts, p.Len)
 			}
-			if i > 0 && (int(p.Seq)-int(pkts[i-1].Seq))&0xffff != 1 {
+			if i > 0 && p.Seq-pkts[i-1].Seq != 1 {
 				t.Errorf("packet %d: Seq %d after %d: the end frames take a number like any frame", i, p.Seq, pkts[i-1].Seq)
 			}
 		}
