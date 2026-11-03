@@ -300,6 +300,47 @@ func TestLive_GetOwnPermission(t *testing.T) {
 	}
 }
 
+// GetOwnPermissions answers a row per permission in the order asked, over the
+// voice protocol too, and agrees with GetOwnPermission.
+func TestLive_GetOwnPermissions(t *testing.T) {
+	c := requireSharedClient(t)
+
+	asked := []teamspeak.Permission{
+		teamspeak.PermissionByName(perm.ClientPermissionOverviewOwn),
+		teamspeak.PermissionByName(perm.ClientBanList),
+		teamspeak.PermissionByName(perm.ClientPermissionOverviewOwn),
+	}
+	got, err := c.GetOwnPermissions(t.Context(), asked)
+	skipIfDenied(t, err, "permget")
+	requireNoErr(t, err)
+	if len(got) != len(asked) {
+		t.Fatalf("%d rows for %d permissions: %+v", len(got), len(asked), got)
+	}
+	for i, p := range asked {
+		single, singleErr := c.GetOwnPermission(t.Context(), p)
+		if singleErr != nil || got[i] != single {
+			t.Errorf("row %d = %+v, want %+v as read alone (%v)", i, got[i], single, singleErr)
+		}
+	}
+
+	mixed := []teamspeak.Permission{asked[0], teamspeak.PermissionByID(got[1].ID), asked[1], asked[0]}
+	both, err := c.GetOwnPermissions(t.Context(), mixed)
+	if err != nil || len(both) != len(mixed) {
+		t.Fatalf("mixed: %+v, %v", both, err)
+	}
+	for i, want := range []teamspeak.OwnPermission{got[0], got[1], got[1], got[0]} {
+		if both[i] != want {
+			t.Errorf("mixed row %d = %+v, want %+v", i, both[i], want)
+		}
+	}
+
+	unknown := teamspeak.PermissionByName("b_no_such_permission")
+	none, err := c.GetOwnPermissions(t.Context(), []teamspeak.Permission{asked[0], unknown})
+	if !errors.Is(err, errcode.PermissionInvalidPermID) || none != nil {
+		t.Errorf("an unknown permission: %v, %v, want nil and 2562", none, err)
+	}
+}
+
 // An API key made over the voice protocol comes back from a notification, and
 // lists and deletes like one made over ServerQuery.
 func TestLive_APIKeys(t *testing.T) {

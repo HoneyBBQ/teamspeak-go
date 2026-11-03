@@ -184,6 +184,7 @@ method (Client) GetHostInfo(ctx context.Context) (teamspeak.Properties, error)
 method (Client) GetInstanceInfo(ctx context.Context) (teamspeak.Properties, error)
 method (Client) GetMessage(ctx context.Context, messageID teamspeak.MessageID) (teamspeak.OfflineMessage, error)
 method (Client) GetOwnPermission(ctx context.Context, perm teamspeak.Permission) (teamspeak.OwnPermission, error)
+method (Client) GetOwnPermissions(ctx context.Context, perms []teamspeak.Permission) ([]teamspeak.OwnPermission, error)
 method (Client) GetPermissionIDByName(ctx context.Context, name string) (teamspeak.PermissionID, bool, error)
 method (Client) GetPermissionOverview(ctx context.Context, channelID teamspeak.ChannelID, clientDBID teamspeak.ClientDBID) ([]teamspeak.PermissionOverviewEntry, error)
 method (Client) GetServerGroupsByClient(ctx context.Context, clientDBID teamspeak.ClientDBID) ([]teamspeak.ServerGroupRef, error)
@@ -266,6 +267,7 @@ method (Client) RenameChannelGroup(ctx context.Context, channelGroupID teamspeak
 method (Client) RenameFile(ctx context.Context, channelID teamspeak.ChannelID, oldName string, newName string, opts teamspeak.FileRenameOptions) error
 method (Client) RenameServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, name string) error
 method (Client) ResetPermissions(ctx context.Context) error
+method (*Client) RoundTrip() (RoundTripEstimate, bool)
 method (*Client) Send(ctx context.Context, req teamspeak.Request) ([]map[string]string, error)
 method (Client) SendChannelMessage(ctx context.Context, message string) error
 method (Client) SendChatComposing(ctx context.Context, clid teamspeak.ClientID) error
@@ -399,6 +401,9 @@ field ResolverOptions.DNS *net.Resolver
 field ResolverOptions.HTTPClient *http.Client
 field ResolverOptions.NicknameService string
 field ResolverOptions.NicknameLookup bool
+type RoundTripEstimate struct
+field RoundTripEstimate.Mean time.Duration
+field RoundTripEstimate.Deviation time.Duration
 type ServerCapabilities struct
 field ServerCapabilities.Version string
 field ServerCapabilities.WelcomeMessage string
