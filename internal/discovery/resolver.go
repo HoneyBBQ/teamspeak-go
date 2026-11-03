@@ -4,10 +4,9 @@
 package discovery
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -21,9 +20,9 @@ import (
 
 var (
 	errEmptyAddress      = errors.New("empty address")
+	errNicknameScheme    = errors.New("nickname service is not an http or https URL")
 	errNicknameNotFound  = errors.New("nickname not found")
 	errEmptyResponseBody = errors.New("empty response")
-	errTSDNSNotFound     = errors.New("not found")
 	errResponseTooLarge  = errors.New("lookup answer larger than 8 KiB")
 )
 
@@ -39,6 +38,18 @@ const (
 	CacheTTL = 10 * time.Minute
 )
 
+// The values of ResolvedAddr.Source the resolver sets.
+const (
+	// SourceSRV is a _ts3._udp SRV record.
+	SourceSRV = "SRV"
+	// SourceTSDNSSRV is a TSDNS server found through a _tsdns._tcp SRV record.
+	SourceTSDNSSRV = "TSDNS-SRV"
+	// SourceTSDNSDirect is a TSDNS server on the host's domain at port 41144.
+	SourceTSDNSDirect = "TSDNS-Direct"
+	// SourceDirect is the address as given.
+	SourceDirect = "Direct"
+)
+
 // ResolvedAddr is one resolved host:port and how it was obtained.
 type ResolvedAddr struct {
 	Expiry time.Time
@@ -50,7 +61,9 @@ type ResolvedAddr struct {
 type Resolver struct {
 	log   *slog.Logger
 	cache map[string][]ResolvedAddr
-	mu    sync.RWMutex
+	// nicknameService is the lookup endpoint; empty is NicknameLookup.
+	nicknameService string
+	mu              sync.RWMutex
 	// lookupNicknames sends a dot-less name to named.myteamspeak.com. Off
 	// unless asked for: it tells a third party which server the user wants.
 	lookupNicknames bool
@@ -59,7 +72,8 @@ type Resolver struct {
 // NewResolver returns a Resolver using log for debug tracing (nil →
 // slog.Default). lookupNicknames sends a dot-less name to MyTeamSpeak's
 // nickname service first; without it such a name is resolved like any host.
-func NewResolver(log *slog.Logger, lookupNicknames bool) *Resolver {
+// nicknameService is that service's endpoint, empty for NicknameLookup.
+func NewResolver(log *slog.Logger, lookupNicknames bool, nicknameService string) *Resolver {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -68,6 +82,7 @@ func NewResolver(log *slog.Logger, lookupNicknames bool) *Resolver {
 		log:             log,
 		cache:           make(map[string][]ResolvedAddr),
 		lookupNicknames: lookupNicknames,
+		nicknameService: nicknameService,
 	}
 }
 
@@ -85,7 +100,7 @@ func (r *Resolver) Resolve(ctx context.Context, inputAddr string) ([]ResolvedAdd
 	host, port := splitHostPortOrDefault(inputAddr)
 
 	if ip := net.ParseIP(host); ip != nil {
-		return []ResolvedAddr{{Addr: net.JoinHostPort(host, port), Source: "Direct"}}, nil
+		return []ResolvedAddr{{Addr: net.JoinHostPort(host, port), Source: SourceDirect}}, nil
 	}
 
 	if r.lookupNicknames && !strings.Contains(host, ".") && host != "localhost" {
@@ -100,22 +115,18 @@ func (r *Resolver) Resolve(ctx context.Context, inputAddr string) ([]ResolvedAdd
 
 	domainList := getDomainList(host)
 
-	if tsdnsAddr, ok := r.resolveTSDNSSRV(ctx, domainList, host); ok {
-		results := []ResolvedAddr{{Addr: tsdnsAddr, Source: "TSDNS-SRV"}}
-
-		return r.setCache(inputAddr, results), nil
+	if entries, ok := r.resolveTSDNSSRV(ctx, domainList, host); ok {
+		return r.setCache(inputAddr, tsdnsAddrs(entries, port, SourceTSDNSSRV)), nil
 	}
 
-	if tsdnsAddr, ok := r.resolveTSDNSDirect(ctx, domainList, host); ok {
-		results := []ResolvedAddr{{Addr: tsdnsAddr, Source: "TSDNS-Direct"}}
-
-		return r.setCache(inputAddr, results), nil
+	if entries, ok := r.resolveTSDNSDirect(ctx, domainList, host); ok {
+		return r.setCache(inputAddr, tsdnsAddrs(entries, port, SourceTSDNSDirect)), nil
 	}
 
 	r.log.Debug("falling back to direct dns", slog.String("host", host), slog.String("port", port))
 	results := []ResolvedAddr{{
 		Addr:   net.JoinHostPort(host, port),
-		Source: "Direct",
+		Source: SourceDirect,
 	}}
 
 	return r.setCache(inputAddr, results), nil
@@ -158,7 +169,11 @@ func splitHostPortOrDefault(inputAddr string) (string, string) {
 
 func (r *Resolver) resolveNicknameAddr(ctx context.Context, host string) (string, bool) {
 	r.log.Debug("trying nickname resolution", slog.String("nickname", host))
-	nickAddr, err := resolveNickname(ctx, host)
+	endpoint := r.nicknameService
+	if endpoint == "" {
+		endpoint = NicknameLookup
+	}
+	nickAddr, err := lookupNickname(ctx, endpoint, host)
 	if err != nil || nickAddr == "" {
 		r.log.Debug("nickname resolution failed", slog.String("nickname", host), slog.Any("error", err))
 
@@ -196,14 +211,14 @@ func srvAddrs(srvs []*net.SRV) []ResolvedAddr {
 		target := strings.TrimSuffix(srv.Target, ".")
 		results = append(results, ResolvedAddr{
 			Addr:   net.JoinHostPort(target, strconv.FormatUint(uint64(srv.Port), 10)),
-			Source: "SRV",
+			Source: SourceSRV,
 		})
 	}
 
 	return results
 }
 
-func (r *Resolver) resolveTSDNSSRV(ctx context.Context, domains []string, queryHost string) (string, bool) {
+func (r *Resolver) resolveTSDNSSRV(ctx context.Context, domains []string, queryHost string) ([]string, bool) {
 	for _, domain := range domains {
 		r.log.Debug("trying tsdns srv", slog.String("domain", domain))
 		_, srvs, err := net.DefaultResolver.LookupSRV(ctx, "tsdns", "tcp", domain)
@@ -214,33 +229,57 @@ func (r *Resolver) resolveTSDNSSRV(ctx context.Context, domains []string, queryH
 		}
 		for _, srv := range srvs {
 			target := strings.TrimSuffix(srv.Target, ".")
-			tsdnsAddr, queryErr := queryTSDNS(
+			entries, queryErr := LookupTSDNS(
 				ctx, net.JoinHostPort(target, strconv.FormatUint(uint64(srv.Port), 10)), queryHost,
 			)
-			if queryErr == nil && tsdnsAddr != "" {
-				r.log.Debug("tsdns srv succeeded", slog.String("domain", domain), slog.String("result", tsdnsAddr))
+			if queryErr == nil && len(entries) > 0 {
+				r.log.Debug("tsdns srv succeeded", slog.String("domain", domain), slog.Any("result", entries))
 
-				return tsdnsAddr, true
+				return entries, true
 			}
 		}
 	}
 
-	return "", false
+	return nil, false
 }
 
-func (r *Resolver) resolveTSDNSDirect(ctx context.Context, domains []string, queryHost string) (string, bool) {
+func (r *Resolver) resolveTSDNSDirect(ctx context.Context, domains []string, queryHost string) ([]string, bool) {
 	for _, domain := range domains {
 		r.log.Debug("trying tsdns direct", slog.String("domain", domain))
-		tsdnsAddr, err := queryTSDNS(ctx, net.JoinHostPort(domain, TSDNSDefaultPort), queryHost)
-		if err == nil && tsdnsAddr != "" {
-			r.log.Debug("tsdns direct succeeded", slog.String("domain", domain), slog.String("result", tsdnsAddr))
+		entries, err := LookupTSDNS(ctx, net.JoinHostPort(domain, TSDNSDefaultPort), queryHost)
+		if err == nil && len(entries) > 0 {
+			r.log.Debug("tsdns direct succeeded", slog.String("domain", domain), slog.Any("result", entries))
 
-			return tsdnsAddr, true
+			return entries, true
 		}
 		r.log.Debug("tsdns direct failed", slog.String("domain", domain))
 	}
 
-	return "", false
+	return nil, false
+}
+
+// tsdnsDefaultVoicePort is the port TeamSpeak assumes for a TSDNS entry that
+// names none.
+const tsdnsDefaultVoicePort = "9987"
+
+// tsdnsPortPlaceholder is the TSDNS port that stands for any port the user
+// gave.
+const tsdnsPortPlaceholder = "$PORT"
+
+// tsdnsAddrs turns a TSDNS answer into addresses, keeping its order. An entry
+// without a port means 9987, and the port $PORT means port, the one in the
+// address being resolved.
+func tsdnsAddrs(entries []string, port, source string) []ResolvedAddr {
+	results := make([]ResolvedAddr, 0, len(entries))
+	for _, entry := range entries {
+		host, entryPort := SplitHostPortOrDefault(entry, tsdnsDefaultVoicePort)
+		if entryPort == tsdnsPortPlaceholder {
+			entryPort = port
+		}
+		results = append(results, ResolvedAddr{Addr: net.JoinHostPort(host, entryPort), Source: source})
+	}
+
+	return results
 }
 
 func (r *Resolver) setCache(key string, results []ResolvedAddr) []ResolvedAddr {
@@ -274,15 +313,14 @@ func getDomainList(host string) []string {
 // hold it.
 const maxResponseSize = 8 << 10
 
-func resolveNickname(ctx context.Context, nickname string) (string, error) {
-	return lookupNickname(ctx, NicknameLookup, nickname)
-}
-
 // lookupNickname asks the nickname service at endpoint for nickname.
 func lookupNickname(ctx context.Context, endpoint, nickname string) (string, error) {
 	lookupURL, err := url.Parse(endpoint)
 	if err != nil {
 		return "", err
+	}
+	if lookupURL.Scheme != "http" && lookupURL.Scheme != "https" {
+		return "", errNicknameScheme
 	}
 	query := lookupURL.Query()
 	query.Set("name", nickname)
@@ -320,32 +358,87 @@ func lookupNickname(ctx context.Context, endpoint, nickname string) (string, err
 	return "", errEmptyResponseBody
 }
 
-func queryTSDNS(ctx context.Context, tsdnsFullAddr, queryHost string) (string, error) {
-	d := net.Dialer{Timeout: 2 * time.Second}
-	conn, err := d.DialContext(ctx, "tcp", tsdnsFullAddr)
+// tsdnsTimeouts bound a lookup: dial is the connection attempt, total the whole
+// exchange. They are variables for tests.
+var (
+	tsdnsDialTimeout  = 2 * time.Second
+	tsdnsTotalTimeout = 3 * time.Second
+)
+
+// LookupTSDNS asks the TSDNS server at server, host or host:port with the port
+// defaulting to 41144, for host's address.
+//
+// The answer is the server's entries, in order, as it sent them. An entry may
+// have no port, which TeamSpeak takes as 9987, or the literal port $PORT, which
+// means the port the user gave (9987 by default); Resolver applies both.
+//
+// A nil slice with a nil error means the server has no record for host: it
+// answered 404 or errors, or nothing. The answer ends at the first newline or
+// when the server closes the connection. A connection failure, a timeout, a
+// cancelled ctx, or an answer of 8 KiB or more without an end is an error.
+func LookupTSDNS(ctx context.Context, server, host string) ([]string, error) {
+	serverHost, serverPort := SplitHostPortOrDefault(server, TSDNSDefaultPort)
+
+	d := net.Dialer{Timeout: tsdnsDialTimeout}
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(serverHost, serverPort))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer func() { _ = conn.Close() }()
 
-	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	// Closing the connection is what stops a read when ctx ends.
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
 
-	_, err = fmt.Fprintf(conn, "%s\n", queryHost)
+	_ = conn.SetDeadline(time.Now().Add(tsdnsTotalTimeout))
+
+	_, err = io.WriteString(conn, host+"\n")
 	if err != nil {
-		return "", err
+		return nil, ctxOr(ctx, err)
 	}
 
-	// A line longer than maxResponseSize ends in io.EOF, an error.
-	reader := bufio.NewReader(io.LimitReader(conn, maxResponseSize))
-	line, err := reader.ReadString('\n')
+	answer, err := readAnswer(conn)
 	if err != nil {
-		return "", err
+		return nil, ctxOr(ctx, err)
 	}
 
-	line = strings.TrimSpace(line)
-	if line == "" || line == "404" || line == "errors" {
-		return "", errTSDNSNotFound
+	answer = strings.TrimSpace(answer)
+	if answer == "" || answer == "404" || answer == "errors" {
+		return nil, nil
 	}
 
-	return line, nil
+	return strings.Fields(answer), nil
+}
+
+// ctxOr prefers ctx's error when ctx ended, since that is what closed the
+// connection.
+func ctxOr(ctx context.Context, err error) error {
+	ctxErr := ctx.Err()
+	if ctxErr != nil {
+		return ctxErr
+	}
+
+	return err
+}
+
+// readAnswer reads up to the first newline or the end of the connection.
+func readAnswer(r io.Reader) (string, error) {
+	buf := make([]byte, 0, 256)
+	chunk := make([]byte, 512)
+	for {
+		n, err := r.Read(chunk)
+		buf = append(buf, chunk[:n]...)
+		if i := bytes.IndexByte(buf, '\n'); i >= 0 {
+			return string(buf[:i]), nil
+		}
+		if len(buf) >= maxResponseSize {
+			return "", errResponseTooLarge
+		}
+		if errors.Is(err, io.EOF) {
+			return string(buf), nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
 }

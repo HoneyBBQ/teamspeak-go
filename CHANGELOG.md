@@ -3,6 +3,31 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- `client.LookupTSDNS` asks a TSDNS server for a host's address, so a caller
+  can query one without resolving a whole address. `client.NewResolver`,
+  `ResolverOptions` and `Resolver` expose the resolution the client uses by
+  default (SRV, TSDNS, then the address as given); a `*Resolver` is an
+  `AddrResolver`, so it can be wrapped and passed to `WithResolver`.
+  `ResolveSourceSRV`, `ResolveSourceTSDNSSRV`, `ResolveSourceTSDNSDirect` and
+  `ResolveSourceDirect` name the values of `ResolvedAddr.Source`.
+- `ResolverOptions.NicknameService` points the nickname lookup at another
+  endpoint, such as a test double or a mirror.
+
+### Fixed
+
+- Answers from the official TSDNS server were never read, so the client fell
+  back to plain DNS: that server ends its answer by closing the connection,
+  with no trailing newline, and the answer was discarded. It is read now.
+- A TSDNS answer that lists several targets gives one `ResolvedAddr` for each,
+  in order, instead of one address holding them all.
+- A TSDNS entry without a port is dialled on 9987, and one whose port is the
+  literal `$PORT` on the port of the address being resolved, instead of
+  failing.
+
 ## v1.0.0-beta.18 (2026-11-03)
 
 ### Added
