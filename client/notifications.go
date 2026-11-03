@@ -40,7 +40,7 @@ func (c *Client) handleNotification(h *transport.PacketHandler, cmd *wire.Comman
 	case "notifyconnectioninforequest":
 		c.answerConnectionInfoRequest(h)
 	case "notifyclientneededpermissions":
-		c.logger.Debug("insufficient permissions",
+		c.logger.Debug("own permission value",
 			slog.String("permid", cmd.Params["permid"]),
 			slog.String("permvalue", cmd.Params["permvalue"]))
 	default:
