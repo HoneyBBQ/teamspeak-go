@@ -1,7 +1,7 @@
 package teamspeak
 
 // Event is a server event: a TextMessageEvent, ClientEnterEvent,
-// ClientLeaveEvent, ClientMovedEvent, PokeEvent, VoiceDataEvent,
+// ClientLeaveEvent, ClientMovedEvent, PokeEvent,
 // NotificationEvent, ClientUpdatedEvent, ClientServerGroupAddedEvent,
 // ClientServerGroupRemovedEvent, ClientChannelGroupChangedEvent,
 // ChannelCreatedEvent, ChannelEditedEvent, ChannelMovedEvent,
@@ -26,7 +26,6 @@ func (TextMessageEvent) serverEvent()  {}
 func (ClientLeaveEvent) serverEvent()  {}
 func (ClientMovedEvent) serverEvent()  {}
 func (PokeEvent) serverEvent()         {}
-func (VoiceDataEvent) serverEvent()    {}
 func (NotificationEvent) serverEvent() {}
 
 func (ClientUpdatedEvent) serverEvent()             {}
@@ -233,19 +232,6 @@ type KickedEvent struct {
 	Reason Reason
 	// InvokerID is the client id of who kicked the client (invokerid).
 	InvokerID ClientID
-}
-
-// VoiceDataEvent is voice or whisper audio received from another client. Only
-// the voice protocol delivers it.
-type VoiceDataEvent struct {
-	// Data is the encoded audio, one frame in Codec. Each handler gets its own
-	// copy. It is empty when the speaker stopped talking: that is the end of
-	// the speech, not a frame to decode.
-	Data []byte
-	// ClientID is the client speaking.
-	ClientID ClientID
-	// Codec is the codec Data is encoded in.
-	Codec Codec
 }
 
 // ClientUpdatedEvent is emitted when a client in view changes some of its

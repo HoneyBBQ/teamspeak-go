@@ -96,15 +96,33 @@ type voiceFrom struct {
 	mu      sync.Mutex
 }
 
-func hearing(c *client.Client) *voiceFrom {
+func hearing(t *testing.T, c *client.Client) *voiceFrom {
+	t.Helper()
 	v := &voiceFrom{speaker: map[teamspeak.ClientID]int{}}
-	c.OnVoiceData(func(e client.VoiceDataEvent) {
+	onVoice(t, c, func(e client.VoicePacket) {
 		v.mu.Lock()
 		v.speaker[e.ClientID]++
 		v.mu.Unlock()
 	})
 
 	return v
+}
+
+// onVoice calls fn, on its own goroutine, for every voice packet c receives,
+// until the test ends.
+func onVoice(t *testing.T, c *client.Client, fn func(client.VoicePacket)) {
+	t.Helper()
+	rx, err := c.NewVoiceReceiver(client.VoiceReceiverOptions{Capacity: 1024})
+	requireNoErr(t, err)
+	t.Cleanup(func() { _ = rx.Close() })
+	go func() {
+		var p client.VoicePacket
+		for rx.Read(context.Background(), &p) == nil {
+			got := p
+			got.Data = slices.Clone(p.Data)
+			fn(got)
+		}
+	}()
 }
 
 func (v *voiceFrom) heard(id teamspeak.ClientID) int {
@@ -188,7 +206,7 @@ func TestIntegration_ChannelWhisperReachesMembersOnly(t *testing.T) {
 	sender := liveClient(t, "whisper-sender")
 	member := liveClient(t, "whisper-member")
 	outsider := liveClient(t, "whisper-outsider")
-	memberHears, outsiderHears := hearing(member), hearing(outsider)
+	memberHears, outsiderHears := hearing(t, member), hearing(t, outsider)
 
 	cid, err := admin.CreateChannel(t.Context(), teamspeak.ChannelCreateOptions{
 		Name: fmt.Sprintf("whisper-room-%d", time.Now().UnixNano()%1e9),
@@ -230,7 +248,7 @@ func TestIntegration_ServerGroupWhisperReachesMembersOnly(t *testing.T) {
 	sender := liveClient(t, "gwhisper-sender")
 	member := liveClient(t, "gwhisper-member")
 	outsider := liveClient(t, "gwhisper-outsider")
-	memberHears, outsiderHears := hearing(member), hearing(outsider)
+	memberHears, outsiderHears := hearing(t, member), hearing(t, outsider)
 
 	gid := guestCopy(t, admin, "whisper-group")
 	dbid := dbIDOf(t, sender, member)
@@ -273,7 +291,7 @@ func TestIntegration_ChannelGroupWhisperReachesHoldersOnly(t *testing.T) {
 	sender := liveClient(t, "cgwhisper-sender")
 	member := liveClient(t, "cgwhisper-member")
 	outsider := liveClient(t, "cgwhisper-outsider")
-	memberHears, outsiderHears := hearing(member), hearing(outsider)
+	memberHears, outsiderHears := hearing(t, member), hearing(t, outsider)
 
 	cgid := channelGroupCopy(t, admin, "whisper-cg")
 	holder := dbIDOf(t, sender, member)
@@ -633,7 +651,7 @@ func speakFor(t *testing.T, c *client.Client) {
 func requireSilentAfterListMute(t *testing.T, listener *client.Client, first, second *client.Client) {
 	t.Helper()
 	ids := []teamspeak.ClientID{first.ClientID(), second.ClientID()}
-	hears := hearing(listener)
+	hears := hearing(t, listener)
 	requireNoErr(t, listener.MuteClients(t.Context(), ids))
 	speakFor(t, first)
 	speakFor(t, second)
@@ -649,7 +667,7 @@ func TestIntegration_MuteClientsStopsOnlyTheMutersHearing(t *testing.T) {
 	listener := liveClient(t, "mute-listener")
 	speaker := liveClient(t, "mute-speaker")
 	bystander := liveClient(t, "mute-bystander")
-	listenerHears, bystanderHears := hearing(listener), hearing(bystander)
+	listenerHears, bystanderHears := hearing(t, listener), hearing(t, bystander)
 	speak := func(from *client.Client) { speakFor(t, from) }
 	id := speaker.ClientID()
 
@@ -695,7 +713,7 @@ func TestIntegration_EndOfSpeechReachesAListenerAsEmptyData(t *testing.T) {
 
 	var mu sync.Mutex
 	var lengths []int
-	listener.OnVoiceData(func(e client.VoiceDataEvent) {
+	onVoice(t, listener, func(e client.VoicePacket) {
 		if e.ClientID != id {
 			return
 		}

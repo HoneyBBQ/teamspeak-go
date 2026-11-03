@@ -161,8 +161,13 @@ c.OnNotification(func(n client.NotificationEvent) {
 - **A panic** in a handler is recovered and logged at Error with the event type.
   The other handlers and later events are still delivered. The JavaScript SDK
   rethrows a throwing listener as an uncaught exception instead.
-- **Voice receivers.** `Client.NewVoiceReceiver` is the other way to take voice:
-  it does not go through the event queue nor the middleware. The client copies
+- **Voice is not an event.** Real-time data does not go through the ordered
+  event queue: events are never dropped and a blocked handler holds up those
+  behind it, which is wrong for audio. The JavaScript SDK keeps a `voiceData`
+  event because its listeners are not awaited; it has the same fields and the
+  same pull semantics through its `events()` iterator.
+- **Voice receivers.** `Client.NewVoiceReceiver` is how voice is taken: it
+  does not go through the event queue nor the middleware. The client copies
   each packet into a preallocated ring per receiver and never waits for the
   consumer, which reads with `Read(ctx, &p)` or `TryRead(&p)` into a
   `VoicePacket` of its own. A full ring drops its oldest packet and counts it in

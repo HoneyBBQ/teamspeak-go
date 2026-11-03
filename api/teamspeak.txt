@@ -1224,10 +1224,6 @@ field VirtualServer.GuestCanCreateChannels *bool
 field VirtualServer.GuestCanCreateHomebase *bool
 field VirtualServer.WeblistEnabled *bool
 type VirtualServerStatus string
-type VoiceDataEvent struct
-field VoiceDataEvent.Data []byte
-field VoiceDataEvent.ClientID ClientID
-field VoiceDataEvent.Codec Codec
 type WhoAmI struct
 field WhoAmI.ServerStatus VirtualServerStatus
 field WhoAmI.ServerUID string

@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integration && integration_voice
 
 // Scaffolding of live measurements: it favours readable output over the style
 // limits.
@@ -153,9 +153,6 @@ func TestIntegration_VoiceReceiver(t *testing.T) {
 					t.Errorf("%s: ReceivedAt %v is not between the send %v and the read %v, or goes back from %v", name, v.At, sent[v.Frame], v.Dispatch, prev)
 				}
 				prev = v.At
-			}
-			if p.eventCount() == 0 {
-				t.Errorf("%s: OnVoiceData delivered nothing next to the receiver", name)
 			}
 		}
 		same := 0
@@ -384,25 +381,6 @@ func TestIntegration_VoiceReceiver(t *testing.T) {
 		}
 		if idle.Dropped() < 90 {
 			t.Errorf("the idle receiver dropped %d, want about 96", idle.Dropped())
-		}
-
-		// An OnVoiceData handler that is slow holds up the event queue, as it
-		// always did; record what it does to commands next to it.
-		release := make(chan struct{})
-		off := b.c.OnVoiceData(func(client.VoiceDataEvent) {
-			select {
-			case <-release:
-			case <-time.After(100 * time.Millisecond):
-			}
-		})
-		defer func() { close(release); off() }()
-		slow := vrCommands(t, b, a)
-		l.Printf("plus an OnVoiceData handler taking 100 ms a frame: commands %s; the read receiver got %d/100", x5Durations(slow), len(b.packets()))
-		if got := len(b.packets()); got < 95 {
-			t.Errorf("the receiver being read got %d of 100 while a handler was slow", got)
-		}
-		if med := vrMedian(slow); med > 250*time.Millisecond {
-			t.Errorf("a command took %s at the median while a handler was slow", med)
 		}
 	})
 

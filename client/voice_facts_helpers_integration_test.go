@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integration && integration_voice
 
 // Scaffolding of the live voice-receiver tests (the X5 measurements and the
 // receiver's contract tests), not library code: it favours readable
@@ -120,8 +120,6 @@ type x5Peer struct {
 	tap  *x5Tap
 	mu   sync.Mutex
 	pkts []x5Pkt
-	// events counts OnVoiceData deliveries.
-	events int
 }
 
 func (p *x5Peer) packets() []x5Pkt {
@@ -134,22 +132,14 @@ func (p *x5Peer) packets() []x5Pkt {
 func (p *x5Peer) reset() {
 	p.mu.Lock()
 	p.pkts = nil
-	p.events = 0
 	p.mu.Unlock()
 	if p.tap != nil {
 		p.tap.reset()
 	}
 }
 
-func (p *x5Peer) eventCount() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	return p.events
-}
-
 // x5Connect connects a client over a tapped socket, with a voice receiver
-// being read and an OnVoiceData counter installed.
+// being read.
 func x5Connect(t *testing.T, nickname string, extra ...client.Option) *x5Peer {
 	t.Helper()
 
@@ -193,11 +183,6 @@ func x5ConnectWith(t *testing.T, nickname string, tapped bool, extra ...client.O
 		}
 	}()
 	t.Cleanup(func() { _ = rx.Close() })
-	c.OnVoiceData(func(client.VoiceDataEvent) {
-		p.mu.Lock()
-		p.events++
-		p.mu.Unlock()
-	})
 	requireNoErr(t, connectWithRetries(t.Context(), t, c))
 	t.Cleanup(func() {
 		ctx, cancel := cleanupContext()

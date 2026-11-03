@@ -257,7 +257,6 @@ method (*Client) OnServerEdited(handler func(ServerEditedEvent)) func()
 method (*Client) OnTextMessage(handler func(TextMessageEvent)) func()
 method (*Client) OnViewChanged(handler func(ViewChangedEvent)) func()
 method (*Client) OnViewReady(handler func(ViewReadyEvent)) func()
-method (*Client) OnVoiceData(handler func(VoiceDataEvent)) func()
 method (Client) PokeClient(ctx context.Context, clid teamspeak.ClientID, message string) error
 method (Client) RemoveAvatar(ctx context.Context) (bool, error)
 method (Client) RemoveClientFromServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, clientDBID teamspeak.ClientDBID) error
@@ -472,7 +471,6 @@ type ViewReadyEvent struct
 field ViewReadyEvent.Revision uint64
 type ViewStatus int
 method (ViewStatus) String() string
-type VoiceDataEvent = teamspeak.VoiceDataEvent
 type VoiceOptions struct
 type VoicePacket struct
 field VoicePacket.ReceivedAt time.Time

@@ -215,8 +215,6 @@ func TestVoiceReceiver_FullDropsTheOldestAndCountsPerReceiver(t *testing.T) {
 	c := newTestClient(t)
 	small := newReceiver(t, c, 4)
 	big := newReceiver(t, c, 100)
-	events := make(chan VoiceDataEvent, 100)
-	c.OnVoiceData(func(e VoiceDataEvent) { events <- e })
 
 	for i := range uint16(10) {
 		c.handleVoicePacket(serverVoice(i, 42, 4, false, []byte{byte(i)}))
@@ -236,13 +234,6 @@ func TestVoiceReceiver_FullDropsTheOldestAndCountsPerReceiver(t *testing.T) {
 	for want := range uint16(10) {
 		if !big.TryRead(&p) || p.Seq != want {
 			t.Fatalf("big: got seq %d, want %d", p.Seq, want)
-		}
-	}
-	for i := range 10 {
-		select {
-		case <-events:
-		case <-time.After(time.Second):
-			t.Fatalf("OnVoiceData got %d of 10 events: a full receiver must not touch events", i)
 		}
 	}
 }
@@ -508,15 +499,12 @@ func TestVoiceReceiver_ManyReceiversDoNotAllocate(t *testing.T) {
 	}
 }
 
-// A handler stuck on the event queue, and a receiver nobody reads, hold up
-// neither the packet path nor another receiver.
+// A receiver nobody reads holds up neither the packet path nor another
+// receiver.
 func TestVoiceReceiver_NothingSlowHoldsUpTheConnection(t *testing.T) {
 	c := newTestClient(t)
 	idle := newReceiver(t, c, 4) // never read
 	live := newReceiver(t, c, 1000)
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
-	c.OnVoiceData(func(VoiceDataEvent) { <-release })
 
 	start := time.Now()
 	for i := range 500 {
@@ -539,56 +527,17 @@ func TestVoiceReceiver_NothingSlowHoldsUpTheConnection(t *testing.T) {
 	}
 }
 
-func TestVoiceReceiver_OnVoiceDataIsUnchanged(t *testing.T) {
-	run := func(withReceiver bool) []VoiceDataEvent {
-		c := newTestClient(t)
-		if withReceiver {
-			newReceiver(t, c, 2)
-		}
-		var mu sync.Mutex
-		var got []VoiceDataEvent
-		c.OnVoiceData(func(e VoiceDataEvent) { mu.Lock(); got = append(got, e); mu.Unlock() })
-		for i := range uint16(5) {
-			c.handleVoicePacket(serverVoice(i, 42, 4, false, []byte{byte(i)}))
-		}
-		deadline := time.Now().Add(time.Second)
-		for time.Now().Before(deadline) {
-			mu.Lock()
-			n := len(got)
-			mu.Unlock()
-			if n == 5 {
-				break
-			}
-			time.Sleep(5 * time.Millisecond)
-		}
-		mu.Lock()
-		defer mu.Unlock()
-
-		return got
-	}
-	without, with := run(false), run(true)
-	if len(without) != 5 || len(with) != len(without) {
-		t.Fatalf("events without a receiver %d, with one %d, want 5 each", len(without), len(with))
-	}
-	for i := range with {
-		w, wo := with[i], without[i]
-		if w.ClientID != wo.ClientID || string(w.Data) != string(wo.Data) || w.Codec != wo.Codec {
-			t.Errorf("event %d differs: %+v vs %+v", i, with[i], without[i])
-		}
-	}
-}
-
-func TestVoiceReceiver_SkipsTheEventMiddleware(t *testing.T) {
+// Voice is not an event: neither the event middleware nor the event queue
+// sees it.
+func TestVoiceReceiver_VoiceIsNotAnEvent(t *testing.T) {
 	seen := 0
 	var mu sync.Mutex
-	counting := func(func(Event)) func(Event) {
+	counting := func(next func(Event)) func(Event) {
 		return func(e Event) {
-			if _, ok := e.(VoiceDataEvent); ok {
-				mu.Lock()
-				seen++
-				mu.Unlock()
-			}
-			// Drop it: the receiver must not care.
+			mu.Lock()
+			seen++
+			mu.Unlock()
+			next(e)
 		}
 	}
 	c := newTestClient(t, WithEventMiddleware(counting))
@@ -596,7 +545,16 @@ func TestVoiceReceiver_SkipsTheEventMiddleware(t *testing.T) {
 	c.handleVoicePacket(serverVoice(1, 42, 4, false, []byte{1}))
 	var p VoicePacket
 	if !r.TryRead(&p) {
-		t.Fatal("a middleware dropping the event kept the packet from the receiver")
+		t.Fatal("the receiver got no packet")
+	}
+	if c.events.Queued() != 0 {
+		t.Errorf("%d deliveries queued for voice, want none", c.events.Queued())
+	}
+	waitDelivered(t, c)
+	mu.Lock()
+	defer mu.Unlock()
+	if seen != 0 {
+		t.Errorf("event middleware saw %d events for voice, want 0", seen)
 	}
 }
 

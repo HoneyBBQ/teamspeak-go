@@ -171,8 +171,8 @@ func TestIntegration_SendWhisperReachesAnotherChannel(t *testing.T) {
 	// Reuse the peer as the listener to stay within the connection budget.
 	listener := requireIntegrationPeer(t, addr)
 
-	got := make(chan client.VoiceDataEvent, 1)
-	listener.OnVoiceData(func(vd client.VoiceDataEvent) {
+	got := make(chan client.VoicePacket, 1)
+	onVoice(t, listener, func(vd client.VoicePacket) {
 		select {
 		case got <- vd:
 		default:

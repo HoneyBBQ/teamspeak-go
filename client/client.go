@@ -244,7 +244,6 @@ type Client struct {
 	onChatComposing  subscribers[ClientChatComposingEvent]
 	onChatClosed     subscribers[ClientChatClosedEvent]
 	onKicked         subscribers[KickedEvent]
-	onVoiceData      subscribers[VoiceDataEvent]
 	onNotification   subscribers[NotificationEvent]
 	onViewReady      subscribers[ViewReadyEvent]
 	onViewChanged    subscribers[ViewChangedEvent]

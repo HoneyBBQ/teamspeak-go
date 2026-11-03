@@ -29,7 +29,6 @@ re-exports them as aliases, so a future ServerQuery client shares them.
 | `OnClientLeave(func(ClientLeaveEvent))` | Fires when a client leaves |
 | `OnClientMoved(func(ClientMovedEvent))` | Fires when a client moves channels |
 | `OnPoked(func(PokeEvent))` | Fires when the bot is poked |
-| `OnVoiceData(func(VoiceDataEvent))` | Fires for each audio frame another client sends; dropped, with a warning, while more than 256 deliveries are waiting. For packet order, arrival times and delivery no handler can hold up, see [Receiving voice](#receiving-voice) |
 | `OnNotification(func(NotificationEvent))` | Fires for every notification, as the server sent it |
 | `OnKicked(func(KickedEvent))` | Fires when the bot is kicked from its channel or the server |
 
@@ -59,7 +58,7 @@ Event middleware sees every server event before its handlers do — the events
 above except connected, disconnected and kicked, which report the connection
 itself and bypass it. It receives a `client.Event`, which is one of
 `TextMessageEvent`, `ClientEnterEvent`, `ClientLeaveEvent`, `ClientMovedEvent`,
-`PokeEvent`, `VoiceDataEvent` or `NotificationEvent`; it may pass the event on,
+`PokeEvent` or `NotificationEvent`; it may pass the event on,
 replace it, or drop it by not calling `next`.
 
 ```go
@@ -76,11 +75,11 @@ c, err := client.New(id, addr, "Bot", client.WithEventMiddleware(ignoreCommands)
 
 ### Receiving voice
 
-`OnVoiceData` gives each frame as an event, behind the other events and after
-anything a handler holds up. A bot that needs the order of the packets, when
-each arrived, or delivery that nothing else can delay, makes a
-`VoiceReceiver` instead. It is a bounded buffer that the client fills and the
-caller reads, in a goroutine of its own:
+Voice is not an event: it does not go through the event queue or the event
+middleware, so no handler can delay it. A bot that wants audio makes a
+`VoiceReceiver`, a bounded buffer that the client fills and the caller reads,
+in a goroutine of its own. The packets carry their order, arrival time and
+whether they were whispers:
 
 ```go
 rx, err := c.NewVoiceReceiver(client.VoiceReceiverOptions{})

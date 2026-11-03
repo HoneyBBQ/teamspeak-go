@@ -814,8 +814,8 @@ func (c *Client) noteRename(cmd *wire.Command) {
 	c.mu.Unlock()
 }
 
-// handleVoicePacket parses an incoming voice or whisper packet and dispatches a
-// VoiceDataEvent event.
+// handleVoicePacket parses an incoming voice or whisper packet and hands it to
+// the voice receivers. Voice is not an event: it never enters the event queue.
 //
 // Server-to-client layout differs from what the client sends: the server
 // prepends the speaker's client ID, so the payload is
@@ -824,7 +824,7 @@ func (c *Client) noteRename(cmd *wire.Command) {
 //
 // A packet with no audio is how a speaker's end of speech arrives: the server
 // relays the empty frame a client sends when it stops talking, and it is
-// delivered with empty Data. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6
+// delivered to receivers with empty Data. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6
 // 6.0.0: the frames of SendVoice arrive as 45-byte packets and an empty one as
 // a 5-byte packet.
 func (c *Client) handleVoicePacket(p *transport.Packet) {
@@ -832,9 +832,9 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 		return
 	}
 
-	// Audio arrives fifty times a second per speaker; build no event nobody
-	// will see.
-	if !c.hasVoiceReceivers() && !c.onVoiceData.Any() && len(c.eventMiddlewares) == 0 {
+	// Audio arrives fifty times a second per speaker; do nothing when no
+	// receiver wants it.
+	if !c.hasVoiceReceivers() {
 		return
 	}
 
@@ -849,17 +849,6 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 	}
 
 	c.deliverVoice(p, session, speakerID)
-	if !c.onVoiceData.Any() && len(c.eventMiddlewares) == 0 {
-		return
-	}
-
-	vd := VoiceDataEvent{
-		ClientID: speakerID,
-		Codec:    teamspeak.Codec(p.Data[4]),
-		Data:     append([]byte(nil), p.Data[5:]...),
-	}
-
-	c.emitEvent(vd)
 }
 
 // commandName is the name a command line starts with: what the log may say
