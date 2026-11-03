@@ -548,7 +548,10 @@ func giveUp(t *testing.T, e *env) {
 	go func() { _, err := e.s.Publish(ctx, PublishOptions{Name: "x"}); done <- err }()
 	e.settle()
 	cancel()
-	<-done
+	err := <-done
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Publish = %v, want context.Canceled", err)
+	}
 }
 
 func TestPublishGivingUp_StopsAStreamACallThatGaveUpStartedKnownFromTheAnswerOnly(t *testing.T) {
@@ -637,7 +640,10 @@ func TestPublishGivingUp_StopsNothingForAnAnswerAfterTheConnectionEnded(t *testi
 		go func() { _, err := e.s.Publish(t.Context(), PublishOptions{Name: "x"}); done <- err }()
 		e.settle()
 		e.h.disconnect()
-		<-done
+		err := <-done
+		if !errors.Is(err, teamspeak.ErrNotConnected) {
+			t.Errorf("Publish = %v, want ErrNotConnected", err)
+		}
 		e.h.connect()
 		e.h.announce(t, announcement("old", 1), 0)
 		e.settle()
@@ -699,9 +705,12 @@ func TestPublishGivingUp_CloseReturnsTheFailureOfTheStopItWaitedFor(t *testing.T
 		}
 		published := e.publishAsync()
 		closed := e.closeAsync(t.Context())
-		<-published
+		err := <-published
+		if !errors.Is(err, ErrClosed) {
+			t.Errorf("Publish = %v, want ErrClosed", err)
+		}
 		e.h.announce(t, announcement("after", 1), 0)
-		err := <-closed
+		err = <-closed
 		if !errors.Is(err, errcode.PermissionsClientInsufficient) {
 			t.Errorf("Close = %v", err)
 		}
@@ -720,7 +729,10 @@ func TestPublishGivingUp_CloseWaitsForTheCommandOnlyAsLongAsItsContext(t *testin
 		if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) != time.Second {
 			t.Errorf("Close = %v after %v", err, time.Since(start))
 		}
-		<-published
+		err = <-published
+		if !errors.Is(err, ErrClosed) {
+			t.Errorf("Publish = %v, want ErrClosed", err)
+		}
 	})
 }
 
@@ -729,9 +741,12 @@ func TestPublishGivingUp_StopsNothingForAPublishAnsweredAfterCloseWhenTheConnect
 		published := e.publishAsync()
 		e.h.disconnect()
 		closed := e.closeAsync(t.Context())
-		<-published
+		err := <-published
+		if !errors.Is(err, teamspeak.ErrNotConnected) {
+			t.Errorf("Publish = %v, want ErrNotConnected", err)
+		}
 		e.h.announce(t, announcement("after", 1), 0)
-		err := <-closed
+		err = <-closed
 		if err != nil {
 			t.Fatal(err)
 		}

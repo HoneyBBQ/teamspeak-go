@@ -404,7 +404,10 @@ func TestLive_TellsThePublisherARequestWasWithdrawnAndOneTheStreamEndedOn(t *tes
 	if !errors.Is(err, ErrNotPending) {
 		t.Errorf("Accept: %v", err)
 	}
-	<-gaveUp
+	err = <-gaveUp
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Watch = %v, want context.DeadlineExceeded", err)
+	}
 
 	// A request pending when the stream stops ends with it.
 	waiting := make(chan error, 1)
@@ -418,7 +421,10 @@ func TestLive_TellsThePublisherARequestWasWithdrawnAndOneTheStreamEndedOn(t *tes
 	if got := await(t, ended, "closed"); got != RequestEnded {
 		t.Errorf("closed = %v", got)
 	}
-	<-waiting
+	err = <-waiting
+	if _, ok := errors.AsType[*EndedError](err); !ok {
+		t.Errorf("Watch = %v, want *EndedError", err)
+	}
 }
 
 func TestLive_ClosesThePublishersPeerWhenTheViewerLeaves(t *testing.T) {

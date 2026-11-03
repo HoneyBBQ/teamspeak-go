@@ -271,7 +271,10 @@ func TestHandlerClose_CallsOnClosed(t *testing.T) {
 	_ = h.Close()
 
 	select {
-	case <-closed:
+	case err := <-closed:
+		if err != nil {
+			t.Errorf("OnClosed(%v), want nil for a Close from outside", err)
+		}
 	case <-time.After(2 * time.Second):
 		t.Error("OnClosed not called within timeout")
 	}
@@ -816,7 +819,10 @@ func TestHandlerCheckResends_IdleTimeout_ClosesHandler(t *testing.T) {
 	h.checkResends()
 
 	select {
-	case <-closed:
+	case err := <-closed:
+		if !errors.Is(err, ErrTimedOut) {
+			t.Errorf("OnClosed(%v), want ErrTimedOut", err)
+		}
 	case <-time.After(2 * time.Second):
 		t.Error("expected handler to close on idle timeout")
 	}
