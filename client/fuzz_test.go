@@ -39,7 +39,8 @@ func FuzzHandleCommandLines(f *testing.F) {
 			t.Fatalf("New: %v", err)
 		}
 		markConnecting(c)
-		if _, err := c.NewVoiceReceiver(VoiceReceiverOptions{}); err != nil {
+		_, err = c.NewVoiceReceiver(VoiceReceiverOptions{})
+		if err != nil {
 			t.Fatalf("NewVoiceReceiver: %v", err)
 		}
 		c.handleCommandLines(c.handler, data)

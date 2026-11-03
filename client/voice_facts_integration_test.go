@@ -4,7 +4,7 @@
 // through the voice receiver. Scaffolding, not library code: it favours
 // readable measurement over the style limits.
 
-//nolint:funlen,govet,lll,prealloc,thelper,unparam
+//nolint:govet,lll,prealloc,thelper,unparam
 package client_test
 
 import (
