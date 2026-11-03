@@ -200,7 +200,7 @@ func permArg(perm Permission) param {
 // Most options carry *int32 rather than *int64 because that is the width the
 // protocol uses for fields like channel_maxclients, and widening them at every
 // call site would be noise.
-func int32PtrArg(key string, value *int32) param {
+func int32PtrArg[T ~int32](key string, value *T) param {
 	if value == nil {
 		return param{Key: key}
 	}

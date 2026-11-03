@@ -62,7 +62,9 @@ func TestParseChannel_AbsentCountsAreNilAndPresentZerosAreNot(t *testing.T) {
 }
 
 func TestListBindings_FillsTheSubsystem(t *testing.T) {
-	for _, tc := range []struct{ asked, want string }{{"", "voice"}, {"query", "query"}} {
+	for _, tc := range []struct{ asked, want BindingSubsystem }{
+		{"", BindingSubsystemVoice}, {BindingSubsystemQuery, BindingSubsystemQuery},
+	} {
 		s := &script{replies: []reply{{rows: []map[string]string{{"ip": "0.0.0.0"}}}}}
 		got, err := NewCommands(s).ListBindings(t.Context(), BindingListOptions{Subsystem: tc.asked})
 		if err != nil || len(got) != 1 {
@@ -133,7 +135,7 @@ func TestChannelOptions_SendTheCodecLimitAndBannerSettings(t *testing.T) {
 	var (
 		on, off = true, false
 		factor  = int32(4)
-		mode    = int32(2)
+		mode    = BannerModeAdjustKeepAspect
 		url     = "https://example.com/b.png"
 	)
 	want := []string{

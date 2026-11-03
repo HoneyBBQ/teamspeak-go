@@ -125,6 +125,12 @@ const (
 	// ClientAddServerGroup is clientaddservergroup: adds a client to one or more
 	// server groups specified with sgid.
 	ClientAddServerGroup = "clientaddservergroup"
+	// ClientChatClosed is clientchatclosed: tells a client that this client closed
+	// its private chat with it. Voice protocol only.
+	ClientChatClosed = "clientchatclosed"
+	// ClientChatComposing is clientchatcomposing: tells a client that this client
+	// is typing a private message to it. Voice protocol only.
+	ClientChatComposing = "clientchatcomposing"
 	// ClientDBDelete is clientdbdelete: deletes a client's properties from the
 	// database.
 	ClientDBDelete = "clientdbdelete"
@@ -343,6 +349,9 @@ const (
 	// PermReset is permreset: restores the default permission settings on the
 	// selected virtual server and creates a new initial administrator token.
 	PermReset = "permreset"
+	// PluginCmd is plugincmd: sends a plugin's data to the clients running that
+	// plugin, in a channel, on the server or to one client. Voice protocol only.
+	PluginCmd = "plugincmd"
 	// PrivilegeKeyAdd is privilegekeyadd: creates a new privilege key, a token
 	// that grants a server or channel group.
 	PrivilegeKeyAdd = "privilegekeyadd"

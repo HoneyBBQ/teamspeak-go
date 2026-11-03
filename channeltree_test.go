@@ -602,7 +602,7 @@ func TestChannelTree_ApplyCreatedHoldsTheServersDefaults(t *testing.T) {
 		IsMaxFamilyClientsInherited: new(false),
 		IsForcedSilence:             new(false),
 		DeleteDelay:                 new(time.Duration(0)),
-		BannerMode:                  new(int32(0)),
+		BannerMode:                  new(BannerModeNoAdjust),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("created channel = %+v, want %+v", got, want)

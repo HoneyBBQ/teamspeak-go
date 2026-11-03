@@ -630,11 +630,14 @@ func ChannelChanges(params map[string]string) teamspeak.ChannelChanges {
 		NamePhonetic:                key(params, "channel_name_phonetic", identity[string]),
 		IsForcedSilence:             key(params, "channel_forced_silence", asBool),
 		BannerURL:                   key(params, "channel_banner_gfx_url", identity[string]),
-		BannerMode:                  key(params, "channel_banner_mode", asInt32),
+		BannerMode:                  key(params, "channel_banner_mode", asBannerMode),
 		StorageQuota:                key(params, "channel_storage_quota", uintOrZero),
 		FilePath:                    key(params, "channel_filepath", identity[string]),
 	}
 }
+
+// asBannerMode reads a banner mode, clamped to 32 bits like asInt32.
+func asBannerMode(s string) teamspeak.BannerMode { return teamspeak.BannerMode(asInt32(s)) }
 
 // asCodec reads a codec, clamped to one byte rather than wrapped.
 func asCodec(s string) teamspeak.Codec {

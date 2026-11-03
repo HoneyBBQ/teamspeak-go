@@ -26,7 +26,7 @@ func TestListServers(t *testing.T) {
 		t.Errorf("sent %q, want %q", s.sent[0], want)
 	}
 	want := VirtualServer{
-		ID: 2, Port: 9987, Status: "online", Name: "ctw new", UID: "6SM/NYHQYWb74oLekyndKNO415Q=",
+		ID: 2, Port: 9987, Status: VirtualServerStatusOnline, Name: "ctw new", UID: "6SM/NYHQYWb74oLekyndKNO415Q=",
 		Uptime: 44 * time.Second, ClientsOnline: 0, QueryClientsOnline: 1, MaxClients: 8, Autostart: true,
 	}
 	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
@@ -47,7 +47,8 @@ func TestListServers_Short(t *testing.T) {
 	if want := "serverlist -short -onlyoffline"; s.sent[0] != want {
 		t.Errorf("sent %q, want %q", s.sent[0], want)
 	}
-	if want := (VirtualServer{ID: 1, Port: 9987, Status: "offline"}); len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+	want := VirtualServer{ID: 1, Port: 9987, Status: VirtualServerStatusOffline}
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("servers = %+v, want %+v", got, want)
 	}
 

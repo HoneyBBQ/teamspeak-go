@@ -228,7 +228,7 @@ type ChannelChanges struct {
 	// BannerURL is the new Channel.BannerURL.
 	BannerURL *string
 	// BannerMode is the new Channel.BannerMode.
-	BannerMode *int32
+	BannerMode *BannerMode
 	// EmptyFor is the new Channel.EmptyFor. The notification reader never sets
 	// it, though Apply honours it.
 	EmptyFor *time.Duration

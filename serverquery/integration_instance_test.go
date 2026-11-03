@@ -51,7 +51,7 @@ func serverStatus(ctx context.Context, t *testing.T, c *serverquery.Client, id t
 		return "absent"
 	}
 
-	return servers[i].Status
+	return string(servers[i].Status)
 }
 
 // A second virtual server is created, stopped, started and deleted, beside the

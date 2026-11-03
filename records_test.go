@@ -146,7 +146,7 @@ func TestParseChannel_ReadsTheChannelInfoFields(t *testing.T) {
 		ID: 5, Name: "Lobby", CodecLatencyFactor: new(int32(2)), IsUnencrypted: new(true),
 		IsMaxClientsUnlimited: new(true), IsMaxFamilyClientsUnlimited: new(false),
 		IsMaxFamilyClientsInherited: new(true), DeleteDelay: new(90 * time.Second), NamePhonetic: "lob",
-		IsForcedSilence: new(false), BannerURL: "https://example.test/b.png", BannerMode: new(int32(1)),
+		IsForcedSilence: new(false), BannerURL: "https://example.test/b.png", BannerMode: new(BannerModeAdjustIgnoreAspect),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseChannel = %+v\nwant %+v", got, want)
