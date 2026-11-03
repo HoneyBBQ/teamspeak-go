@@ -50,7 +50,8 @@ const (
 	// server started.
 	VirtualServerUptime = "virtualserver_uptime"
 	// VirtualServerCodecEncryptionMode is virtualserver_codec_encryption_mode: the
-	// global codec encryption mode of the virtual server. Editable.
+	// global codec encryption mode of the virtual server, a
+	// teamspeak.CodecEncryptionMode. Editable.
 	VirtualServerCodecEncryptionMode = "virtualserver_codec_encryption_mode"
 	// VirtualServerHostMessage is virtualserver_hostmessage: the host message of
 	// the server. Editable.
@@ -236,7 +237,7 @@ const (
 	// unclaimed server, 0 if not.
 	VirtualServerAskForPrivilegeKey = "virtualserver_ask_for_privilegekey"
 	// VirtualServerHostBannerMode is virtualserver_hostbanner_mode: the display
-	// mode for the virtual servers hostbanner. Editable.
+	// mode for the virtual servers hostbanner, a teamspeak.BannerMode. Editable.
 	VirtualServerHostBannerMode = "virtualserver_hostbanner_mode"
 	// VirtualServerChannelTempDeleteDelayDefault is
 	// virtualserver_channel_temp_delete_delay_default: default delay, in seconds,
@@ -263,7 +264,7 @@ const (
 	// backend of the server's files; empty for the local disk. TeamSpeak 3 only.
 	VirtualServerFileStorageClass = "virtualserver_file_storage_class"
 	// VirtualServerStatus is virtualserver_status: status of the virtual server
-	// (online | virtual online | offline | booting up | shutting down). Editable.
+	// (online | online virtual | offline | booting up | shutting down). Editable.
 	VirtualServerStatus = "virtualserver_status"
 	// ConnectionFileTransferBandwidthSent is
 	// connection_filetransfer_bandwidth_sent: current file transfer upload speed,

@@ -3,9 +3,18 @@
 const APIKeyScopeManage APIKeyScope = "manage"
 const APIKeyScopeRead APIKeyScope = "read"
 const APIKeyScopeWrite APIKeyScope = "write"
+const BannerModeAdjustIgnoreAspect BannerMode = 1
+const BannerModeAdjustKeepAspect BannerMode = 2
+const BannerModeNoAdjust BannerMode = 0
+const BindingSubsystemFileTransfer BindingSubsystem = "filetransfer"
+const BindingSubsystemQuery BindingSubsystem = "query"
+const BindingSubsystemVoice BindingSubsystem = "voice"
 const ClientTypeQuery ClientType = 1
 const ClientTypeVoice ClientType = 0
 const CodecCELTMono Codec = 3
+const CodecEncryptionModeForcedOff CodecEncryptionMode = 1
+const CodecEncryptionModeForcedOn CodecEncryptionMode = 2
+const CodecEncryptionModePerChannel CodecEncryptionMode = 0
 const CodecOpusMusic Codec = 5
 const CodecOpusVoice Codec = 4
 const CodecSpeexNarrowband Codec = 0
@@ -64,6 +73,11 @@ const StatusDisconnected Status = 0
 const TextMessageTargetChannel TextMessageTarget = 2
 const TextMessageTargetClient TextMessageTarget = 1
 const TextMessageTargetServer TextMessageTarget = 3
+const VirtualServerStatusBootingUp VirtualServerStatus = "booting up"
+const VirtualServerStatusOffline VirtualServerStatus = "offline"
+const VirtualServerStatusOnline VirtualServerStatus = "online"
+const VirtualServerStatusOnlineVirtual VirtualServerStatus = "online virtual"
+const VirtualServerStatusShuttingDown VirtualServerStatus = "shutting down"
 var ErrAlreadyConnected error
 var ErrFileTransfer error
 var ErrInvalidBackoff error
@@ -174,12 +188,15 @@ field BanOptions.MyTSID string
 field BanOptions.LastNickname string
 field BanOptions.Reason string
 field BanOptions.Duration time.Duration
+type BannerMode int32
+method (BannerMode) String() string
 type Binding struct
-field Binding.Subsystem string
+field Binding.Subsystem BindingSubsystem
 field Binding.IP string
 field Binding.Port *uint16
 type BindingListOptions struct
-field BindingListOptions.Subsystem string
+field BindingListOptions.Subsystem BindingSubsystem
+type BindingSubsystem string
 type Channel struct
 field Channel.UID ChannelUID
 field Channel.Name string
@@ -210,7 +227,7 @@ field Channel.DeleteDelay *time.Duration
 field Channel.NamePhonetic string
 field Channel.IsForcedSilence *bool
 field Channel.BannerURL string
-field Channel.BannerMode *int32
+field Channel.BannerMode *BannerMode
 field Channel.EmptyFor *time.Duration
 field Channel.StorageQuota *uint64
 field Channel.FilePath string
@@ -244,7 +261,7 @@ field ChannelChanges.DeleteDelay *time.Duration
 field ChannelChanges.NamePhonetic *string
 field ChannelChanges.IsForcedSilence *bool
 field ChannelChanges.BannerURL *string
-field ChannelChanges.BannerMode *int32
+field ChannelChanges.BannerMode *BannerMode
 field ChannelChanges.EmptyFor *time.Duration
 field ChannelChanges.StorageQuota *uint64
 field ChannelChanges.FilePath *string
@@ -271,7 +288,7 @@ field ChannelCreateOptions.IsMaxClientsUnlimited *bool
 field ChannelCreateOptions.IsMaxFamilyClientsUnlimited *bool
 field ChannelCreateOptions.IsMaxFamilyClientsInherited *bool
 field ChannelCreateOptions.BannerURL *string
-field ChannelCreateOptions.BannerMode *int32
+field ChannelCreateOptions.BannerMode *BannerMode
 field ChannelCreateOptions.Name string
 field ChannelCreateOptions.ParentID ChannelID
 type ChannelCreatedEvent struct
@@ -314,7 +331,7 @@ field ChannelEditOptions.IsMaxClientsUnlimited *bool
 field ChannelEditOptions.IsMaxFamilyClientsUnlimited *bool
 field ChannelEditOptions.IsMaxFamilyClientsInherited *bool
 field ChannelEditOptions.BannerURL *string
-field ChannelEditOptions.BannerMode *int32
+field ChannelEditOptions.BannerMode *BannerMode
 type ChannelEditedEvent struct
 field ChannelEditedEvent.Changes ChannelChanges
 field ChannelEditedEvent.InvokerName string
@@ -621,6 +638,8 @@ field ClientUpdatedEvent.ClientID ClientID
 field ClientUpdatedEvent.InvokerID ClientID
 type Codec uint8
 method (Codec) String() string
+type CodecEncryptionMode int32
+method (CodecEncryptionMode) String() string
 type CommandMiddleware func(next Executor) Executor
 type Commands struct
 method (*Commands) AddAPIKey(ctx context.Context, opts APIKeyOptions) (APIKeyCreated, error)
@@ -1190,7 +1209,7 @@ field UploadFileOptions.Overwrite bool
 field UploadFileOptions.Resume bool
 type VirtualServer struct
 field VirtualServer.Name string
-field VirtualServer.Status string
+field VirtualServer.Status VirtualServerStatus
 field VirtualServer.UID string
 field VirtualServer.MachineID string
 field VirtualServer.Uptime time.Duration
@@ -1204,12 +1223,13 @@ field VirtualServer.UUID string
 field VirtualServer.GuestCanCreateChannels *bool
 field VirtualServer.GuestCanCreateHomebase *bool
 field VirtualServer.WeblistEnabled *bool
+type VirtualServerStatus string
 type VoiceDataEvent struct
 field VoiceDataEvent.Data []byte
 field VoiceDataEvent.ClientID ClientID
 field VoiceDataEvent.Codec Codec
 type WhoAmI struct
-field WhoAmI.ServerStatus string
+field WhoAmI.ServerStatus VirtualServerStatus
 field WhoAmI.ServerUID string
 field WhoAmI.Nickname string
 field WhoAmI.LoginName string

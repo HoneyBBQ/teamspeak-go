@@ -28,9 +28,9 @@ type VirtualServer struct {
 	// Name is the server's name (virtualserver_name); empty with
 	// ServerListOptions.Short.
 	Name string
-	// Status is the server's state (virtualserver_status), such as "online",
-	// "offline", "booting up", "shutting down" or "virtual online".
-	Status string
+	// Status is the server's state (virtualserver_status); see
+	// VirtualServerStatus, which includes "online virtual".
+	Status VirtualServerStatus
 	// UID is the server's unique identifier (virtualserver_unique_identifier);
 	// empty unless ServerListOptions.UID.
 	UID string
@@ -76,7 +76,7 @@ func parseVirtualServer(row map[string]string) VirtualServer {
 	return VirtualServer{
 		ID:                 ServerID(fieldUint(row, "virtualserver_id")),
 		Port:               fieldUint16(row, "virtualserver_port"),
-		Status:             fieldStr(row, "virtualserver_status"),
+		Status:             VirtualServerStatus(fieldStr(row, "virtualserver_status")),
 		Name:               fieldStr(row, "virtualserver_name"),
 		UID:                fieldStr(row, "virtualserver_unique_identifier"),
 		MachineID:          fieldStr(row, "virtualserver_machine_id"),

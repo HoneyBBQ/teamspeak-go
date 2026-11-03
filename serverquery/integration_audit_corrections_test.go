@@ -111,7 +111,7 @@ func TestQueryAdmin_ChannelBannerAndOptionsRoundTrip(t *testing.T) {
 	forEachTransport(t, 1, func(t *testing.T, c *serverquery.Client, _ teamspeak.ServerFamily, transport string) {
 		ctx := adminCtx(t)
 		url := "https://example.com/banner.png"
-		mode, factor, on := int32(1), int32(3), true
+		mode, factor, on := teamspeak.BannerModeAdjustIgnoreAspect, int32(3), true
 		cid, err := c.CreateChannel(ctx, teamspeak.ChannelCreateOptions{
 			Name: "ts-go-banner-" + strconv.FormatInt(time.Now().UnixNano(), 36), BannerURL: &url, BannerMode: &mode,
 		})
@@ -132,7 +132,7 @@ func TestQueryAdmin_ChannelBannerAndOptionsRoundTrip(t *testing.T) {
 		}
 
 		other := "https://example.com/other.png"
-		mode2 := int32(2)
+		mode2 := teamspeak.BannerModeAdjustKeepAspect
 		err = c.EditChannel(ctx, cid, teamspeak.ChannelEditOptions{
 			BannerURL: &other, BannerMode: &mode2, CodecLatencyFactor: &factor,
 			IsUnencrypted: &on, IsMaxClientsUnlimited: &on, IsMaxFamilyClientsUnlimited: &on,

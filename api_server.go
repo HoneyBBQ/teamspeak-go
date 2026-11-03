@@ -146,10 +146,10 @@ func stringParams(settings Properties) []param {
 
 // Binding is one active IP binding.
 type Binding struct {
-	// Subsystem is what the binding serves: "voice", "query" or "filetransfer".
-	// The server does not name it in each row, so it is the subsystem asked
-	// for, or "voice" when none was.
-	Subsystem string
+	// Subsystem is what the binding serves. The server does not name it in each
+	// row, so it is the subsystem asked for, or BindingSubsystemVoice when none
+	// was.
+	Subsystem BindingSubsystem
 	// IP is the address bound (ip).
 	IP string
 	// Port is the port bound (port); nil when the server does not report it.
@@ -158,9 +158,8 @@ type Binding struct {
 
 // BindingListOptions are ListBindings' optional parameters.
 type BindingListOptions struct {
-	// Subsystem is "voice", "query" or "filetransfer"; "" is the server's
-	// default.
-	Subsystem string
+	// Subsystem is the subsystem to list; "" is the server's default.
+	Subsystem BindingSubsystem
 }
 
 // ListBindings returns the instance's active IP bindings, when it is
@@ -170,20 +169,20 @@ type BindingListOptions struct {
 // Server Admin group holds by default — expect error 2568 until it is granted.
 // Granted, it works over the voice protocol like any other query.
 func (c *Commands) ListBindings(ctx context.Context, opts BindingListOptions) ([]Binding, error) {
-	rows, err := c.list(ctx, "bindinglist", []param{optStrArg("subsystem", opts.Subsystem)})
+	rows, err := c.list(ctx, "bindinglist", []param{optStrArg("subsystem", string(opts.Subsystem))})
 	if err != nil {
 		return nil, err
 	}
 
 	subsystem := opts.Subsystem
 	if subsystem == "" {
-		subsystem = "voice"
+		subsystem = BindingSubsystemVoice
 	}
 
 	out := make([]Binding, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, Binding{
-			Subsystem: cmp.Or(fieldStr(row, "subsystem"), subsystem),
+			Subsystem: cmp.Or(BindingSubsystem(fieldStr(row, "subsystem")), subsystem),
 			IP:        fieldStr(row, "ip"),
 			Port:      fieldOptUint16(row, "port"),
 		})
@@ -218,9 +217,8 @@ func (c *Commands) GetVersion(ctx context.Context) (ServerVersion, error) {
 
 // WhoAmI is which server and client a connection is, as the server sees it.
 type WhoAmI struct {
-	// ServerStatus is the virtual server's state, such as "online"
-	// (virtualserver_status).
-	ServerStatus string
+	// ServerStatus is the virtual server's state (virtualserver_status).
+	ServerStatus VirtualServerStatus
 	// ServerUID is the virtual server's unique identifier
 	// (virtualserver_unique_identifier).
 	ServerUID string
@@ -262,7 +260,7 @@ func (c *Commands) WhoAmI(ctx context.Context) (WhoAmI, error) {
 	}
 
 	return WhoAmI{
-		ServerStatus: fieldStr(row, "virtualserver_status"),
+		ServerStatus: VirtualServerStatus(fieldStr(row, "virtualserver_status")),
 		ServerID:     ServerID(fieldUint(row, "virtualserver_id")),
 		ServerUID:    fieldStr(row, "virtualserver_unique_identifier"),
 		ServerPort:   fieldUint16(row, "virtualserver_port"),

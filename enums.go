@@ -195,10 +195,96 @@ func (m HostMessageMode) String() string {
 	return enumName(m, hostMessageModeNames[:], "host message mode")
 }
 
+// BannerMode is how a banner image is fitted to its space: the channel banner
+// (channel_banner_mode) and the server's host banner
+// (virtualserver_hostbanner_mode).
+type BannerMode int32
+
+const (
+	// BannerModeNoAdjust leaves the image as it is.
+	BannerModeNoAdjust BannerMode = 0
+	// BannerModeAdjustIgnoreAspect fits the image to the space and ignores its
+	// aspect ratio.
+	BannerModeAdjustIgnoreAspect BannerMode = 1
+	// BannerModeAdjustKeepAspect fits the image to the space and keeps its aspect
+	// ratio.
+	BannerModeAdjustKeepAspect BannerMode = 2
+)
+
+var bannerModeNames = [...]string{
+	BannerModeNoAdjust:           "no adjust",
+	BannerModeAdjustIgnoreAspect: "adjust, ignore aspect ratio",
+	BannerModeAdjustKeepAspect:   "adjust, keep aspect ratio",
+}
+
+// String returns the banner mode's name, or "banner mode N" for a value this version does
+// not know.
+func (m BannerMode) String() string {
+	return enumName(m, bannerModeNames[:], "banner mode")
+}
+
+// CodecEncryptionMode is whether a server encrypts voice
+// (virtualserver_codec_encryption_mode).
+type CodecEncryptionMode int32
+
+const (
+	// CodecEncryptionModePerChannel lets each channel's
+	// channel_codec_is_unencrypted decide.
+	CodecEncryptionModePerChannel CodecEncryptionMode = 0
+	// CodecEncryptionModeForcedOff never encrypts voice.
+	CodecEncryptionModeForcedOff CodecEncryptionMode = 1
+	// CodecEncryptionModeForcedOn always encrypts voice.
+	CodecEncryptionModeForcedOn CodecEncryptionMode = 2
+)
+
+var codecEncryptionModeNames = [...]string{
+	CodecEncryptionModePerChannel: "per channel",
+	CodecEncryptionModeForcedOff:  "forced off",
+	CodecEncryptionModeForcedOn:   "forced on",
+}
+
+// String returns the codec encryption mode's name, or "codec encryption mode N" for a value this version does
+// not know.
+func (m CodecEncryptionMode) String() string {
+	return enumName(m, codecEncryptionModeNames[:], "codec encryption mode")
+}
+
+// VirtualServerStatus is the state of a virtual server (virtualserver_status).
+// The server may report a state newer than these.
+type VirtualServerStatus string
+
+const (
+	// VirtualServerStatusOnline is a running server.
+	VirtualServerStatusOnline VirtualServerStatus = "online"
+	// VirtualServerStatusOffline is a stopped server.
+	VirtualServerStatusOffline VirtualServerStatus = "offline"
+	// VirtualServerStatusOnlineVirtual is a stopped server that a ServerQuery
+	// client selected with -virtual, so that it can be configured. Voice clients
+	// cannot connect to it, and it returns to offline when the last query client
+	// deselects it.
+	VirtualServerStatusOnlineVirtual VirtualServerStatus = "online virtual"
+	// VirtualServerStatusBootingUp is a server that is starting.
+	VirtualServerStatusBootingUp VirtualServerStatus = "booting up"
+	// VirtualServerStatusShuttingDown is a server that is stopping.
+	VirtualServerStatusShuttingDown VirtualServerStatus = "shutting down"
+)
+
+// BindingSubsystem is what an IP binding serves.
+type BindingSubsystem string
+
+const (
+	// BindingSubsystemVoice is the voice port.
+	BindingSubsystemVoice BindingSubsystem = "voice"
+	// BindingSubsystemQuery is the ServerQuery port.
+	BindingSubsystemQuery BindingSubsystem = "query"
+	// BindingSubsystemFileTransfer is the file transfer port.
+	BindingSubsystemFileTransfer BindingSubsystem = "filetransfer"
+)
+
 // enumName names v from names, indexed by value, or describes it by number: the
 // server may send a value newer than this package, and printing it beats
 // printing nothing.
-func enumName[T ~int | ~uint8](v T, names []string, kind string) string {
+func enumName[T ~int | ~int32 | ~uint8](v T, names []string, kind string) string {
 	if v >= 0 && int(v) < len(names) && names[v] != "" {
 		return names[v]
 	}

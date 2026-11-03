@@ -3,6 +3,49 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- `commands.ClientChatClosed`, `ClientChatComposing` and `PluginCmd` name the
+  voice-protocol-only commands that `ClosePrivateChat`, `SendChatComposing` and
+  `SendPluginCommand` send, so a `CommandMiddleware` can match them like the
+  rest. A test now fails when the module sends a command that package
+  `commands` has no name for.
+- `BannerMode` (`BannerModeNoAdjust`, `BannerModeAdjustIgnoreAspect`,
+  `BannerModeAdjustKeepAspect`) is how a banner image is fitted to its space,
+  for `channel_banner_mode` and `virtualserver_hostbanner_mode`.
+  `CodecEncryptionMode` (`CodecEncryptionModePerChannel`,
+  `CodecEncryptionModeForcedOff`, `CodecEncryptionModeForcedOn`) is
+  `virtualserver_codec_encryption_mode`. Both have a `String` method. The
+  servers accept exactly 0, 1 and 2 for these properties and refuse anything
+  else with 1538 (measured on TeamSpeak 3 3.13 and TeamSpeak 6).
+- `VirtualServerStatus` (`VirtualServerStatusOnline`, `Offline`,
+  `OnlineVirtual`, `BootingUp`, `ShuttingDown`) and `BindingSubsystem`
+  (`BindingSubsystemVoice`, `Query`, `FileTransfer`) name the values of
+  `virtualserver_status` and of `bindinglist`'s `subsystem`.
+  `online virtual` is a stopped server that a ServerQuery client selected with
+  `-virtual`; the servers' help text calls it "virtual online", but neither
+  server sends that.
+
+### Changed
+
+- **Breaking:** these fields have named types. Convert at the boundary with
+  the type's name, as you already do for `Codec`:
+  - `Channel.BannerMode`, `ChannelCreateOptions.BannerMode`,
+    `ChannelEditOptions.BannerMode` and `ChannelChanges.BannerMode` are
+    `*BannerMode`, not `*int32`. Write `m := teamspeak.BannerModeAdjustKeepAspect`
+    and `&m`, or `new(teamspeak.BannerMode(2))`, and read a stored value with
+    `int32(*ch.BannerMode)`.
+  - `VirtualServer.Status` and `WhoAmI.ServerStatus` are `VirtualServerStatus`,
+    not `string`. Compare with `teamspeak.VirtualServerStatusOnline` or
+    `status == "online"` (an untyped constant converts), and use
+    `string(v.Status)` where a `string` is needed.
+  - `Binding.Subsystem` and `BindingListOptions.Subsystem` are
+    `BindingSubsystem`, not `string`. Pass `teamspeak.BindingSubsystemQuery` or
+    `teamspeak.BindingSubsystem(name)`, and use `string(b.Subsystem)` where a
+    `string` is needed. The empty value is still the server's default.
+
 ## v1.0.0-beta.17 (2026-10-23)
 
 ### Fixed

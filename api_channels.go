@@ -115,8 +115,8 @@ type Channel struct {
 	// BannerURL is the channel banner's address (channel_banner_gfx_url); empty
 	// when not carried.
 	BannerURL string
-	// BannerMode is how the banner is shown (channel_banner_mode).
-	BannerMode *int32
+	// BannerMode is how the banner is fitted (channel_banner_mode).
+	BannerMode *BannerMode
 	// EmptyFor is how long the channel has had no client in it
 	// (seconds_empty, which ListChannels asks for with -secondsempty). It is
 	// nil for a channel that holds a client: both servers send -1 then, and
@@ -171,7 +171,7 @@ func parseChannel(row map[string]string) Channel {
 		NamePhonetic:                fieldStr(row, "channel_name_phonetic"),
 		IsForcedSilence:             fieldOptBool(row, "channel_forced_silence"),
 		BannerURL:                   fieldStr(row, "channel_banner_gfx_url"),
-		BannerMode:                  fieldOptInt32(row, "channel_banner_mode"),
+		BannerMode:                  fieldOptBannerMode(row, "channel_banner_mode"),
 		EmptyFor:                    fieldOptEmptyFor(row, "seconds_empty"),
 		StorageQuota:                fieldOptUint64(row, "channel_storage_quota"),
 		FilePath:                    fieldStr(row, "channel_filepath"),
@@ -248,8 +248,8 @@ type ChannelCreateOptions struct {
 	// BannerURL is the channel banner's address (channel_banner_gfx_url); it
 	// takes b_channel_modify_banner. A pointer to "" clears it.
 	BannerURL *string
-	// BannerMode is how the banner is shown (channel_banner_mode).
-	BannerMode *int32
+	// BannerMode is how the banner is fitted (channel_banner_mode).
+	BannerMode *BannerMode
 
 	// Name is the channel's name (channel_name). Required.
 	Name string
@@ -386,8 +386,8 @@ type ChannelEditOptions struct {
 	// BannerURL is the channel banner's address (channel_banner_gfx_url); it
 	// takes b_channel_modify_banner. A pointer to "" clears it.
 	BannerURL *string
-	// BannerMode is how the banner is shown (channel_banner_mode).
-	BannerMode *int32
+	// BannerMode is how the banner is fitted (channel_banner_mode).
+	BannerMode *BannerMode
 }
 
 // EditChannel changes a channel's settings.
@@ -642,4 +642,16 @@ func (c *Commands) FindChannels(ctx context.Context, pattern string) ([]ChannelM
 	}
 
 	return out, nil
+}
+
+// fieldOptBannerMode reads a banner mode an answer may leave out: nil when the
+// key is absent or empty.
+func fieldOptBannerMode(row map[string]string, key string) *BannerMode {
+	value := fieldOptInt32(row, key)
+	if value == nil {
+		return nil
+	}
+	mode := BannerMode(*value)
+
+	return &mode
 }
