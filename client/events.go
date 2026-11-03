@@ -259,20 +259,6 @@ func (c *Client) OnClientMoved(handler func(ClientMovedEvent)) func() {
 	return c.onClientMoved.Add(handler)
 }
 
-// OnVoiceData registers a handler for incoming voice or whisper audio. It
-// returns a function that removes the handler.
-//
-// Voice is the one event that can be dropped: when more than 256 deliveries
-// of any kind are waiting for the handlers, incoming voice is discarded until
-// they catch up, and the client logs a warning, at most once every ten
-// seconds, with how much it dropped. Every other event is always delivered.
-//
-// A panic in handler is recovered and logged at Error with the event type;
-// the other handlers and later events are still delivered.
-func (c *Client) OnVoiceData(handler func(VoiceDataEvent)) func() {
-	return c.onVoiceData.Add(handler)
-}
-
 // OnNotification registers a handler for every notification the server sends,
 // as it arrived: the way to hear one the SDK does not model. It runs after the
 // typed handlers for the same notification. It returns a function that removes
@@ -370,11 +356,6 @@ func (c *Client) buildMiddlewareChains() {
 // goroutine too, so a slow middleware does not stall the read loop either.
 func (c *Client) emitEvent(evt Event) {
 	run := func() { eventbus.CallHandler(c.logger, eventbus.EventName(evt), func() { c.evtChain(evt) }) }
-	if _, voice := evt.(VoiceDataEvent); voice {
-		c.events.PushVoice(run, c.logger)
-
-		return
-	}
 	c.events.Push(run)
 }
 
@@ -422,12 +403,6 @@ func (c *Client) dispatchEvent(evt Event) {
 		c.onClientMoved.Deliver(c.logger, eventbus.EventName(e), e, servernotify.CloneClientMoved)
 	case PokeEvent:
 		c.onPoked.Deliver(c.logger, eventbus.EventName(e), e, nil)
-	case VoiceDataEvent:
-		c.onVoiceData.Deliver(c.logger, eventbus.EventName(e), e, func(v VoiceDataEvent) VoiceDataEvent {
-			v.Data = slices.Clone(v.Data)
-
-			return v
-		})
 	case NotificationEvent:
 		c.onNotification.Deliver(c.logger, eventbus.EventName(e), e, func(n NotificationEvent) NotificationEvent {
 			n.Params = maps.Clone(n.Params)

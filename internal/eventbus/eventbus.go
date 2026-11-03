@@ -26,7 +26,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // Queue runs queued deliveries one at a time, in order. Its goroutine exists
@@ -35,12 +34,9 @@ import (
 //
 // The zero value is ready to use.
 type Queue struct {
-	lastVoiceWarn time.Time
-	pending       []func()
-	// voiceDropped counts voice deliveries dropped since the last warning.
-	voiceDropped uint64
-	mu           sync.Mutex
-	running      bool
+	pending []func()
+	mu      sync.Mutex
+	running bool
 }
 
 // Push queues a delivery.
@@ -163,42 +159,6 @@ func CallHandler(logger *slog.Logger, name string, fn func()) {
 // log reports it.
 func EventName(evt any) string {
 	return strings.TrimPrefix(fmt.Sprintf("%T", evt), "teamspeak.")
-}
-
-// MaxQueuedForVoice is how many deliveries may be pending before voice is
-// dropped. Ordinary events are rare and always queued; voice arrives fifty
-// times a second per speaker, so a handler slower than that would otherwise
-// grow the queue without bound.
-const MaxQueuedForVoice = 256
-
-// VoiceDropWarnInterval is the least time between two warnings about dropped
-// voice.
-const VoiceDropWarnInterval = 10 * time.Second
-
-// PushVoice queues a voice delivery, or drops it when more than
-// MaxQueuedForVoice deliveries are already waiting, warning at most once per
-// VoiceDropWarnInterval with how many were dropped.
-func (q *Queue) PushVoice(delivery func(), logger *slog.Logger) {
-	q.mu.Lock()
-	if len(q.pending) > MaxQueuedForVoice {
-		q.voiceDropped++
-		now := time.Now()
-		if now.Sub(q.lastVoiceWarn) < VoiceDropWarnInterval {
-			q.mu.Unlock()
-
-			return
-		}
-		dropped := q.voiceDropped
-		q.voiceDropped = 0
-		q.lastVoiceWarn = now
-		q.mu.Unlock()
-		logger.Warn("event handlers are falling behind, dropping voice data",
-			slog.Uint64("dropped", dropped), slog.Int("queued", MaxQueuedForVoice))
-
-		return
-	}
-	q.mu.Unlock()
-	q.Push(delivery)
 }
 
 func (q *Queue) drain() {

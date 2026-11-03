@@ -3,36 +3,11 @@ package eventbus_test
 import (
 	"log/slog"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/honeybbq/teamspeak-go/internal/eventbus"
 )
-
-// Voice is dropped once the queue is backed up; other events are not.
-func TestQueueDropsVoiceWhenBackedUp(t *testing.T) {
-	var q eventbus.Queue
-	release := make(chan struct{})
-	q.Push(func() { <-release })
-	var delivered atomic.Int32
-	for range eventbus.MaxQueuedForVoice + 50 {
-		q.PushVoice(func() { delivered.Add(1) }, slog.New(slog.DiscardHandler))
-	}
-	ordinary := make(chan struct{})
-	q.Push(func() { close(ordinary) })
-	close(release)
-
-	select {
-	case <-ordinary:
-	case <-time.After(2 * time.Second):
-		t.Fatal("ordinary event not delivered")
-	}
-	want := int32(eventbus.MaxQueuedForVoice)
-	if got := delivered.Load(); got > want+1 || got < want {
-		t.Errorf("delivered %d voice events, want about %d", got, want)
-	}
-}
 
 // Deliveries run one at a time, in the order they were queued: a client that
 // enters and leaves at once must not be reported as leaving first.

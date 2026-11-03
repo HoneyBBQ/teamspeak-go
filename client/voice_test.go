@@ -3,7 +3,6 @@ package client
 import (
 	"encoding/binary"
 	"testing"
-	"time"
 
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
@@ -20,38 +19,34 @@ func voicePacket(speakerID uint16, codec byte, audio []byte) *transport.Packet {
 
 func TestHandleVoicePacket_DispatchesSpeakerAndAudio(t *testing.T) {
 	c := newTestClient(t)
-	got := make(chan VoiceDataEvent, 1)
-	c.OnVoiceData(func(vd VoiceDataEvent) { got <- vd })
+	r := newReceiver(t, c, 0)
 
 	audio := []byte{0xaa, 0xbb, 0xcc}
 	c.handleVoicePacket(voicePacket(42, 5, audio))
 
-	select {
-	case vd := <-got:
-		if vd.ClientID != 42 || vd.Codec != 5 || len(vd.Data) != len(audio) {
-			t.Errorf("got clid=%d codec=%d data=% x", vd.ClientID, vd.Codec, vd.Data)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("OnVoiceData was not called")
+	var vp VoicePacket
+	if !r.TryRead(&vp) {
+		t.Fatal("the receiver got no packet")
+	}
+	if vp.ClientID != 42 || vp.Codec != 5 || len(vp.Data) != len(audio) {
+		t.Errorf("got clid=%d codec=%d data=% x", vp.ClientID, vp.Codec, vp.Data)
 	}
 }
 
 // The server relays a client's empty frame, its end of speech, as a packet with
-// the header alone; it reaches handlers as an event with empty Data.
+// the header alone; it reaches receivers with empty Data.
 func TestHandleVoicePacket_DeliversEndOfSpeechAsEmptyData(t *testing.T) {
 	c := newTestClient(t)
-	got := make(chan VoiceDataEvent, 1)
-	c.OnVoiceData(func(vd VoiceDataEvent) { got <- vd })
+	r := newReceiver(t, c, 0)
 
 	c.handleVoicePacket(voicePacket(42, 4, nil))
 
-	select {
-	case vd := <-got:
-		if vd.ClientID != 42 || vd.Codec != 4 || len(vd.Data) != 0 {
-			t.Errorf("got clid=%d codec=%d data=% x", vd.ClientID, vd.Codec, vd.Data)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("OnVoiceData was not called for an empty frame")
+	var vp VoicePacket
+	if !r.TryRead(&vp) {
+		t.Fatal("the receiver got no packet for an empty frame")
+	}
+	if vp.ClientID != 42 || vp.Codec != 4 || len(vp.Data) != 0 {
+		t.Errorf("got clid=%d codec=%d data=% x", vp.ClientID, vp.Codec, vp.Data)
 	}
 }
 
@@ -60,25 +55,24 @@ func TestHandleVoicePacket_IgnoresOwnAudio(t *testing.T) {
 	c.mu.Lock()
 	c.clid = 7
 	c.mu.Unlock()
-
-	got := make(chan VoiceDataEvent, 1)
-	c.OnVoiceData(func(vd VoiceDataEvent) { got <- vd })
+	r := newReceiver(t, c, 0)
 
 	c.handleVoicePacket(voicePacket(7, 5, []byte{1, 2}))
 
-	select {
-	case vd := <-got:
-		t.Errorf("own audio should be ignored, got %+v", vd)
-	case <-time.After(200 * time.Millisecond):
+	var vp VoicePacket
+	if r.TryRead(&vp) {
+		t.Errorf("own audio should be ignored, got %+v", vp)
 	}
 }
 
 func TestHandleVoicePacket_IgnoresTruncatedPackets(t *testing.T) {
 	c := newTestClient(t)
-	c.OnVoiceData(func(VoiceDataEvent) { t.Error("handler called for a truncated packet") })
+	r := newReceiver(t, c, 0)
 
 	c.handleVoicePacket(&transport.Packet{Data: []byte{0, 1, 2}})
-	// Events are delivered in order: once this marker has run, a delivery the
-	// packet had queued would have run too.
-	waitDelivered(t, c)
+
+	var vp VoicePacket
+	if r.TryRead(&vp) {
+		t.Errorf("a truncated packet reached the receiver: %+v", vp)
+	}
 }

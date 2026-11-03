@@ -37,9 +37,6 @@ type ClientLeaveEvent = teamspeak.ClientLeaveEvent
 // KickedEvent is teamspeak.KickedEvent.
 type KickedEvent = teamspeak.KickedEvent
 
-// VoiceDataEvent is teamspeak.VoiceDataEvent.
-type VoiceDataEvent = teamspeak.VoiceDataEvent
-
 // ClientUpdatedEvent is teamspeak.ClientUpdatedEvent.
 type ClientUpdatedEvent = teamspeak.ClientUpdatedEvent
 

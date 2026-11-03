@@ -39,7 +39,10 @@ func FuzzHandleCommandLines(f *testing.F) {
 			t.Fatalf("New: %v", err)
 		}
 		markConnecting(c)
-		c.OnVoiceData(func(VoiceDataEvent) {})
+		_, err = c.NewVoiceReceiver(VoiceReceiverOptions{})
+		if err != nil {
+			t.Fatalf("NewVoiceReceiver: %v", err)
+		}
 		c.handleCommandLines(c.handler, data)
 		c.handlePacket(c.handler, &transport.Packet{
 			TypeFlagged: byte(transport.PacketTypeVoice),

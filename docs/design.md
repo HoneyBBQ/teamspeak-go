@@ -161,6 +161,25 @@ c.OnNotification(func(n client.NotificationEvent) {
 - **A panic** in a handler is recovered and logged at Error with the event type.
   The other handlers and later events are still delivered. The JavaScript SDK
   rethrows a throwing listener as an uncaught exception instead.
+- **Voice is not an event.** Real-time data does not go through the ordered
+  event queue: events are never dropped and a blocked handler holds up those
+  behind it, which is wrong for audio. The JavaScript SDK keeps a `voiceData`
+  event because its listeners are not awaited; it has the same fields and the
+  same pull semantics through its `events()` iterator.
+- **Voice receivers.** `Client.NewVoiceReceiver` is how voice is taken: it
+  does not go through the event queue nor the middleware. The client copies
+  each packet into a preallocated ring per receiver and never waits for the
+  consumer, which reads with `Read(ctx, &p)` or `TryRead(&p)` into a
+  `VoicePacket` of its own. A full ring drops its oldest packet and counts it in
+  `Dropped`, so a slow consumer costs only its own packets. Receivers survive
+  reconnection and each packet carries its `Session`. A callback on the
+  goroutine that processes packets was rejected: a callback that blocks delays
+  every later packet of the connection, commands and acknowledgements included
+  (a handler that slept 30 ms a packet made a command take a second); and a
+  channel of packets either allocates a slice per packet or lends a buffer it
+  reuses, and cannot drop the oldest. The packet leaves out the id in the outer
+  header, which the server numbers per listener, and whether it arrived
+  encrypted, which the sender chooses: neither is a fact about the speaker.
 - **Middleware.** `client.WithEventMiddleware` sees each server event before the
   handlers and may pass it on, replace it or drop it; connected, disconnected
   and kicked bypass it. `client.WithCommandMiddleware` wraps the typed commands.
@@ -177,7 +196,9 @@ release; give a `switch` over them a default case.
 An API that may still change in a minor release says `Experimental:` in its doc
 comment, which `go doc` and pkg.go.dev show. Today that is the whole
 `serverquery` package, the server view (`Client.View`, `ServerView`,
-`ViewStatus` and the view events), `ChannelTree`, the `Previous` field of the
+`ViewStatus` and the view events), `ChannelTree`, the voice receiver
+(`Client.NewVoiceReceiver`, `VoiceReceiver`, `VoicePacket`,
+`VoiceReceiverOptions` and `ErrVoiceReceiverClosed`), the `Previous` field of the
 client-leave and channel-deleted events, and `Client.GetServerVariables`.
 
 ## Server behaviour the SDK works around

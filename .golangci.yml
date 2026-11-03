@@ -152,3 +152,4 @@ run:
   # Files behind the integration tag are linted with everything else.
   build-tags:
     - integration
+    - integration_voice

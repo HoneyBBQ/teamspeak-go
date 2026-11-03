@@ -29,7 +29,6 @@ re-exports them as aliases, so a future ServerQuery client shares them.
 | `OnClientLeave(func(ClientLeaveEvent))` | Fires when a client leaves |
 | `OnClientMoved(func(ClientMovedEvent))` | Fires when a client moves channels |
 | `OnPoked(func(PokeEvent))` | Fires when the bot is poked |
-| `OnVoiceData(func(VoiceDataEvent))` | Fires for each audio frame another client sends; dropped, with a warning, while more than 256 deliveries are waiting |
 | `OnNotification(func(NotificationEvent))` | Fires for every notification, as the server sent it |
 | `OnKicked(func(KickedEvent))` | Fires when the bot is kicked from its channel or the server |
 
@@ -59,7 +58,7 @@ Event middleware sees every server event before its handlers do — the events
 above except connected, disconnected and kicked, which report the connection
 itself and bypass it. It receives a `client.Event`, which is one of
 `TextMessageEvent`, `ClientEnterEvent`, `ClientLeaveEvent`, `ClientMovedEvent`,
-`PokeEvent`, `VoiceDataEvent` or `NotificationEvent`; it may pass the event on,
+`PokeEvent` or `NotificationEvent`; it may pass the event on,
 replace it, or drop it by not calling `next`.
 
 ```go
@@ -73,6 +72,57 @@ ignoreCommands := func(next func(client.Event)) func(client.Event) {
 }
 c, err := client.New(id, addr, "Bot", client.WithEventMiddleware(ignoreCommands))
 ```
+
+### Receiving voice
+
+Voice is not an event: it does not go through the event queue or the event
+middleware, so no handler can delay it. A bot that wants audio makes a
+`VoiceReceiver`, a bounded buffer that the client fills and the caller reads,
+in a goroutine of its own. The packets carry their order, arrival time and
+whether they were whispers:
+
+```go
+rx, err := c.NewVoiceReceiver(client.VoiceReceiverOptions{})
+if err != nil {
+	return err
+}
+defer rx.Close()
+
+var p client.VoicePacket // reused: after the first frames, reading allocates nothing
+for {
+	if err := rx.Read(ctx, &p); err != nil {
+		return err // ctx ended, or rx was closed
+	}
+	frame := slices.Clone(p.Data) // to keep a frame past the next Read, copy it
+	handle(p.Session, p.ClientID, p.Whisper, p.Seq, p.Codec, p.ReceivedAt, frame)
+}
+```
+
+`Read` waits; `TryRead` takes what has arrived and returns, for a loop that a
+clock of its own drives. The receiver is the client's, not a connection's: it
+may be made before `Connect` and goes on through reconnections, and every
+packet says which session (`Client.Session`) it arrived in.
+
+A packet is what the speaker sent and the server relayed, with nothing
+interpreted:
+
+- `Seq` is the speaker's own packet counter, in step with what it sent and the
+  same for every listener. It wraps from 65535 to 0, so compare two with
+  `int16(a-b)`. Whispers have a counter of their own, so a speaker's packets are
+  told apart by `ClientID` and `Whisper`, and, because a client id names a
+  client only within one session, by `Session` too. A speaker's client sets
+  `Seq`: do not let it grow a buffer without bound.
+- The client does not reorder, deduplicate or fill gaps. A gap in `Seq` is a
+  packet lost or still to come; the server itself reorders packets now and then.
+- `Data` is empty at the end of speech by convention. The end frame has its
+  own `Seq`, and can be lost like any packet.
+- `ReceivedAt` is the time the datagram was read from the socket, with a
+  monotonic reading, so the difference of two is the time between their arrivals.
+
+The client never waits for a receiver. One that is not read fast enough drops
+its oldest packets and counts them in `Dropped`; the connection, the events and
+the other receivers go on. Every receiver gets every packet, so a second
+consumer makes a second receiver. `VoiceReceiver` is experimental.
 
 ### Server info
 
