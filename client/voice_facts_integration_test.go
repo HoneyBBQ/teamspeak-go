@@ -151,6 +151,9 @@ func x5EncryptionMatrix(t *testing.T, sendEncrypted bool) {
 			l.Printf("[%s] A sends UNENCRYPTED (the SDK's path): B received %d/40; %s", tc.name, len(plain), x5Summary(plain))
 			x5Tapflags(l, "["+tc.name+"] B", b)
 			x5CrossCheck(t, l, b)
+			if len(plain) == 0 {
+				t.Errorf("[%s] no unencrypted voice arrived", tc.name)
+			}
 			for _, p := range plain {
 				if p.Frame < 0 || p.Frame >= 40 {
 					t.Errorf("payload corrupted: %s", p)
@@ -180,9 +183,9 @@ func x5EncryptionMatrix(t *testing.T, sendEncrypted bool) {
 // payload either way?
 func TestIntegration_X5_T2_S2CEncryption(t *testing.T) { x5EncryptionMatrix(t, false) }
 
-// T3: does a forced-encryption server drop unencrypted C2S voice, and what
-// happens to voice the sender encrypts?
-func TestIntegration_X5_T3_ForcedEncryptionDropsPlainVoice(t *testing.T) { x5EncryptionMatrix(t, true) }
+// T3: does a forced-encryption server keep unencrypted C2S voice (measured: it
+// does, in every mode), and what happens to voice the sender encrypts?
+func TestIntegration_X5_T3_ForcedEncryptionKeepsPlainVoice(t *testing.T) { x5EncryptionMatrix(t, true) }
 
 // T2 also: switching the mode while the clients are connected.
 func TestIntegration_X5_T2_LiveModeSwitch(t *testing.T) {

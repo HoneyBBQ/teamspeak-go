@@ -289,9 +289,10 @@ jobs:
             -covermode=atomic -coverpkg=./... -coverprofile="$RUNNER_TEMP/cover-all.txt" ./...
       # The live voice-receiver cases (every case of the receiver's contract:
       # two speakers, voice and whisper, end of speech, wrap, reconnection, a
-      # reused client id, slow consumers) take about as long as the rest of the
-      # client package together, so they run in a step of their own with their
-      # own package timeout. The long X5 measurements stay behind X5=1.
+      # reused client id, slow consumers) and what the server relays take about
+      # as long as the rest of the client package together, so they run in a
+      # step of their own with their own package timeout. The long X5
+      # measurements stay behind X5=1.
       - name: Run voice integration tests
         env:
           TS3_FIXTURE_ENV: ${{ runner.temp }}/ts3-fixture.env
@@ -301,7 +302,7 @@ jobs:
           set +a
           go test -v -race -count=1 -p 1 -tags "integration integration_voice" -timeout 300s \
             -covermode=atomic -coverpkg=./... -coverprofile="$RUNNER_TEMP/cover-voice.txt" \
-            -run '^TestIntegration_(VoiceReceiver|X5_)' ./client/
+            -run '^TestIntegration_(VoiceReceiver|VoiceRelay|X5_)' ./client/
       # Two WebRTC peers carry a stream over the live server, with the stream
       # package doing the signalling. A module of its own, so it is not part of
       # ./... above. Before the instance tests, which stop the server.
