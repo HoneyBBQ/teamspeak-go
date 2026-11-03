@@ -56,8 +56,8 @@ type ResolvedAddr struct {
 	Expiry time.Time
 	// Addr is the endpoint, as host:port.
 	Addr string
-	// Source names how it was found, for logs: SRV, TSDNS, or the address as
-	// given. It may be empty.
+	// Source names how it was found, for logs: one of the ResolveSource
+	// constants for the default resolver. It may be empty.
 	Source string
 }
 
@@ -70,24 +70,6 @@ type ResolvedAddr struct {
 type AddrResolver interface {
 	// Resolve returns the addresses to try for addr, in order.
 	Resolve(ctx context.Context, addr string) ([]ResolvedAddr, error)
-}
-
-// defaultResolver is the SRV, TSDNS and direct chain.
-type defaultResolver struct {
-	resolver *discovery.Resolver
-}
-
-func (d defaultResolver) Resolve(ctx context.Context, addr string) ([]ResolvedAddr, error) {
-	found, err := d.resolver.Resolve(ctx, addr)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]ResolvedAddr, len(found))
-	for i, f := range found {
-		out[i] = ResolvedAddr(f)
-	}
-
-	return out, nil
 }
 
 // CommandMiddleware is teamspeak.CommandMiddleware: it wraps the typed
@@ -348,7 +330,7 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 
 	c.handler = c.newHandler()
 	if c.resolver == nil {
-		c.resolver = defaultResolver{resolver: discovery.NewResolver(c.logger, c.lookupNicknames)}
+		c.resolver = NewResolver(ResolverOptions{Logger: c.logger, NicknameLookup: c.lookupNicknames})
 	}
 
 	c.buildMiddlewareChains()

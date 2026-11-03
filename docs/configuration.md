@@ -35,7 +35,20 @@ timeCommands := func(next teamspeak.Executor) teamspeak.Executor {
 `WithNicknameLookup()` resolves a dot-less address as a MyTeamSpeak nickname
 at named.myteamspeak.com first. It is off by default, since the lookup tells
 MyTeamSpeak which server you are connecting to; without it a dot-less address
-is resolved like any host.
+is resolved like any host. `ResolverOptions.NicknameService` points the lookup
+at another endpoint, such as a test double or a mirror.
+
+`client.NewResolver(client.ResolverOptions{})` is the resolution the client uses
+by default, and a `*Resolver` can be called on its own or wrapped and passed to
+`WithResolver`. `client.LookupTSDNS` asks one TSDNS server directly:
+
+```go
+addrs, err := client.NewResolver(client.ResolverOptions{}).Resolve(ctx, "ts.example.com")
+
+// nil, nil means the server has no record. Entries are as the server sent
+// them: one may have no port (9987) or the port $PORT (the port you gave).
+entries, err := client.LookupTSDNS(ctx, "tsdns.example.com", "ts.example.com")
+```
 
 `WithPacketConn(pc)` runs the session over your own `net.PacketConn`. The
 client never closes it: ending a connection sets its read deadline to stop the

@@ -14,6 +14,10 @@ const GroupWhisperCurrentChannel GroupWhisperScope = 1
 const GroupWhisperParentChannel GroupWhisperScope = 2
 const GroupWhisperServerGroup GroupWhisperType = 0
 const GroupWhisperSubchannels GroupWhisperScope = 6
+const ResolveSourceDirect untyped string = "Direct"
+const ResolveSourceSRV untyped string = "SRV"
+const ResolveSourceTSDNSDirect untyped string = "TSDNS-Direct"
+const ResolveSourceTSDNSSRV untyped string = "TSDNS-SRV"
 const ServerFamilyTS3 teamspeak.ServerFamily = "ts3"
 const ServerFamilyTS6 teamspeak.ServerFamily = "ts6"
 const ServerFamilyUnknown teamspeak.ServerFamily = ""
@@ -37,7 +41,9 @@ var ErrPuzzleTooHard error
 var ErrTooManyWhisperChannels error
 var ErrTooManyWhisperTargets error
 func DefaultShouldRetry(err error, _ int) bool
+func LookupTSDNS(ctx context.Context, server string, host string) ([]string, error)
 func New(id *identity.Identity, addr string, nickname string, options ...Option) (*Client, error)
+func NewResolver(options ResolverOptions) *Resolver
 func WhisperToAllClients(scope GroupWhisperScope) GroupWhisperTarget
 func WhisperToChannelCommanders(scope GroupWhisperScope) GroupWhisperTarget
 func WhisperToChannelGroup(scope GroupWhisperScope, id teamspeak.ChannelGroupID) GroupWhisperTarget
@@ -384,6 +390,12 @@ type ResolvedAddr struct
 field ResolvedAddr.Expiry time.Time
 field ResolvedAddr.Addr string
 field ResolvedAddr.Source string
+type Resolver struct
+method (*Resolver) Resolve(ctx context.Context, addr string) ([]ResolvedAddr, error)
+type ResolverOptions struct
+field ResolverOptions.Logger *slog.Logger
+field ResolverOptions.NicknameService string
+field ResolverOptions.NicknameLookup bool
 type ServerCapabilities struct
 field ServerCapabilities.Version string
 field ServerCapabilities.WelcomeMessage string
