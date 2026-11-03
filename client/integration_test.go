@@ -384,7 +384,10 @@ func TestIntegration_Disconnect(t *testing.T) {
 	}
 
 	select {
-	case <-disconnected:
+	case err := <-disconnected:
+		if err != nil {
+			t.Errorf("DisconnectedEvent.Err = %v, want nil after a deliberate disconnect", err)
+		}
 	case <-time.After(5 * time.Second):
 		t.Error("OnDisconnected not fired after Disconnect()")
 	}

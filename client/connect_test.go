@@ -361,7 +361,8 @@ func TestLifecycleCallsFromAHandlerDoNotDeadlock(t *testing.T) {
 	completeHandshake(t, c)
 	for name, ch := range map[string]chan error{"OnConnected": fromConnected, "OnDisconnected": fromDisconnected} {
 		select {
-		case <-ch:
+		case err := <-ch:
+			t.Logf("Connect from %s returned: %v", name, err)
 		case <-time.After(5 * time.Second):
 			t.Fatalf("Disconnect and Connect from %s deadlocked", name)
 		}
