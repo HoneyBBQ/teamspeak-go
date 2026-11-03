@@ -598,9 +598,12 @@ func (c *Client) WaitView(ctx context.Context) error {
 //   - The clients are those the server has announced, in channels the client
 //     is subscribed to, and not since dropped. A client in a channel the
 //     client is not subscribed to is not here, and the server does not say
-//     when a subscription ends; see ChannelUnsubscribedEvent. SubscribeAllChannels
-//     subscribes to all of them. Which channels are subscribed to cannot be
-//     read.
+//     when a subscription ends; see ChannelUnsubscribedEvent. The client is
+//     subscribed to the channel it joined, every channel it moved into
+//     (leaving keeps the subscription) and every channel it subscribed to;
+//     SubscribeAllChannels subscribes to all of them. The server announces
+//     only the subscriptions asked for, so which channels are subscribed to
+//     cannot be read.
 //   - A channel's TotalClients and TotalFamilyClients are always nil: the
 //     server sends them when the client connects and never again.
 //   - A channel's Description is nil, as in a channel list: no channel

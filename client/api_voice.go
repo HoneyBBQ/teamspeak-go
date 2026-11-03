@@ -71,29 +71,40 @@ func (c *Client) GetServerVariables(ctx context.Context) (teamspeak.Properties, 
 	return nil, teamspeak.ErrNoData
 }
 
-// SubscribeChannel subscribes to a channel: its clients' events and voice
-// arrive without joining it.
+// SubscribeChannel subscribes to a channel: its clients and their changes
+// arrive without joining it. It does not bring the channel's voice, which only
+// reaches the clients in it. The server answers with a ChannelSubscribedEvent.
+//
+// The channel this client joins, and every channel it moves into, is
+// subscribed without being asked and without a ChannelSubscribedEvent, and
+// leaving a channel keeps the subscription. Measured on TeamSpeak 3 3.13.8 and
+// TeamSpeak 6 6.0.0-beta13.1.
 func (c *Client) SubscribeChannel(ctx context.Context, cid teamspeak.ChannelID) error {
 	_, err := c.Send(ctx, channelRequest("channelsubscribe", cid))
 
 	return err
 }
 
-// UnsubscribeChannel stops receiving a channel's events.
+// UnsubscribeChannel stops showing a subscribed channel's clients: the server
+// answers with a ChannelUnsubscribedEvent and sends no ClientLeftViewEvent for
+// them. The channel this client is in cannot be unsubscribed from: the command
+// succeeds and changes nothing.
 func (c *Client) UnsubscribeChannel(ctx context.Context, cid teamspeak.ChannelID) error {
 	_, err := c.Send(ctx, channelRequest("channelunsubscribe", cid))
 
 	return err
 }
 
-// SubscribeAllChannels subscribes to every channel.
+// SubscribeAllChannels subscribes to every channel; the server answers with a
+// ChannelSubscribedEvent per channel it subscribes.
 func (c *Client) SubscribeAllChannels(ctx context.Context) error {
 	_, err := c.Send(ctx, newRequest("channelsubscribeall", nil))
 
 	return err
 }
 
-// UnsubscribeAllChannels stops receiving every channel's events.
+// UnsubscribeAllChannels unsubscribes from every channel but the one this
+// client is in, with a ChannelUnsubscribedEvent for each.
 func (c *Client) UnsubscribeAllChannels(ctx context.Context) error {
 	_, err := c.Send(ctx, newRequest("channelunsubscribeall", nil))
 

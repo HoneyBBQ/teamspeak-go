@@ -105,7 +105,8 @@ const (
 	// for a channel.
 	ChannelPermList = "channelpermlist"
 	// ChannelSubscribe is channelsubscribe: subscribes this client to a channel so
-	// it sees the clients in it and their voice. Voice protocol only.
+	// it sees the clients in it; their voice reaches only the clients in the
+	// channel. Voice protocol only.
 	ChannelSubscribe = "channelsubscribe"
 	// ChannelSubscribeAll is channelsubscribeall: subscribes this client to every
 	// channel on the server. Voice protocol only.
@@ -114,7 +115,7 @@ const (
 	// channel, so the clients in it go out of view. Voice protocol only.
 	ChannelUnsubscribe = "channelunsubscribe"
 	// ChannelUnsubscribeAll is channelunsubscribeall: unsubscribes this client
-	// from every channel. Voice protocol only.
+	// from every channel but the one it is in. Voice protocol only.
 	ChannelUnsubscribeAll = "channelunsubscribeall"
 	// ChatLoginToken is chatlogintoken: returns a JSON Web Token for logging in to
 	// the Matrix server the server uses for chat. TeamSpeak 6 only.
