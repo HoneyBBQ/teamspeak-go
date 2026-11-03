@@ -18,6 +18,37 @@ func TestRoundTrip_FalseBeforeConnect(t *testing.T) {
 	}
 }
 
+// awaitPing reads what the client sends until its first keepalive ping, which
+// goes out after transport.PingInterval.
+func awaitPing(t *testing.T, server *pipePair) []byte {
+	t.Helper()
+	deadline := time.After(transport.PingInterval + 3*time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("no ping within the ping interval")
+		default:
+		}
+		if raw := readFromPipe(t, server); len(raw) >= 13 && raw[12]&0x0f == byte(transport.PacketTypePing) {
+			return raw
+		}
+	}
+}
+
+// answerPing sends the client the pong for ping, as the server does.
+func answerPing(t *testing.T, c *Client, server *pipePair, ping []byte) {
+	t.Helper()
+	sig := c.handler.TsCrypt.FakeSignature()
+	pong := make([]byte, 8+3+2)
+	copy(pong, sig[:])
+	pong[10] = byte(transport.PacketTypePong) | byte(transport.PacketFlagUnencrypted)
+	copy(pong[11:], ping[8:10]) // the pong carries the ping's id
+	_, err := server.Write(pong)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRoundTrip_FalseUntilThePongThenTheHandlersEstimate(t *testing.T) {
 	c, server := newTestClientWithPipe(t)
 	completeCryptoInit(t, c.handler)
@@ -30,29 +61,10 @@ func TestRoundTrip_FalseUntilThePongThenTheHandlersEstimate(t *testing.T) {
 		t.Fatalf("connected, no pong yet: RoundTrip = %+v, true", got)
 	}
 
-	// The first ping goes out after transport.PingInterval; answer it.
-	var ping []byte
-	deadline := time.After(transport.PingInterval + 3*time.Second)
-	for ping == nil {
-		select {
-		case <-deadline:
-			t.Fatal("no ping within the ping interval")
-		default:
-		}
-		if raw := readFromPipe(t, server); len(raw) >= 13 && raw[12]&0x0f == byte(transport.PacketTypePing) {
-			ping = raw
-		}
-	}
+	ping := awaitPing(t, server)
 	time.Sleep(20 * time.Millisecond)
 
-	sig := c.handler.TsCrypt.FakeSignature()
-	pong := make([]byte, 8+3+2)
-	copy(pong, sig[:])
-	pong[10] = byte(transport.PacketTypePong) | byte(transport.PacketFlagUnencrypted)
-	copy(pong[11:], ping[8:10]) // the pong carries the ping's id
-	if _, err := server.Write(pong); err != nil {
-		t.Fatal(err)
-	}
+	answerPing(t, c, server, ping)
 
 	var got RoundTripEstimate
 	var ok bool

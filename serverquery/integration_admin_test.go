@@ -355,9 +355,9 @@ func TestQueryAdmin_OwnPermissions(t *testing.T) {
 			t.Fatalf("%d rows for %d permissions: %+v", len(got), len(asked), got)
 		}
 		for i, perm := range asked {
-			single, err := c.GetOwnPermission(ctx, perm)
-			if err != nil || got[i] != single {
-				t.Errorf("row %d = %+v, want %+v as read alone (%v)", i, got[i], single, err)
+			single, singleErr := c.GetOwnPermission(ctx, perm)
+			if singleErr != nil || got[i] != single {
+				t.Errorf("row %d = %+v, want %+v as read alone (%v)", i, got[i], single, singleErr)
 			}
 		}
 
@@ -373,7 +373,8 @@ func TestQueryAdmin_OwnPermissions(t *testing.T) {
 			}
 		}
 
-		none, err := c.GetOwnPermissions(ctx, []teamspeak.Permission{asked[0], teamspeak.PermissionByName("b_no_such_permission")})
+		unknown := teamspeak.PermissionByName("b_no_such_permission")
+		none, err := c.GetOwnPermissions(ctx, []teamspeak.Permission{asked[0], unknown})
 		if code := serverCode(err); code != 2562 || none != nil {
 			t.Errorf("an unknown permission: %v, %v, want nil and code 2562", none, err)
 		}

@@ -51,6 +51,8 @@ func TestGetOwnPermission_ZeroAndNothing(t *testing.T) {
 	}
 }
 
+var errPermRefused = errors.New("error id=2562 msg=invalid\\sparameter")
+
 // One command with a row per permission, answered in the order asked: a
 // duplicate twice, and a 0 as 0.
 func TestGetOwnPermissions(t *testing.T) {
@@ -115,10 +117,9 @@ func TestGetOwnPermissions_RefusalsAndErrors(t *testing.T) {
 	}
 
 	// 2562 refuses the command and returns nothing.
-	refusal := errors.New("error id=2562 msg=invalid\\sparameter")
-	s = &script{replies: []reply{{err: refusal}}}
+	s = &script{replies: []reply{{err: errPermRefused}}}
 	got, err := NewCommands(s).GetOwnPermissions(t.Context(), []Permission{PermissionByName("b_no_such_permission")})
-	if got != nil || !errors.Is(err, refusal) {
+	if got != nil || !errors.Is(err, errPermRefused) {
 		t.Errorf("got %v, %v, want nil and the server's error", got, err)
 	}
 }

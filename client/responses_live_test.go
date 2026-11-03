@@ -317,9 +317,9 @@ func TestLive_GetOwnPermissions(t *testing.T) {
 		t.Fatalf("%d rows for %d permissions: %+v", len(got), len(asked), got)
 	}
 	for i, p := range asked {
-		single, err := c.GetOwnPermission(t.Context(), p)
-		if err != nil || got[i] != single {
-			t.Errorf("row %d = %+v, want %+v as read alone (%v)", i, got[i], single, err)
+		single, singleErr := c.GetOwnPermission(t.Context(), p)
+		if singleErr != nil || got[i] != single {
+			t.Errorf("row %d = %+v, want %+v as read alone (%v)", i, got[i], single, singleErr)
 		}
 	}
 
@@ -334,7 +334,8 @@ func TestLive_GetOwnPermissions(t *testing.T) {
 		}
 	}
 
-	none, err := c.GetOwnPermissions(t.Context(), []teamspeak.Permission{asked[0], teamspeak.PermissionByName("b_no_such_permission")})
+	unknown := teamspeak.PermissionByName("b_no_such_permission")
+	none, err := c.GetOwnPermissions(t.Context(), []teamspeak.Permission{asked[0], unknown})
 	if !errors.Is(err, errcode.PermissionInvalidPermID) || none != nil {
 		t.Errorf("an unknown permission: %v, %v, want nil and 2562", none, err)
 	}
