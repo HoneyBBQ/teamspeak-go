@@ -15,9 +15,10 @@ import (
 // The facts docs/flood-control.md gives for a ServerQuery session left idle,
 // on every transport that has a session: the server closes one that sends no
 // command for 300 seconds, a notification received does not count, and one that
-// sends a command every 200 seconds stays open. Three sessions run at once, so
-// the test takes about as long as one (the transports run side by side too): A is idle with events registered while C
-// keeps a text message coming to it, and B sends `version` every 200 seconds.
+// sends a command every 200 seconds stays open. Three sessions run at once, and
+// the transports run side by side, so the test takes about as long as one: A
+// is idle with events registered while C keeps a text message coming to it,
+// and B sends `version` every 200 seconds.
 //
 // It takes over five minutes a transport, so it runs in a step of its own with
 // its own timeout (the integration_idle tag).

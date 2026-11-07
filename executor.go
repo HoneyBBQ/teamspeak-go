@@ -208,6 +208,11 @@ type LineSender func(ctx context.Context, line CommandLine) ([]map[string]string
 // Not seen: the lines of the voice handshake, sent before a session exists,
 // and the goodbye of a disconnect (and a ServerQuery quit), which must leave
 // at once or the server keeps a session for a client that has gone.
+//
+// The voice client builds two chains from the same middleware, one for lines
+// that are answered and one for lines that are not (ExecNoWait and the answer
+// to a connection info request), so a middleware may be called more than
+// once: keep state that every line shares, such as a token bucket, outside it.
 type LineMiddleware func(next LineSender) LineSender
 
 // Commands are the typed commands, shared by every connection able to execute
