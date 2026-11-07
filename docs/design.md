@@ -183,7 +183,9 @@ c.OnNotification(func(n client.NotificationEvent) {
 - **Middleware.** `client.WithEventMiddleware` sees each server event before the
   handlers and may pass it on, replace it or drop it; connected, disconnected
   and kicked bypass it. `client.WithCommandMiddleware` wraps the typed commands.
-  Both are described above.
+  `client.WithLineMiddleware` wraps every command line, which is where a caller
+  paces or resends (see [Flood control](flood-control.md)). All three are
+  described above.
 
 ## Stability
 

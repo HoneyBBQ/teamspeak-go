@@ -47,12 +47,9 @@ type pendingCommand struct {
 	settled *commandResult
 	// correlation is the request's value for spec.Correlated.Key.
 	correlation string
-	// echo is the request's value for spec.EchoKey.
-	echo string
 	// correlated holds answers that arrived before the command's own error.
 	correlated     []map[string]string
 	hasCorrelation bool
-	hasEcho        bool
 }
 
 // commandTracker matches the server's answers to the commands that asked for
@@ -63,9 +60,8 @@ type pendingCommand struct {
 // belongs to command N. Rows are therefore held, tagged with where they came
 // from, until that error says whose they are. Attributing them on arrival meant
 // guessing which in-flight command the server was answering, and the guess —
-// the newest — was wrong whenever two were in flight: a command is registered
-// before it waits on the throttle, so one not yet sent took the rows of one
-// already answered.
+// the newest — was wrong whenever two were in flight, as when a command
+// registered ahead of its turn took the rows of one already answered.
 //
 // A nameless row always belongs to the command. A notification row belongs to
 // it only if the command declared that notification as its answer (see
@@ -118,21 +114,9 @@ func (t *commandTracker) register(
 	return rc, ch
 }
 
-// setEcho records the request's value for spec.EchoKey, so the rows that echo
-// another value are not taken as the answer. It is called before the command is
-// sent, which is before anything can answer it.
-func (t *commandTracker) setEcho(rc uint32, value string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if p, ok := t.pending[rc]; ok {
-		p.echo, p.hasEcho = value, true
-	}
-}
-
 // setCorrelation records the value an answer echoes for a command whose
 // correlation key is its own return_code. The code exists only once the command
-// is registered, so the request cannot carry it. Like setEcho, it is called
+// is registered, so the request cannot carry it. It is called
 // before the command is sent.
 func (t *commandTracker) setCorrelation(rc uint32, value string) {
 	t.mu.Lock()
@@ -256,11 +240,6 @@ func answers(p *pendingCommand, row bufferedRow, ownClientID string) bool {
 		return false
 	}
 	if spec.OwnRowsOnly && row.params["invokerid"] != ownClientID {
-		return false
-	}
-	// A row that carries the key and names another value was meant for another
-	// request; one that does not carry it is taken.
-	if value, ok := row.params[spec.EchoKey]; spec.EchoKey != "" && p.hasEcho && ok && value != p.echo {
 		return false
 	}
 
@@ -618,25 +597,16 @@ func (c *Client) disconnectBanned(h *transport.PacketHandler) {
 
 // ExecNoWait sends a raw command line without waiting for an answer, for the
 // few commands the server answers with nothing at all. Like Exec, it sends the
-// line as given. ctx bounds only the wait for the flood throttle. Without an
-// open connection it returns teamspeak.ErrNotConnected.
+// line as given, through the line middleware; ctx bounds the middleware's
+// waits. Without an open connection it returns teamspeak.ErrNotConnected.
 func (c *Client) ExecNoWait(ctx context.Context, cmd string) error {
-	h := c.connectedHandler()
-	if h == nil {
-		return teamspeak.ErrNotConnected
+	parsed := wire.ParseCommand(cmd)
+	if parsed == nil {
+		return fmt.Errorf("%w: empty command", teamspeak.ErrInvalidCommand)
 	}
-	err := c.throttle.wait(ctx)
-	if err != nil {
-		return err
-	}
-	// A Disconnect that began during the wait has said goodbye already: what
-	// still waited for its turn is not sent.
-	if c.connectedHandler() != h {
-		return teamspeak.ErrNotConnected
-	}
-	c.logger.DebugContext(ctx, "sending command without waiting", slog.String("command", commandName(cmd)))
+	_, err := c.throughLines(ctx, teamspeak.CommandLine{Name: parsed.Name, Text: cmd}, c.lineNoWait)
 
-	return c.sendLine(h, cmd)
+	return err
 }
 
 // Exec sends a raw command line and returns the rows that answer it: the
@@ -647,10 +617,9 @@ func (c *Client) ExecNoWait(ctx context.Context, cmd string) error {
 //
 // Without a deadline on ctx the command gives up after ten seconds.
 //
-// A command the server refuses as flooding (errcode.ClientIsFlooding) with a
-// time to wait is sent again after it, and every other command waits too, up
-// to three times and while ctx's deadline allows; the refusal that remains is
-// returned as it is.
+// The line passes the line middleware (WithLineMiddleware). The client never
+// resends: a command the server refuses as flooding (errcode.ClientIsFlooding)
+// returns that error, and teamspeak.FloodWait reads the wait it names.
 func (c *Client) Exec(ctx context.Context, cmd string) ([]map[string]string, error) {
 	return c.send(ctx, cmd)
 }
@@ -692,25 +661,16 @@ func (c *Client) send(ctx context.Context, cmd string) ([]map[string]string, err
 // execWithResponse sends a raw command and waits, until ctx is done, for the
 // answer the tracker pairs with it.
 func (c *Client) execWithResponse(ctx context.Context, cmd string) ([]map[string]string, error) {
-	h := c.connectedHandler()
-	if h == nil {
-		return nil, teamspeak.ErrNotConnected
+	parsed, err := parseLine(cmd)
+	if err != nil {
+		return nil, err
 	}
 
-	return c.execOn(ctx, h, cmd, false)
+	return c.throughLines(ctx, teamspeak.CommandLine{Name: parsed.Name, Text: cmd}, c.lineSend)
 }
 
-// execOn sends a raw command on h and waits, until ctx is done, for its
-// answer. The goodbye of a Disconnect (goodbye) goes out at once, past the
-// flood throttle and with the status already Disconnected: queued behind other
-// commands it would not leave in time, and the server would keep the session.
-func (c *Client) execOn(
-	ctx context.Context, h *transport.PacketHandler, cmd string, goodbye bool,
-) ([]map[string]string, error) {
-	if !h.IsOpen() {
-		return nil, teamspeak.ErrNotConnected
-	}
-
+// parseLine parses a raw command line, refusing what cannot be sent.
+func parseLine(cmd string) (*wire.Command, error) {
 	parsed := wire.ParseCommand(cmd)
 	if parsed == nil {
 		return nil, fmt.Errorf("%w: empty command", teamspeak.ErrInvalidCommand)
@@ -723,6 +683,121 @@ func (c *Client) execOn(
 		return nil, fmt.Errorf("%w: commands must not carry their own return_code", teamspeak.ErrInvalidCommand)
 	}
 
+	return parsed, nil
+}
+
+// throughLines runs line through chain, the line middleware around one of the
+// client's two bases. The context the middleware gets ends when the client
+// starts to disconnect, so a line waiting in a middleware is not written
+// afterwards; the call then returns teamspeak.ErrNotConnected.
+func (c *Client) throughLines(
+	ctx context.Context, line teamspeak.CommandLine, chain teamspeak.LineSender,
+) ([]map[string]string, error) {
+	ctx, release, err := c.enterLine(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	rows, err := chain(ctx, line)
+	if err != nil && errors.Is(context.Cause(ctx), teamspeak.ErrNotConnected) {
+		return nil, teamspeak.ErrNotConnected
+	}
+
+	return rows, err
+}
+
+// enterLine registers a line about to enter the middleware, so that a
+// disconnect starting meanwhile cancels its context. It refuses a client with
+// no connected session.
+func (c *Client) enterLine(ctx context.Context) (context.Context, func(), error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.status != StatusConnected || c.handler == nil {
+		return nil, nil, teamspeak.ErrNotConnected
+	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	if c.lineCalls == nil {
+		c.lineCalls = make(map[*context.CancelCauseFunc]struct{})
+	}
+	key := &cancel
+	c.lineCalls[key] = struct{}{}
+
+	return ctx, func() {
+		c.mu.Lock()
+		delete(c.lineCalls, key)
+		c.mu.Unlock()
+		cancel(nil)
+	}, nil
+}
+
+// abortLinesLocked cancels the context of every line still inside the line
+// middleware. The caller holds c.mu and has already left StatusConnected, so
+// no line enters after it.
+func (c *Client) abortLinesLocked() {
+	for cancel := range c.lineCalls {
+		(*cancel)(teamspeak.ErrNotConnected)
+	}
+	clear(c.lineCalls)
+}
+
+// buildLineChains wraps the two bases in the line middleware. It runs once, in
+// New, like buildMiddlewareChains.
+func (c *Client) buildLineChains() {
+	c.lineSend = c.baseLine
+	c.lineNoWait = c.baseLineNoWait
+	for _, middleware := range slices.Backward(c.lineMiddlewares) {
+		c.lineSend = middleware(c.lineSend)
+		c.lineNoWait = middleware(c.lineNoWait)
+	}
+}
+
+// baseLine is the sender the line middleware wraps for a command with an
+// answer: it re-checks the connection, then sends the line once under a return
+// code of its own and waits for the answer.
+func (c *Client) baseLine(ctx context.Context, line teamspeak.CommandLine) ([]map[string]string, error) {
+	h := c.connectedHandler()
+	if h == nil {
+		return nil, teamspeak.ErrNotConnected
+	}
+
+	return c.execOn(ctx, h, line.Text, false)
+}
+
+// baseLineNoWait is baseLine for a command the server answers with nothing:
+// it resolves with no rows once the line is written.
+func (c *Client) baseLineNoWait(ctx context.Context, line teamspeak.CommandLine) ([]map[string]string, error) {
+	h := c.connectedHandler()
+	if h == nil {
+		return nil, teamspeak.ErrNotConnected
+	}
+	parsed, err := parseLine(line.Text)
+	if err != nil {
+		return nil, err
+	}
+	c.logger.DebugContext(ctx, "sending command without waiting", slog.String("command", parsed.Name))
+
+	return nil, c.sendLine(h, line.Text)
+}
+
+// execOn sends a raw command on h and waits, until ctx is done, for its
+// answer, under a return code registered afresh on every call. The goodbye of
+// a Disconnect (goodbye) is sent by Disconnect itself, past the line
+// middleware and with the status already Disconnected: held up, it would not
+// leave in time, and the server would keep the session.
+func (c *Client) execOn(
+	ctx context.Context, h *transport.PacketHandler, cmd string, goodbye bool,
+) ([]map[string]string, error) {
+	if !h.IsOpen() {
+		return nil, teamspeak.ErrNotConnected
+	}
+
+	parsed, err := parseLine(cmd)
+	if err != nil {
+		return nil, err
+	}
+
 	// Which notifications answer this command, and — for answers that arrive
 	// after the error — the request field they echo back.
 	spec := responseFor(parsed.Name)
@@ -732,20 +807,7 @@ func (c *Client) execOn(
 		correlation, hasCorrelation = parsed.Params[spec.Correlated.Key]
 	}
 
-	for refused := 0; ; refused++ {
-		rows, err := c.sendAndAwait(ctx, h, cmd, parsed, spec, correlation, hasCorrelation, goodbye)
-		// Refused as flooding with a time to wait, which the command can
-		// afford: nothing is sent until then, and the command, which the
-		// server did not run, goes out again.
-		wait, flooded := servererr.FloodRetryDelay(err)
-		hold := servererr.FloodHold(wait)
-		if !flooded || goodbye || refused >= servererr.FloodRetries || !servererr.Affordable(ctx, hold) {
-			return rows, err
-		}
-		c.logger.DebugContext(ctx, "the server asked for a pause",
-			slog.String("command", parsed.Name), slog.Duration("wait", wait))
-		c.throttle.hold(hold)
-	}
+	return c.sendAndAwait(ctx, h, cmd, parsed, spec, correlation, hasCorrelation, goodbye)
 }
 
 // sendAndAwait sends parsed, the command cmd, once under a return code of its
@@ -754,33 +816,21 @@ func (c *Client) sendAndAwait(
 	ctx context.Context, h *transport.PacketHandler, cmd string, parsed *wire.Command,
 	spec *responseSpec, correlation string, hasCorrelation, goodbye bool,
 ) ([]map[string]string, error) {
+	// A Disconnect that began while the line was inside the middleware has
+	// said goodbye already: what was handed on afterwards is not written.
+	if !goodbye && c.connectedHandler() != h {
+		return nil, teamspeak.ErrNotConnected
+	}
 	rc, ch := c.cmdTrack.register(spec, correlation, hasCorrelation)
 	defer c.cmdTrack.unregister(rc)
 	if spec != nil && spec.Correlated != nil && spec.Correlated.Key == "return_code" {
 		c.cmdTrack.setCorrelation(rc, strconv.FormatUint(uint64(rc), 10))
-	}
-	if spec != nil && spec.EchoKey != "" {
-		if echo, ok := parsed.Params[spec.EchoKey]; ok {
-			c.cmdTrack.setEcho(rc, echo)
-		}
 	}
 
 	// The name and code only: the full command carries password hashes the
 	// server accepts as passwords, and privilege keys.
 	c.logger.DebugContext(ctx, "sending command",
 		slog.String("command", parsed.Name), slog.Uint64("return_code", uint64(rc)))
-
-	if !goodbye {
-		err := c.throttle.wait(ctx)
-		if err != nil {
-			return nil, err
-		}
-		// A Disconnect that began during the wait has rejected what still
-		// waited; one released just before it must not be sent either.
-		if c.connectedHandler() != h {
-			return nil, teamspeak.ErrNotConnected
-		}
-	}
 
 	err := c.sendLine(h, fmt.Sprintf("%s return_code=%d", cmd, rc))
 	if err != nil {
@@ -849,12 +899,4 @@ func (c *Client) handleVoicePacket(p *transport.Packet) {
 	}
 
 	c.deliverVoice(p, session, speakerID)
-}
-
-// commandName is the name a command line starts with: what the log may say
-// about a command whose parameters can carry secrets.
-func commandName(cmd string) string {
-	name, _, _ := strings.Cut(cmd, " ")
-
-	return name
 }

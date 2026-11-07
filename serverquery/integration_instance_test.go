@@ -304,7 +304,7 @@ func TestInstanceStop_EndsTheProcess(t *testing.T) {
 	allowDestructive(t, "TEAMSPEAK_QUERY_STOP_INSTANCE")
 	d, opts, transport := firstDialer(t)
 	waitForOtherSuites()
-	c, err := serverquery.New(d, append(opts, serverquery.WithoutEvents())...)
+	c, err := serverquery.New(d, opts...)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestInstanceStop_EndsTheProcess(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	// The same dialer, built before the process went: an SSH one reads the
 	// host key from the running server.
-	again, err := serverquery.New(d, append(opts, serverquery.WithoutEvents())...)
+	again, err := serverquery.New(d, opts...)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

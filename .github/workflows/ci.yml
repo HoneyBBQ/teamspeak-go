@@ -108,7 +108,7 @@ jobs:
     name: Integration (${{ matrix.server.name }})
     needs: images
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -303,6 +303,19 @@ jobs:
           go test -v -race -count=1 -p 1 -tags "integration integration_voice" -timeout 300s \
             -covermode=atomic -coverpkg=./... -coverprofile="$RUNNER_TEMP/cover-voice.txt" \
             -run '^TestIntegration_(VoiceReceiver|VoiceRelay|X5_)' ./client/
+      # What a ServerQuery session does when left idle (closed at 300 seconds
+      # without a command, kept open by one every 200) takes over five minutes
+      # on each transport the job offers, so it runs in a step of its own with
+      # a timeout to match.
+      - name: Run ServerQuery idle tests
+        env:
+          TS3_FIXTURE_ENV: ${{ runner.temp }}/ts3-fixture.env
+        run: |
+          set -a
+          . "$TS3_FIXTURE_ENV"
+          set +a
+          go test -v -race -count=1 -p 1 -tags "integration integration_idle" -timeout 1500s \
+            -run '^TestQuerySessionIdle' ./serverquery/
       # Two WebRTC peers carry a stream over the live server, with the stream
       # package doing the signalling. A module of its own, so it is not part of
       # ./... above. Before the instance tests, which stop the server.

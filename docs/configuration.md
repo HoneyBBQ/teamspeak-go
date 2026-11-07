@@ -9,6 +9,7 @@ c, err := client.New(id, "ts.example.com", "Bot",
 	client.WithLogger(slog.Default()), // silent without it
 	client.WithResolver(customResolver),
 	client.WithCommandMiddleware(timeCommands),
+	client.WithLineMiddleware(pacer),
 	client.WithEventMiddleware(filterMiddleware),
 	client.WithServerPassword(os.Getenv("TEAMSPEAK_SERVER_PASSWORD")),
 	client.WithDefaultChannel("Lobby"),
@@ -29,6 +30,28 @@ timeCommands := func(next teamspeak.Executor) teamspeak.Executor {
 
 		return rows, err
 	})
+}
+```
+
+Line middleware wraps the sending of every command line, after the typed
+commands are encoded: typed commands, raw `Exec` and `ExecNoWait` lines, and the
+commands the client sends on its own once it has a session. It sees the command's
+name and its escaped text (which can carry secrets: do not log it) and can delay,
+resend or refuse a line. The client itself never paces or resends; see
+[Flood control](flood-control.md) for the server's limits and recipes. The
+voice handshake's lines and the goodbye of `Disconnect` do not pass through it.
+
+```go
+slowDown := func(next teamspeak.LineSender) teamspeak.LineSender {
+	return func(ctx context.Context, line teamspeak.CommandLine) ([]map[string]string, error) {
+		select {
+		case <-time.After(250 * time.Millisecond):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+
+		return next(ctx, line)
+	}
 }
 ```
 

@@ -170,8 +170,10 @@ func TestJoinRequests_RunsTheLookupsSideBySideAndAnnouncesInOrder(t *testing.T) 
 	})
 }
 
-// Only so many lookups run at once.
-func TestJoinRequests_BoundsTheLookupsOutAtOnce(t *testing.T) {
+// The lookups of requesters out of view all start at once: pacing them is the
+// client's line middleware's job, and the announcements still keep the order
+// the requests came in.
+func TestJoinRequests_StartsEveryLookupAtOnce(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		p := e.publish(PublishOptions{Name: "x"})
 		reqs := requests(p)
@@ -183,17 +185,18 @@ func TestJoinRequests_BoundsTheLookupsOutAtOnce(t *testing.T) {
 
 			return []map[string]string{{"cluid": "u"}}, nil, true
 		}
-		for clid := 20; clid < 20+3*maxLookups; clid++ {
+		const n = 24
+		for clid := 20; clid < 20+n; clid++ {
 			e.ask(p, clid, "")
 		}
 		time.Sleep(time.Second)
 		e.settle()
-		if got := len(e.h.commands("clientgetuidfromclid")); got != maxLookups {
-			t.Errorf("lookups out = %d, want %d", got, maxLookups)
+		if got := len(e.h.commands("clientgetuidfromclid")); got != n {
+			t.Errorf("lookups out = %d, want %d", got, n)
 		}
 		time.Sleep(30 * time.Second)
 		e.settle()
-		if reqs.len() != 3*maxLookups {
+		if reqs.len() != n {
 			t.Errorf("requests = %d", reqs.len())
 		}
 	})

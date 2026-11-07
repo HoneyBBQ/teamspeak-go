@@ -96,7 +96,7 @@ func awaitRoster(t *testing.T, c *Client, id teamspeak.ClientID, ok func(teamspe
 // ctid, so the roster reads both. The row is the shape the server answers with.
 func TestUse_RosterHoldsTheChannelAListRowNames(t *testing.T) {
 	d := newFakeDialer(true)
-	c, transport := connected(t, d, WithServer(1))
+	c, transport := connected(t, d, WithServer(1), fiveEvents())
 
 	done := run(func() error { return c.Use(context.Background(), ByID(2), UseOptions{}) })
 	expect(t, d, "use")
@@ -158,7 +158,7 @@ func TestLogin_SendsTheLoginEscaped(t *testing.T) {
 // on, and the clients it had seen there, are no longer true.
 func TestLogout_ForgetsTheServer(t *testing.T) {
 	d := newFakeDialer(true)
-	c, transport := connected(t, d, WithServer(1))
+	c, transport := connected(t, d, WithServer(1), fiveEvents())
 	if id, seen := c.knownSelf(); id != 7 || seen != 1 {
 		t.Fatalf("before Logout: self %d, %d clients seen, want 7 and 1", id, seen)
 	}
@@ -199,7 +199,7 @@ func TestLogout_RefusedKeepsTheSelf(t *testing.T) {
 // server's list.
 func TestUse_ReadsTheNewSelf(t *testing.T) {
 	d := newFakeDialer(true)
-	c, transport := connected(t, d, WithServer(1))
+	c, transport := connected(t, d, WithServer(1), fiveEvents())
 
 	done := run(func() error {
 		return c.Use(context.Background(), ByID(2), UseOptions{Nickname: "second bot"})
@@ -264,7 +264,7 @@ func TestConnect_WithNoServerRegistersTheEventsAtTheFirstUse(t *testing.T) {
 
 func TestUse_ByPortWithoutEventsReadsNoList(t *testing.T) {
 	d := newFakeDialer(true)
-	c, transport := connected(t, d, WithoutEvents())
+	c, transport := connected(t, d)
 
 	done := run(func() error { return c.Use(context.Background(), ByPort(9988), UseOptions{}) })
 	if line := expect(t, d, "use"); line != "use port=9988" {
@@ -324,7 +324,7 @@ func TestUse_RefusesASelectorThatNamesNoOneServer(t *testing.T) {
 
 func TestRegisterNotifications_SendsTheCategoryAndReadsTheList(t *testing.T) {
 	d := newFakeDialer(true)
-	c, transport := connected(t, d, WithoutEvents())
+	c, transport := connected(t, d)
 
 	all := teamspeak.ChannelID(0)
 	for _, tc := range []struct {
@@ -414,7 +414,7 @@ func TestSessionCommands_WithoutAConnection(t *testing.T) {
 // for.
 func TestReconnect_StartsOverFromTheOptions(t *testing.T) {
 	d := newFakeDialer(true)
-	c, transport := connected(t, d, WithServer(1), WithReconnect(teamspeak.ReconnectOptions{
+	c, transport := connected(t, d, WithServer(1), fiveEvents(), WithReconnect(teamspeak.ReconnectOptions{
 		Backoff: teamspeak.BackoffPolicy{InitialDelay: time.Millisecond, MaxDelay: time.Millisecond, Jitter: -1},
 	}))
 

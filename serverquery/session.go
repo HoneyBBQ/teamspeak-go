@@ -195,14 +195,14 @@ func (c *Client) connect(ctx context.Context, kind connectKind) error {
 	c.status = teamspeak.StatusConnecting
 	dialer, logger := c.dialer, c.logger
 	server, nickname := c.server, c.nickname
-	categories, registerEvents := c.categories, c.registerEvents
+	categories := c.categories
 	c.mu.Unlock()
 
 	// A transport that cannot deliver notifications is not asked for them: the
 	// server refuses the command there (WebQuery answers 5120, "out of scope"),
 	// which would fail a connect that has no use for events in the first place.
 	if !dialer.SupportsNotifications() {
-		categories, registerEvents = nil, false
+		categories = nil
 	}
 
 	logger.InfoContext(ctx, "connecting",
@@ -214,11 +214,10 @@ func (c *Client) connect(ctx context.Context, kind connectKind) error {
 	}
 
 	err = c.handshake(ctx, eng, handshakeOptions{
-		login:          dialer.credentials(),
-		server:         server,
-		nickname:       nickname,
-		categories:     categories,
-		registerEvents: registerEvents,
+		login:      dialer.credentials(),
+		server:     server,
+		nickname:   nickname,
+		categories: categories,
 	})
 	if err != nil {
 		_ = eng.Close()
@@ -229,27 +228,11 @@ func (c *Client) connect(ctx context.Context, kind connectKind) error {
 	c.mu.Lock()
 	c.engine = eng
 	c.status = teamspeak.StatusConnected
-	keepAlive := c.keepAlive
 	c.mu.Unlock()
-	if keepAlive > 0 && keepsSession(dialer) {
-		eng.KeepAlive(context.WithoutCancel(ctx), keepAlive, "version")
-	}
 
 	emit(c, &c.onConnected, "Connected", teamspeak.ConnectedEvent{Reconnected: !kind.fromCaller})
 
 	return nil
-}
-
-// keepsSession reports whether the dialer's connection is a raw TCP or SSH
-// session, which the server closes when it idles. WebQuery has none, and a
-// custom transport is its owner's.
-func keepsSession(dialer Dialer) bool {
-	switch dialer.(type) {
-	case tcpDialer, sshDialer:
-		return true
-	}
-
-	return false
 }
 
 // guestRefusal says so when a guest connection failed because the server offers
@@ -307,11 +290,10 @@ func (c *Client) stopChan() <-chan struct{} {
 
 // handshakeOptions are what Connect applies once the transport is open.
 type handshakeOptions struct {
-	login          *login
-	server         *serverTarget
-	nickname       string
-	categories     []Category
-	registerEvents bool
+	login      *login
+	server     *serverTarget
+	nickname   string
+	categories []Category
 }
 
 // open dials and wires a fresh engine to this client.
@@ -321,7 +303,7 @@ func (c *Client) open(ctx context.Context, dialer Dialer) (*engine.Client, error
 		return nil, err
 	}
 
-	eng := engine.New(transport)
+	eng := engine.New(transport, c.lineMiddlewares...)
 	eng.OnNotification = c.handleNotification
 	eng.OnClosed = c.handleClosed
 
@@ -360,7 +342,7 @@ func (c *Client) handshake(ctx context.Context, eng *engine.Client, opts handsha
 	// client with no server connects for the instance-level commands, and Use
 	// registers the events the first time it selects one.
 	pending := false
-	if opts.registerEvents {
+	if len(opts.categories) > 0 {
 		if opts.server == nil {
 			pending = true
 		} else {
@@ -617,7 +599,7 @@ func (c *Client) Disconnect(ctx context.Context) error {
 	if c.dialer.needsQuit() {
 		// Best effort: the connection is closed either way, and the server
 		// answers quit by closing it, which is not a failure.
-		_, _ = eng.Exec(ctx, "quit")
+		_, _ = eng.Goodbye(ctx, "quit")
 	}
 
 	err := eng.Close()

@@ -221,7 +221,7 @@ func TestQueryCustom_OverACallersWebQuery(t *testing.T) {
 			base:   base, key: apiKey,
 			lines: make(chan string, 256), done: make(chan struct{}),
 		}, nil
-	}), serverquery.WithServer(1), serverquery.WithoutEvents())
+	}), serverquery.WithServer(1))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

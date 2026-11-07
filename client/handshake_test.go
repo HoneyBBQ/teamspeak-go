@@ -33,18 +33,33 @@ func TestHandleInitServer_SetsStatusConnected(t *testing.T) {
 	}
 }
 
-func TestHandleInitServer_FallsBackToClid(t *testing.T) {
-	c := newTestClient(t)
-	markConnecting(c)
+// Both TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0-beta13.1 send aclid; an
+// initserver without a valid one fails the attempt as any malformed step does,
+// and a clid or a nickname match does not stand in for it.
+func TestHandleInitServer_WithoutAValidAclidFailsTheAttempt(t *testing.T) {
+	for name, line := range map[string]string{
+		"no aclid":      "initserver clid=42 virtualserver_name=X",
+		"empty aclid":   "initserver aclid= virtualserver_name=X",
+		"aclid too big": "initserver aclid=70000 virtualserver_name=X",
+		"zero aclid":    "initserver aclid=0 virtualserver_name=X",
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := newTestClient(t)
+			markConnecting(c)
 
-	c.handleCommand(c.handler, "initserver clid=42 virtualserver_name=X")
+			c.handleCommand(c.handler, line)
 
-	c.mu.Lock()
-	clid := c.clid
-	c.mu.Unlock()
-
-	if clid != 42 {
-		t.Errorf("expected clid=42, got %d", clid)
+			c.mu.Lock()
+			status, clid := c.status, c.clid
+			c.mu.Unlock()
+			if status != StatusDisconnected || clid != 0 {
+				t.Errorf("status = %v, clid = %d, want the attempt failed with no client id", status, clid)
+			}
+			err := waitWithin(t, c, time.Second)
+			if !errors.Is(err, ErrHandshake) {
+				t.Errorf("WaitConnected = %v, want an error wrapping ErrHandshake", err)
+			}
+		})
 	}
 }
 

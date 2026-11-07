@@ -57,7 +57,9 @@ func TestHandleClientEnterView_TriggersCallback(t *testing.T) {
 	}
 }
 
-func TestHandleClientEnterView_SetsOwnClidOnNicknameMatch(t *testing.T) {
+// The client id is the one initserver assigned in aclid; no enter, whatever its
+// nickname, stands in for it.
+func TestHandleClientEnterView_DoesNotAdoptAClidFromANicknameMatch(t *testing.T) {
 	c := newTestClient(t)
 
 	const enterSelf = "notifycliententerview clid=7 client_nickname=TestBot" +
@@ -68,8 +70,8 @@ func TestHandleClientEnterView_SetsOwnClidOnNicknameMatch(t *testing.T) {
 	clid := c.clid
 	c.mu.Unlock()
 
-	if clid != 7 {
-		t.Errorf("expected own clid=7 after nickname match, got %d", clid)
+	if clid != 0 {
+		t.Errorf("clid = %d after a nickname match, want it left unset", clid)
 	}
 }
 

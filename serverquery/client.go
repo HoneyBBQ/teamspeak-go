@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
-	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/internal/eventbus"
@@ -36,32 +35,29 @@ type Client struct {
 	clients          map[teamspeak.ClientID]teamspeak.ClientEntry
 	engine           *engine.Client
 	reconnectOptions *teamspeak.ReconnectOptions
-	// keepAlive is how long a TCP or SSH session may idle before a command is
-	// sent to keep it open; zero is off.
-	keepAlive time.Duration
 	// verdict and loopAttempt belong to the reconnect loop: the policy's answer
 	// for the failure just announced, and the attempt the loop is on.
-	verdict        *retryVerdict
-	loopAttempt    int
-	nickname       string
-	selfNickname   string
-	family         teamspeak.ServerFamily
-	version        string
-	categories     []Category
-	cmdMiddlewares []teamspeak.CommandMiddleware
-	subs           subscribers
-	onKicked       eventbus.Subscribers[teamspeak.KickedEvent]
-	onDisconnected eventbus.Subscribers[teamspeak.DisconnectedEvent]
-	onConnected    eventbus.Subscribers[teamspeak.ConnectedEvent]
-	events         eventbus.Queue
-	status         teamspeak.Status
-	mu             sync.Mutex
-	selfID         teamspeak.ClientID
-	namedID        bool
-	namedPort      bool
-	stopped        bool
-	reconnecting   bool
-	registerEvents bool
+	verdict         *retryVerdict
+	loopAttempt     int
+	nickname        string
+	selfNickname    string
+	family          teamspeak.ServerFamily
+	version         string
+	categories      []Category
+	cmdMiddlewares  []teamspeak.CommandMiddleware
+	lineMiddlewares []teamspeak.LineMiddleware
+	subs            subscribers
+	onKicked        eventbus.Subscribers[teamspeak.KickedEvent]
+	onDisconnected  eventbus.Subscribers[teamspeak.DisconnectedEvent]
+	onConnected     eventbus.Subscribers[teamspeak.ConnectedEvent]
+	events          eventbus.Queue
+	status          teamspeak.Status
+	mu              sync.Mutex
+	selfID          teamspeak.ClientID
+	namedID         bool
+	namedPort       bool
+	stopped         bool
+	reconnecting    bool
 	// eventsPending is set while the session has no server: the events are
 	// registered by the first Use.
 	eventsPending   bool
@@ -117,14 +113,11 @@ func New(d Dialer, opts ...Option) (*Client, error) {
 		dialer: d,
 		// Silent unless the application asks: a library has no business
 		// writing to the application's default logger.
-		logger:         slog.New(slog.DiscardHandler),
-		categories:     defaultCategories(),
-		registerEvents: true,
-		keepAlive:      defaultKeepAlive,
-		status:         teamspeak.StatusDisconnected,
-		clients:        make(map[teamspeak.ClientID]teamspeak.ClientEntry),
-		warned:         make(map[string]bool),
-		stop:           make(chan struct{}),
+		logger:  slog.New(slog.DiscardHandler),
+		status:  teamspeak.StatusDisconnected,
+		clients: make(map[teamspeak.ClientID]teamspeak.ClientEntry),
+		warned:  make(map[string]bool),
+		stop:    make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -163,8 +156,8 @@ func validateConfig(c *Client) error {
 		return fmt.Errorf("%w: a server is named by a non-zero id or a non-zero port",
 			ErrInvalidConfig)
 	}
-	if c.keepAlive < 0 {
-		return fmt.Errorf("%w: WithKeepAlive takes an interval of zero or more", ErrInvalidConfig)
+	if c.eventsRequested && len(c.categories) == 0 {
+		return fmt.Errorf("%w: WithEvents takes at least one category", ErrInvalidConfig)
 	}
 	if c.eventsRequested && !c.dialer.SupportsNotifications() {
 		return fmt.Errorf("%w: %s cannot deliver events, so WithEvents cannot be honoured",
@@ -172,21 +165,4 @@ func validateConfig(c *Client) error {
 	}
 
 	return nil
-}
-
-// defaultKeepAlive is how long a session may sit idle before the client sends
-// a command to keep it open: well inside the 300 seconds after which the
-// server closes an idle one, see [WithKeepAlive].
-const defaultKeepAlive = 2 * time.Minute
-
-// defaultCategories are the notification categories registered without
-// WithEvents: the five both the raw protocol and SSH accept.
-func defaultCategories() []Category {
-	return []Category{
-		CategoryServer,
-		CategoryChannel,
-		CategoryTextServer,
-		CategoryTextChannel,
-		CategoryTextPrivate,
-	}
 }

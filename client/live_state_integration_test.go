@@ -128,8 +128,10 @@ func setFields(changes teamspeak.ClientChanges) []string {
 
 // requireAdmin connects a ServerQuery client as the fixture's administrator, to
 // act on the voice clients: the guest group that the voice clients belong to may
-// not change groups, and an administrator is who does it in practice. WebQuery
-// cannot receive notifications, but acting is all it is used for here.
+// not change groups, and an administrator is who does it in practice. Over raw
+// TCP and SSH it also registers for the server, channel and text events, which
+// the channel event tests watch it for; WebQuery cannot receive notifications,
+// so there it only acts.
 func requireAdmin(t *testing.T) *serverquery.Client {
 	t.Helper()
 	var dialer serverquery.Dialer
@@ -138,6 +140,8 @@ func requireAdmin(t *testing.T) *serverquery.Client {
 	case os.Getenv("TEAMSPEAK_QUERY_KIND") == "tcp" && os.Getenv("TEAMSPEAK_QUERY_HOST") != "":
 		dialer = serverquery.TCPLogin(os.Getenv("TEAMSPEAK_QUERY_HOST")+":"+os.Getenv("TEAMSPEAK_QUERY_PORT"),
 			os.Getenv("TEAMSPEAK_QUERY_LOGIN_NAME"), os.Getenv("TEAMSPEAK_QUERY_LOGIN_PASSWORD"))
+		opts = append(opts, serverquery.WithEvents(serverquery.CategoryServer, serverquery.CategoryChannel,
+			serverquery.CategoryTextServer, serverquery.CategoryTextChannel, serverquery.CategoryTextPrivate))
 	case os.Getenv("TEAMSPEAK_QUERY_KIND") == "ssh" && os.Getenv("TEAMSPEAK_QUERY_SSH_HOST") != "":
 		// The host key is verified: against the caller's known_hosts file, or
 		// else against the key the server presents.
@@ -147,6 +151,8 @@ func requireAdmin(t *testing.T) *serverquery.Client {
 		dialer = serverquery.SSHWith(addr,
 			os.Getenv("TEAMSPEAK_QUERY_SSH_USER"), os.Getenv("TEAMSPEAK_QUERY_SSH_PASSWORD"),
 			serverquery.SSHOptions{HostKeyCheck: check})
+		opts = append(opts, serverquery.WithEvents(serverquery.CategoryServer, serverquery.CategoryChannel,
+			serverquery.CategoryTextServer, serverquery.CategoryTextChannel, serverquery.CategoryTextPrivate))
 	case os.Getenv("TEAMSPEAK_QUERY_KIND") == "web" && os.Getenv("TEAMSPEAK_QUERY_URL") != "":
 		dialer = serverquery.Web(os.Getenv("TEAMSPEAK_QUERY_URL"), os.Getenv("TEAMSPEAK_QUERY_API_KEY"))
 	default:

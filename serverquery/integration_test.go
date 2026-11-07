@@ -197,6 +197,12 @@ func assertCoreCommands(t *testing.T, c *serverquery.Client, family teamspeak.Se
 	}
 }
 
+// fiveEvents asks for the five categories raw TCP and SSH accept.
+func fiveEvents() serverquery.Option {
+	return serverquery.WithEvents(serverquery.CategoryServer, serverquery.CategoryChannel,
+		serverquery.CategoryTextServer, serverquery.CategoryTextChannel, serverquery.CategoryTextPrivate)
+}
+
 // open connects c and registers a Disconnect for the end of the test.
 func open(t *testing.T, c *serverquery.Client) {
 	t.Helper()
@@ -224,7 +230,7 @@ func TestQuery_TS3OverTCP(t *testing.T) {
 	waitForOtherSuites()
 
 	c, err := serverquery.New(serverquery.TCPLogin(addr, login, password),
-		serverquery.WithServer(1),
+		serverquery.WithServer(1), fiveEvents(),
 		// A logger, so a failure says what the client was doing.
 		serverquery.WithLogger(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))),
 	)
@@ -329,7 +335,7 @@ func TestQuery_OverSSH(t *testing.T) {
 	}
 	c, err := serverquery.New(serverquery.SSHWith(addr, user, password,
 		serverquery.SSHOptions{HostKeyCheck: check}),
-		serverquery.WithServer(1),
+		serverquery.WithServer(1), fiveEvents(),
 	)
 	if err != nil {
 		t.Fatalf("New: %v", err)

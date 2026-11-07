@@ -38,15 +38,14 @@ type Transport interface {
 //
 // The client adds nothing beneath the line protocol. It sends no login: a
 // transport that needs one has done it, or the caller runs [Client.Login] after
-// Connect. It registers for notifications like the raw and SSH transports, so
-// pass [WithoutEvents] for a carrier that cannot deliver them. Disconnect sends
+// Connect. It registers for notifications only if [WithEvents] asks for them,
+// so leave it out for a carrier that cannot deliver them. Disconnect sends
 // `quit`, best effort, before it closes the transport. A transport that is
 // not a raw or SSH session, and answers each command on its own, can ignore
 // `quit`.
 //
-// The keep-alive of [WithKeepAlive], and the byte counts of [Client.Stats], are
-// not part of a [Transport]: a custom transport is never sent the keep-alive,
-// and Stats reports the zero value for it.
+// The byte counts of [Client.Stats] are not part of a [Transport]: Stats
+// reports the zero value for a custom transport.
 //
 // An open that returns an error ends the attempt with an error wrapping both
 // [ErrDial] and its own. [New] refuses a nil open with [ErrInvalidConfig].
@@ -62,7 +61,7 @@ type customDialer struct {
 }
 
 // SupportsNotifications reports true: a line transport carries what the server
-// sends, notifications among it. WithoutEvents opts out of registering.
+// sends, notifications among it.
 func (d customDialer) SupportsNotifications() bool { return true }
 
 func (d customDialer) String() string { return "custom transport" }

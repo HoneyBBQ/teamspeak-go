@@ -153,3 +153,4 @@ run:
   build-tags:
     - integration
     - integration_voice
+    - integration_idle

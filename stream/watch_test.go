@@ -890,7 +890,7 @@ func TestWatch_IgnoresAnAcceptanceThatComesAfterTheWaitEnded(t *testing.T) {
 	})
 }
 
-// A join request that never left the client's flood throttle is not withdrawn:
+// A join request that never left the client's line middleware is not withdrawn:
 // the server has nothing to withdraw. The client says so by returning the
 // context's own error, not wrapped.
 func TestWatch_DoesNotWithdrawARequestThatWasNeverSent(t *testing.T) {

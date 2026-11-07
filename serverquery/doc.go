@@ -145,11 +145,10 @@
 //
 // # Events
 //
-// [Client.OnTextMessage] and the rest deliver the five notification categories
-// both TCP and SSH accept: server, channel, textserver, textchannel and
-// textprivate. Registration is automatic; [WithEvents] narrows it, and
-// [WithoutEvents] turns it off. `bans` is opt-in, because TeamSpeak 3 refuses
-// it.
+// [Client.OnTextMessage] and the rest deliver the notification categories
+// [WithEvents] names. Without it nothing is registered. Raw TCP and SSH accept
+// server, channel, textserver, textchannel and textprivate; `bans` is opt-in
+// where it is accepted, because TeamSpeak 3 refuses it.
 //
 // The client keeps a roster of who is on the server, to fill the fields a
 // notification leaves out, such as a sender's groups: it is a snapshot taken

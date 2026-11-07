@@ -3,6 +3,9 @@ package teamspeak
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
+	"time"
 
 	"github.com/honeybbq/teamspeak-go/errcode"
 )
@@ -107,4 +110,60 @@ func (e *ServerError) Error() string {
 // Unwrap returns ErrServer and the code, so errors.Is matches either.
 func (e *ServerError) Unwrap() []error {
 	return []error{ErrServer, e.Code}
+}
+
+// floodRetryPattern is the wait in the extra message of a flooding refusal on
+// the voice protocol, in milliseconds.
+var floodRetryPattern = regexp.MustCompile(`^retry in ([0-9]{1,9})ms$`)
+
+// floodPausePattern is the wait in the extra message of a flooding refusal on
+// ServerQuery, in whole seconds.
+var floodPausePattern = regexp.MustCompile(`^please wait ([0-9]{1,9}) seconds$`)
+
+// FloodWait reads how long the server asks a client it refused as flooding to
+// wait: the "retry in 1985ms" of the extra message of error 524. It reports
+// false for any other error, or one that names no wait. The SDK never waits
+// or resends on its own; a [LineMiddleware] can use this to do so.
+//
+// Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0: a voice client whose
+// antiflood points pass virtualserver_antiflood_points_needed_command_block
+// gets `error id=524 msg=client\sis\sflooding extra_msg=retry\sin\s1985ms` for
+// each command, and the command is not run. The wait is a floor, not a
+// promise: a command sent as the wait ends is refused again with a shorter
+// one, and the second try went through in every measurement.
+//
+// A ServerQuery client (raw TCP and SSH; over WebQuery the server closes the
+// connection and says nothing) that sends faster than
+// serverinstance_serverquery_flood_commands per _flood_time gets the same error
+// with the wait in whole seconds, `extra_msg=please\swait\s1\sseconds`, and the
+// command is not run. The first refusals say 1; later ones say the instance's
+// serverinstance_serverquery_ban_time, as the address is banned for that long
+// (new connections are dropped meanwhile). Asking again every half second kept
+// the ban going for as long as it was kept up (9 seconds against a ban time of
+// 4), while waiting out the pause and asking once got through. The wait is a
+// floor here too: about one resend in three after exactly the wait was refused
+// again, with the ban time.
+func FloodWait(err error) (time.Duration, bool) {
+	var serverErr *ServerError
+	if !errors.As(err, &serverErr) || serverErr.Code != errcode.ClientIsFlooding {
+		return 0, false
+	}
+	if match := floodRetryPattern.FindStringSubmatch(serverErr.ExtraMessage); match != nil {
+		return parseWait(match[1], time.Millisecond)
+	}
+	if match := floodPausePattern.FindStringSubmatch(serverErr.ExtraMessage); match != nil {
+		return parseWait(match[1], time.Second)
+	}
+
+	return 0, false
+}
+
+// parseWait reads digits as a count of unit.
+func parseWait(digits string, unit time.Duration) (time.Duration, bool) {
+	n, err := strconv.ParseUint(digits, 10, 32)
+	if err != nil {
+		return 0, false
+	}
+
+	return time.Duration(n) * unit, true
 }

@@ -44,11 +44,6 @@ type responseSpec struct {
 	// against the error. One that has arrived by the error is taken; if none has,
 	// the command waits for it until the caller gives up.
 	Correlated *correlation
-	// EchoKey names the request parameter an answer echoes back, to tell it
-	// from the same notification sent for someone else: notifyclientupdated
-	// is sent whenever any client changes, so the row answering clientgetvariables clid=7 is the one
-	// with clid=7. A row without the key is taken.
-	EchoKey string
 	// Notifications carry the data and are sent before the command's error.
 	//
 	// The same notification can also arrive unprompted —
@@ -93,27 +88,36 @@ func fileTransfer(answer string) *responseSpec {
 }
 
 var responses = map[string]*responseSpec{
-	"apikeyadd":                 inline("notifyapikeyadd"),
-	"apikeylist":                inline("notifyapikeylist"),
-	"banfind":                   inline("notifybanfind"),
-	"banlist":                   inline("notifybanlist"),
-	"channelclientpermlist":     inline("notifychannelclientpermlist"),
-	"channelcreate":             {Notifications: []string{"notifychannelcreated"}, OwnRowsOnly: true},
-	"channelgetdescription":     inline("notifychanneledited"),
-	"channelgroupadd":           inline("notifychannelgrouplist"),
-	"channelgroupclientlist":    inline("notifychannelgroupclientlist"),
-	"channelgroupcopy":          inline("notifychannelgrouplist"),
-	"channelgrouplist":          inline("notifychannelgrouplist"),
-	"channelgrouppermlist":      inline("notifychannelgrouppermlist"),
-	"channelpermlist":           inline("notifychannelpermlist"),
-	"clientdbfind":              inline("notifyclientdbfind"),
-	"clientdblist":              inline("notifyclientdblist"),
-	"clientgetdbidfromuid":      inline("notifyclientdbidfromuid"),
-	"clientgetids":              inline("notifyclientids"),
-	"clientgetnamefromdbid":     inline("notifyclientnamefromdbid"),
-	"clientgetnamefromuid":      inline("notifyclientnamefromuid"),
-	"clientgetuidfromclid":      inline("notifyclientuidfromclid"),
-	"clientgetvariables":        {Notifications: []string{"notifyclientupdated"}, EchoKey: "clid"},
+	"apikeyadd":              inline("notifyapikeyadd"),
+	"apikeylist":             inline("notifyapikeylist"),
+	"banfind":                inline("notifybanfind"),
+	"banlist":                inline("notifybanlist"),
+	"channelclientpermlist":  inline("notifychannelclientpermlist"),
+	"channelcreate":          {Notifications: []string{"notifychannelcreated"}, OwnRowsOnly: true},
+	"channelgetdescription":  inline("notifychanneledited"),
+	"channelgroupadd":        inline("notifychannelgrouplist"),
+	"channelgroupclientlist": inline("notifychannelgroupclientlist"),
+	"channelgroupcopy":       inline("notifychannelgrouplist"),
+	"channelgrouplist":       inline("notifychannelgrouplist"),
+	"channelgrouppermlist":   inline("notifychannelgrouppermlist"),
+	"channelpermlist":        inline("notifychannelpermlist"),
+	"clientdbfind":           inline("notifyclientdbfind"),
+	"clientdblist":           inline("notifyclientdblist"),
+	"clientgetdbidfromuid":   inline("notifyclientdbidfromuid"),
+	"clientgetids":           inline("notifyclientids"),
+	"clientgetnamefromdbid":  inline("notifyclientnamefromdbid"),
+	"clientgetnamefromuid":   inline("notifyclientnamefromuid"),
+	"clientgetuidfromclid":   inline("notifyclientuidfromclid"),
+	// Matched on the echoed clid, wherever the row falls against the error, and
+	// for the same reason as getconnectioninfo below: notifyclientupdated is
+	// sent whenever any client changes, so the row answering clientgetvariables
+	// clid=7 is the one with clid=7. Measured with the command while others
+	// were in flight, 600 times a server: on TeamSpeak 6 6.0.0-beta13.1, 2
+	// came back with error id=0 ahead of the row, and so with no row; on
+	// TeamSpeak 3 3.13.8, none of 600.
+	"clientgetvariables": {Correlated: &correlation{
+		Key: "clid", Notifications: []string{"notifyclientupdated"},
+	}},
 	"clientpermlist":            inline("notifyclientpermlist"),
 	"clientsetserverquerylogin": inline("notifyclientserverqueryloginpassword"),
 	"complainlist":              inline("notifycomplainlist"),

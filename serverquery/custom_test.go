@@ -83,7 +83,7 @@ func TestCustom_DescribesItselfAndRefusesNoOpen(t *testing.T) {
 }
 
 func TestCustom_OpenFailuresAreDialErrors(t *testing.T) {
-	c := newClient(t, Custom(func(context.Context) (Transport, error) { return nil, errNoRoute }), WithoutEvents())
+	c := newClient(t, Custom(func(context.Context) (Transport, error) { return nil, errNoRoute }))
 	err := c.Connect(context.Background())
 	if !errors.Is(err, ErrDial) || !errors.Is(err, errNoRoute) {
 		t.Errorf("Connect = %v, want ErrDial wrapping the open's error", err)
@@ -92,7 +92,7 @@ func TestCustom_OpenFailuresAreDialErrors(t *testing.T) {
 	noTransport := func(context.Context) (Transport, error) {
 		return nil, nil //nolint:nilnil // the case under test
 	}
-	c = newClient(t, Custom(noTransport), WithoutEvents())
+	c = newClient(t, Custom(noTransport))
 	err = c.Connect(context.Background())
 	if !errors.Is(err, ErrDial) {
 		t.Errorf("Connect with no transport = %v, want ErrDial", err)

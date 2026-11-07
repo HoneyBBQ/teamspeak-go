@@ -43,10 +43,10 @@ func forEachTransport(t *testing.T, server teamspeak.ServerID, body adminBody) {
 			waitForOtherSuites()
 			if server != 0 {
 				opts = append(opts, serverquery.WithServer(server))
-			} else {
-				// No server is selected, so there is nothing to register the
-				// default notifications on: the server refuses that with 1024.
-				opts = append(opts, serverquery.WithoutEvents())
+				// WebQuery delivers no events, and the client refuses to ask.
+				if name != "web" {
+					opts = append(opts, fiveEvents())
+				}
 			}
 			c, err := serverquery.New(d, opts...)
 			if err != nil {
@@ -862,7 +862,7 @@ func TestQuerySession_LoginUseAndNotificationsByHand(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			d, opts, who := dialer(t)
 			waitForOtherSuites()
-			c, err := serverquery.New(d, append(opts, serverquery.WithServer(1), serverquery.WithoutEvents())...)
+			c, err := serverquery.New(d, append(opts, serverquery.WithServer(1))...)
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -903,7 +903,7 @@ func assertNotificationsByHand(t *testing.T, c *serverquery.Client) {
 		}
 	}
 
-	// WithoutEvents registered nothing, so a message is not heard until the
+	// No WithEvents registered nothing, so a message is not heard until the
 	// client asks.
 	say("before", false)
 	err := c.RegisterNotifications(ctx, serverquery.CategoryTextServer, serverquery.NotificationOptions{})

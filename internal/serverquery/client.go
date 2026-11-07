@@ -12,11 +12,11 @@ package serverquery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
@@ -103,8 +103,7 @@ type held struct {
 // ServerQuery answers one command at a time, in order: data lines, then an
 // error line that ends the answer, with no return_code to say which command it
 // was. So commands are sent one after another, each once the previous one is
-// answered, which also keeps the server's flood protection from seeing a
-// burst. Notifications (notify…) can arrive at any point and are never part
+// answered. Notifications (notify…) can arrive at any point and are never part
 // of an answer.
 type Client struct {
 	transport Transport
@@ -137,54 +136,39 @@ type Client struct {
 	// its answer was given up on. Should it arrive later, it belongs to that
 	// command, and is dropped rather than handed to the next one.
 	strayKey string
-	// lastSent is when a command was last written, in Unix nanoseconds: what the
-	// server counts a session's idleness from.
-	lastSent  atomic.Int64
+	// lines is the line middleware around execLine; every command but the
+	// goodbye goes through it, inside its turn.
+	lines teamspeak.LineSender
+	// line is the command now inside the line middleware, nil when none.
+	line      *lineCall
 	mu        sync.Mutex
 	closeOnce sync.Once
 	closed    bool
 }
 
+// lineCall is a command inside the line middleware.
+type lineCall struct {
+	cancel context.CancelCauseFunc
+	// writing is whether the line has been handed to the transport and its
+	// answer is awaited: past the middleware, so not for Goodbye to cancel.
+	writing bool
+}
+
 // New returns a client running over transport, and starts reading from it.
-func New(transport Transport) *Client {
+// Every command but the goodbye passes lines, outermost first.
+func New(transport Transport, lines ...teamspeak.LineMiddleware) *Client {
 	c := &Client{
 		transport: transport,
 		turn:      make(chan struct{}, 1),
 		done:      make(chan struct{}),
 	}
+	c.lines = c.execLine
+	for _, middleware := range slices.Backward(lines) {
+		c.lines = middleware(c.lines)
+	}
 	go c.readLoop()
 
 	return c
-}
-
-// KeepAlive sends line whenever no command has been sent for every, until the
-// connection ends, so that a server that closes an idle session does not close
-// this one. Only commands sent count, as the server counts them: what the
-// server sends does not. A busy connection sends nothing extra. A failed line
-// is the connection dropping, which its own end reports.
-func (c *Client) KeepAlive(ctx context.Context, every time.Duration, line string) {
-	c.lastSent.Store(time.Now().UnixNano())
-	go func() {
-		timer := time.NewTimer(every)
-		defer timer.Stop()
-		for {
-			select {
-			case <-c.done:
-				return
-			case <-timer.C:
-			}
-			wait := every
-			idle := time.Since(time.Unix(0, c.lastSent.Load()))
-			if idle >= every {
-				attempt, cancel := context.WithTimeout(ctx, defaultCommandTimeout)
-				_, _ = c.Exec(attempt, line)
-				cancel()
-			} else {
-				wait = every - idle
-			}
-			timer.Reset(wait)
-		}
-	}()
 }
 
 // Send executes a typed command; it is the Executor the typed commands run
@@ -199,8 +183,45 @@ func (c *Client) Send(ctx context.Context, req teamspeak.Request) ([]map[string]
 // Exec sends a raw command line and returns the rows that answer it. The line
 // is sent as given, so its values must already be escaped (commands.Escape).
 //
-// Without a deadline on ctx the command gives up after defaultCommandTimeout.
+// The line passes the line middleware once it has its turn, so a middleware
+// that waits holds every command behind it, in order. Without a deadline on
+// ctx the command gives up after defaultCommandTimeout, waits in the
+// middleware included. The client never resends: a refusal as flooding is
+// returned like any other error.
 func (c *Client) Exec(ctx context.Context, line string) ([]map[string]string, error) {
+	return c.exec(ctx, line, true)
+}
+
+// Goodbye sends the line that ends the session, the quit of a client closing.
+// It skips the line middleware and cancels the context of a command still
+// inside it, so that it leaves at once: held up, the server would keep the
+// session.
+func (c *Client) Goodbye(ctx context.Context, line string) ([]map[string]string, error) {
+	c.mu.Lock()
+	if l := c.line; l != nil && !l.writing {
+		l.cancel(teamspeak.ErrNotConnected)
+	}
+	c.mu.Unlock()
+
+	return c.exec(ctx, line, false)
+}
+
+// Close ends the connection. Commands still waiting, and any sent later, fail
+// with teamspeak.ErrNotConnected.
+//
+// Ending the connection is end's work, so this is the same thing with no cause
+// to report; the transport's error is returned however the connection ended,
+// including when the read loop noticed before this was called.
+func (c *Client) Close() error {
+	c.end(nil)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.transportErr
+}
+
+func (c *Client) exec(ctx context.Context, line string, throughLines bool) ([]map[string]string, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, defaultCommandTimeout)
@@ -217,49 +238,67 @@ func (c *Client) Exec(ctx context.Context, line string) ([]map[string]string, er
 	}
 	defer func() { <-c.turn }()
 
-	// Refused as flooding with a time to wait, which the command can afford:
-	// the turn is kept for the pause, so nothing is sent until it is over, and
-	// the command, which the server did not run, goes out again.
-	//
-	// Measured on TeamSpeak 3 3.13.8 (raw TCP) and TeamSpeak 6 6.0.0 (SSH): the
-	// refusal is `error id=524 ... extra_msg=please\swait\s1\sseconds`, the
-	// connection stays open, and sending again before the pause is over only
-	// prolongs it. WebQuery has no such answer; see servererr.FloodRetryDelay.
-	for refused := 0; ; refused++ {
-		rows, err := c.execOnce(ctx, name, line)
-		wait, flooded := servererr.FloodRetryDelay(err)
-		hold := servererr.FloodHold(wait)
-		if !flooded || refused >= servererr.FloodRetries || !servererr.Affordable(ctx, hold) {
-			return rows, err
-		}
-		pause := time.NewTimer(hold)
-		select {
-		case <-pause.C:
-		case <-c.done:
-			pause.Stop()
-
-			return nil, c.notConnected()
-		case <-ctx.Done():
-			pause.Stop()
-
-			return nil, fmt.Errorf("%s: %w", name, ctx.Err())
-		}
+	if !throughLines {
+		return c.execOnce(ctx, name, line)
 	}
+
+	return c.throughLines(ctx, name, line)
 }
 
-// Close ends the connection. Commands still waiting, and any sent later, fail
-// with teamspeak.ErrNotConnected.
-//
-// Ending the connection is end's work, so this is the same thing with no cause
-// to report; the transport's error is returned however the connection ended,
-// including when the read loop noticed before this was called.
-func (c *Client) Close() error {
-	c.end(nil)
-
+// throughLines runs line through the line middleware, holding the turn. The
+// context the middleware gets also ends with the connection and with Goodbye.
+func (c *Client) throughLines(ctx context.Context, name, line string) ([]map[string]string, error) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	call := &lineCall{cancel: cancel}
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.line = call
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		c.line = nil
+		c.mu.Unlock()
+		cancel(nil)
+	}()
+	go func() {
+		select {
+		case <-c.done:
+			cancel(teamspeak.ErrNotConnected)
+		case <-ctx.Done():
+		}
+	}()
 
-	return c.transportErr
+	rows, err := c.lines(ctx, teamspeak.CommandLine{Name: name, Text: line})
+	if err != nil && errors.Is(context.Cause(ctx), teamspeak.ErrNotConnected) {
+		return nil, c.notConnected()
+	}
+
+	return rows, err
+}
+
+// execLine is the sender the line middleware wraps: it refuses a line whose
+// connection ended or began to close while the middleware held it, and
+// otherwise sends it once and waits for the answer. The caller holds the turn.
+func (c *Client) execLine(ctx context.Context, line teamspeak.CommandLine) ([]map[string]string, error) {
+	c.mu.Lock()
+	if errors.Is(context.Cause(ctx), teamspeak.ErrNotConnected) {
+		c.mu.Unlock()
+
+		return nil, c.notConnected()
+	}
+	call := c.line
+	if call != nil {
+		call.writing = true
+	}
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		if call != nil {
+			call.writing = false
+		}
+		c.mu.Unlock()
+	}()
+
+	return c.execOnce(ctx, line.Name, line.Text)
 }
 
 // execOnce sends line and waits for its answer. The caller holds the turn.
@@ -310,8 +349,6 @@ func (c *Client) send(ctx context.Context, line string) (*pending, error) {
 	}
 	c.pending = p
 	c.mu.Unlock()
-	c.lastSent.Store(time.Now().UnixNano())
-
 	err := c.transport.WriteLine(ctx, line)
 	if err != nil {
 		// Not sent, so no answer is coming.

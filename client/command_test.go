@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
 
@@ -262,12 +263,18 @@ func itoa(n uint32) string {
 }
 
 // The stream package withdraws a request only if it may have reached the server,
-// and tells the two apart by this: a command that gave up in the flood throttle
+// and tells the two apart by this: a command that gave up in a line middleware
 // returns the context's own error, and one that was sent and awaited wraps it
 // with the command's name.
-func TestExec_ReturnsTheContextsOwnErrorFromTheThrottleAndWrapsItOnceSent(t *testing.T) {
-	c := newTestClient(t)
-	c.throttle.tokens = 0
+func TestExec_ReturnsTheContextsOwnErrorFromALineMiddlewareAndWrapsItOnceSent(t *testing.T) {
+	hold := func(_ teamspeak.LineSender) teamspeak.LineSender {
+		return func(ctx context.Context, _ teamspeak.CommandLine) ([]map[string]string, error) {
+			<-ctx.Done()
+
+			return nil, ctx.Err()
+		}
+	}
+	c := newTestClient(t, WithLineMiddleware(hold))
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
 	_, err := c.Exec(ctx, "whoami")
