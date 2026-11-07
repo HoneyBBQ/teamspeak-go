@@ -4,6 +4,7 @@ package serverquery_test
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -42,14 +43,12 @@ const (
 	idleObserveFor    = 340 * time.Second
 )
 
-// connectIdle opens a query client on dialer's transport and server 1.
-func connectIdle(t *testing.T, dialer func(t *testing.T) (serverquery.Dialer, []serverquery.Option, account),
-	opts ...serverquery.Option,
+// connectIdle opens a query client on d and server 1.
+func connectIdle(t *testing.T, d serverquery.Dialer, base []serverquery.Option, opts ...serverquery.Option,
 ) *serverquery.Client {
 	t.Helper()
-	d, base, _ := dialer(t)
 	waitForOtherSuites()
-	c, err := serverquery.New(d, append(append(base, serverquery.WithServer(1)), opts...)...)
+	c, err := serverquery.New(d, append(append(slices.Clone(base), serverquery.WithServer(1)), opts...)...)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -81,9 +80,13 @@ func sendEvery(ctx context.Context, t *testing.T, wg *sync.WaitGroup, d time.Dur
 
 func assertIdleSessions(t *testing.T, dialer func(t *testing.T) (serverquery.Dialer, []serverquery.Option, account)) {
 	t.Helper()
-	a := connectIdle(t, dialer, fiveEvents())
-	b := connectIdle(t, dialer)
-	c := connectIdle(t, dialer)
+	// One dialer for the three sessions: the SSH one probes the host key when
+	// it is made, and three probes in quick succession, beside the other
+	// transport's, were one too many for TeamSpeak 3.
+	d, base, _ := dialer(t)
+	a := connectIdle(t, d, base, fiveEvents())
+	b := connectIdle(t, d, base)
+	c := connectIdle(t, d, base)
 	start := time.Now()
 
 	var (
