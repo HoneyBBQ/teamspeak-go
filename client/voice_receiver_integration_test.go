@@ -81,8 +81,8 @@ func vrAwaitReconnect(t *testing.T, p *x5Peer, before uint64) {
 	t.Fatalf("did not reconnect within the deadline (status=%v session=%d)", p.c.Status(), p.c.Session())
 }
 
-// vrCommands times commands of p, one every 300 ms (the client's own flood
-// throttle lets four through a second), while speaker, if there is
+// vrCommands times commands of p, one every 300 ms (the test's token bucket
+// lets four through a second), while speaker, if there is
 // one, sends 100 frames; it returns when the frames are sent and heard.
 func vrCommands(t *testing.T, p, speaker *x5Peer) []time.Duration {
 	t.Helper()

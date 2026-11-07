@@ -614,7 +614,7 @@ func TestLive_DeliversABurstOfCandidates(t *testing.T) {
 	const n = 40
 	got := listen(p.peer.OnCandidate, nil)
 	errs := make(chan error, n)
-	// Issued together, so they queue in the client's throttle.
+	// Issued together, so they queue in the test's paced line middleware.
 	for i := range n {
 		go func() { errs <- p.view.SendCandidate(timeout(t, 40*time.Second), candidate(i)) }()
 	}
@@ -633,7 +633,7 @@ func TestLive_DeliversABurstOfCandidates(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Goroutines race for the throttle, so the order is not fixed; every
+	// Goroutines race for the pacer, so the order is not fixed; every
 	// candidate must arrive, once.
 	want := make([]string, n)
 	for i := range n {

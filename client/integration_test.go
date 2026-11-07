@@ -59,7 +59,9 @@ var (
 )
 
 func integrationClientOptions(logger *slog.Logger) []client.Option {
-	opts := make([]client.Option, 0, 4)
+	// The client does not pace its commands; the recipe of docs/flood-control.md
+	// keeps these tests clear of the server's antiflood limit.
+	opts := []client.Option{client.WithLineMiddleware(newBucket(4, 8, 5).pace())}
 	if logger != nil {
 		opts = append(opts, client.WithLogger(logger))
 	}
