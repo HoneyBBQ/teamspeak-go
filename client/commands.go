@@ -242,6 +242,7 @@ func answers(p *pendingCommand, row bufferedRow, ownClientID string) bool {
 	if spec.OwnRowsOnly && row.params["invokerid"] != ownClientID {
 		return false
 	}
+
 	return true
 }
 
