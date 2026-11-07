@@ -1,5 +1,5 @@
 // Package prop names the property keys of the teamspeak.Properties maps that
-// GetServerInfo, GetInstanceInfo, GetHostInfo and GetClientInfo return and
+// GetServerInfo, GetInstanceInfo, GetHostInfo and GetClientProperties return and
 // EditServer and EditInstance take:
 //
 //	info, err := c.GetServerInfo(ctx)

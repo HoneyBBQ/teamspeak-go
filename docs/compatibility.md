@@ -52,3 +52,15 @@ languages differ:
   queue. JavaScript's single thread lets a listener added right after
   `connect()` resolves still hear it; Go's event goroutine may run first, so
   register `OnConnected` before `Connect` to be sure to.
+- **Events over WebQuery.** A listener for a server event on a
+  `serverquery.Client` over WebQuery throws a `TypeError` in JavaScript. Go's
+  `On...` methods are inert there: they return a function that removes nothing,
+  and the client logs one warning per method.
+- **Transport seams.** Go's `client.WithPacketConn` takes a `net.PacketConn` for
+  the voice session and `FileTransferOptions.Dialer` a `FileTransferDialer` for a
+  file transfer; JavaScript's `socketFactory` returns a `DatagramSocket` and its
+  `fileTransferSocketFactory` a `Duplex` stream.
+- **Command diagnostics.** JavaScript also publishes the command names it sends
+  and receives on two `diagnostics_channel` channels. Go has no such channel:
+  `WithCommandMiddleware`, `WithLineMiddleware` and `WithTrace` are the seams
+  there.

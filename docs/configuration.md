@@ -25,7 +25,8 @@ the client sends on its own during the handshake, do not pass through it.
 ```go
 timeCommands := func(next teamspeak.Executor) teamspeak.Executor {
 	return teamspeak.ExecutorFunc(func(ctx context.Context, req teamspeak.Request) ([]map[string]string, error) {
-				rows, err := next.Send(ctx, req)
+		start := time.Now()
+		rows, err := next.Send(ctx, req)
 		slog.Debug("command", "name", req.Command(), "took", time.Since(start), "err", err)
 
 		return rows, err
@@ -86,6 +87,34 @@ Connection auth options:
 - `WithServerPassword(password)` accepts the plain-text server password, keeps only the TeamSpeak protocol hash, and sends it during `clientinit`
 - `WithDefaultChannel(channel)` requests a default channel during `clientinit`
 - `WithDefaultChannelPassword(password)` accepts the plain-text channel password and sends the TeamSpeak protocol hash for the configured default channel
+- `WithPrivilegeKey(key)` redeems a privilege key during `clientinit`, on the first successful connection only
+- `WithMetaData(data)` sets the `client_meta_data` sent during `clientinit`, again on every reconnection
+
+## Reconnection
+
+Reconnection is off unless `WithReconnect` is given. A deliberate `Disconnect`
+never reconnects, whatever the policy says. The options are a
+`teamspeak.BackoffPolicy` and an optional `ShouldRetry`:
+
+```go
+c, err := client.New(id, "ts.example.com", "Bot",
+	client.WithReconnect(client.ReconnectOptions{
+		Backoff:     teamspeak.BackoffPolicy{InitialDelay: time.Second, MaxDelay: time.Minute, Factor: 2, Jitter: 0.2},
+		ShouldRetry: func(err error, attempt int) bool { return attempt < 10 },
+	}),
+)
+```
+
+A zero `BackoffPolicy` field takes its value from `teamspeak.DefaultBackoffPolicy`
+(one second, doubling, capped at a minute, 20% jitter, never giving up), and
+`New` returns `ErrInvalidConfig` for a policy that cannot work. The delay
+matters because TeamSpeak bans an IP that connects several times in quick
+succession. Without a `ShouldRetry`, `client.DefaultShouldRetry` decides: it
+retries transport failures and a server that stopped, and does not retry a ban,
+a wrong server or channel password, insufficient permissions, a kick from the
+server, or an address that cannot be one. The `OnConnected` and
+`OnDisconnected` events say when the loop made a connection (`Reconnected`) and
+whether it will try again (`WillReconnect`).
 
 ## Client version
 

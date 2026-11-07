@@ -57,8 +57,10 @@ Nothing is registered unless you ask: `WithEvents` names the categories, and
 the client registers exactly those on connecting and reads the client list the
 events draw their fields from. Raw TCP and SSH accept `server`, `channel`,
 `textserver`, `textchannel` and `textprivate`; `bans` is opt-in, because TS3
-refuses it. WebQuery accepts none, so `WithEvents` over it is refused with
-`ErrInvalidConfig`, as is `WithEvents()` with no category:
+refuses it, and so is `tokenused`, which reports a client redeeming a privilege
+key as a `NotificationEvent`, since the key is a credential. WebQuery accepts
+none, so `WithEvents` over it is refused with `ErrInvalidConfig`, as is
+`WithEvents()` with no category:
 
 ```go
 c, err := serverquery.New(dialer,
@@ -74,6 +76,18 @@ every transport. The `On…` methods for server events are inert over a
 transport that cannot deliver them: they return a function that removes
 nothing, and the client logs one warning per method rather than failing the
 connect.
+
+## Guest access
+
+TeamSpeak 6 beta13 and later let a connection in without an account, with the
+access of the Guest ServerQuery group: `SSHGuestWith(addr, SSHOptions{...})`
+over SSH (the user `guest`, no password, and the host key policy below, which
+`SSHGuest(addr)` alone lacks) and `WebGuest(baseURL)` over WebQuery (no api
+key). TeamSpeak 3 has no guest access, and `Connect` then returns an error
+wrapping `ErrNoGuestAccess`. A guest is only ever a deliberate choice: `SSH`
+and `Web` refuse an empty password, an empty api key and the user name `guest`
+with `ErrInvalidConfig`, so a missing credential is not turned into a quiet
+downgrade.
 
 ## Pacing and idle sessions
 
@@ -106,9 +120,10 @@ that the call site says out loud what it is giving up. A refusal wraps
 `WithReconnect(teamspeak.ReconnectOptions{})` reconnects after a dropped
 connection, sharing the voice client's backoff policy. The default retry
 decision, `serverquery.DefaultShouldRetry`, never retries a refused login or a
-refused `use`: those are the server saying the credentials or the server id are
-wrong, and repeating them only risks the flood ban that TeamSpeak applies to an
-IP that connects too often.
+refused `use`, except for the query flood limit, which clears by itself: those
+are the server saying the credentials or the server id are wrong, and repeating
+them only risks the flood ban that TeamSpeak applies to an IP that connects too
+often. It does not retry an SSH host key that was not accepted either.
 
 ## Errors
 

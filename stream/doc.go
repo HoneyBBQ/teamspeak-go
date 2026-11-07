@@ -8,9 +8,10 @@
 //
 // # Experimental protocol
 //
-// TeamSpeak does not document the stream protocol. This package was verified
-// against a TeamSpeak 6 server 6.0.0-beta13.1 and the TeamSpeak 6 client
-// 6.0.0-beta5 (macOS). A TeamSpeak update may break it. A TeamSpeak 3 server
+// TeamSpeak does not document the stream protocol. The live tests run this
+// package against a TeamSpeak 6 server 6.0.0-beta13.1, and interop with the
+// TeamSpeak 6 client 6.0.0-beta5 (macOS) was observed by hand. A TeamSpeak
+// update may break it. A TeamSpeak 3 server
 // does not do streams and answers none of the commands, so Publish and Watch
 // return an *UnsupportedError before sending anything.
 //

@@ -1,10 +1,10 @@
 // Package serverquery runs the typed commands over ServerQuery, TeamSpeak's
 // line-based administration protocol.
 //
-// A skeleton, kept internal until it is finished: connecting, login and use,
-// and notification events are to come. What is here is the part every
-// transport shares — sending one command at a time and pairing each answer
-// with the command that asked for it.
+// It is the part every transport shares: sending one command at a time and
+// pairing each answer with the command that asked for it. The public
+// serverquery package builds the client on it: the transports, the login, the
+// session and the events.
 //
 // It imports none of the voice client's cryptography: a ServerQuery program
 // should not have to build an ECDH handshake it never runs.
