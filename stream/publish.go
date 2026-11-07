@@ -12,10 +12,6 @@ import (
 // lookupTimeout bounds the lookup of a requester who is out of view.
 const lookupTimeout = 10 * time.Second
 
-// maxLookups is how many lookups of requesters out of view of one stream run at
-// once.
-const maxLookups = 8
-
 // maxClosedViewers is how many viewers whose peer is over are remembered, to
 // ignore what they still send.
 const maxClosedViewers = 1024
@@ -48,8 +44,6 @@ type Published struct {
 	initial Info
 	// session is the client's session that started the stream.
 	session uint64
-	// looking is how many lookups are out.
-	looking int
 	done    bool
 }
 
@@ -197,7 +191,8 @@ func (p *Published) requestLocked(clid teamspeak.ClientID, message string, entry
 	p.advanceLocked()
 }
 
-// advanceLocked starts the lookups that may start, then announces the requests
+// advanceLocked starts the lookups of the requests that need one, all at once:
+// pacing them is the client's line middleware's job. It then announces the requests
 // whose turn it is. A request that needs no lookup, with none ahead of it, is
 // announced at once.
 func (p *Published) advanceLocked() {
@@ -205,13 +200,9 @@ func (p *Published) advanceLocked() {
 		if w.ready || w.looking || p.resolving[w.viewer.ClientID] != w {
 			continue
 		}
-		if p.looking >= maxLookups {
-			break
-		}
 		ctx := p.s.conn
 		if p.s.spawnLocked(func() { p.lookup(ctx, w) }) {
 			w.looking = true
-			p.looking++
 		}
 	}
 	for len(p.queue) > 0 {
@@ -235,7 +226,6 @@ func (p *Published) lookup(ctx context.Context, w *lookup) {
 	defer p.s.mu.Unlock()
 
 	w.viewer, w.ready, w.looking = viewer, true, false
-	p.looking--
 	p.advanceLocked() //nolint:contextcheck // the lookups run on the connection context, which advanceLocked reads itself
 }
 

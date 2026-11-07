@@ -83,6 +83,17 @@ type AddrResolver interface {
 // sends on its own during the handshake and Disconnect do not pass through it.
 type CommandMiddleware = teamspeak.CommandMiddleware
 
+// LineMiddleware is teamspeak.LineMiddleware: it wraps the sending of every
+// command line the client sends once it has a session — typed commands, Exec
+// and ExecNoWait, and the commands the client sends on its own, such as the
+// answer to a connection info request. It can pace, resend or refuse a line.
+//
+// Not seen: the voice handshake's own lines (clientinitiv, clientek,
+// clientinit), sent before a session exists, and the clientdisconnect of
+// Disconnect, which must leave at once or the server keeps a session for a
+// client that has gone.
+type LineMiddleware = teamspeak.LineMiddleware
+
 // EventMiddleware wraps the delivery of server events. It may observe an
 // event, pass on a different one in its place, or drop it by not calling next.
 type EventMiddleware func(next func(Event)) func(Event)
@@ -150,7 +161,6 @@ type Client struct {
 	// read it with currentHandler.
 	handler  *transport.PacketHandler
 	cmdTrack *commandTracker
-	throttle *commandThrottle
 	clients  map[teamspeak.ClientID]teamspeak.ClientEntry
 	// view is the channel tree and the rest of the server view; the client
 	// list it shares with the roster is clients.
@@ -212,6 +222,15 @@ type Client struct {
 	// finish can tell whether another arrived meanwhile.
 	disconnects    uint64
 	cmdMiddlewares []CommandMiddleware
+	// lineMiddlewares wrap the sending of every command line; lineSend and
+	// lineNoWait are the chains built from them, for lines with and without
+	// an answer.
+	lineMiddlewares []LineMiddleware
+	lineSend        teamspeak.LineSender
+	lineNoWait      teamspeak.LineSender
+	// lineCalls holds the cancel function of every line inside the line
+	// middleware, so a disconnect can cancel its context.
+	lineCalls map[*context.CancelCauseFunc]struct{}
 	// executor is the command middleware wrapped around the client's own
 	// executor; Send runs requests through it.
 	executor teamspeak.Executor
@@ -311,7 +330,6 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 		nickname:          nickname,
 		requestedNickname: nickname,
 		clients:           make(map[teamspeak.ClientID]teamspeak.ClientEntry),
-		throttle:          newCommandThrottle(),
 		cmdTrack:          newCommandTracker(),
 		attempt:           newConnectAttempt(),
 		stop:              make(chan struct{}),
@@ -340,6 +358,7 @@ func New(id *identity.Identity, addr, nickname string, options ...Option) (*Clie
 	}
 
 	c.buildMiddlewareChains()
+	c.buildLineChains()
 
 	return c, nil
 }
@@ -418,6 +437,16 @@ func WithResolver(r AddrResolver) Option {
 func WithCommandMiddleware(mw ...CommandMiddleware) Option {
 	return optionFunc(func(c *Client) {
 		c.cmdMiddlewares = append(c.cmdMiddlewares, mw...)
+	})
+}
+
+// WithLineMiddleware wraps the sending of every command line, outermost first.
+// See LineMiddleware for what it sees and what it does not. Without one, a
+// line goes out at once: the client does not pace its commands or resend a
+// refused one.
+func WithLineMiddleware(mw ...LineMiddleware) Option {
+	return optionFunc(func(c *Client) {
+		c.lineMiddlewares = append(c.lineMiddlewares, mw...)
 	})
 }
 
@@ -522,9 +551,10 @@ func (c *Client) Connect(ctx context.Context) error {
 //
 // It says goodbye first, waiting for the server's acknowledgement for a second
 // at most, or until ctx is done if that is sooner. The goodbye is sent at once,
-// past the flood throttle, and also by a client still connecting whose
-// clientinit is out; commands still waiting for their turn are rejected with
-// teamspeak.ErrNotConnected and never sent. The connection is closed
+// past the line middleware, and also by a client still connecting whose
+// clientinit is out; commands still waiting in a line middleware have their
+// context cancelled, are rejected with teamspeak.ErrNotConnected and are never
+// written. The connection is closed
 // either way. A Connect still waiting for its handshake returns
 // teamspeak.ErrNotConnected, and so do the commands still waiting for an
 // answer, and a reconnect still pending or waiting out its backoff is
@@ -579,6 +609,7 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler, 
 		return nil
 	}
 	c.status = StatusDisconnected
+	c.abortLinesLocked()
 	c.endViewLocked(nil)
 	report := c.endAttemptLocked(errDisconnectedDuringHandshake)
 	sessionEnd := c.endSessionLocked(nil)
@@ -588,10 +619,6 @@ func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler, 
 	c.leaving = l
 	c.mu.Unlock()
 	report()
-	// Whatever still waits for its turn is rejected and never sent; the
-	// goodbye below does not wait for one.
-	c.throttle.rejectAll(teamspeak.ErrNotConnected)
-
 	c.logger.InfoContext(ctx, "disconnecting from server")
 
 	if holdsSession {
@@ -1101,6 +1128,7 @@ func (c *Client) handleConnectionClosed(h *transport.PacketHandler, err error) {
 		cause = fmt.Errorf("%w: %w", teamspeak.ErrNotConnected, err)
 	}
 	c.cmdTrack.reset(cause)
+	c.abortLinesLocked()
 
 	if c.status == StatusDisconnected {
 		c.mu.Unlock()

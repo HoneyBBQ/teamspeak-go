@@ -53,6 +53,7 @@ func WithCommandMiddleware(mw ...CommandMiddleware) Option
 func WithDefaultChannel(channel string) Option
 func WithDefaultChannelPassword(password string) Option
 func WithEventMiddleware(mw ...EventMiddleware) Option
+func WithLineMiddleware(mw ...LineMiddleware) Option
 func WithLogger(logger *slog.Logger) Option
 func WithMetaData(data string) Option
 func WithNicknameLookup() Option
@@ -358,6 +359,7 @@ field HandshakeDoneInfo.Duration time.Duration
 field HandshakeDoneInfo.Attempt int
 field HandshakeDoneInfo.Reconnect bool
 type KickedEvent = teamspeak.KickedEvent
+type LineMiddleware = teamspeak.LineMiddleware
 type NotificationEvent = teamspeak.NotificationEvent
 type Option interface
 sealed Option

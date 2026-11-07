@@ -234,6 +234,11 @@ func nextWithin(t *testing.T, transport *fakeTransport, d time.Duration) (string
 	}
 }
 
+// fiveEvents asks for the five categories both raw TCP and SSH accept.
+func fiveEvents() Option {
+	return WithEvents(CategoryServer, CategoryChannel, CategoryTextServer, CategoryTextChannel, CategoryTextPrivate)
+}
+
 func newClient(t *testing.T, d Dialer, opts ...Option) *Client {
 	t.Helper()
 	c, err := New(d, opts...)
@@ -250,7 +255,7 @@ func newClient(t *testing.T, d Dialer, opts ...Option) *Client {
 func TestConnect_RunsTheHandshakeInOrder(t *testing.T) {
 	d := &fakeDialer{notify: true, quit: true, opened: make(chan *fakeTransport, 8),
 		account: &login{name: "serveradmin", password: "pw"}}
-	c := newClient(t, d, WithServer(1), WithNickname("bot"))
+	c := newClient(t, d, WithServer(1), WithNickname("bot"), fiveEvents())
 
 	done := make(chan error, 1)
 	go func() { done <- c.Connect(context.Background()) }()
@@ -283,11 +288,11 @@ func TestConnect_RunsTheHandshakeInOrder(t *testing.T) {
 	}
 }
 
-// The five categories both servers accept are registered without being asked
-// for, and bans is not among them.
-func TestConnect_RegistersTheDefaultCategories(t *testing.T) {
+// The five categories both servers accept are registered when named, and bans
+// is not among them unless it is named too.
+func TestConnect_RegistersTheCategoriesNamed(t *testing.T) {
 	d := newFakeDialer(true)
-	c := newClient(t, d, WithServer(1))
+	c := newClient(t, d, WithServer(1), fiveEvents())
 
 	done := make(chan error, 1)
 	go func() { done <- c.Connect(context.Background()) }()
@@ -336,14 +341,14 @@ func TestWithEvents_RegistersBansWhenAsked(t *testing.T) {
 	}
 }
 
-// tokenused is never in the defaults, and is registered when it is named.
+// tokenused is only registered when it is named, and is registered when it is named.
 func TestWithEvents_RegistersTokenUsedOnlyWhenAsked(t *testing.T) {
 	for name, tc := range map[string]struct {
 		opt  Option
 		want bool
 	}{
 		"named":   {WithEvents(CategoryServer, CategoryTokenUsed), true},
-		"default": {WithEvents(), false},
+		"default": {WithEvents(CategoryServer), false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := newFakeDialer(true)
@@ -364,10 +369,11 @@ func TestWithEvents_RegistersTokenUsedOnlyWhenAsked(t *testing.T) {
 	}
 }
 
-// WithoutEvents connects and runs commands with nothing registered.
-func TestWithoutEvents_RegistersNothing(t *testing.T) {
+// Without WithEvents the client connects and runs commands with nothing
+// registered and no client list read.
+func TestNew_WithoutEventsRegistersNothingAndReadsNoRoster(t *testing.T) {
 	d := newFakeDialer(true)
-	c := newClient(t, d, WithoutEvents())
+	c := newClient(t, d)
 
 	done := make(chan error, 1)
 	go func() { done <- c.Connect(context.Background()) }()
@@ -378,8 +384,17 @@ func TestWithoutEvents_RegistersNothing(t *testing.T) {
 		t.Fatalf("Connect: %v", err)
 	}
 
-	if containsSubstring(sent, "servernotifyregister") {
-		t.Errorf("a category was registered with events off: %v", sent)
+	if containsSubstring(sent, "servernotifyregister") || containsSubstring(sent, "clientlist") {
+		t.Errorf("events were set up with none asked for: %v", sent)
+	}
+}
+
+// WithEvents with no category names nothing to register: a configuration
+// mistake, refused up front.
+func TestNew_RefusesWithEventsWithoutACategory(t *testing.T) {
+	_, err := New(newFakeDialer(true), WithEvents())
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("New = %v, want ErrInvalidConfig", err)
 	}
 }
 
@@ -395,11 +410,6 @@ func TestNew_RefusesEventsOverATransportThatCannotDeliverThem(t *testing.T) {
 	_, err = New(newFakeDialer(false))
 	if err != nil {
 		t.Errorf("New without events = %v, want it accepted", err)
-	}
-	// And WithoutEvents is accepted as well.
-	_, err = New(newFakeDialer(false), WithoutEvents())
-	if err != nil {
-		t.Errorf("New with WithoutEvents = %v, want it accepted", err)
 	}
 }
 
@@ -571,7 +581,7 @@ func TestConnect_DeliversConnected(t *testing.T) {
 // from what the client knows.
 func TestNotification_TextMessageIsDelivered(t *testing.T) {
 	d := newFakeDialer(true)
-	c := newClient(t, d, WithServer(1))
+	c := newClient(t, d, WithServer(1), fiveEvents())
 
 	done := make(chan error, 1)
 	go func() { done <- c.Connect(context.Background()) }()

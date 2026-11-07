@@ -164,21 +164,11 @@ func (c *Client) handleClientEnterView(h *transport.PacketHandler, cmd *wire.Com
 	}
 	c.clients[info.ID] = info
 	c.view.revision++
-	// Identify self by the clid initserver assigned, never by nickname alone:
-	// another client whose nickname is "<our nick><digits>" (the server's
-	// rename for a taken nickname) would otherwise be mistaken for us,
-	// poisoning every outgoing packet header with a foreign clientID until
-	// the server drops the connection for command-resend timeout.
-	switch {
-	case info.ID == c.clid:
+	// Self is the clid initserver assigned, never a nickname match: another
+	// client named "<our nick><digits>" would be mistaken for us.
+	if info.ID == c.clid {
 		// Carries the rename the server applied if our nickname was taken; the
 		// nickname asked for stays as it was.
-		c.nickname = info.Nickname
-	case c.clid == 0 && isAutoNicknameMatch(c.requestedNickname, info.Nickname):
-		// initserver carried no aclid, so the welcome enter is the only way
-		// to learn our clid. Once known, a later lookalike cannot take over.
-		c.clid = info.ID
-		h.SetClientID(uint16(info.ID))
 		c.nickname = info.Nickname
 	}
 	c.mu.Unlock()

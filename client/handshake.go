@@ -1,9 +1,9 @@
 package client
 
 import (
-	"context"
 	"crypto/sha1" //nolint:gosec // SHA-1 used for TS3 HWID/UID format, not security
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -140,12 +140,24 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 
 		return
 	}
+	// Checked before the status changes: a server that names no client id
+	// leaves nothing to address the session's packets with, and the attempt
+	// fails as for any other malformed step. Both TeamSpeak 3 3.13.8 and
+	// TeamSpeak 6 6.0.0-beta13.1 send aclid.
+	clid, err := parseAssignedClientID(cmd.Params)
+	if err != nil {
+		c.logger.Debug("handshake failed", slog.Any("error", err))
+		c.failConnectionLocked(fmt.Errorf("%w: %w", ErrHandshake, err))
+
+		return
+	}
 	c.status = StatusConnected
 	// A privilege key is spent by the join that used it: a reconnection must
 	// not present it again.
 	c.clientInitOptions.privilegeKey = ""
 	reconnected := c.attempt.reconnect
-	c.adoptClientIDLocked(h, cmd.Params)
+	c.clid = clid
+	h.SetClientID(uint16(clid))
 	c.session++
 
 	// initserver is the only place the server names itself, and it determines
@@ -168,38 +180,20 @@ func (c *Client) handleInitServer(h *transport.PacketHandler, cmd *wire.Command)
 	c.logger.Info("connected to server", slog.Uint64("self_id", uint64(selfID)))
 	report()
 
-	// The handshake's own command: sent on h, the session it completes, not
-	// through ExecNoWait, which would send on whatever session is current.
-	go func() {
-		// Ends with the session: a closed handler must not leave this waiting
-		// on the flood throttle.
-		ctx, cancel := contextUntil(context.Background(), h.Done())
-		defer cancel()
-		updateCmd := wire.BuildCommand("clientupdate", map[string]string{
-			"client_input_muted":  "0",
-			"client_output_muted": "0",
-		})
-		if c.throttle.wait(ctx) == nil && c.connectedHandler() == h {
-			_ = c.sendLine(h, updateCmd)
-		}
-	}()
-
 	emit(c, &c.onConnected, "Connected", ConnectedEvent{Reconnected: reconnected})
 }
 
-// adoptClientIDLocked takes the client id initserver assigns, from aclid or
-// clid, for the session h runs. The caller holds c.mu.
-func (c *Client) adoptClientIDLocked(h *transport.PacketHandler, initserver map[string]string) {
-	idStr, ok := initserver["aclid"]
-	if !ok {
-		idStr = initserver["clid"]
+// errNoClientID is an initserver whose aclid is missing or not a client id.
+var errNoClientID = errors.New("initserver carries no valid aclid")
+
+// parseAssignedClientID reads the client id initserver assigns in aclid.
+func parseAssignedClientID(initserver map[string]string) (teamspeak.ClientID, error) {
+	val, err := strconv.ParseUint(initserver["aclid"], 10, 16)
+	if err != nil || val == 0 {
+		return 0, fmt.Errorf("%w: %q", errNoClientID, initserver["aclid"])
 	}
-	val, err := strconv.ParseUint(idStr, 10, 16)
-	if err != nil {
-		return
-	}
-	c.clid = teamspeak.ClientID(val)
-	h.SetClientID(uint16(c.clid))
+
+	return teamspeak.ClientID(val), nil
 }
 
 func (c *Client) sendClientInit(h *transport.PacketHandler) {

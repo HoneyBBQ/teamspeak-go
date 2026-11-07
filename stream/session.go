@@ -713,7 +713,7 @@ func (s *Streams) watch(ctx context.Context, id ID, streamer teamspeak.ClientID,
 // under the lock, so that an answer that comes after finds nothing to join. It
 // also reports whether the request may have reached the server and so is to be
 // withdrawn: not when the server answered, or the command never left the
-// flood throttle.
+// line middleware.
 func (s *Streams) ask(ctx context.Context, w *watch, id ID, message string) (*View, bool, error) {
 	err := s.send(ctx, joinRequest(id, w.streamer, message, false), id)
 	if err == nil {
@@ -759,7 +759,7 @@ func isContextError(err error) bool {
 
 // mayHaveBeenSent reports whether a command that failed with the end of a
 // context may have reached the server. The client returns the context's own
-// error, unwrapped, for a command that never left its flood throttle, and wraps
+// error, unwrapped, for a command that never left the line middleware, and wraps
 // it with the command's name once the command was sent and its answer awaited.
 func mayHaveBeenSent(err error) bool {
 	//nolint:errorlint,err113 // the error itself, not what it wraps, says the command was never sent

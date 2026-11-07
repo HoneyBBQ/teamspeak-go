@@ -177,6 +177,39 @@ func (f ExecutorFunc) Send(ctx context.Context, req Request) ([]map[string]strin
 // disconnect does not pass through it.
 type CommandMiddleware func(next Executor) Executor
 
+// CommandLine is one command line on its way to the server.
+type CommandLine struct {
+	// Name is the command's name, such as "clientupdate".
+	Name string
+	// Text is the line as it goes on the wire, escaped, without the
+	// return_code the client adds. It can carry secrets (channel password
+	// hashes, privilege keys, a ServerQuery login): do not log it.
+	Text string
+}
+
+// LineSender sends a command line and returns the rows that answer it; for a
+// line the server answers with nothing, it returns no rows once the line is
+// written. It is what a [LineMiddleware] wraps. Calling it more than once
+// sends the line more than once, each time under a return code of its own,
+// which is how a middleware resends.
+type LineSender func(ctx context.Context, line CommandLine) ([]map[string]string, error)
+
+// LineMiddleware wraps the sending of every command line a client sends once
+// it has a session: typed commands after their encoding, raw Exec lines, and
+// the commands the SDK sends on its own. It may delay a line, resend it,
+// refuse it or answer it without calling next, which is the place to pace
+// commands or to wait out a refusal for flooding. See [FloodWait].
+//
+// The SDK itself never paces and never resends. The command's deadline starts
+// when the call starts and bounds the middleware's waits too; the context
+// passed down is also cancelled when the client disconnects, and a line the
+// middleware hands on after that is not written.
+//
+// Not seen: the lines of the voice handshake, sent before a session exists,
+// and the goodbye of a disconnect (and a ServerQuery quit), which must leave
+// at once or the server keeps a session for a client that has gone.
+type LineMiddleware func(next LineSender) LineSender
+
 // Commands are the typed commands, shared by every connection able to execute
 // a command. Clients embed them, which is how a client gains its methods.
 type Commands struct {

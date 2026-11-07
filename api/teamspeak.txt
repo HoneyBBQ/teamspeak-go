@@ -91,6 +91,7 @@ func AvatarFileName(uid UID) (string, error)
 func DefaultBackoffPolicy() BackoffPolicy
 func DialFileTransfer(ctx context.Context, host string, port uint16, key string, opts FileTransferOptions) (net.Conn, error)
 func DownloadFileData(ctx context.Context, host string, info *FileDownloadInfo, dest io.Writer, opts FileTransferOptions) error
+func FloodWait(err error) (time.Duration, bool)
 func IconFileName(id IconID) string
 func IconIDOf(data []byte) IconID
 func NewChannelTree(channels []Channel) ChannelTree
@@ -640,6 +641,9 @@ type Codec uint8
 method (Codec) String() string
 type CodecEncryptionMode int32
 method (CodecEncryptionMode) String() string
+type CommandLine struct
+field CommandLine.Name string
+field CommandLine.Text string
 type CommandMiddleware func(next Executor) Executor
 type Commands struct
 method (*Commands) AddAPIKey(ctx context.Context, opts APIKeyOptions) (APIKeyCreated, error)
@@ -944,6 +948,8 @@ field KickedEvent.InvokerName string
 field KickedEvent.InvokerUID UID
 field KickedEvent.Reason Reason
 field KickedEvent.InvokerID ClientID
+type LineMiddleware func(next LineSender) LineSender
+type LineSender func(ctx context.Context, line CommandLine) ([]map[string]string, error)
 type LogLevel int
 method (LogLevel) String() string
 type LogPage struct

@@ -60,9 +60,12 @@ func ExampleKnownHosts() { //nolint:testableexamples // connects to a server, so
 	}
 }
 
-// Events are delivered over the raw TCP and SSH transports.
+// Events are delivered over the raw TCP and SSH transports, for the categories
+// WithEvents names.
 func ExampleClient_OnTextMessage() { //nolint:testableexamples // needs a server, so it is compiled, not run
-	c, err := serverquery.New(serverquery.TCPLogin("127.0.0.1:10011", "serveradmin", os.Getenv("QUERY_PASSWORD")))
+	c, err := serverquery.New(serverquery.TCPLogin("127.0.0.1:10011", "serveradmin", os.Getenv("QUERY_PASSWORD")),
+		serverquery.WithServer(1),
+		serverquery.WithEvents(serverquery.CategoryTextServer, serverquery.CategoryTextChannel))
 	if err != nil {
 		log.Fatal(err)
 	}

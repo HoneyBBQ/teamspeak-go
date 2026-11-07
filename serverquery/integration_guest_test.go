@@ -52,7 +52,7 @@ func TestQueryGuest_OverSSH(t *testing.T) {
 		t.Fatalf("KnownHosts: %v", err)
 	}
 	c, err := serverquery.New(serverquery.SSHGuestWith(addr, serverquery.SSHOptions{HostKeyCheck: check}),
-		serverquery.WithServer(1), serverquery.WithoutEvents())
+		serverquery.WithServer(1))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestQueryNoGuest_OverSSH(t *testing.T) {
 		t.Fatalf("KnownHosts: %v", err)
 	}
 	c, err := serverquery.New(serverquery.SSHGuestWith(addr, serverquery.SSHOptions{HostKeyCheck: check}),
-		serverquery.WithServer(1), serverquery.WithoutEvents())
+		serverquery.WithServer(1))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

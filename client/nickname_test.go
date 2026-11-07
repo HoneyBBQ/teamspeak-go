@@ -51,23 +51,6 @@ func TestNickname_ReconnectAsksForTheRequestedName(t *testing.T) {
 	}
 }
 
-func TestNickname_WelcomeEnterIsRecognisedByTheRequestedName(t *testing.T) {
-	c := newTestClient(t)
-	c.handleClientEnterView(c.handler, wire.ParseCommand(selfEnterLine(7, "TestBot3")))
-	// A second welcome enter leaves the first match in place.
-	c.handleClientEnterView(c.handler, wire.ParseCommand(selfEnterLine(8, "TestBot")))
-
-	c.mu.Lock()
-	clid := c.clid
-	c.mu.Unlock()
-	if clid != 7 {
-		t.Errorf("clid = %d, want 7", clid)
-	}
-	if got := initNickname(c); got != "TestBot" {
-		t.Errorf("clientinit nickname = %q, want TestBot", got)
-	}
-}
-
 func TestNickname_AdminRenameDoesNotStick(t *testing.T) {
 	c := newTestClient(t)
 	c.mu.Lock()

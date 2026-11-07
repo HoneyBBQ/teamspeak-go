@@ -64,7 +64,7 @@ func TestQueryReconnect_GivesUpAtAServerThatIsGone(t *testing.T) {
 			return rewritingConn{Conn: conn, rewrite: n > 1}, nil
 		},
 	})
-	c, err := serverquery.New(dialer, serverquery.WithServer(1), serverquery.WithoutEvents(),
+	c, err := serverquery.New(dialer, serverquery.WithServer(1),
 		serverquery.WithReconnect(teamspeak.ReconnectOptions{Backoff: teamspeak.BackoffPolicy{
 			InitialDelay: 200 * time.Millisecond, MaxDelay: 300 * time.Millisecond, Jitter: -1, MaxAttempts: 6,
 		}}))

@@ -466,8 +466,8 @@ func (s *Streams) Close(ctx context.Context) error {
 // gives up, the command is kept open for five seconds after that moment,
 // whatever ctx says, and the stream it announces within is stopped; one
 // announced later cannot be told from any other of this client's, and is left
-// to List. The command is sent even if ctx ends before it leaves the flood
-// throttle, and then stopped the same way, so other clients may see the stream
+// to List. The command is sent even if ctx ends before it leaves the line
+// middleware, and then stopped the same way, so other clients may see the stream
 // start and stop.
 //
 // Publish returns an *UnsupportedError, without sending anything, on a server

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 	"github.com/honeybbq/teamspeak-go/internal/wire"
 )
@@ -71,15 +72,11 @@ func (c *Client) answerConnectionInfoRequest(h *transport.PacketHandler) {
 	line := buildSetConnectionInfo(h.Traffic(), rtt, havePing)
 
 	// Detached from the packet handler's goroutine, which must keep reading
-	// while the flood throttle makes this wait; it ends with the session.
+	// while a line middleware makes this wait; it ends with the session.
 	c.background.Go(func() {
 		ctx, cancel := contextUntil(context.Background(), h.Done())
 		defer cancel()
-		err := c.throttle.wait(ctx)
-		if err != nil || c.connectedHandler() != h {
-			return
-		}
-		err = c.sendLine(h, line)
+		_, err := c.throughLines(ctx, teamspeak.CommandLine{Name: "setconnectioninfo", Text: line}, c.lineNoWait)
 		if err != nil {
 			c.logger.Debug("could not answer a connection info request", slog.Any("error", err))
 		}

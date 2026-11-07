@@ -174,7 +174,7 @@ func (c *Client) Use(ctx context.Context, server ServerSelector, opts UseOptions
 // read the client list again.
 func (c *Client) learnServer(ctx context.Context, eng *engine.Client) error {
 	c.mu.Lock()
-	events := c.registerEvents && c.dialer.SupportsNotifications()
+	events := c.dialer.SupportsNotifications()
 	categories, pending := c.categories, c.eventsPending && events
 	listClients := events && len(categories) > 0
 	c.mu.Unlock()
