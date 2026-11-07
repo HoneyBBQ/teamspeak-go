@@ -3,6 +3,19 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Documentation
+
+- The README, the `client` package comment and the guide present the module as
+  a complete TeamSpeak client with voice, ServerQuery and screen share, instead
+  of calling it independent; the README's disclaimer keeps saying it is an
+  independent implementation. The guide gains sections on sending voice and on
+  whispers, next to receiving voice and what the server relays.
+- docs/streams.md is reorganised, with an overview of the `stream` package's
+  handlers and errors and a section on running WebRTC with Pion, and
+  `client` gains an `ExampleClient_SendVoice` voice echo.
+
 ## v1.0.0-beta.22 (2026-11-07)
 
 ### Added

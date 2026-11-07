@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"slices"
 	"strings"
 	"time"
@@ -202,4 +204,62 @@ func ExampleVoiceReceiver_TryRead() { //nolint:testableexamples // needs a conne
 			lastDropped = d
 		}
 	}
+}
+
+// Voice echo: every frame heard in the channel is sent back to it, so whoever
+// speaks hears themselves. A VoiceReceiver is read in a loop of its own, and an
+// empty frame, the end of speech, is sent back like any other. The client needs
+// talk power in the channel, or the server drops what it sends. Frames go out
+// as they arrive, with no re-timing: the echo has the speaker's own jitter.
+func ExampleClient_SendVoice() { //nolint:testableexamples // needs a server, so it is compiled, not run
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	id, err := identity.Generate(ctx, 8)
+	if err != nil {
+		log.Print(err)
+
+		return
+	}
+	c, err := client.New(id, "ts.example.com", "echo")
+	if err != nil {
+		log.Print(err)
+
+		return
+	}
+	err = echo(ctx, c)
+	if err != nil {
+		log.Print(err)
+	}
+}
+
+// echo connects c and sends back every frame it hears until ctx ends.
+func echo(ctx context.Context, c *client.Client) error {
+	rx, err := c.NewVoiceReceiver(client.VoiceReceiverOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rx.Close() }()
+
+	connectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	err = c.Connect(connectCtx)
+	cancel()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = c.Disconnect(context.WithoutCancel(ctx)) }()
+
+	// Read fails once ctx ends or rx is closed.
+	var p client.VoicePacket
+	for rx.Read(ctx, &p) == nil {
+		if p.Whisper || p.ClientID == c.ClientID() {
+			continue
+		}
+		err = c.SendVoice(p.Data, p.Codec, client.VoiceOptions{})
+		if err != nil {
+			log.Print(err)
+		}
+	}
+
+	return nil
 }

@@ -38,7 +38,8 @@ func connect() *client.Client {
 
 // A viewer watches a stream that was announced. The SDP offer in the view is
 // handed to a WebRTC peer connection, and the answer and the candidates it
-// produces go back through the view.
+// produces go back through the view. The stream/e2e module has the same
+// signalling with Pion as the peer connection.
 func ExampleStreams_Watch() { //nolint:testableexamples // needs a server, so it is compiled, not run
 	ctx := context.Background()
 	c := connect()

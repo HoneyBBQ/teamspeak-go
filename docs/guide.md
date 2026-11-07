@@ -1,6 +1,6 @@
 # Guide
 
-How to connect, handle events, send commands, move files and manage an identity. The [configuration](configuration.md) page covers the options, [streams](streams.md) the TeamSpeak 6 screen share and [serverquery](serverquery.md) the administration client.
+How to connect, handle events, receive and send voice, send commands, move files and manage an identity. The [configuration](configuration.md) page covers the options, [streams](streams.md) the TeamSpeak 6 screen share and [serverquery](serverquery.md) the administration client.
 
 ## Client Lifecycle
 
@@ -73,6 +73,8 @@ ignoreCommands := func(next func(client.Event)) func(client.Event) {
 c, err := client.New(id, addr, "Bot", client.WithEventMiddleware(ignoreCommands))
 ```
 
+## Voice
+
 ### Receiving voice
 
 Voice is not an event: it does not go through the event queue or the event
@@ -124,6 +126,75 @@ its oldest packets and counts them in `Dropped`; the connection, the events and
 the other receivers go on. Every receiver gets every packet, so a second
 consumer makes a second receiver. `VoiceReceiver` is experimental.
 
+### Sending voice
+
+The client sends encoded audio frames. It does not encode or decode audio: bring
+an Opus encoder and give `SendVoice` one encoded frame per call. Each call is
+one packet, and it is written at once. The client does no pacing, so the caller
+sends frames in real time, one for each frame duration of the encoder it chose
+(see [flood control](flood-control.md) for what else the client leaves to you).
+
+```go
+// enc is yours: it turns one frame of PCM into one Opus frame.
+for pcm := range microphone {
+	frame := enc.Encode(pcm)
+	if err := c.SendVoice(frame, teamspeak.CodecOpusVoice, client.VoiceOptions{}); err != nil {
+		return err
+	}
+}
+// The end of speech.
+err := c.SendVoice(nil, teamspeak.CodecOpusVoice, client.VoiceOptions{})
+```
+
+- `codec` is a `teamspeak.Codec`: `CodecOpusVoice` (mono, tuned for speech) or
+  `CodecOpusMusic` (stereo, tuned for music). The other constants are Speex and
+  CELT, which current clients no longer play. The client writes the codec byte
+  as given and does not check it.
+- An empty frame marks the end of speech. The server relays it, and a
+  `VoiceReceiver` gets a `VoicePacket` with empty `Data`. Send one when the
+  speaker stops.
+- `client.VoiceOptions` has no fields yet; pass the zero value.
+- `SendVoice`, `SendWhisper` and `SendGroupWhisper` return an error instead of
+  panicking. Without an open connection each returns
+  `teamspeak.ErrNotConnected` (check with `errors.Is`) and sends nothing.
+
+### Whispers
+
+A whisper goes to the targets you name instead of to the channel.
+
+```go
+// To clients and channels.
+err := c.SendWhisper(frame, client.WhisperTargets{
+	Clients:  []teamspeak.ClientID{clid},
+	Channels: []teamspeak.ChannelID{cid},
+}, teamspeak.CodecOpusVoice)
+
+// To a group.
+target := client.WhisperToServerGroup(client.GroupWhisperAllChannels, sgid)
+err = c.SendGroupWhisper(frame, target, teamspeak.CodecOpusVoice)
+```
+
+- `SendWhisper` takes `WhisperTargets{Clients, Channels}`. It returns
+  `client.ErrNoWhisperTargets` for no target at all,
+  `client.ErrTooManyWhisperTargets` for more than 32 clients and
+  `client.ErrTooManyWhisperChannels` for more than 255 channels.
+- `SendGroupWhisper` takes a `GroupWhisperTarget`, built with
+  `WhisperToServerGroup`, `WhisperToChannelGroup` (each with a group id),
+  `WhisperToChannelCommanders` or `WhisperToAllClients`, and a
+  `GroupWhisperScope` that picks which channels it reaches. Its fields are
+  unexported, so a target is always one of the constructors' results; the zero
+  value, or one built with a scope the packet has no name for, returns
+  `client.ErrInvalidWhisperTarget`. The doc comments of `GroupWhisperType` and
+  `GroupWhisperScope` say which values were tried on a live server and which
+  carry the packet's names only.
+- Whether a target hears a whisper is the server's decision, from the sender's
+  `i_client_whisper_power` against the target's
+  `i_client_needed_whisper_power`. Talk power does not apply to a whisper.
+- The receiver learns only that a packet was a whisper (`VoicePacket.Whisper`),
+  not who it was for.
+
+The rest of the rules that decide whether voice is relayed are below.
+
 ### What the server relays
 
 The server decides whose voice reaches whom, and drops the rest without an
@@ -140,6 +211,8 @@ error. Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0-beta13.1:
   Being away or input-muted does not stop it hearing.
 - Voice reaches only the clients in the channel. Subscribing to another channel
   shows its clients, not its voice.
+
+## Connection and server
 
 ### Connection ping
 

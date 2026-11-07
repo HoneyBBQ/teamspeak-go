@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-  <strong>An independent TeamSpeak client protocol library written in pure Go.</strong><br>
-  Works with TeamSpeak 3 and TeamSpeak 6 servers. No proprietary SDK or code.
+  <strong>A complete TeamSpeak client in pure Go: voice, ServerQuery and screen share.</strong><br>
+  For TeamSpeak 3 and 6 servers. No CGO, no proprietary SDK.
 </p>
 
 <p align="center">
@@ -30,11 +30,11 @@
 
 ## Why this library
 
-- **The voice protocol, end to end.** ECDH key exchange, the RSA puzzle, EAX-encrypted transport, and Opus voice (codecs 4 and 5), in pure Go with no CGO.
-- **ServerQuery too.** The same typed commands run over raw TCP, SSH (with host-key verification) or WebQuery, with the server's notifications as events.
+- **Voice, both ways.** Send and receive Opus voice (codecs 4 and 5), whisper to clients, channels or groups, and read each frame with its speaker and sequence number from a `VoiceReceiver`, for your own jitter buffer. The whole voice protocol is here: ECDH key exchange, the RSA puzzle and EAX-encrypted transport, in pure Go with no CGO.
+- **ServerQuery.** The same typed commands run over raw TCP, SSH (with host-key verification) or WebQuery, with the server's notifications as events, so an administration script and a voice bot share one vocabulary.
+- **TeamSpeak 6 screen share.** Find, publish and watch the streams of a TeamSpeak 6 server in the `stream` package, interoperable with the TeamSpeak 6 client. SDP and ICE are plain strings for any WebRTC stack, such as Pion, which `stream/e2e` uses.
 - **Typed commands and events.** Every command the voice protocol answers is a typed method, ids are distinct types, times are `time.Time`, and events arrive on handlers with pluggable middleware.
 - **File transfers.** Upload, download and delete files on the server, with avatars and icons covered.
-- **TeamSpeak 6 screen-share signalling.** Find, publish and watch streams in the `stream` package, with SDP and ICE as strings for any WebRTC stack.
 - **Built for long-running bots.** Opt-in reconnection tuned for TeamSpeak's antiflood ban, and a line middleware seam for pacing or resending commands, with the server's own flood wait parsed (see [Flood control](docs/flood-control.md)).
 - **Identities and server facts.** Generate, import, export and upgrade identities; read the server version, its uid hash (SHA-1 on TS3, SHA-256 on TS6) and its name, icon and banner.
 - **TeamSpeak 3 and 6, pure Go.** Zero CGO, cross-compiles anywhere, with a custom `net.PacketConn` and transfer dialer for proxies and tests.
@@ -107,9 +107,9 @@ The `errcode`, `perm`, `notify`, `prop` and `commands` packages hold the server'
 
 The API reference is on [pkg.go.dev](https://pkg.go.dev/github.com/honeybbq/teamspeak-go). The pages below are the long-form guides.
 
-- [Guide](docs/guide.md): connecting, events, commands, file transfers and identities.
+- [Guide](docs/guide.md): connecting, events, sending and receiving voice, commands, file transfers and identities.
 - [Configuration](docs/configuration.md): options, client version and tracing.
-- [Streams](docs/streams.md): TeamSpeak 6 screen-share signalling, and interop with the TeamSpeak 6 client.
+- [Streams](docs/streams.md): watching and publishing TeamSpeak 6 screen shares, running WebRTC with Pion, and interop with the TeamSpeak 6 client.
 - [ServerQuery](docs/serverquery.md): the query client, its transports and SSH host-key policy.
 - [Flood control](docs/flood-control.md): the server's antiflood, the line middleware, and recipes for pacing, resending and keeping a query session open.
 - [Design](docs/design.md): errors, ids, absent values, events, stability, and the server behaviour the SDK works around.
