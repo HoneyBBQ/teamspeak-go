@@ -59,6 +59,14 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 - A command that gave up inside a line middleware returns the context's own
   error, as one that gave up waiting for the throttle did.
 
+### Fixed
+
+- On TeamSpeak 6, `GetClientVariables` (`clientgetvariables`) could return no
+  row while other commands were in flight: the server sent its `error id=0`
+  ahead of the row (2 of 600 commands on 6.0.0-beta13.1, none on TeamSpeak 3
+  3.13.8). It now waits for the row for the client asked, wherever it falls
+  against the error, as `GetConnectionInfo` does.
+
 ## v1.0.0-beta.21 (2026-11-03)
 
 ### Added

@@ -298,13 +298,6 @@ var voiceAnswers = []voiceAnswer{
 		"permget", "notifypermget",
 	},
 	{
-		map[string]string{
-			"clid": "17", "client_created": "1792225244", "client_platform": "Windows",
-			"client_totalconnections": "4", "client_version": "3.6.2 [Build: 1695203293]",
-		},
-		"clientgetvariables", "notifyclientupdated",
-	},
-	{
 		map[string]string{"virtualserver_clientsonline": "2", "virtualserver_autostart": "1"},
 		"servergetvariables", "notifyserverupdated",
 	},
@@ -349,41 +342,62 @@ func TestResponseTable_LeavesOtherNotificationsOutOfAPermget(t *testing.T) {
 	}
 }
 
-// notifyclientupdated is sent whenever any client changes, and arrives between
-// a clientgetvariables and its error as readily as anywhere: the row for the
-// client asked about is the answer, and the others are not.
-func TestResponseTable_ClientGetVariablesTakesTheRowForTheClientAsked(t *testing.T) {
-	tr := newReadyCommandTracker()
-	rc, done := tr.register(responseFor("clientgetvariables"), "", false)
-	tr.setEcho(rc, "17")
-	tr.collect(map[string]string{"clid": "2", "client_input_muted": "0", "client_output_muted": "0"},
-		"notifyclientupdated")
-	tr.collect(map[string]string{"clid": "17", "client_version": "3.6.2 [Build: 1695203293]"}, "notifyclientupdated")
-	tr.resolve(rc, nil, 0)
+// notifyclientupdated is sent whenever any client changes, and arrives around a
+// clientgetvariables and its error as readily as anywhere: the row for the
+// client asked about is the answer, whether it comes before or after the error,
+// and the others never are.
+func TestResponseTable_ClientGetVariablesTakesTheRowForTheClientAskedWhereverItFalls(t *testing.T) {
+	row := map[string]string{"clid": "17", "client_version": "3.6.2 [Build: 1695203293]"}
+	other := map[string]string{"clid": "2", "client_input_muted": "0", "client_output_muted": "0"}
 
-	want := []map[string]string{{"clid": "17", "client_version": "3.6.2 [Build: 1695203293]"}}
-	if got := receive(t, done).Data; !reflect.DeepEqual(got, want) {
-		t.Errorf("data = %v, want %v", got, want)
-	}
+	t.Run("before the error", func(t *testing.T) {
+		tr := newReadyCommandTracker()
+		rc, done := tr.register(responseFor("clientgetvariables"), "17", true)
+		tr.offerCorrelated("notifyclientupdated", other)
+		tr.offerCorrelated("notifyclientupdated", row)
+		tr.resolve(rc, nil, 0)
+
+		if got := receive(t, done).Data; !reflect.DeepEqual(got, []map[string]string{row}) {
+			t.Errorf("data = %v, want the row for clid 17 only", got)
+		}
+	})
+
+	// Recorded on TeamSpeak 6 with other commands in flight: error id=0 first.
+	t.Run("after the error", func(t *testing.T) {
+		tr := newReadyCommandTracker()
+		rc, done := tr.register(responseFor("clientgetvariables"), "17", true)
+		tr.resolve(rc, nil, 0)
+		select {
+		case res := <-done:
+			t.Fatalf("resolved before the row arrived: %v", res)
+		case <-time.After(20 * time.Millisecond):
+		}
+		tr.offerCorrelated("notifyclientupdated", other)
+		select {
+		case res := <-done:
+			t.Fatalf("a row for another client answered the command: %v", res)
+		case <-time.After(20 * time.Millisecond):
+		}
+		tr.offerCorrelated("notifyclientupdated", row)
+
+		if got := receive(t, done).Data; !reflect.DeepEqual(got, []map[string]string{row}) {
+			t.Errorf("data = %v, want the row for clid 17 only", got)
+		}
+	})
 }
 
-// A row that does not carry the key is taken, as is every row when the request
-// named none.
-func TestResponseTable_EchoKeyIsLenient(t *testing.T) {
+// A row for another client is never taken: with only such rows, the command
+// keeps waiting for the one it asked for.
+func TestResponseTable_ClientGetVariablesNeverTakesARowForAnotherClient(t *testing.T) {
 	tr := newReadyCommandTracker()
-	rc, done := tr.register(responseFor("clientgetvariables"), "", false)
-	tr.setEcho(rc, "17")
-	tr.collect(map[string]string{"client_version": "3.6.2"}, "notifyclientupdated")
+	rc, done := tr.register(responseFor("clientgetvariables"), "17", true)
+	tr.offerCorrelated("notifyclientupdated", map[string]string{"clid": "3", "client_version": "3.6.2"})
 	tr.resolve(rc, nil, 0)
-	if got := receive(t, done).Data; len(got) != 1 {
-		t.Errorf("a row with no clid: data = %v, want it taken", got)
-	}
 
-	rc, done = tr.register(responseFor("clientgetvariables"), "", false)
-	tr.collect(map[string]string{"clid": "3", "client_version": "3.6.2"}, "notifyclientupdated")
-	tr.resolve(rc, nil, 0)
-	if got := receive(t, done).Data; len(got) != 1 {
-		t.Errorf("a request that named no clid: data = %v, want the row taken", got)
+	select {
+	case res := <-done:
+		t.Fatalf("answered with %v, want it to keep waiting", res)
+	case <-time.After(20 * time.Millisecond):
 	}
 }
 

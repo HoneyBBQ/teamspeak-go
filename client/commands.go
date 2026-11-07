@@ -47,12 +47,9 @@ type pendingCommand struct {
 	settled *commandResult
 	// correlation is the request's value for spec.Correlated.Key.
 	correlation string
-	// echo is the request's value for spec.EchoKey.
-	echo string
 	// correlated holds answers that arrived before the command's own error.
 	correlated     []map[string]string
 	hasCorrelation bool
-	hasEcho        bool
 }
 
 // commandTracker matches the server's answers to the commands that asked for
@@ -117,21 +114,9 @@ func (t *commandTracker) register(
 	return rc, ch
 }
 
-// setEcho records the request's value for spec.EchoKey, so the rows that echo
-// another value are not taken as the answer. It is called before the command is
-// sent, which is before anything can answer it.
-func (t *commandTracker) setEcho(rc uint32, value string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if p, ok := t.pending[rc]; ok {
-		p.echo, p.hasEcho = value, true
-	}
-}
-
 // setCorrelation records the value an answer echoes for a command whose
 // correlation key is its own return_code. The code exists only once the command
-// is registered, so the request cannot carry it. Like setEcho, it is called
+// is registered, so the request cannot carry it. It is called
 // before the command is sent.
 func (t *commandTracker) setCorrelation(rc uint32, value string) {
 	t.mu.Lock()
@@ -257,12 +242,6 @@ func answers(p *pendingCommand, row bufferedRow, ownClientID string) bool {
 	if spec.OwnRowsOnly && row.params["invokerid"] != ownClientID {
 		return false
 	}
-	// A row that carries the key and names another value was meant for another
-	// request; one that does not carry it is taken.
-	if value, ok := row.params[spec.EchoKey]; spec.EchoKey != "" && p.hasEcho && ok && value != p.echo {
-		return false
-	}
-
 	return true
 }
 
@@ -845,11 +824,6 @@ func (c *Client) sendAndAwait(
 	defer c.cmdTrack.unregister(rc)
 	if spec != nil && spec.Correlated != nil && spec.Correlated.Key == "return_code" {
 		c.cmdTrack.setCorrelation(rc, strconv.FormatUint(uint64(rc), 10))
-	}
-	if spec != nil && spec.EchoKey != "" {
-		if echo, ok := parsed.Params[spec.EchoKey]; ok {
-			c.cmdTrack.setEcho(rc, echo)
-		}
 	}
 
 	// The name and code only: the full command carries password hashes the
