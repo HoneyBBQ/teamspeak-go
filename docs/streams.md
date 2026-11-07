@@ -16,9 +16,11 @@ TeamSpeak 6 does. On any other, `Publish` and `Watch` return a
 `*stream.UnsupportedError` before sending anything: a TeamSpeak 3 server names
 no extension and does not answer the stream commands at all.
 
-Watching: find a stream with `List` or wait for `OnStarted`, ask to watch it,
-and give the publisher's offer to a peer connection. The viewer's connection
-is receive-only.
+## Watching a stream
+
+Find a stream with `List` or wait for `OnStarted`, ask to watch it, and give
+the publisher's offer to a peer connection. The viewer's connection is
+receive-only.
 
 ```go
 s := stream.New(c, stream.Options{})
@@ -57,11 +59,12 @@ if err = pc.SetLocalDescription(answer); err != nil {
 err = view.Answer(ctx, answer.SDP)
 ```
 
-Publishing: the publisher makes the offer, one peer connection for each viewer.
-The server relays every request to watch, from any channel, and enforces
-neither the viewer limit nor the accessibility: deciding who is let in is the
-publisher's job, and `OnRequest` is called for each one, with nothing accepted
-for you.
+## Publishing a stream
+
+The publisher makes the offer, one peer connection for each viewer. The server
+relays every request to watch, from any channel, and enforces neither the
+viewer limit nor the accessibility: deciding who is let in is the publisher's
+job, and `OnRequest` is called for each one, with nothing accepted for you.
 
 ```go
 pub, err := s.Publish(ctx, stream.PublishOptions{Name: "My screen", Audio: true})
@@ -99,16 +102,84 @@ pub.OnRequest(func(request *stream.JoinRequest) {
 err = pub.Stop(ctx, 0)
 ```
 
-A complete pair of peers, over a live server, is in
-[stream/e2e](../stream/e2e), a module of its own so that the WebRTC stack stays
-out of this module's dependencies.
-
 A request that nobody has answered can end: the viewer withdraws it or goes
 out of view, or the stream ends. `request.OnClosed` is called then, with the
 state `stream.RequestWithdrawn` or `stream.RequestEnded`, so a UI can drop the request
 without polling `request.State()`; `Accept` and `Deny` then return
 `stream.ErrNotPending`. It is not called for a request that was accepted or
 denied.
+
+## API at a glance
+
+`stream.New(c, stream.Options{})` makes a `Streams` from a `client.Client`, before
+or after it connects. The one option that changes behaviour is `RememberDenied`;
+`Logger` receives what happens inside. `Supported()` says whether the server
+names `STREAM_P2P`, `List` and `Get` return what the client knows of, `Publish`
+returns a `*Published`, `Watch` returns a `*View`, and `Close` stops what the
+`Streams` published and leaves what it watched.
+
+Events are delivered to handlers registered with `On...` methods, each of
+which returns a function that removes the handler. The handlers of a `Streams`
+and of everything it makes run one at a time on one goroutine, in the order the
+events happened.
+
+| Object                            | Handler          | Meaning                                                                                           |
+| --------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------- |
+| `Streams`                         | `OnStarted`      | A stream became known: it started in view, or discovery found it.                                 |
+|                                   | `OnUpdated`      | What is known of a stream changed.                                                                |
+|                                   | `OnStopped`      | A stream ended; the cause is `EndCauseServer`, `EndCauseStopped` or `EndCauseGone`.               |
+|                                   | `OnViewerJoined` | A viewer was accepted into a stream.                                                              |
+|                                   | `OnViewerLeft`   | A viewer left a stream.                                                                           |
+|                                   | `OnError`        | A failure nobody awaits, such as a discovery request the server refused.                          |
+|                                   | `OnWarning`      | Something the package noticed and let through, such as `WarningOfferWithoutAudio`.                |
+| `Published`                       | `OnRequest`      | A client asks to watch: a `*JoinRequest`.                                                         |
+|                                   | `OnEnded`        | The stream ended; the cause is any of the five `EndCause` values.                                 |
+| `JoinRequest`                     | `OnClosed`       | A request nobody had answered ended: `RequestWithdrawn` or `RequestEnded`.                        |
+| `View` (viewer) and `ViewerPeer`  | `OnOffer`        | A renegotiation offer from the other end.                                                         |
+|                                   | `OnAnswer`       | The viewer's SDP answer.                                                                          |
+|                                   | `OnCandidate`    | An ICE candidate from the other end.                                                              |
+|                                   | `OnSignal`       | A signalling message that is none of the above, as a `RawSignal`.                                 |
+|                                   | `OnClosed`       | The peer closed; the cause is a `PeerCause`: closed, left, stopped, disconnected or shutdown.     |
+
+`View` and `ViewerPeer` both embed a `*Peer`: `SendCandidate`, `SendSignal` and
+`Close`. `View` adds `Offer`, `Answer` and `Leave`; `ViewerPeer` adds
+`SendOffer`. An event that happens while no handler is registered is kept for
+the next one, up to 256 of each kind.
+
+| Error                          | Returned                                                                                              |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `*UnsupportedError`            | By `Publish` and `Watch` when the server does not name `STREAM_P2P`.                                  |
+| `*TransportUnsupportedError`   | By `Watch` for a stream whose media is not peer to peer.                                              |
+| `*PayloadTooLargeError`        | By a stream command, before sending, when its line exceeds the server's limit.                        |
+| `*JoinDeniedError`             | By `Watch` when the publisher denied the request.                                                     |
+| `*EndedError`                  | By `Watch` for an unknown id or a stream that ends before the publisher answers, and by a signalling call when the stream ended under it. |
+| `ErrNotPending`                | By `Accept` and `Deny` for a request that is no longer pending.                                       |
+| `ErrAlreadyWatching`           | By `Watch` for a stream already asked for.                                                            |
+| `ErrInvalidOptions`            | By `Publish` and `Accept` for an option or an offer that is out of range or empty.                    |
+| `ErrClosed`                    | By a call after `Streams.Close`.                                                                      |
+
+## Running WebRTC
+
+`stream` carries strings and has no WebRTC stack of its own, and the module
+depends on none. In Go the stack runs in the same process as the client:
+[Pion](https://github.com/pion/webrtc) is a WebRTC stack in pure Go, and
+[stream/e2e](../stream/e2e/e2e_test.go) uses it. That is a module of its own, so
+that Pion stays out of this module's dependencies. Its test runs a publisher
+and a viewer over a live TeamSpeak 6 server, with `stream` doing all the
+signalling, and is the reference for both sides.
+
+Pion's `webrtc.ICECandidateInit` and `stream.IceCandidate` both carry the
+candidate line, the media section's id and its index, so a candidate is copied
+from one to the other on its way in and out; `toStream` and `toPion` in the
+test do it.
+
+For an application with a desktop or browser interface, the Go process holds
+the `client.Client` and the `Streams`, and the interface holds the
+`RTCPeerConnection`. The two pass strings over a channel of your own (a
+WebSocket, local IPC, or an embedded web view's bridge): the offer or answer
+SDP, and each candidate as `stream.IceCandidate` values or JSON. In the Go
+process the `OnRequest` or `Watch` handlers forward them to the interface, and
+the interface's replies go to `Accept`, `Answer` and `SendCandidate`.
 
 ## Interop with the TeamSpeak 6 client
 
@@ -139,7 +210,7 @@ against a TeamSpeak 6 server 6.0.0-beta13.1.
 - Denying, stopping, leaving, disconnecting and several viewers at once, some
   of them the client and some the SDK, behaved as they do between SDK clients.
 
-Things to know:
+## Things to know
 
 - A client may run several streams, so every stream is known by its id. `List`
   is what this client has heard of. A stream that ends while its publisher is

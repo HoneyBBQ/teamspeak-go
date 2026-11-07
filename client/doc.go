@@ -1,6 +1,6 @@
-// Package client is an independent TeamSpeak client: it connects over the voice
-// protocol, the way the TeamSpeak application does, and needs no proprietary
-// SDK.
+// Package client is a TeamSpeak client: it connects over the voice protocol,
+// the way the TeamSpeak application does, sends and receives voice, and needs
+// no proprietary SDK.
 //
 // Create one with [New] and an identity from the identity package, then
 // [Client.Connect], which returns once the handshake completes:
@@ -26,9 +26,9 @@
 //
 // # Documentation
 //
-// The [guide] covers connecting, events, commands, file transfers and
-// identities; [configuration] the options, the client version and tracing; and
-// [design] the conventions the module keeps.
+// The [guide] covers connecting, events, sending and receiving voice, commands,
+// file transfers and identities; [configuration] the options, the client
+// version and tracing; and [design] the conventions the module keeps.
 //
 // [guide]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/guide.md
 // [configuration]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/configuration.md
