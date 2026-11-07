@@ -53,13 +53,17 @@ needs SSH.
 
 ## Events
 
-Registration is automatic: on connecting, the client asks for the five
-notification categories both TCP and SSH accept — `server`, `channel`,
-`textserver`, `textchannel` and `textprivate`. `WithEvents` narrows the set,
-and `WithoutEvents` turns registration off. `bans` is opt-in, because TS3
-refuses it:
+Nothing is registered unless you ask: `WithEvents` names the categories, and
+the client registers exactly those on connecting and reads the client list the
+events draw their fields from. Raw TCP and SSH accept `server`, `channel`,
+`textserver`, `textchannel` and `textprivate`; `bans` is opt-in, because TS3
+refuses it. WebQuery accepts none, so `WithEvents` over it is refused with
+`ErrInvalidConfig`, as is `WithEvents()` with no category:
 
 ```go
+c, err := serverquery.New(dialer,
+	serverquery.WithEvents(serverquery.CategoryTextServer, serverquery.CategoryTextChannel))
+// handle err
 c.OnTextMessage(func(m teamspeak.TextMessageEvent) {
 	fmt.Println(m.InvokerName, "said", m.Message)
 })
@@ -70,6 +74,14 @@ every transport. The `On…` methods for server events are inert over a
 transport that cannot deliver them: they return a function that removes
 nothing, and the client logs one warning per method rather than failing the
 connect.
+
+## Pacing and idle sessions
+
+The query client sends each command as it is called, one at a time, and does
+not resend a command the server refuses for flooding or keep an idle session
+open. `WithLineMiddleware` is where a program does either; a middleware that
+waits holds every later command. [Flood control](flood-control.md) has the
+limits and the recipes, a keepalive among them.
 
 ## Host keys
 

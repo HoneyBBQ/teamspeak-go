@@ -35,7 +35,7 @@
 - **Typed commands and events.** Every command the voice protocol answers is a typed method, ids are distinct types, times are `time.Time`, and events arrive on handlers with pluggable middleware.
 - **File transfers.** Upload, download and delete files on the server, with avatars and icons covered.
 - **TeamSpeak 6 screen-share signalling.** Find, publish and watch streams in the `stream` package, with SDP and ICE as strings for any WebRTC stack.
-- **Built for long-running bots.** Opt-in reconnection tuned for TeamSpeak's antiflood ban, and a token-bucket rate limiter that keeps you clear of flood kicks.
+- **Built for long-running bots.** Opt-in reconnection tuned for TeamSpeak's antiflood ban, and a line middleware seam for pacing or resending commands, with the server's own flood wait parsed (see [Flood control](docs/flood-control.md)).
 - **Identities and server facts.** Generate, import, export and upgrade identities; read the server version, its uid hash (SHA-1 on TS3, SHA-256 on TS6) and its name, icon and banner.
 - **TeamSpeak 3 and 6, pure Go.** Zero CGO, cross-compiles anywhere, with a custom `net.PacketConn` and transfer dialer for proxies and tests.
 
@@ -111,6 +111,7 @@ The API reference is on [pkg.go.dev](https://pkg.go.dev/github.com/honeybbq/team
 - [Configuration](docs/configuration.md): options, client version and tracing.
 - [Streams](docs/streams.md): TeamSpeak 6 screen-share signalling, and interop with the TeamSpeak 6 client.
 - [ServerQuery](docs/serverquery.md): the query client, its transports and SSH host-key policy.
+- [Flood control](docs/flood-control.md): the server's antiflood, the line middleware, and recipes for pacing, resending and keeping a query session open.
 - [Design](docs/design.md): errors, ids, absent values, events, stability, and the server behaviour the SDK works around.
 - [Compatibility](docs/compatibility.md): supported Go versions and the differences from the JavaScript SDK.
 - [Architecture](docs/architecture.md): module layout.

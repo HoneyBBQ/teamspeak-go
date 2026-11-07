@@ -3,6 +3,62 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- Line middleware: `client.WithLineMiddleware` and `serverquery.WithLineMiddleware`
+  wrap the sending of every command line, outermost first. A
+  `teamspeak.LineMiddleware` takes the next `teamspeak.LineSender` and sees each
+  line as a `teamspeak.CommandLine` (`Name`, and the escaped `Text` without the
+  `return_code`, which can carry secrets). It can delay a line, send it again
+  (each send takes a return code of its own) or refuse it. Typed commands, raw
+  `Exec` and `ExecNoWait`, and the commands the SDK sends on its own pass it;
+  the voice handshake's lines and the goodbye (`clientdisconnect` of
+  `Disconnect`, `quit` of a closing query client) do not. The command's
+  deadline bounds the middleware's waits, the context it receives ends when the
+  client disconnects, and a line handed on after that is not written. On
+  ServerQuery the chain runs inside the serial queue's turn, so a middleware
+  that waits holds every later command.
+- `teamspeak.FloodWait(err)` reads the wait the server named in a refusal as
+  flooding (error 524): `retry in 1985ms` on the voice protocol, `please wait 2
+  seconds` on ServerQuery.
+- docs/flood-control.md: the voice antiflood's settings and measured costs,
+  ServerQuery's flood limit, and compiled recipes for a token bucket, a resend
+  on 524, a bucket weighted by cost, a ServerQuery keepalive and event
+  categories. Live tests pin the costs and the idle behaviour they state.
+
+### Changed
+
+- **Breaking:** the client no longer paces or resends. The token bucket (four
+  commands a second after a burst of eight) and the resend of a command refused
+  as flooding, in both the voice client and the query client, are removed: a 524
+  is returned as any server error. To get the old behaviour, copy the recipes in
+  docs/flood-control.md into a line middleware. The only difference is that
+  nothing is held back by default, so a burst can now be refused.
+- **Breaking:** `serverquery.WithKeepAlive` is removed, and with it the
+  `version` the query client sent every two minutes on an idle raw TCP or SSH
+  session. The server closes such a session after 300 seconds without a
+  command; the keepalive recipe in docs/flood-control.md does the same in a few
+  lines.
+- **Breaking:** the query client registers no notification category unless
+  asked. `serverquery.WithEvents` names the categories (it no longer falls back
+  to five), `WithEvents()` with none returns `ErrInvalidConfig`, and
+  `serverquery.WithoutEvents` is removed, being what it used to turn off. The
+  client list that fills the events' fields is read only when events are
+  registered.
+- **Breaking:** the voice client no longer sends `clientupdate
+  client_input_muted=0 client_output_muted=0` after `initserver`.
+- **Breaking:** a connection whose `initserver` carries no valid `aclid` fails
+  with an error wrapping `ErrHandshake`, where the client used to fall back to
+  `clid`, and then to the first client whose nickname matched its own. Both
+  TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0-beta13.1 send `aclid`.
+- The `stream` package starts every lookup of a viewer who is out of view at
+  once, where at most 8 ran together. Announcements still come in the order the
+  requests arrived.
+- A command that gave up inside a line middleware returns the context's own
+  error, as one that gave up waiting for the throttle did.
+
 ## v1.0.0-beta.21 (2026-11-03)
 
 ### Added
