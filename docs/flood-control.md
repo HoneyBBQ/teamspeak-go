@@ -290,7 +290,9 @@ func ExampleWithLineMiddleware_costWeighted() {
 
 	rows, err := c.Exec(ctx, "servergetvariables")
 	if err != nil || len(rows) == 0 {
-		log.Fatal(err)
+		log.Print(err)
+
+		return
 	}
 	reduce, _ := strconv.ParseFloat(rows[0][prop.VirtualServerAntiFloodPointsTickReduce], 64)
 	block, _ := strconv.ParseFloat(rows[0][prop.VirtualServerAntiFloodPointsNeededCommandBlock], 64)
@@ -374,28 +376,6 @@ func ExampleWithLineMiddleware_keepAlive() {
 	keepCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	go keeper.run(keepCtx, c, 2*time.Minute)
-}
-
-// Name the notification categories to register: nothing is registered
-// otherwise. Raw TCP and SSH accept server, channel, textserver, textchannel
-// and textprivate; bans only where the server knows it (TeamSpeak 6); WebQuery
-// accepts none and refuses WithEvents.
-func ExampleWithEvents() {
-	c, err := serverquery.New(
-		serverquery.TCPLogin("127.0.0.1:10011", "serveradmin", os.Getenv("QUERY_PASSWORD")),
-		serverquery.WithServer(1),
-		serverquery.WithEvents(
-			serverquery.CategoryServer,
-			serverquery.CategoryChannel,
-			serverquery.CategoryTextServer,
-			serverquery.CategoryTextChannel,
-			serverquery.CategoryTextPrivate,
-		),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-	_ = c
 }
 ```
 

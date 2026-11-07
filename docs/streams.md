@@ -8,9 +8,9 @@ SDP and the ICE candidates as strings and takes them back, so any WebRTC stack
 plugs in. The package has no WebRTC dependency; the examples below use
 [pion](https://github.com/pion/webrtc).
 
-TeamSpeak does not document this protocol. It was verified against the
-TeamSpeak 6 server 6.0.0-beta13.1 and the TeamSpeak 6 client 6.0.0-beta5
-(macOS), and a TeamSpeak update may break it. Streams are used on a server that
+TeamSpeak does not document this protocol. The live tests run it against the
+TeamSpeak 6 server 6.0.0-beta13.1, interop with the TeamSpeak 6 client
+6.0.0-beta5 (macOS) was observed by hand, and a TeamSpeak update may break it. Streams are used on a server that
 names `STREAM_P2P` among its extensions (`ServerCapabilities().Extensions`), as
 TeamSpeak 6 does. On any other, `Publish` and `Watch` return a
 `*stream.UnsupportedError` before sending anything: a TeamSpeak 3 server names

@@ -10,8 +10,8 @@
 //	channels, err := c.ListChannels(ctx, teamspeak.ChannelListOptions{})
 //
 // Import a client rather than this package on its own: [client] speaks the
-// voice protocol, the way the TeamSpeak application does. A ServerQuery client
-// will run the same commands.
+// voice protocol, the way the TeamSpeak application does, and serverquery runs
+// the same commands over ServerQuery.
 //
 // # Packages
 //
@@ -29,10 +29,11 @@
 //
 // Longer guides are in the repository's docs directory:
 //
-//   - [the guide]: connecting, events, commands, file transfers, identities
-//   - [the configuration]: options, client version, tracing
+//   - [the guide]: connecting, events, voice, commands, file transfers, identities
+//   - [the configuration]: options, reconnection, client version, tracing
 //   - [streams]: TeamSpeak 6 screen share
 //   - [ServerQuery]: the query client and its transports
+//   - [flood control]: the server's antiflood, the line middleware, recipes
 //   - [the design conventions]: errors, ids, absent values, stability
 //   - [compatibility]: supported Go versions, differences from teamspeak-js
 //
@@ -41,6 +42,7 @@
 // [the configuration]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/configuration.md
 // [streams]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/streams.md
 // [ServerQuery]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/serverquery.md
+// [flood control]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/flood-control.md
 // [the design conventions]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/design.md
 // [compatibility]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/compatibility.md
 package teamspeak

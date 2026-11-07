@@ -27,8 +27,8 @@
 // # Documentation
 //
 // The [guide] covers connecting, events, sending and receiving voice, commands,
-// file transfers and identities; [configuration] the options, the client
-// version and tracing; and [design] the conventions the module keeps.
+// file transfers and identities; [configuration] the options, reconnection, the
+// client version and tracing; and [design] the conventions the module keeps.
 //
 // [guide]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/guide.md
 // [configuration]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/configuration.md

@@ -18,7 +18,8 @@ How to connect, handle events, receive and send voice, send commands, move files
 ## Events
 
 The event types are defined in the root `teamspeak` package and `client`
-re-exports them as aliases, so a future ServerQuery client shares them.
+re-exports them as aliases, so the [ServerQuery client](serverquery.md) shares
+them.
 
 | Method | Description |
 |---|---|
@@ -31,6 +32,13 @@ re-exports them as aliases, so a future ServerQuery client shares them.
 | `OnPoked(func(PokeEvent))` | Fires when the bot is poked |
 | `OnNotification(func(NotificationEvent))` | Fires for every notification, as the server sent it |
 | `OnKicked(func(KickedEvent))` | Fires when the bot is kicked from its channel or the server |
+| `OnClientUpdated(func(ClientUpdatedEvent))` | Fires when a client in view changes properties, this client included; the event's `Changes` hold only what changed |
+| `OnClientServerGroupAdded`, `OnClientServerGroupRemoved`, `OnClientChannelGroupChanged` | Fire when a client's groups change |
+| `OnChannelCreated`, `OnChannelEdited`, `OnChannelMoved`, `OnChannelDeleted`, `OnChannelDescriptionChanged`, `OnChannelPasswordChanged` | Fire when a channel changes |
+| `OnChannelSubscribed`, `OnChannelUnsubscribed` | Fire when a channel subscription changes |
+| `OnServerEdited` | Fires when the server's settings are edited |
+| `OnPluginCommand`, `OnClientChatComposing`, `OnClientChatClosed` | Fire for a plugin command and for a private chat being typed in or closed |
+| `OnViewReady`, `OnViewChanged` | Fire when the server view (`View`, in Server info below) has loaded and when it has changed |
 
 Each `On` method returns a function that removes the handler. Handlers run one
 at a time, in the order their events arrived, on a goroutine of the client's
@@ -55,11 +63,11 @@ c.OnNotification(func(n client.NotificationEvent) {
 ### Event middleware
 
 Event middleware sees every server event before its handlers do — the events
-above except connected, disconnected and kicked, which report the connection
-itself and bypass it. It receives a `client.Event`, which is one of
-`TextMessageEvent`, `ClientEnterEvent`, `ClientLeaveEvent`, `ClientMovedEvent`,
-`PokeEvent` or `NotificationEvent`; it may pass the event on,
-replace it, or drop it by not calling `next`.
+above except connected, disconnected, kicked and the view's, which report the
+connection or the client's own state and bypass it. It receives a `client.Event`, which is any of the typed
+server events above (`TextMessageEvent`, `ClientEnterEvent`, `ChannelEditedEvent`
+and the rest) or a `NotificationEvent`; it may pass the event on, replace it, or
+drop it by not calling `next`.
 
 ```go
 ignoreCommands := func(next func(client.Event)) func(client.Event) {
@@ -312,12 +320,16 @@ for entry, err := range c.IterateClientDatabase(ctx, teamspeak.PagingOptions{}) 
 
 | File            | Covers                                                          |
 | --------------- | --------------------------------------------------------------- |
-| `api_channels.go`  | Create, edit, move, delete, subscribe, channel permissions    |
+| `api_channels.go`  | Create, edit, move, delete, list, channel permissions         |
 | `api_clients.go`   | List, move, kick, poke, edit, the client database, permissions |
-| `api_server.go`    | Server and instance settings, groups, temp passwords, bindings |
-| `api_groups.go`    | Channel groups, the permission catalogue, tokens               |
+| `api_server.go`    | Server and instance settings, server groups, temp passwords, bindings |
+| `api_instance.go`  | List, create, start, stop and delete virtual servers, snapshots |
+| `api_access.go`    | API keys and query logins                                      |
+| `api_avatars.go`   | Removing avatars and icons, setting icons                      |
+| `api_permission_batches.go` | Add and delete several permissions in one command     |
+| `api_groups.go`    | Channel groups, the permission catalogue, privilege keys       |
 | `api_moderation.go`| Bans, complaints, offline messages, text messages, the log     |
-| `api_files.go`     | List, delete, rename, create directories, transfer negotiation |
+| `api_files.go`     | List, delete, rename, create directories, transfers            |
 
 Many of these commands are answered over the voice protocol with a
 notification rather than data rows — `servergrouplist` with
@@ -345,8 +357,12 @@ line and returns the rows that answer it.
 | `teamspeak.UploadFileData(ctx, host, info, reader, FileTransferOptions)` | Transfer file data to the server |
 | `teamspeak.DownloadFileData(ctx, host, info, writer, FileTransferOptions)` | Receive file data from the server |
 | `teamspeak.DialFileTransfer(ctx, host, port, key, FileTransferOptions)` | Open the transfer connection yourself |
+| `UploadFile(ctx, host, cid, path, data, UploadFileOptions)` / `DownloadFile(ctx, host, cid, path, DownloadFileOptions)` | Negotiate and transfer in one call, with `[]byte` data; an upload is checked against the server's stored size afterwards |
+| `ListFilesRecursive(cid, path, RecursiveFilesOptions)` | List a directory and every directory under it |
+| `UploadAvatar`, `DownloadAvatar`, `UploadIcon`, `DownloadIcon` | The avatar and icon helpers of `client.Client` |
 
-The data travels over its own TCP connection to the file transfer port. `ctx`
+The data travels over its own TCP connection to the file transfer port, on the
+host the client connects to: `c.Host()` for a `client.Client`. `ctx`
 bounds the whole transfer: when it is done the connection is closed and the
 call returns an error wrapping `ctx.Err()`, so `errors.Is(err, context.Canceled)`
 holds. Every error of these calls also matches `teamspeak.ErrFileTransfer`.

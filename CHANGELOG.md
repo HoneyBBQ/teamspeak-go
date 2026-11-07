@@ -15,6 +15,14 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
 - docs/streams.md is reorganised, with an overview of the `stream` package's
   handlers and errors and a section on running WebRTC with Pion, and
   `client` gains an `ExampleClient_SendVoice` voice echo.
+- The long-form pages and package comments are brought up to date with the
+  code: the architecture tree lists every package; configuration gains
+  `WithPrivilegeKey`, `WithMetaData` and a Reconnection section, and its
+  `timeCommands` sample compiles; the guide's event, file transfer and API file
+  tables are complete; design lists the errors it missed; serverquery covers
+  `tokenused` and guest access; compatibility lists three more differences from
+  the TypeScript SDK; flood-control loses a duplicated sample; and the stream
+  docs say what the live tests cover and what was observed by hand.
 
 ## v1.0.0-beta.22 (2026-11-07)
 
