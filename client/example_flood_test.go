@@ -140,8 +140,9 @@ func ExampleWithLineMiddleware_resendOnFlood() { //nolint:testableexamples // ne
 }
 
 // costs are the antiflood points a command cost on TeamSpeak 3 3.13.8 and
-// TeamSpeak 6 6.0.0-beta13.1, as measured by the live test; a command not
-// listed is charged like a permget.
+// TeamSpeak 6 6.0.0-beta13.1, as measured by the live test. A command not
+// listed is charged 15, the dearest measured here; some cost more on the
+// third-party list that docs/flood-control.md links.
 var costs = map[string]float64{
 	"servergetvariables": 0,
 	"permget":            5,
@@ -156,7 +157,7 @@ func (b *bucket) weighted() client.LineMiddleware {
 		return func(ctx context.Context, line teamspeak.CommandLine) ([]map[string]string, error) {
 			cost, known := costs[line.Name]
 			if !known {
-				cost = 5
+				cost = 15
 			}
 			err := b.take(ctx, cost)
 			if err != nil {
@@ -170,18 +171,18 @@ func (b *bucket) weighted() client.LineMiddleware {
 
 // A bucket in antiflood points, its rate and burst read from the server's own
 // settings with servergetvariables, which costs nothing and a guest may run.
-// The server takes tick_reduce points off a client's count every tick; a tick
-// is taken as a second here (a third-party list says half a second), which
-// errs on the slow side.
+// The server takes tick_reduce points off a client's count every tick. A tick
+// is taken as a second here, so the rate is tick_reduce points a second: that
+// was not measured here, a third-party list says half a second, and one second
+// errs on the slow side. The burst is 80% of command_block.
 func ExampleWithLineMiddleware_costWeighted() { //nolint:testableexamples // needs a server, so it is compiled, not run
 	ctx := context.Background()
 	id, err := identity.Generate(ctx, 8)
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Until the limits are read, the bucket is the cautious one of the
-	// token-bucket recipe, in points.
-	pacer := newBucket(1, 50, 50)
+	// Until the limits are read: 5 points a second, with a burst of 50.
+	pacer := newBucket(5, 50, 50)
 	c, err := client.New(id, "ts.example.com", "bot", client.WithLineMiddleware(pacer.weighted()))
 	if err != nil {
 		log.Fatal(err)
@@ -202,8 +203,7 @@ func ExampleWithLineMiddleware_costWeighted() { //nolint:testableexamples // nee
 	block, _ := strconv.ParseFloat(rows[0][prop.VirtualServerAntiFloodPointsNeededCommandBlock], 64)
 	pacer.mu.Lock()
 	pacer.rate = reduce
-	// Room for one more of the dearest command before the server blocks.
-	pacer.burst = block - 15
+	pacer.burst = block * 0.8
 	pacer.mu.Unlock()
-	fmt.Println("points a second:", reduce, "burst:", block-15)
+	fmt.Println("points a second:", reduce, "burst:", block*0.8)
 }

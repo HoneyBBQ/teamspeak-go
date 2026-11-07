@@ -40,28 +40,11 @@ func unpacedClient(t *testing.T) *client.Client {
 	addr := requireTeamSpeakAddr(t)
 	id, err := identity.Generate(t.Context(), 8)
 	requireNoErr(t, err)
-	c := newClient(t, id, addr, "antiflood", unpacedOptions()...)
+	c := newClient(t, id, addr, "antiflood", integrationClientOptions(nil)...)
 	requireNoErr(t, connectWithRetries(t.Context(), t, c))
 	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
 
 	return c
-}
-
-// unpacedOptions is integrationClientOptions without its line middleware: this
-// test measures what the server does when nothing paces the client.
-func unpacedOptions() []client.Option {
-	opts := make([]client.Option, 0, 3)
-	if integrationServerPassword != "" {
-		opts = append(opts, client.WithServerPassword(integrationServerPassword))
-	}
-	if integrationDefaultChannel != "" {
-		opts = append(opts, client.WithDefaultChannel(integrationDefaultChannel))
-	}
-	if integrationDefaultChannelPassword != "" {
-		opts = append(opts, client.WithDefaultChannelPassword(integrationDefaultChannelPassword))
-	}
-
-	return opts
 }
 
 // acceptedUntilBlocked sends line until the server refuses it as flooding and

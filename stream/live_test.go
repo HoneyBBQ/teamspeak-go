@@ -67,46 +67,12 @@ func paceConnect(ctx context.Context) error {
 	}
 }
 
-// pacedLines holds command lines back to four a second after a burst of eight,
-// which keeps these tests clear of the server's antiflood limit now that the
-// client does not pace its own commands.
-func pacedLines() client.Option {
-	var mu sync.Mutex
-	tokens, last := 5.0, time.Now()
-
-	return client.WithLineMiddleware(func(next teamspeak.LineSender) teamspeak.LineSender {
-		return func(ctx context.Context, line teamspeak.CommandLine) ([]map[string]string, error) {
-			for {
-				mu.Lock()
-				now := time.Now()
-				tokens = min(tokens+now.Sub(last).Seconds()*4, 8)
-				last = now
-				if tokens >= 1 {
-					tokens--
-					mu.Unlock()
-
-					return next(ctx, line)
-				}
-				wait := time.Duration((1 - tokens) / 4 * float64(time.Second))
-				mu.Unlock()
-				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				case <-time.After(wait):
-				}
-			}
-		}
-	})
-}
-
 // connectLive connects a client, trying again: a datagram can be dropped, and
 // the server's flood protection is touchy.
 func connectLive(t *testing.T, nickname, channel string, opts ...client.Option) *client.Client {
 	t.Helper()
 	addr := os.Getenv("TEAMSPEAK_ADDR")
-	all := append([]client.Option{
-		client.WithServerPassword(os.Getenv("TEAMSPEAK_SERVER_PASSWORD")), pacedLines(),
-	}, opts...)
+	all := append([]client.Option{client.WithServerPassword(os.Getenv("TEAMSPEAK_SERVER_PASSWORD"))}, opts...)
 	if channel != "" {
 		all = append(all, client.WithDefaultChannel(channel))
 		if channel == os.Getenv("TEAMSPEAK_PASSWORD_CHANNEL") {

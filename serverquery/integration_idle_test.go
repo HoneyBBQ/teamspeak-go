@@ -16,7 +16,7 @@ import (
 // on every transport that has a session: the server closes one that sends no
 // command for 300 seconds, a notification received does not count, and one that
 // sends a command every 200 seconds stays open. Three sessions run at once, so
-// the test takes about as long as one: A is idle with events registered while C
+// the test takes about as long as one (the transports run side by side too): A is idle with events registered while C
 // keeps a text message coming to it, and B sends `version` every 200 seconds.
 //
 // It takes over five minutes a transport, so it runs in a step of its own with
@@ -25,7 +25,11 @@ func TestQuerySessionIdle_ClosesAtThreeHundredSecondsUnlessACommandIsSent(t *tes
 	for name, dialer := range map[string]func(t *testing.T) (serverquery.Dialer, []serverquery.Option, account){
 		"tcp": tcpDialer, "ssh": sshDialer,
 	} {
-		t.Run(name, func(t *testing.T) { assertIdleSessions(t, dialer) })
+		t.Run(name, func(t *testing.T) {
+			// The transports run side by side: one takes over five minutes.
+			t.Parallel()
+			assertIdleSessions(t, dialer)
+		})
 	}
 }
 

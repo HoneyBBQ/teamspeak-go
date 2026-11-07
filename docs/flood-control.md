@@ -51,8 +51,9 @@ settings are the server's:
   count every tick.
 - `virtualserver_antiflood_points_needed_command_block`: the count at which the
   server stops running a client's commands.
-- `virtualserver_antiflood_points_needed_ip_block`: the count at which the
-  server blocks the client's address.
+- `virtualserver_antiflood_points_needed_ip_block`: anti-flood points needed to
+  block incoming connections from the client, in the words of the server's own
+  `serveredit` help.
 - `virtualserver_antiflood_points_needed_plugin_block`: the count at which the
   server stops running a client's plugin commands.
 
@@ -64,8 +65,7 @@ Measured on both servers, with the limit set to 200 and then 600 points and a
 fresh client sending one command until refused: `servergetvariables` costs 0,
 `permget` 5, `channellist` 5, `clientupdate client_away=0` 15 and a channel
 `sendtextmessage` 15. Past the command block the server answers 524 with
-`retry in Nms` and does not run the command; past the IP block it refuses new
-connections from the address. The live test is
+`retry in Nms` and does not run the command. The live test is
 `TestIntegration_VoiceAntifloodCostsAndThresholds`.
 
 Someone else keeps a fuller list, per command:
@@ -227,13 +227,18 @@ func ExampleWithLineMiddleware_resendOnFlood() {
 ### A bucket weighted by cost
 
 Charge each command what it costs, and read the rate and the burst from the
-server's own settings with `servergetvariables`. A tick is taken as a second
-here, which errs on the slow side.
+server's own settings with `servergetvariables`: tick_reduce points a second,
+and a burst of 80% of command_block. A tick is taken as a second here, which
+was not measured here; the third-party list below says half a second, so one
+second errs on the slow side. A command not in the table is charged 15, the
+dearest measured here; some cost more on the third-party list. Until the limits
+are read the bucket starts at 5 points a second with a burst of 50.
 
 ```go
 // costs are the antiflood points a command cost on TeamSpeak 3 3.13.8 and
-// TeamSpeak 6 6.0.0-beta13.1, as measured by the live test; a command not
-// listed is charged like a permget.
+// TeamSpeak 6 6.0.0-beta13.1, as measured by the live test. A command not
+// listed is charged 15, the dearest measured here; some cost more on the
+// third-party list that docs/flood-control.md links.
 var costs = map[string]float64{
 	"servergetvariables": 0,
 	"permget":            5,
@@ -248,7 +253,7 @@ func (b *bucket) weighted() client.LineMiddleware {
 		return func(ctx context.Context, line teamspeak.CommandLine) ([]map[string]string, error) {
 			cost, known := costs[line.Name]
 			if !known {
-				cost = 5
+				cost = 15
 			}
 			if err := b.take(ctx, cost); err != nil {
 				return nil, err
@@ -261,18 +266,18 @@ func (b *bucket) weighted() client.LineMiddleware {
 
 // A bucket in antiflood points, its rate and burst read from the server's own
 // settings with servergetvariables, which costs nothing and a guest may run.
-// The server takes tick_reduce points off a client's count every tick; a tick
-// is taken as a second here (a third-party list says half a second), which
-// errs on the slow side.
+// The server takes tick_reduce points off a client's count every tick. A tick
+// is taken as a second here, so the rate is tick_reduce points a second: that
+// was not measured here, a third-party list says half a second, and one second
+// errs on the slow side. The burst is 80% of command_block.
 func ExampleWithLineMiddleware_costWeighted() {
 	ctx := context.Background()
 	id, err := identity.Generate(ctx, 8)
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Until the limits are read, the bucket is the cautious one of the
-	// token-bucket recipe, in points.
-	pacer := newBucket(1, 50, 50)
+	// Until the limits are read: 5 points a second, with a burst of 50.
+	pacer := newBucket(5, 50, 50)
 	c, err := client.New(id, "ts.example.com", "bot", client.WithLineMiddleware(pacer.weighted()))
 	if err != nil {
 		log.Fatal(err)
@@ -291,10 +296,9 @@ func ExampleWithLineMiddleware_costWeighted() {
 	block, _ := strconv.ParseFloat(rows[0][prop.VirtualServerAntiFloodPointsNeededCommandBlock], 64)
 	pacer.mu.Lock()
 	pacer.rate = reduce
-	// Room for one more of the dearest command before the server blocks.
-	pacer.burst = block - 15
+	pacer.burst = block * 0.8
 	pacer.mu.Unlock()
-	fmt.Println("points a second:", reduce, "burst:", block-15)
+	fmt.Println("points a second:", reduce, "burst:", block*0.8)
 }
 ```
 
