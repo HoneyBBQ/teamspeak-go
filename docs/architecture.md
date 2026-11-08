@@ -6,7 +6,8 @@ teamspeak-go/
 │                      #   typed commands (Commands, on any Executor), their
 │                      #   results, events, errors, and file transfer data
 ├── client/            # package client — the voice client: session, events,
-│                      #   voice, reconnection, voice-only commands
+│                      #   voice, reconnection, voice-only commands, S3 file
+│                      #   transfer
 ├── serverquery/       # package serverquery — the ServerQuery client: the
 │                      #   three transports, the query session, events
 ├── stream/            # package stream — TeamSpeak 6 screen share signalling

@@ -328,3 +328,19 @@ func TestParseIconID(t *testing.T) {
 		}
 	}
 }
+
+// TeamSpeak 6 6.0.0-beta13.1 answers a presign request of two rows with one
+// line of two rows, under a name with underscores.
+func TestSplitRows_KeepsANameWithUnderscoresOnEveryRow(t *testing.T) {
+	rows := wire.SplitRows(`notify_presigned_urls return_code=2 url=a key=\/a|url=b key=\/b`)
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows: %q", len(rows), rows)
+	}
+	for i, want := range []string{"a", "b"} {
+		got := wire.ParseCommand(rows[i])
+		if got == nil || got.Name != "notify_presigned_urls" || got.Params["url"] != want ||
+			got.Params["key"] != "/"+want || got.Params["return_code"] != "2" {
+			t.Errorf("row %d = %q, reads %+v", i, rows[i], got)
+		}
+	}
+}

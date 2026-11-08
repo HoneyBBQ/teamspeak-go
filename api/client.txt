@@ -42,9 +42,11 @@ var ErrTooManyWhisperChannels error
 var ErrTooManyWhisperTargets error
 var ErrVoiceReceiverClosed error
 func DefaultShouldRetry(err error, _ int) bool
+func DownloadS3FileData(ctx context.Context, info *S3FileDownloadInfo, dest io.Writer, opts S3DownloadOptions) error
 func LookupTSDNS(ctx context.Context, server string, host string) ([]string, error)
 func New(id *identity.Identity, addr string, nickname string, options ...Option) (*Client, error)
 func NewResolver(options ResolverOptions) *Resolver
+func UploadS3FileData(ctx context.Context, info *S3FileUploadInfo, data io.Reader, opts S3TransferOptions) error
 func WhisperToAllClients(scope GroupWhisperScope) GroupWhisperTarget
 func WhisperToChannelCommanders(scope GroupWhisperScope) GroupWhisperTarget
 func WhisperToChannelGroup(scope GroupWhisperScope, id teamspeak.ChannelGroupID) GroupWhisperTarget
@@ -110,6 +112,7 @@ method (Client) BanClients(ctx context.Context, clids []teamspeak.ClientID, opts
 method (*Client) ChannelID() teamspeak.ChannelID
 method (*Client) ClientID() teamspeak.ClientID
 method (Client) ClosePrivateChat(ctx context.Context, clid teamspeak.ClientID) error
+method (*Client) CompleteS3FileUpload(ctx context.Context, info *S3FileUploadInfo, opts S3FileOptions) error
 method (*Client) Connect(ctx context.Context) error
 method (Client) CopyChannelGroup(ctx context.Context, sourceGroupID teamspeak.ChannelGroupID, targetGroupID teamspeak.ChannelGroupID, name string, groupType teamspeak.GroupType) (teamspeak.ChannelGroupID, error)
 method (Client) CopyServerGroup(ctx context.Context, sourceGroupID teamspeak.ServerGroupID, targetGroupID teamspeak.ServerGroupID, name string, groupType teamspeak.GroupType) (teamspeak.ServerGroupID, error)
@@ -140,6 +143,7 @@ method (Client) DeleteFile(ctx context.Context, channelID teamspeak.ChannelID, p
 method (Client) DeleteMessage(ctx context.Context, messageID teamspeak.MessageID) error
 method (Client) DeletePrivilegeKey(ctx context.Context, token string) error
 method (Client) DeleteQueryLogin(ctx context.Context, clientDBID teamspeak.ClientDBID) error
+method (*Client) DeleteS3File(ctx context.Context, channelID teamspeak.ChannelID, path string, opts S3FileOptions) error
 method (Client) DeleteServer(ctx context.Context, id teamspeak.ServerID, opts teamspeak.ServerDeleteOptions) error
 method (Client) DeleteServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, opts teamspeak.GroupDeleteOptions) error
 method (Client) DeleteServerGroupPermission(ctx context.Context, serverGroupID teamspeak.ServerGroupID, perm teamspeak.Permission) error
@@ -153,6 +157,7 @@ method (*Client) DisconnectWithMessage(ctx context.Context, message string) erro
 method (*Client) DownloadAvatar(ctx context.Context, uid teamspeak.UID, opts teamspeak.FileTransferOptions) ([]byte, bool, error)
 method (Client) DownloadFile(ctx context.Context, host string, channelID teamspeak.ChannelID, path string, opts teamspeak.DownloadFileOptions) ([]byte, error)
 method (*Client) DownloadIcon(ctx context.Context, id teamspeak.IconID, opts teamspeak.FileTransferOptions) ([]byte, bool, error)
+method (*Client) DownloadS3File(ctx context.Context, channelID teamspeak.ChannelID, path string, opts DownloadS3FileOptions) ([]byte, error)
 method (Client) EditChannel(ctx context.Context, cid teamspeak.ChannelID, opts teamspeak.ChannelEditOptions) error
 method (Client) EditClient(ctx context.Context, clid teamspeak.ClientID, opts teamspeak.ClientEditOptions) error
 method (Client) EditClientDatabase(ctx context.Context, clientDBID teamspeak.ClientDBID, opts teamspeak.ClientDatabaseEditOptions) error
@@ -197,6 +202,8 @@ method (*Client) GoString() string
 method (*Client) Host() string
 method (Client) InitFileDownload(ctx context.Context, channelID teamspeak.ChannelID, path string, opts teamspeak.FileDownloadOptions) (*teamspeak.FileDownloadInfo, error)
 method (Client) InitFileUpload(ctx context.Context, channelID teamspeak.ChannelID, path string, size uint64, opts teamspeak.FileUploadOptions) (*teamspeak.FileUploadInfo, error)
+method (*Client) InitS3FileDownload(ctx context.Context, channelID teamspeak.ChannelID, path string, opts S3FileOptions) (*S3FileDownloadInfo, error)
+method (*Client) InitS3FileUpload(ctx context.Context, channelID teamspeak.ChannelID, path string, size uint64, opts S3FileOptions) (*S3FileUploadInfo, error)
 method (Client) IterateClientDatabase(ctx context.Context, opts teamspeak.PagingOptions) iter.Seq2[teamspeak.ClientDatabaseEntry, error]
 method (Client) KickClient(ctx context.Context, clid teamspeak.ClientID, reason teamspeak.Reason, opts teamspeak.ClientKickOptions) error
 method (Client) KickClients(ctx context.Context, clids []teamspeak.ClientID, reason teamspeak.Reason, opts teamspeak.KickClientsOptions) error
@@ -221,6 +228,7 @@ method (Client) ListMessages(ctx context.Context, _ teamspeak.MessageListOptions
 method (Client) ListPermissions(ctx context.Context) ([]teamspeak.PermissionInfo, error)
 method (Client) ListPrivilegeKeys(ctx context.Context) ([]teamspeak.PrivilegeKey, error)
 method (Client) ListQueryLogins(ctx context.Context, opts teamspeak.QueryLoginListOptions) ([]teamspeak.QueryLogin, error)
+method (*Client) ListS3Files(ctx context.Context, channelID teamspeak.ChannelID, opts S3FileOptions) ([]S3FileEntry, error)
 method (Client) ListServerGroupClients(ctx context.Context, serverGroupID teamspeak.ServerGroupID, opts teamspeak.ServerGroupClientListOptions) ([]teamspeak.ServerGroupMember, error)
 method (Client) ListServerGroupPermissions(ctx context.Context, serverGroupID teamspeak.ServerGroupID) ([]teamspeak.PermissionEntry, error)
 method (Client) ListServerGroups(ctx context.Context, _ teamspeak.ServerGroupListOptions) ([]teamspeak.ServerGroup, error)
@@ -307,6 +315,7 @@ method (Client) UpdateMessageFlag(ctx context.Context, messageID teamspeak.Messa
 method (*Client) UploadAvatar(ctx context.Context, data []byte, opts teamspeak.FileTransferOptions) (string, error)
 method (Client) UploadFile(ctx context.Context, host string, channelID teamspeak.ChannelID, path string, data []byte, opts teamspeak.UploadFileOptions) error
 method (*Client) UploadIcon(ctx context.Context, data []byte, opts teamspeak.FileTransferOptions) (teamspeak.IconID, error)
+method (*Client) UploadS3File(ctx context.Context, channelID teamspeak.ChannelID, path string, data []byte, opts UploadS3FileOptions) error
 method (Client) UsePrivilegeKey(ctx context.Context, token string) error
 method (*Client) VerifyChannelPassword(ctx context.Context, cid teamspeak.ChannelID, password string) (bool, error)
 method (*Client) VerifyServerPassword(ctx context.Context, password string) (bool, error)
@@ -343,6 +352,11 @@ field DisconnectDoneInfo.Acknowledged bool
 field DisconnectDoneInfo.Duration time.Duration
 type DisconnectStartInfo struct
 type DisconnectedEvent = teamspeak.DisconnectedEvent
+type DownloadS3FileOptions struct
+field DownloadS3FileOptions.Transfer S3TransferOptions
+field DownloadS3FileOptions.Password string
+field DownloadS3FileOptions.SeekPosition uint64
+field DownloadS3FileOptions.MaxSize uint64
 type Event = teamspeak.Event
 type EventMiddleware func(next func(Event)) func(Event)
 type GroupWhisperScope uint8
@@ -406,6 +420,37 @@ field ResolverOptions.NicknameLookup bool
 type RoundTripEstimate struct
 field RoundTripEstimate.Mean time.Duration
 field RoundTripEstimate.Deviation time.Duration
+type S3DownloadOptions struct
+field S3DownloadOptions.Transfer S3TransferOptions
+field S3DownloadOptions.SeekPosition uint64
+type S3FileDownloadInfo struct
+field S3FileDownloadInfo.Path string
+field S3FileDownloadInfo.URL string
+field S3FileDownloadInfo.ChannelID teamspeak.ChannelID
+type S3FileEntry struct
+field S3FileEntry.ModifiedAt time.Time
+field S3FileEntry.Path string
+field S3FileEntry.Size uint64
+type S3FileOptions struct
+field S3FileOptions.Password string
+type S3FileUploadInfo struct
+field S3FileUploadInfo.Path string
+field S3FileUploadInfo.URL string
+field S3FileUploadInfo.Size uint64
+field S3FileUploadInfo.ChannelID teamspeak.ChannelID
+type S3TransferError struct
+field S3TransferError.Err error
+field S3TransferError.Code string
+field S3TransferError.Status int
+method (*S3TransferError) Error() string
+method (*S3TransferError) Unwrap() []error
+type S3TransferOptions struct
+field S3TransferOptions.HTTPClient *http.Client
+type S3UnsupportedError struct
+field S3UnsupportedError.Family ServerFamily
+field S3UnsupportedError.Version string
+field S3UnsupportedError.Extensions []string
+method (*S3UnsupportedError) Error() string
 type ServerCapabilities struct
 field ServerCapabilities.Version string
 field ServerCapabilities.WelcomeMessage string
@@ -472,6 +517,9 @@ field Trace.DisconnectDone func(DisconnectDoneInfo)
 field Trace.SessionEnd func(SessionEndInfo)
 field Trace.ReconnectScheduled func(ReconnectScheduledInfo)
 field Trace.ReconnectStopped func(ReconnectStoppedInfo)
+type UploadS3FileOptions struct
+field UploadS3FileOptions.Transfer S3TransferOptions
+field UploadS3FileOptions.Password string
 type ViewChangedEvent struct
 field ViewChangedEvent.Revision uint64
 type ViewReadyEvent struct

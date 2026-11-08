@@ -383,6 +383,25 @@ const (
 	// answer to a join request: accepts with the SDP offer, or denies. Voice
 	// protocol only, TeamSpeak 6 only; undocumented by TeamSpeak.
 	RespondJoinStreamRequest = "respondjoinstreamrequest"
+	// S3FTDeleteFile is s3ft_deletefile: deletes one file from a channel's S3 file
+	// area, answered by notify_s3ft_delete. Voice protocol only, TeamSpeak 6 only;
+	// undocumented by TeamSpeak.
+	S3FTDeleteFile = "s3ft_deletefile"
+	// S3FTGetPresignedURL is s3ft_getpresignedurl: asks for presigned URLs to
+	// upload (PUT) or download (GET) files in a channel's S3 file area, answered
+	// by notify_presigned_urls. Voice protocol only, TeamSpeak 6 only;
+	// undocumented by TeamSpeak.
+	S3FTGetPresignedURL = "s3ft_getpresignedurl"
+	// S3FTListFiles is s3ft_list_files: lists the files in a channel's S3 file
+	// area, answered by notify_s3ft_file_list. Voice protocol only, TeamSpeak 6
+	// only; undocumented by TeamSpeak.
+	S3FTListFiles = "s3ft_list_files"
+	// S3FTUploadDoneNotification is s3ft_upload_done_notification: tells the
+	// server an upload to a channel's S3 file area is done, so it reads the
+	// channel's file list from the storage again; answered by
+	// notify_s3ft_upload_done. Voice protocol only, TeamSpeak 6 only;
+	// undocumented by TeamSpeak.
+	S3FTUploadDoneNotification = "s3ft_upload_done_notification"
 	// SendTextMessage is sendtextmessage: sends a text message to a specified
 	// target.
 	SendTextMessage = "sendtextmessage"

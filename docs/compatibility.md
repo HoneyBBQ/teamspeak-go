@@ -60,6 +60,13 @@ languages differ:
   the voice session and `FileTransferOptions.Dialer` a `FileTransferDialer` for a
   file transfer; JavaScript's `socketFactory` returns a `DatagramSocket` and its
   `fileTransferSocketFactory` a `Duplex` stream.
+- **S3 file transfer.** Go's `S3TransferOptions.HTTPClient` takes an
+  `*http.Client` where JavaScript takes a `fetch`. `UploadS3File` takes
+  `[]byte`, and a stream goes through `InitS3FileUpload`, `UploadS3FileData`
+  and `CompleteS3FileUpload`; JavaScript's `uploadS3File` also takes a `Blob`
+  or a `Readable` of a declared size. `DownloadS3File` holds at most 64 MiB by
+  default, as `DownloadFile` does; JavaScript holds 256 MiB, as its
+  `downloadFile` does.
 - **Command diagnostics.** JavaScript also publishes the command names it sends
   and receives on two `diagnostics_channel` channels. Go has no such channel:
   `WithCommandMiddleware`, `WithLineMiddleware` and `WithTrace` are the seams

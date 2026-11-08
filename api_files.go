@@ -24,6 +24,10 @@ import (
 // Every command here takes the channel's password in its options, "" for a
 // channel with none. Pass it as the user typed it: the client encodes it as
 // its protocol requires.
+//
+// A TeamSpeak 6 server whose extensions name s3 keeps a separate store in an S3
+// bucket, which these do not reach: see the voice client's UploadS3File and the
+// rest of its S3 methods.
 
 // FileOptions are the optional parameters of the file commands that take only
 // a channel password.

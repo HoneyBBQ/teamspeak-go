@@ -45,7 +45,7 @@ errors its own functions return:
 | Package | Errors |
 | --- | --- |
 | `teamspeak` (shared by every client) | `ErrServer` and `*ServerError`; `ErrNotConnected`, `ErrAlreadyConnected`, `ErrNoData`, `ErrFileTransfer`, `ErrInvalidCommand`, `ErrInvalidUID`, `ErrInvalidBackoff`, `ErrMissingDependency` |
-| `client` (voice only) | `ErrConnectionTimeout`, `ErrConnectionStalled`, `ErrHandshake`, `ErrPuzzleTooHard`, `ErrInvalidAddress`, `ErrInvalidConfig`, `ErrAlreadyConnected`, the whisper target errors (`ErrNoWhisperTargets`, `ErrTooManyWhisperTargets`, `ErrTooManyWhisperChannels`, `ErrInvalidWhisperTarget`), `ErrVoiceReceiverClosed`, `*RemovedError` (kick, ban or server stop) |
+| `client` (voice only) | `ErrConnectionTimeout`, `ErrConnectionStalled`, `ErrHandshake`, `ErrPuzzleTooHard`, `ErrInvalidAddress`, `ErrInvalidConfig`, `ErrAlreadyConnected`, the whisper target errors (`ErrNoWhisperTargets`, `ErrTooManyWhisperTargets`, `ErrTooManyWhisperChannels`, `ErrInvalidWhisperTarget`), `ErrVoiceReceiverClosed`, `*RemovedError` (kick, ban or server stop), `*S3TransferError`, `*S3UnsupportedError` |
 | `serverquery` (query only) | `ErrInvalidConfig`, `ErrDial`, `ErrAuth`, `ErrNoGuestAccess`, `ErrHostKey`, `ErrLineTooLong`, `*WebQueryHTTPError` |
 | `stream` | `ErrClosed`, `ErrNotPending`, `ErrAlreadyWatching`, `ErrInvalidOptions`, `*UnsupportedError`, `*TransportUnsupportedError`, `*JoinDeniedError`, `*PayloadTooLargeError`, `*EndedError` (which also matches the server's 5635) |
 | `identity` | `ErrInvalidFormat`, `ErrInvalidLevel`, `ErrNotSerializable` |
