@@ -282,6 +282,7 @@ jobs:
         if: matrix.server.name == 'TS6'
         env:
           TS3_FIXTURE_ENV: ${{ runner.temp }}/ts3-fixture.env
+          TS6_IMAGE: ${{ matrix.server.image }}
         run: |
           echo "127.0.0.1 s3.localhost teamspeak.s3.localhost" | sudo tee -a /etc/hosts
           ./scripts/s3-lab.sh "$RUNNER_TEMP/s3-lab"
