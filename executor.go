@@ -66,6 +66,19 @@ func init() { //nolint:gochecknoinits // see above
 	request.NewList = func(command, key string, values []string) any {
 		return Request{command: command, params: []param{rowsArg(key, values)}}
 	}
+	request.NewRowed = func(command string, params [][2]string, passwords []string, rest [][][2]string) any {
+		req := Request{command: command, params: make([]param, len(params), len(params)+1), passwords: passwords}
+		for i, p := range params {
+			req.params[i] = strArg(p[0], p[1])
+		}
+		if len(rest) > 0 {
+			// The empty row stands for the plain parameters, which encode writes
+			// as the first row.
+			req.params = append(req.params, param{table: append([][][2]string{nil}, rest...)})
+		}
+
+		return req
+	}
 	request.Encode = func(req any, encodePassword func(password string) string) string {
 		return req.(Request).encode(encodePassword) //nolint:forcetypeassert // only ever given a Request
 	}
@@ -114,6 +127,11 @@ func (r Request) encode(encodePassword func(password string) string) string {
 		rows = make([]string, len(group.table))
 		for i, row := range group.table {
 			rows[i] = rowText(row)
+		}
+		// A table that opens with an empty row leaves the plain parameters a
+		// row of their own, which the rows after it follow.
+		if len(group.table[0]) == 0 {
+			return line + "|" + strings.Join(rows[1:], "|")
 		}
 	} else {
 		rows = make([]string, len(group.rows))

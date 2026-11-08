@@ -615,3 +615,94 @@ func TestSetupStream_ResolvesWithTheEchoedAnnouncementThroughSend(t *testing.T) 
 		}
 	}
 }
+
+// Measured on TeamSpeak 6 6.0.0-beta13.1: every S3 file transfer answer echoes the
+// command's return_code; the upload-done and delete answers are the command's
+// last line.
+func TestResponseFor_PairsTheS3CommandsWithTheAnswerEchoingTheirReturnCode(t *testing.T) {
+	for command, want := range map[string]correlation{
+		"s3ft_getpresignedurl": {Key: "return_code", Notifications: []string{"notify_presigned_urls"}},
+		"s3ft_list_files":      {Key: "return_code", Notifications: []string{"notify_s3ft_file_list"}},
+		"s3ft_upload_done_notification": {
+			Key: "return_code", Notifications: []string{"notify_s3ft_upload_done"}, EndsCommand: true,
+		},
+		"s3ft_deletefile": {Key: "return_code", Notifications: []string{"notify_s3ft_delete"}, EndsCommand: true},
+	} {
+		spec := responseFor(command)
+		if spec == nil || spec.Correlated == nil || !reflect.DeepEqual(*spec.Correlated, want) {
+			t.Errorf("%s: %+v, want %+v", command, spec, want)
+		}
+	}
+}
+
+func TestCommandTracker_S3AnswerAheadOfTheError(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := tr.register(responseFor("s3ft_getpresignedurl"), "", false)
+	tr.setCorrelation(rc, strconv.FormatUint(uint64(rc), 10))
+	row := map[string]string{"return_code": strconv.FormatUint(uint64(rc), 10), "url": "u", "key": "/k"}
+	tr.offerCorrelated("notify_presigned_urls", row)
+	tr.resolve(rc, nil, 0)
+
+	if got := receive(t, done); got.Err != nil || !reflect.DeepEqual(got.Data, []map[string]string{row}) {
+		t.Errorf("result = %+v", got)
+	}
+}
+
+func TestCommandTracker_S3AnAnswerThatEndsTheCommandSettlesIt(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := tr.register(responseFor("s3ft_upload_done_notification"), "", false)
+	tr.setCorrelation(rc, strconv.FormatUint(uint64(rc), 10))
+	row := map[string]string{"success": "1", "return_code": strconv.FormatUint(uint64(rc), 10)}
+	tr.offerCorrelated("notify_s3ft_upload_done", row)
+
+	if got := receive(t, done); got.Err != nil || !reflect.DeepEqual(got.Data, []map[string]string{row}) {
+		t.Errorf("result = %+v", got)
+	}
+}
+
+func TestCommandTracker_S3ARefusedDeleteSettlesOnItsError(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := tr.register(responseFor("s3ft_deletefile"), "", false)
+	tr.setCorrelation(rc, strconv.FormatUint(uint64(rc), 10))
+	tr.resolve(rc, &teamspeak.ServerError{Code: errcode.PermissionsClientInsufficient}, 0)
+
+	var serverErr *teamspeak.ServerError
+	if got := receive(t, done); !errors.As(got.Err, &serverErr) {
+		t.Errorf("result = %+v, want the server's error", got)
+	}
+}
+
+// Two deletes in flight: each answer goes to the command whose number it echoes.
+func TestCommandTracker_S3GivesEachAnswerToTheCommandItEchoes(t *testing.T) {
+	tr := newReadyCommandTracker()
+	first, firstDone := tr.register(responseFor("s3ft_deletefile"), "", false)
+	second, secondDone := tr.register(responseFor("s3ft_deletefile"), "", false)
+	tr.setCorrelation(first, strconv.FormatUint(uint64(first), 10))
+	tr.setCorrelation(second, strconv.FormatUint(uint64(second), 10))
+	a := map[string]string{"success": "0", "return_code": strconv.FormatUint(uint64(second), 10)}
+	b := map[string]string{"success": "1", "return_code": strconv.FormatUint(uint64(first), 10)}
+	tr.offerCorrelated("notify_s3ft_delete", a)
+	tr.offerCorrelated("notify_s3ft_delete", b)
+
+	if got := receive(t, firstDone).Data; !reflect.DeepEqual(got, []map[string]string{b}) {
+		t.Errorf("first = %v", got)
+	}
+	if got := receive(t, secondDone).Data; !reflect.DeepEqual(got, []map[string]string{a}) {
+		t.Errorf("second = %v", got)
+	}
+}
+
+func TestCommandTracker_S3IgnoresAnAnswerEchoingNoPendingCommand(t *testing.T) {
+	tr := newReadyCommandTracker()
+	rc, done := tr.register(responseFor("s3ft_upload_done_notification"), "", false)
+	tr.setCorrelation(rc, strconv.FormatUint(uint64(rc), 10))
+	other := map[string]string{"success": "1", "return_code": strconv.FormatUint(uint64(rc+1), 10)}
+	tr.offerCorrelated("notify_s3ft_upload_done", other)
+
+	select {
+	case got := <-done:
+		t.Errorf("settled on another command's answer: %+v", got)
+	default:
+	}
+	tr.unregister(rc)
+}

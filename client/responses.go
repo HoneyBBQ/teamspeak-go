@@ -36,6 +36,10 @@ type correlation struct {
 	Failure string
 	// Notifications are the answers, including Failure.
 	Notifications []string
+	// EndsCommand means the answer ends the command: the server sends no error
+	// after it, so the command settles on the answer. An error still settles it
+	// when the server refuses the command, and then no answer comes.
+	EndsCommand bool
 }
 
 // responseSpec is how the voice protocol delivers one command's data.
@@ -136,15 +140,36 @@ var responses = map[string]*responseSpec{
 	"getconnectioninfo": {Correlated: &correlation{
 		Key: "clid", Notifications: []string{"notifyconnectioninfo"},
 	}},
-	"logview":                     inline("notifyserverlog"),
-	"messageget":                  inline("notifymessage"),
-	"messagelist":                 inline("notifymessagelist"),
-	"permfind":                    inline("notifypermfind"),
-	"permget":                     inline("notifypermget"),
-	"permissionlist":              inline("notifypermissionlist"),
-	"permoverview":                inline("notifypermoverview"),
-	"privilegekeyadd":             inline("notifytokenadd"),
-	"privilegekeylist":            inline("notifytokenlist"),
+	"logview":          inline("notifyserverlog"),
+	"messageget":       inline("notifymessage"),
+	"messagelist":      inline("notifymessagelist"),
+	"permfind":         inline("notifypermfind"),
+	"permget":          inline("notifypermget"),
+	"permissionlist":   inline("notifypermissionlist"),
+	"permoverview":     inline("notifypermoverview"),
+	"privilegekeyadd":  inline("notifytokenadd"),
+	"privilegekeylist": inline("notifytokenlist"),
+	// The S3 file transfer commands of TeamSpeak 6, each answered by a
+	// notification that echoes the command's own return_code. Measured on
+	// TeamSpeak 6 6.0.0-beta13.1; TeamSpeak 3 has none of these commands.
+	//
+	// Each row of the answer is one presigned URL, sent ahead of the error.
+	"s3ft_getpresignedurl": {Correlated: &correlation{
+		Key: "return_code", Notifications: []string{"notify_presigned_urls"},
+	}},
+	// The answer carries success; no error follows it, but a refusal (2568 for a
+	// client without delete power) is an error and no answer.
+	"s3ft_deletefile": {Correlated: &correlation{
+		Key: "return_code", Notifications: []string{"notify_s3ft_delete"}, EndsCommand: true,
+	}},
+	// The file list, as one base64 JSON field, sent ahead of the error.
+	"s3ft_list_files": {Correlated: &correlation{
+		Key: "return_code", Notifications: []string{"notify_s3ft_file_list"},
+	}},
+	// The answer carries success, and no error follows it.
+	"s3ft_upload_done_notification": {Correlated: &correlation{
+		Key: "return_code", Notifications: []string{"notify_s3ft_upload_done"}, EndsCommand: true,
+	}},
 	"servergroupadd":              inline("notifyservergrouplist"),
 	"servergroupclientlist":       inline("notifyservergroupclientlist"),
 	"servergroupcopy":             inline("notifyservergrouplist"),

@@ -2,6 +2,7 @@ package client
 
 import (
 	"errors"
+	"strings"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
@@ -70,4 +71,75 @@ func (e *RemovedError) Error() string {
 	}
 
 	return msg
+}
+
+// S3TransferError reports an S3 file transfer that failed: the storage answered
+// a request with an HTTP error, a request got no answer, or the server reports
+// that its own request to the storage failed. The message names the file, never
+// the presigned URL. It wraps teamspeak.ErrFileTransfer, and Err when set.
+type S3TransferError struct {
+	// Err is why no answer came, or nil.
+	Err error
+	// Code is the error code in the storage's answer (NoSuchKey,
+	// SignatureDoesNotMatch), "" if it sent none.
+	Code string
+	// msg describes the failure, without Err.
+	msg string
+	// Status is the HTTP status the storage answered with: 404 for a file that
+	// is not there, 403 for a URL that expired or a body whose length is not the
+	// one the URL is signed for. 0 when no answer came, and when the server
+	// reported the failure.
+	Status int
+}
+
+// Error describes the failure, and why no answer came when that is known.
+func (e *S3TransferError) Error() string {
+	if e.Err == nil {
+		return e.msg
+	}
+
+	return e.msg + ": " + e.Err.Error()
+}
+
+// Unwrap returns teamspeak.ErrFileTransfer, and Err when it is set.
+func (e *S3TransferError) Unwrap() []error {
+	if e.Err == nil {
+		return []error{teamspeak.ErrFileTransfer}
+	}
+
+	return []error{teamspeak.ErrFileTransfer, e.Err}
+}
+
+// S3UnsupportedError reports that the connected server does not say it does S3
+// file transfer: its extensions (virtualserver_capability_extensions) do not
+// name "s3". A TeamSpeak 3 server names none, and answers the S3 commands with
+// an error that names no command, so they would wait out their timeout; the S3
+// methods return this before sending instead. Before the client has connected
+// no server has named any, and it counts as unsupported the same way.
+type S3UnsupportedError struct {
+	// Family is the server generation the client found.
+	Family ServerFamily
+	// Version is the virtualserver_version the server sent; empty before the
+	// client has connected.
+	Version string
+	// Extensions are the extensions the server named, "s3" not among them.
+	Extensions []string
+}
+
+// Error describes the server and the extensions it named.
+func (e *S3UnsupportedError) Error() string {
+	what := "an unknown server"
+	if e.Family != ServerFamilyUnknown {
+		what = e.Family.String()
+	}
+	if e.Version != "" {
+		what += " (" + e.Version + ")"
+	}
+	named := "none"
+	if len(e.Extensions) > 0 {
+		named = strings.Join(e.Extensions, ", ")
+	}
+
+	return "S3 file transfer needs a server that names s3 among its extensions; this is " + what +
+		", which names " + named
 }

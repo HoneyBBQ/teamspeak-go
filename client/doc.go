@@ -24,6 +24,15 @@
 // recovered and logged at Error with the event type; the other handlers and
 // later events are still delivered.
 //
+// # S3 file transfer
+//
+// A TeamSpeak 6 server that names s3 among its extensions keeps channel files
+// in an S3-compatible storage. [Client.UploadS3File] and [Client.DownloadS3File]
+// sign a transfer over the voice connection and move the bytes with a plain
+// HTTPS request to the storage; [Client.ListS3Files] and [Client.DeleteS3File]
+// list and delete. Against any other server they return [*S3UnsupportedError]
+// before sending anything.
+//
 // # Documentation
 //
 // The [guide] covers connecting, events, sending and receiving voice, commands,

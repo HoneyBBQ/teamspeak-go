@@ -3,6 +3,29 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- TeamSpeak 6 S3 file transfer over the voice protocol, for a server that names
+  `s3` among its extensions: `UploadS3File`, `DownloadS3File`, `ListS3Files`
+  and `DeleteS3File` on the voice client, `InitS3FileUpload`,
+  `InitS3FileDownload` and `CompleteS3FileUpload` for the steps, and
+  `UploadS3FileData` and `DownloadS3FileData` to move the bytes to the storage
+  with a plain HTTPS request. Failures are an `*S3TransferError` (the storage's
+  HTTP status and code, never the presigned URL) or, against a server without
+  S3, an `*S3UnsupportedError` before anything is sent. Measured on TeamSpeak 6
+  6.0.0-beta13.1.
+- The command and notification name tables gain the four `s3ft_*` commands and
+  their answers.
+
+### Fixed
+
+- A command or notification name may contain underscores, as the TeamSpeak 6
+  names `s3ft_getpresignedurl` and `notify_presigned_urls` do. The parser read
+  such a line as a row with no name, and the row splitter lost the name on
+  every row after the first.
+
 ## v1.0.0-beta.23 (2026-11-07)
 
 ### Documentation

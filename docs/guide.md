@@ -386,6 +386,54 @@ if err != nil {
 err = teamspeak.UploadFileData(ctx, host, upload, bytes.NewReader(data), teamspeak.FileTransferOptions{})
 ```
 
+### S3 file transfer
+
+A TeamSpeak 6 server started with S3 file transfer keeps channel files in an
+S3-compatible storage and names `s3` among its extensions
+(`c.ServerCapabilities().Extensions`). The client asks the server for a
+presigned URL over the voice connection and moves the bytes with a plain HTTPS
+request to the storage; nothing goes through the file transfer port, and the
+classic file commands above still reach a separate store. Measured on
+TeamSpeak 6 6.0.0-beta13.1.
+
+| Method | Description |
+|---|---|
+| `UploadS3File(ctx, cid, path, data, UploadS3FileOptions)` | Sign, send and complete an upload in one call, with `[]byte` data |
+| `DownloadS3File(ctx, cid, path, DownloadS3FileOptions)` | Sign and read a download into memory; `MaxSize` bounds it (default 64 MiB) |
+| `ListS3Files(ctx, cid, S3FileOptions)` | Every file in the channel, by path, as the server last read the storage |
+| `DeleteS3File(ctx, cid, path, S3FileOptions)` | Delete one file; a file that is not there is deleted without an error |
+| `InitS3FileUpload(ctx, cid, path, size, S3FileOptions)` / `InitS3FileDownload(ctx, cid, path, S3FileOptions)` | Ask for a presigned URL |
+| `client.UploadS3FileData(ctx, info, reader, S3TransferOptions)` / `client.DownloadS3FileData(ctx, info, writer, S3DownloadOptions)` | Move the bytes to or from the storage, for a stream |
+| `CompleteS3FileUpload(ctx, info, S3FileOptions)` | Tell the server an upload is stored, so it lists the file |
+
+```go
+err := c.UploadS3File(ctx, cid, "/docs/notes.txt", data, client.UploadS3FileOptions{})
+files, err := c.ListS3Files(ctx, cid, client.S3FileOptions{})
+data, err = c.DownloadS3File(ctx, cid, "/docs/notes.txt", client.DownloadS3FileOptions{})
+```
+
+- A server that does not name `s3` is refused with `*client.S3UnsupportedError`
+  before anything is sent: a TeamSpeak 3 server answers with an error that
+  names no command, so the command would wait out its timeout.
+- The server lists a file only after it is told the upload is done:
+  `UploadS3File` does that, and a stream upload must call `CompleteS3FileUpload`.
+  Other clients are told nothing about an upload or a delete.
+- A path runs from the channel's root, with a leading slash added when missing.
+  One with an empty, `.` or `..` segment, a control character or a trailing slash
+  is refused with `ErrInvalidCommand`, as the storage would not take the URL the
+  server signs for it.
+- An upload sends exactly the size the URL is signed for: a reader that gives
+  fewer or more bytes fails the upload with an error wrapping `ErrFileTransfer`.
+- A refusal by the storage is an `*S3TransferError` with the HTTP `Status`
+  (404 for a file that is not there, 403 for an expired URL) and the storage's
+  `Code`; so is a request that got no answer, or a server that reports it could
+  not reach its storage. It wraps `ErrFileTransfer`, and its message never names
+  the presigned URL, which is a credential until it expires (300 seconds by
+  default). `S3TransferOptions.HTTPClient` routes the request through a proxy,
+  trusts another certificate authority or traces it.
+- Only the voice protocol has these commands: ServerQuery over SSH answers them
+  with no data and WebQuery does not know them.
+
 ## Identity
 
 ```go
