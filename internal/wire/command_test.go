@@ -320,3 +320,39 @@ func TestParseCommand_StillReadsARealName(t *testing.T) {
 		t.Errorf("Params = %v, want a -uid entry", cmd.Params)
 	}
 }
+
+// Measured on TeamSpeak 6 6.0.0-beta13.1: the answer to s3ft_getpresignedurl and
+// to s3ft_list_files are named with underscores.
+func TestParseCommand_ReadsANameWithUnderscores(t *testing.T) {
+	cmd := wire.ParseCommand(`notify_presigned_urls return_code=2 url=https:\/\/b.s3\/k key=\/k`)
+	if cmd == nil || cmd.Name != "notify_presigned_urls" {
+		t.Fatalf("got %+v, want the name notify_presigned_urls", cmd)
+	}
+	if cmd.Params["url"] != "https://b.s3/k" || cmd.Params["key"] != "/k" || cmd.Params["return_code"] != "2" {
+		t.Errorf("Params = %v", cmd.Params)
+	}
+
+	empty := wire.ParseCommand("notify_s3ft_file_list b64_json return_code=3")
+	if empty == nil || empty.Name != "notify_s3ft_file_list" {
+		t.Fatalf("got %+v, want the name notify_s3ft_file_list", empty)
+	}
+	if v, ok := empty.Params["b64_json"]; !ok || v != "" || empty.Params["return_code"] != "3" {
+		t.Errorf("Params = %v, want an empty b64_json and return_code 3", empty.Params)
+	}
+}
+
+func TestIsCommandName_AllowsUnderscores(t *testing.T) {
+	for token, want := range map[string]bool{
+		"s3ft_getpresignedurl":  true,
+		"notify_presigned_urls": true,
+		"_":                     true,
+		"a-b":                   false,
+		"a=b":                   false,
+		"key=a_b":               false,
+		"":                      false,
+	} {
+		if got := wire.IsCommandName(token); got != want {
+			t.Errorf("IsCommandName(%q) = %v, want %v", token, got, want)
+		}
+	}
+}

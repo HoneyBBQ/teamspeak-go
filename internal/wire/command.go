@@ -85,9 +85,9 @@ func ParseCommand(s string) *Command {
 		return nil
 	}
 
-	// A command name is a run of alphanumerics followed by a space — the rule
-	// tsproto-packets uses (CommandParser::new). Anything else means the line is
-	// not a command at all: response rows carry no name ("clid=6 cid=2 ..."),
+	// A command name is a run of alphanumerics and underscores followed by a
+	// space (see IsCommandName). Anything else means the line is not a command at
+	// all: response rows carry no name ("clid=6 cid=2 ..."),
 	// and negative feedback is "-1 id=2 ...", naming the *rejected* command id
 	// rather than a command of its own. Returning those as a nameless row keeps
 	// the data intact instead of folding the first field into a name, which is
@@ -126,6 +126,11 @@ func ParseCommand(s string) *Command {
 // IsCommandName reports whether a line's first token is a command name rather
 // than one of a response row's key=value pairs.
 //
+// A name is a run of ASCII alphanumerics and underscores. TeamSpeak 3 names
+// have no underscore, but TeamSpeak 6 names some with one: its S3 file
+// transfer commands (s3ft_getpresignedurl) and the notifications answering
+// them (notify_presigned_urls).
+//
 // Everything that splits or parses a line asks this one function, so the
 // parser and the row splitter cannot disagree about where a command's data
 // begins.
@@ -135,7 +140,7 @@ func IsCommandName(token string) bool {
 	}
 	for i := range len(token) {
 		c := token[i]
-		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
 			return false
 		}
 	}
