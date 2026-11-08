@@ -34,7 +34,7 @@
 - **ServerQuery.** The same typed commands run over raw TCP, SSH (with host-key verification) or WebQuery, with the server's notifications as events, so an administration script and a voice bot share one vocabulary.
 - **TeamSpeak 6 screen share.** Find, publish and watch the streams of a TeamSpeak 6 server in the `stream` package, interoperable with the TeamSpeak 6 client. SDP and ICE are plain strings for any WebRTC stack, such as Pion, which `stream/e2e` uses.
 - **Typed commands and events.** Every command the voice protocol answers is a typed method, ids are distinct types, times are `time.Time`, and events arrive on handlers with pluggable middleware.
-- **File transfers.** Upload, download and delete files on the server, with avatars and icons covered.
+- **File transfers.** Upload, download and delete files on the server, with avatars and icons covered, and the S3 file transfer of a TeamSpeak 6 server that keeps its files in an S3 bucket.
 - **Built for long-running bots.** Opt-in reconnection tuned for TeamSpeak's antiflood ban, and a line middleware seam for pacing or resending commands, with the server's own flood wait parsed (see [Flood control](docs/flood-control.md)).
 - **Identities and server facts.** Generate, import, export and upgrade identities; read the server version, its uid hash (SHA-1 on TS3, SHA-256 on TS6) and its name, icon and banner.
 - **TeamSpeak 3 and 6, pure Go.** Zero CGO, cross-compiles anywhere, with a custom `net.PacketConn` and transfer dialer for proxies and tests.
@@ -42,7 +42,7 @@
 ## Install
 
 ```bash
-go get github.com/honeybbq/teamspeak-go@v1.0.0-beta.23
+go get github.com/honeybbq/teamspeak-go@v1.0.0-beta.24
 ```
 
 1.0 is in beta: `go get` without a version still picks v0.2, because Go skips pre-releases unless you name one. Go 1.26 or newer is required. Coming from v0.x? [CHANGELOG.md](CHANGELOG.md) has the full list of changes and a migration table.
