@@ -419,20 +419,24 @@ data, err = c.DownloadS3File(ctx, cid, "/docs/notes.txt", client.DownloadS3FileO
   `UploadS3File` does that, and a stream upload must call `CompleteS3FileUpload`.
   Other clients are told nothing about an upload or a delete.
 - A path runs from the channel's root, with a leading slash added when missing.
-  One with an empty, `.` or `..` segment, a control character or a trailing slash
-  is refused with `ErrInvalidCommand`, as the storage would not take the URL the
-  server signs for it.
+  There are no directories, only paths, but uploading into a directory the
+  server does not list yet needs directory create power as well as upload
+  power. A path with an empty, `.` or `..` segment, a control character or a
+  trailing slash is refused with `ErrInvalidCommand`: the server signs the path
+  as given, and a URL parser would change it.
 - An upload sends exactly the size the URL is signed for: a reader that gives
   fewer or more bytes fails the upload with an error wrapping `ErrFileTransfer`.
 - A refusal by the storage is an `*S3TransferError` with the HTTP `Status`
   (404 for a file that is not there, 403 for an expired URL) and the storage's
-  `Code`; so is a request that got no answer, or a server that reports it could
-  not reach its storage. It wraps `ErrFileTransfer`, and its message never names
+  `Code`; so is a request that got no answer, or a server that reports its own
+  request to the storage failed. It wraps `ErrFileTransfer`, and its message never names
   the presigned URL, which is a credential until it expires (300 seconds by
   default). `S3TransferOptions.HTTPClient` routes the request through a proxy,
   trusts another certificate authority or traces it.
-- Only the voice protocol has these commands: ServerQuery over SSH answers them
-  with no data and WebQuery does not know them.
+- A refusal by the server is the `*ServerError` it sends: 2049 (invalid file
+  permissions) for an upload or download without the power, 2568 for a delete
+  without it.
+- They run on the voice connection; WebQuery refuses them as unknown commands.
 
 ## Identity
 

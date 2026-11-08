@@ -198,8 +198,8 @@ const (
 	// or 0. TeamSpeak 6 only.
 	RespondJoinStreamRequest = "notifyrespondjoinstreamrequest"
 	// S3FTDelete is notify_s3ft_delete: reply to s3ft_deletefile: success is 1
-	// when the server deleted the file from its storage, 0 when it could not reach
-	// it. TeamSpeak 6 only.
+	// when the server deleted the file from its storage, 0 when it could not.
+	// TeamSpeak 6 only.
 	S3FTDelete = "notify_s3ft_delete"
 	// S3FTFileList is notify_s3ft_file_list: reply to s3ft_list_files: the
 	// channel's files, as base64 JSON in b64_json, empty when there are none.
@@ -207,8 +207,8 @@ const (
 	S3FTFileList = "notify_s3ft_file_list"
 	// S3FTUploadDone is notify_s3ft_upload_done: reply to
 	// s3ft_upload_done_notification: success is 1 when the server read the
-	// channel's file list from its storage again, 0 when it could not reach it.
-	// TeamSpeak 6 only.
+	// channel's file list from its storage again, 0 when it could not. TeamSpeak
+	// 6 only.
 	S3FTUploadDone = "notify_s3ft_upload_done"
 	// ServerConnectionInfo is notifyserverconnectioninfo: reply to
 	// serverrequestconnectioninfo: the virtual server's traffic and bandwidth

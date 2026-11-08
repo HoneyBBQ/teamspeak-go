@@ -112,10 +112,11 @@ func (e *S3TransferError) Unwrap() []error {
 
 // S3UnsupportedError reports that the connected server does not say it does S3
 // file transfer: its extensions (virtualserver_capability_extensions) do not
-// name "s3". A TeamSpeak 3 server names none, and answers the S3 commands with
-// an error that names no command, so they would wait out their timeout; the S3
-// methods return this before sending instead. Before the client has connected
-// no server has named any, and it counts as unsupported the same way.
+// name "s3". The S3 methods return this before sending: a TeamSpeak 6 server
+// without it answers the commands with 1035, and a TeamSpeak 3 server, which
+// names no extension, with an error that names no command, so they would wait
+// out their timeout. Before the client has connected no server has named any,
+// and it counts as unsupported the same way.
 type S3UnsupportedError struct {
 	// Family is the server generation the client found.
 	Family ServerFamily

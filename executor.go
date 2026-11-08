@@ -130,7 +130,7 @@ func (r Request) encode(encodePassword func(password string) string) string {
 		}
 		// A table that opens with an empty row leaves the plain parameters a
 		// row of their own, which the rows after it follow.
-		if len(group.table[0]) == 0 {
+		if len(group.table) > 0 && len(group.table[0]) == 0 {
 			return line + "|" + strings.Join(rows[1:], "|")
 		}
 	} else {

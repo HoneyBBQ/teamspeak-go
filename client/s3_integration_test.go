@@ -46,17 +46,29 @@ type s3Lab struct {
 
 func s3Run() string { return strings.ToLower(strings.TrimLeft(time.Now().Format("0405.000"), "0")) }
 
-// connectS3 connects a new client to addr, retrying as the rest of the suite does.
-func connectS3(t *testing.T, addr, serverPassword, nickname string) *client.Client {
+// dialS3 connects a new client to addr, retrying as the rest of the suite does,
+// and waits until it knows its channel.
+func dialS3(t *testing.T, addr, serverPassword, nickname string) *client.Client {
 	t.Helper()
-	id, err := identity.Generate(t.Context(), 8)
+	id, err := identity.Generate(context.Background(), 8)
 	requireNoErr(t, err)
 	var opts []client.Option
 	if serverPassword != "" {
 		opts = append(opts, client.WithServerPassword(serverPassword))
 	}
 	c := newClient(t, id, addr, nickname, opts...)
-	requireNoErr(t, connectWithRetries(t.Context(), t, c))
+	requireNoErr(t, connectWithRetries(context.Background(), t, c))
+	for deadline := time.Now().Add(liveEventWait); c.ChannelID() == 0 && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	return c
+}
+
+// connectS3 connects a client for one test, disconnected when the test ends.
+func connectS3(t *testing.T, addr, serverPassword, nickname string) *client.Client {
+	t.Helper()
+	c := dialS3(t, addr, serverPassword, nickname)
 	t.Cleanup(func() {
 		ctx, cancel := cleanupContext()
 		defer cancel()
@@ -97,8 +109,10 @@ func requireS3Lab(t *testing.T) *s3Lab {
 	if addr == "" {
 		t.Skip("TEAMSPEAK_S3_ADDR not set — skip S3 file transfer test (scripts/s3-lab.sh starts a server)")
 	}
+	// One client for every S3 test, as the shared client is: it lives as long as
+	// the test binary.
 	s3LabOnce.Do(func() {
-		s3LabC = connectS3(t, addr, os.Getenv("TEAMSPEAK_S3_SERVER_PASSWORD"), "ts-go-s3")
+		s3LabC = dialS3(t, addr, os.Getenv("TEAMSPEAK_S3_SERVER_PASSWORD"), "ts-go-s3")
 	})
 	if s3LabC == nil {
 		t.Fatal("the S3 client could not be set up")

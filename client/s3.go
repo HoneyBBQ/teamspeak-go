@@ -33,11 +33,11 @@ import (
 // TeamSpeak does not document these commands. Everything here was measured on
 // TeamSpeak 6 6.0.0-beta13.1 with an S3-compatible storage behind TLS:
 //
-//   - They run on the voice protocol alone. ServerQuery over SSH answers them
-//     with no data or not at all, and WebQuery does not know them.
-//   - The server keeps each channel's file list in memory and reads it from the
-//     storage again only when told an upload is done, or when it deletes a
-//     file: a file stored without CompleteS3FileUpload is not listed.
+//   - They run on the voice connection, which is why they are methods of
+//     Client: WebQuery refuses them as unknown commands.
+//   - The server keeps each channel's file list in memory, takes a file out of
+//     it when it deletes one, and reads it from the storage again when told an
+//     upload is done: a file stored without CompleteS3FileUpload is not listed.
 //   - Other clients are told nothing when a file is uploaded or deleted.
 //   - The classic file commands (ftinitupload, ftgetfilelist, ...) still work
 //     on such a server, and reach a separate store: a file uploaded one way is
@@ -147,13 +147,12 @@ func (c *Client) assertS3() error {
 // s3Path returns the path as the server takes it: from the channel's root, with
 // a leading slash added when missing.
 //
-// The server signs the URL for the path as it is given, so a path an HTTP
-// client would send differently is refused here rather than by the storage.
-// Measured on TeamSpeak 6 6.0.0-beta13.1: a "." or ".." segment is resolved
-// away by every URL parser, so the request does not match the signature (403);
-// an empty segment (a//b) is refused by the storage (400); a control character
-// is encoded wrongly by the server (400); and a path that ends in a slash names
-// no file. The error wraps teamspeak.ErrInvalidCommand.
+// The server signs the URL for the path exactly as it is given, so only a plain
+// path to a file is taken: a URL parser resolves a "." or ".." segment away,
+// and the request would not be the one signed; an empty segment (a//b, or a
+// slash at the end) names no directory or no file, and a storage may refuse it
+// outright; and no file name has a control character in it. The error wraps
+// teamspeak.ErrInvalidCommand.
 func s3Path(path string) (string, error) {
 	full := path
 	if !strings.HasPrefix(full, "/") {
@@ -235,9 +234,10 @@ func (c *Client) presign(
 //
 // The upload replaces a file already at the path: the storage keeps no other
 // copy, and nothing asks first. A client without upload power is refused with
-// 2049 (invalid file permissions), as is a channel that does not exist; a size
-// the server will not store (5 GiB or more) with 2060. The directories in the
-// path need not exist: there are none, only paths.
+// 2049 (invalid file permissions). A path into a directory the channel's file
+// list does not have yet needs directory create power as well, and is refused
+// with 2049 without it; an area with no files at all takes any path. The
+// directory is no object of its own: it is there while a file is in it.
 //
 // It returns *S3UnsupportedError unless the server names "s3" among its
 // extensions, and an error wrapping teamspeak.ErrInvalidCommand for a path
@@ -287,8 +287,8 @@ func succeeded(rows []map[string]string) (bool, error) {
 // UploadS3FileData. The server then reads the channel's file list from the
 // storage again, and lists the file; without this it does not.
 //
-// It returns an *S3TransferError when the server reports that it could not
-// reach the storage.
+// It returns an *S3TransferError when the server reports that its own request
+// to the storage failed.
 func (c *Client) CompleteS3FileUpload(ctx context.Context, info *S3FileUploadInfo, opts S3FileOptions) error {
 	err := c.assertS3()
 	if err != nil {
@@ -345,8 +345,8 @@ func (c *Client) ListS3Files(
 //
 // Deleting a file that is not there succeeds, as the storage's delete does. A
 // client without delete power is refused with 2568 (insufficient client
-// permissions). It returns an *S3TransferError when the server reports that it
-// could not reach the storage.
+// permissions). It returns an *S3TransferError when the server reports that its
+// own request to the storage failed.
 func (c *Client) DeleteS3File(
 	ctx context.Context, channelID teamspeak.ChannelID, path string, opts S3FileOptions,
 ) error {
@@ -706,16 +706,17 @@ type UploadS3FileOptions struct {
 // It returns once the storage has stored the file and the server lists it. The
 // file replaces one already at the path. For a stream, call the three yourself.
 //
-// path runs from the channel's root; a leading slash is added when missing, and
-// the directories in it need not exist. A path is refused with an error
+// path runs from the channel's root; a leading slash is added when missing. A
+// path into a directory the server does not list yet needs directory create
+// power, as InitS3FileUpload says. A path is refused with an error
 // wrapping teamspeak.ErrInvalidCommand when an HTTP client would not send the
 // URL the server signs for it: one with an empty, "." or ".." segment, a
 // control character, or a slash at its end.
 //
 // A refusal by the server is the *teamspeak.ServerError it sends (2049 for a
 // client without upload power); a failure of the storage request, or a server
-// that reports it could not reach the storage, is an *S3TransferError. A server
-// that does not name "s3" among its extensions is refused with an
+// that reports its own request to the storage failed, is an *S3TransferError. A
+// server that does not name "s3" among its extensions is refused with an
 // *S3UnsupportedError before anything is sent.
 func (c *Client) UploadS3File(
 	ctx context.Context, channelID teamspeak.ChannelID, path string, data []byte, opts UploadS3FileOptions,
