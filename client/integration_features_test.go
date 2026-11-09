@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -295,11 +296,19 @@ func TestIntegration_ServerCapabilities(t *testing.T) {
 	}
 	t.Logf("server info: name=%q icon=%d banner=%q welcome=%q extensions=%q",
 		view.ServerName(), view.ServerIconID(), view.ServerBannerImageURL(), caps.WelcomeMessage, caps.Extensions)
-	// TeamSpeak 3 names no extension; TeamSpeak 6 names peer to peer streams.
+	// TeamSpeak 3 names no extension; TeamSpeak 6 names FILETIME and peer to
+	// peer streams, and s3 only when started with S3 file transfer.
 	if caps.Family == client.ServerFamilyTS3 && len(caps.Extensions) != 0 {
 		t.Errorf("Extensions = %q on TeamSpeak 3, want none", caps.Extensions)
 	}
-	if caps.Family == client.ServerFamilyTS6 && !caps.HasExtension("STREAM_P2P") {
-		t.Errorf("Extensions = %q on TeamSpeak 6, want STREAM_P2P among them", caps.Extensions)
+	if caps.Family == client.ServerFamilyTS6 &&
+		(!caps.HasExtension(teamspeak.ServerExtensionFileTime) || !caps.HasExtension(teamspeak.ServerExtensionStreamP2P)) {
+		t.Errorf("Extensions = %q on TeamSpeak 6, want FILETIME and STREAM_P2P among them", caps.Extensions)
+	}
+	known := []string{teamspeak.ServerExtensionFileTime, teamspeak.ServerExtensionStreamP2P, teamspeak.ServerExtensionS3}
+	for _, name := range caps.Extensions {
+		if !slices.Contains(known, name) {
+			t.Errorf("the server names %q, which no teamspeak.ServerExtension constant does", name)
+		}
 	}
 }

@@ -61,7 +61,7 @@ func (e *UnsupportedError) Error() string {
 		named = strings.Join(e.Extensions, ", ")
 	}
 
-	return "stream: streams need a server that names " + extensionP2P +
+	return "stream: streams need a server that names " + teamspeak.ServerExtensionStreamP2P +
 		" among its extensions; this is " + what + ", which names " + named
 }
 

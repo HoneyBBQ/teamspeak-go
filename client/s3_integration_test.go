@@ -191,7 +191,7 @@ func requireServerCode(t *testing.T, err error, want errcode.Code) {
 
 func TestLive_S3NamedAmongTheServersExtensions(t *testing.T) {
 	l := requireS3Lab(t)
-	if !l.c.ServerCapabilities().HasExtension("s3") {
+	if !l.c.ServerCapabilities().HasExtension(teamspeak.ServerExtensionS3) {
 		t.Errorf("extensions = %v, want s3 among them", l.c.ServerCapabilities().Extensions)
 	}
 }
@@ -767,7 +767,7 @@ func TestLive_S3RenameFilesAnswersForItsLastRenameAlone(t *testing.T) {
 func TestLive_S3AServerWithoutItIsRefusedBeforeAnythingIsSent(t *testing.T) {
 	c := requireSharedClient(t)
 	caps := c.ServerCapabilities()
-	if caps.HasExtension("s3") {
+	if caps.HasExtension(teamspeak.ServerExtensionS3) {
 		t.Skip("TEAMSPEAK_ADDR is a server with S3 file transfer")
 	}
 	_, err := c.ListS3Files(t.Context(), c.ChannelID(), client.S3FileOptions{})

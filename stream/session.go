@@ -25,7 +25,7 @@ func (s *Streams) usable() error {
 	if closed {
 		return ErrClosed
 	}
-	if caps := s.host.ServerCapabilities(); !caps.HasExtension(extensionP2P) {
+	if caps := s.host.ServerCapabilities(); !caps.HasExtension(teamspeak.ServerExtensionStreamP2P) {
 		return &UnsupportedError{Family: caps.Family, Version: caps.Version, Extensions: caps.Extensions}
 	}
 
@@ -37,7 +37,7 @@ func (s *Streams) observe() connState {
 		self:    s.host.ClientID(),
 		session: s.host.Session(),
 		status:  s.host.Status(),
-		p2p:     s.host.ServerCapabilities().HasExtension(extensionP2P),
+		p2p:     s.host.ServerCapabilities().HasExtension(teamspeak.ServerExtensionStreamP2P),
 	}
 }
 

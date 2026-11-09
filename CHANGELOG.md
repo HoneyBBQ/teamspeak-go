@@ -19,6 +19,11 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   `*S3TransferError` there and the file stays.
 - The name tables gain `s3ft_deletefiles`, `s3ft_renamefile`, `s3ft_renamefiles`
   and `notify_s3ft_rename`.
+- `ServerExtensionFileTime`, `ServerExtensionStreamP2P` and `ServerExtensionS3`
+  name the extensions a server lists in `virtualserver_capability_extensions`
+  (`ServerCapabilities.Extensions`), as TeamSpeak 6 6.0.0-beta13.1 sends them
+  (`FILETIME`, `STREAM_P2P`, `s3`): test one with
+  `HasExtension(teamspeak.ServerExtensionS3)`.
 - `scripts/s3-lab.sh` takes `S3_LAB_STORAGE=s3mock` to start a lab on a storage
   that checks no signature, for the live tests of a rename that succeeds; CI
   starts one beside the first on the TeamSpeak 6 leg.

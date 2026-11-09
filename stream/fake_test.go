@@ -69,7 +69,7 @@ func newFakeHost() *fakeHost {
 		session: 1,
 		family:  client.ServerFamilyTS6,
 		version: "6.0.0-beta13.1",
-		exts:    []string{"FILETIME", extensionP2P},
+		exts:    []string{"FILETIME", teamspeak.ServerExtensionStreamP2P},
 		entries: make(map[teamspeak.ClientID]teamspeak.ClientEntry),
 		subs:    make(map[string][]*subscription),
 	}
