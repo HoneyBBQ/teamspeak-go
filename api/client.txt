@@ -144,6 +144,8 @@ method (Client) DeleteMessage(ctx context.Context, messageID teamspeak.MessageID
 method (Client) DeletePrivilegeKey(ctx context.Context, token string) error
 method (Client) DeleteQueryLogin(ctx context.Context, clientDBID teamspeak.ClientDBID) error
 method (*Client) DeleteS3File(ctx context.Context, channelID teamspeak.ChannelID, path string, opts S3FileOptions) error
+method (*Client) DeleteS3Files(ctx context.Context, channelID teamspeak.ChannelID, paths []string, opts S3FileOptions) error
+method (*Client) DeleteS3Icon(ctx context.Context, id teamspeak.IconID) error
 method (Client) DeleteServer(ctx context.Context, id teamspeak.ServerID, opts teamspeak.ServerDeleteOptions) error
 method (Client) DeleteServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, opts teamspeak.GroupDeleteOptions) error
 method (Client) DeleteServerGroupPermission(ctx context.Context, serverGroupID teamspeak.ServerGroupID, perm teamspeak.Permission) error
@@ -157,7 +159,9 @@ method (*Client) DisconnectWithMessage(ctx context.Context, message string) erro
 method (*Client) DownloadAvatar(ctx context.Context, uid teamspeak.UID, opts teamspeak.FileTransferOptions) ([]byte, bool, error)
 method (Client) DownloadFile(ctx context.Context, host string, channelID teamspeak.ChannelID, path string, opts teamspeak.DownloadFileOptions) ([]byte, error)
 method (*Client) DownloadIcon(ctx context.Context, id teamspeak.IconID, opts teamspeak.FileTransferOptions) ([]byte, bool, error)
+method (*Client) DownloadS3Avatar(ctx context.Context, uid teamspeak.UID, opts S3TransferOptions) ([]byte, bool, error)
 method (*Client) DownloadS3File(ctx context.Context, channelID teamspeak.ChannelID, path string, opts DownloadS3FileOptions) ([]byte, error)
+method (*Client) DownloadS3Icon(ctx context.Context, id teamspeak.IconID, opts S3TransferOptions) ([]byte, bool, error)
 method (Client) EditChannel(ctx context.Context, cid teamspeak.ChannelID, opts teamspeak.ChannelEditOptions) error
 method (Client) EditClient(ctx context.Context, clid teamspeak.ClientID, opts teamspeak.ClientEditOptions) error
 method (Client) EditClientDatabase(ctx context.Context, clientDBID teamspeak.ClientDBID, opts teamspeak.ClientDatabaseEditOptions) error
@@ -272,8 +276,11 @@ method (Client) RemoveAvatar(ctx context.Context) (bool, error)
 method (Client) RemoveClientFromServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, clientDBID teamspeak.ClientDBID) error
 method (Client) RemoveClientsFromServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, clientDBIDs []teamspeak.ClientDBID, opts teamspeak.ServerGroupMembersOptions) error
 method (Client) RemoveIcon(ctx context.Context, id teamspeak.IconID) error
+method (*Client) RemoveS3Avatar(ctx context.Context) error
 method (Client) RenameChannelGroup(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, name string) error
 method (Client) RenameFile(ctx context.Context, channelID teamspeak.ChannelID, oldName string, newName string, opts teamspeak.FileRenameOptions) error
+method (*Client) RenameS3File(ctx context.Context, channelID teamspeak.ChannelID, oldPath string, newPath string, opts S3FileOptions) error
+method (*Client) RenameS3Files(ctx context.Context, channelID teamspeak.ChannelID, renames []S3FileRename, opts S3FileOptions) error
 method (Client) RenameServerGroup(ctx context.Context, serverGroupID teamspeak.ServerGroupID, name string) error
 method (Client) ResetPermissions(ctx context.Context) error
 method (*Client) RoundTrip() (RoundTripEstimate, bool)
@@ -315,7 +322,9 @@ method (Client) UpdateMessageFlag(ctx context.Context, messageID teamspeak.Messa
 method (*Client) UploadAvatar(ctx context.Context, data []byte, opts teamspeak.FileTransferOptions) (string, error)
 method (Client) UploadFile(ctx context.Context, host string, channelID teamspeak.ChannelID, path string, data []byte, opts teamspeak.UploadFileOptions) error
 method (*Client) UploadIcon(ctx context.Context, data []byte, opts teamspeak.FileTransferOptions) (teamspeak.IconID, error)
+method (*Client) UploadS3Avatar(ctx context.Context, data []byte, opts S3TransferOptions) (string, error)
 method (*Client) UploadS3File(ctx context.Context, channelID teamspeak.ChannelID, path string, data []byte, opts UploadS3FileOptions) error
+method (*Client) UploadS3Icon(ctx context.Context, data []byte, opts S3TransferOptions) (teamspeak.IconID, error)
 method (Client) UsePrivilegeKey(ctx context.Context, token string) error
 method (*Client) VerifyChannelPassword(ctx context.Context, cid teamspeak.ChannelID, password string) (bool, error)
 method (*Client) VerifyServerPassword(ctx context.Context, password string) (bool, error)
@@ -433,6 +442,9 @@ field S3FileEntry.Path string
 field S3FileEntry.Size uint64
 type S3FileOptions struct
 field S3FileOptions.Password string
+type S3FileRename struct
+field S3FileRename.OldPath string
+field S3FileRename.NewPath string
 type S3FileUploadInfo struct
 field S3FileUploadInfo.Path string
 field S3FileUploadInfo.URL string

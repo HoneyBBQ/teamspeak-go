@@ -401,7 +401,8 @@ TeamSpeak 6 6.0.0-beta13.1.
 | `UploadS3File(ctx, cid, path, data, UploadS3FileOptions)` | Sign, send and complete an upload in one call, with `[]byte` data |
 | `DownloadS3File(ctx, cid, path, DownloadS3FileOptions)` | Sign and read a download into memory; `MaxSize` bounds it (default 64 MiB) |
 | `ListS3Files(ctx, cid, S3FileOptions)` | Every file in the channel, by path, as the server last read the storage |
-| `DeleteS3File(ctx, cid, path, S3FileOptions)` | Delete one file; a file that is not there is deleted without an error |
+| `DeleteS3File(ctx, cid, path, S3FileOptions)` / `DeleteS3Files(ctx, cid, paths, S3FileOptions)` | Delete one file, or several in one command; a file that is not there is deleted without an error |
+| `RenameS3File(ctx, cid, oldPath, newPath, S3FileOptions)` / `RenameS3Files(ctx, cid, []S3FileRename, S3FileOptions)` | Rename or move files within the channel |
 | `InitS3FileUpload(ctx, cid, path, size, S3FileOptions)` / `InitS3FileDownload(ctx, cid, path, S3FileOptions)` | Ask for a presigned URL |
 | `client.UploadS3FileData(ctx, info, reader, S3TransferOptions)` / `client.DownloadS3FileData(ctx, info, writer, S3DownloadOptions)` | Move the bytes to or from the storage, for a stream |
 | `CompleteS3FileUpload(ctx, info, S3FileOptions)` | Tell the server an upload is stored, so it lists the file |
@@ -435,8 +436,40 @@ data, err = c.DownloadS3File(ctx, cid, "/docs/notes.txt", client.DownloadS3FileO
   trusts another certificate authority or traces it.
 - A refusal by the server is the `*ServerError` it sends: 2049 (invalid file
   permissions) for an upload or download without the power, 2568 for a delete
-  without it.
+  or a rename without it.
+- A rename is a copy the server makes in the storage, and its copy request
+  leaves the `x-amz-copy-source` header unsigned, which a storage that checks
+  signatures refuses (RustFS, versitygw, SeaweedFS and CloudServer did,
+  measured on 6.0.0-beta13.1): the server answers `success=0`, `RenameS3File`
+  returns an `*S3TransferError` and the file stays. A storage that checks none,
+  such as S3Mock, takes it. A file already at the new path is replaced, and
+  there is no move to another channel. `RenameS3Files` is answered once, for
+  its last rename only, so an earlier failure goes unreported; after a batch
+  whose last rename failed, the list the server keeps shows the others a moment
+  later rather than at once.
+- A rename or delete without the power is refused with 2568, and a batch
+  delete then deletes nothing.
 - They run on the voice connection; WebQuery refuses them as unknown commands.
+
+#### Avatars and icons over S3
+
+In channel 0 the server signs an upload only for a name that starts with
+`avatar_` or `icon_`, and keeps the file under the name it is given, unlike the
+classic upload, which stores an avatar under the uploader's
+`teamspeak.AvatarFileName`. The S3 and classic avatars and icons are separate
+stores.
+
+| Method | Description |
+|---|---|
+| `UploadS3Avatar(ctx, data, S3TransferOptions)` | Upload under the own avatar name, tell the server it is done, set `client_flag_avatar`; returns the MD5 |
+| `DownloadS3Avatar(ctx, uid, S3TransferOptions)` | The avatar's bytes; false when the storage has none (404) |
+| `RemoveS3Avatar(ctx)` | Delete the own avatar file and empty the flag |
+| `UploadS3Icon(ctx, data, S3TransferOptions)` / `DownloadS3Icon(ctx, id, S3TransferOptions)` / `DeleteS3Icon(ctx, id)` | The icon file `/icon_<id>` in channel 0, `id` being `teamspeak.IconIDOf(data)` |
+
+An avatar over `i_client_max_avatar_filesize` (200000 bytes by default,
+inclusive) and an icon over `i_max_icon_filesize` (8192 for a Server Admin), or
+an icon upload without `b_icon_manage`, is refused with 2049; deleting an icon
+without `b_icon_manage`, or another client's avatar, with 2568.
 
 ## Identity
 

@@ -626,7 +626,10 @@ func TestResponseFor_PairsTheS3CommandsWithTheAnswerEchoingTheirReturnCode(t *te
 		"s3ft_upload_done_notification": {
 			Key: "return_code", Notifications: []string{"notify_s3ft_upload_done"}, EndsCommand: true,
 		},
-		"s3ft_deletefile": {Key: "return_code", Notifications: []string{"notify_s3ft_delete"}, EndsCommand: true},
+		"s3ft_deletefile":  {Key: "return_code", Notifications: []string{"notify_s3ft_delete"}, EndsCommand: true},
+		"s3ft_deletefiles": {Key: "return_code", Notifications: []string{"notify_s3ft_delete"}, EndsCommand: true},
+		"s3ft_renamefile":  {Key: "return_code", Notifications: []string{"notify_s3ft_rename"}, EndsCommand: true},
+		"s3ft_renamefiles": {Key: "return_code", Notifications: []string{"notify_s3ft_rename"}, EndsCommand: true},
 	} {
 		spec := responseFor(command)
 		if spec == nil || spec.Correlated == nil || !reflect.DeepEqual(*spec.Correlated, want) {
@@ -657,6 +660,24 @@ func TestCommandTracker_S3AnAnswerThatEndsTheCommandSettlesIt(t *testing.T) {
 
 	if got := receive(t, done); got.Err != nil || !reflect.DeepEqual(got.Data, []map[string]string{row}) {
 		t.Errorf("result = %+v", got)
+	}
+}
+
+func TestCommandTracker_S3RenameAnswerEndsTheCommand(t *testing.T) {
+	for _, command := range []string{"s3ft_renamefile", "s3ft_renamefiles", "s3ft_deletefiles"} {
+		tr := newReadyCommandTracker()
+		notification := "notify_s3ft_rename"
+		if command == "s3ft_deletefiles" {
+			notification = "notify_s3ft_delete"
+		}
+		rc, done := tr.register(responseFor(command), "", false)
+		tr.setCorrelation(rc, strconv.FormatUint(uint64(rc), 10))
+		row := map[string]string{"success": "0", "return_code": strconv.FormatUint(uint64(rc), 10)}
+		tr.offerCorrelated(notification, row)
+
+		if got := receive(t, done); got.Err != nil || !reflect.DeepEqual(got.Data, []map[string]string{row}) {
+			t.Errorf("%s: got %+v, want the answer and no error", command, got)
+		}
 	}
 }
 

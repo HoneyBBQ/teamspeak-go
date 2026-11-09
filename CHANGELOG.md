@@ -3,6 +3,26 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- The rest of TeamSpeak 6 S3 file transfer on the voice client: `DeleteS3Files`
+  deletes several files in one command (`s3ft_deletefiles`), `RenameS3File` and
+  `RenameS3Files` rename files within a channel (`s3ft_renamefile`,
+  `s3ft_renamefiles`; the server answers a batch once, for its last rename),
+  and `UploadS3Avatar`, `DownloadS3Avatar`, `RemoveS3Avatar`, `UploadS3Icon`,
+  `DownloadS3Icon` and `DeleteS3Icon` move avatars and icons through channel 0's
+  S3 file area. TeamSpeak 6 6.0.0-beta13.1's rename fails on a storage that
+  checks request signatures (RustFS, versitygw, SeaweedFS and CloudServer did):
+  its copy request leaves a header unsigned, so `RenameS3File` returns an
+  `*S3TransferError` there and the file stays.
+- The name tables gain `s3ft_deletefiles`, `s3ft_renamefile`, `s3ft_renamefiles`
+  and `notify_s3ft_rename`.
+- `scripts/s3-lab.sh` takes `S3_LAB_STORAGE=s3mock` to start a lab on a storage
+  that checks no signature, for the live tests of a rename that succeeds; CI
+  starts one beside the first on the TeamSpeak 6 leg.
+
 ## v1.0.0-beta.24 (2026-11-08)
 
 ### Added
