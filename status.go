@@ -59,6 +59,23 @@ func (f ServerFamily) String() string {
 	return string(f)
 }
 
+// The extensions a server names in virtualserver_capability_extensions (the
+// client's ServerCapabilities.Extensions), as TeamSpeak 6 6.0.0-beta13.1 names
+// them; test one with ServerCapabilities.HasExtension. The names are compared
+// as sent, so case matters. A TeamSpeak 3 server names none, and a server may
+// name others.
+const (
+	// ServerExtensionFileTime is named by every TeamSpeak 6 server measured.
+	// Nothing in this module depends on it.
+	ServerExtensionFileTime = "FILETIME"
+	// ServerExtensionStreamP2P is peer to peer streams (screen share), which
+	// the stream package needs.
+	ServerExtensionStreamP2P = "STREAM_P2P"
+	// ServerExtensionS3 is S3 file transfer, which the voice client's
+	// UploadS3File and the other S3 methods need.
+	ServerExtensionS3 = "s3"
+)
+
 // ServerFamilyForVersion picks the family from a version string such as
 // "6.0.0-beta13.1", as the server reports it (virtualserver_version).
 //

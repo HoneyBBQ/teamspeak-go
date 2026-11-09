@@ -50,7 +50,8 @@ type ServerCapabilities struct {
 	// supports (virtualserver_capability_extensions), in the server's order
 	// and each once, such as FILETIME and STREAM_P2P. It is empty when the
 	// server names none, as a TeamSpeak 3 server does; test one with
-	// HasExtension.
+	// HasExtension. The teamspeak.ServerExtension constants name the known
+	// ones.
 	//
 	// It is what the server claims, read as sent; the SDK does not refuse a
 	// command because a name is missing from it. ServerCapabilities and the
@@ -69,7 +70,8 @@ type ServerCapabilities struct {
 }
 
 // HasExtension reports whether the server named the extension, such as
-// "STREAM_P2P". The names are compared as sent, so case matters.
+// teamspeak.ServerExtensionStreamP2P. The names are compared as sent, so case
+// matters.
 func (c ServerCapabilities) HasExtension(name string) bool {
 	return slices.Contains(c.Extensions, name)
 }

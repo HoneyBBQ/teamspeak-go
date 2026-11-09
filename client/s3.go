@@ -50,9 +50,6 @@ import (
 // channel with none, in cleartext, and sends it the way every file command
 // does.
 
-// extensionS3 is the extension a server names when it does S3 file transfer.
-const extensionS3 = "s3"
-
 // defaultS3DownloadLimit is DownloadS3FileOptions.MaxSize when it is zero, the
 // limit DownloadFile has.
 const defaultS3DownloadLimit = 64 << 20
@@ -140,7 +137,7 @@ type S3DownloadOptions struct {
 // extension.
 func (c *Client) assertS3() error {
 	caps := c.ServerCapabilities()
-	if !caps.HasExtension(extensionS3) {
+	if !caps.HasExtension(teamspeak.ServerExtensionS3) {
 		return &S3UnsupportedError{Family: caps.Family, Version: caps.Version, Extensions: caps.Extensions}
 	}
 

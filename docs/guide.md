@@ -239,8 +239,9 @@ is filled in by the time `Connect` returns:
 caps := c.ServerCapabilities()
 fmt.Println(caps.Family, caps.Version, caps.WelcomeMessage)
 // caps.Extensions names the optional protocol features the server says it
-// supports, such as "FILETIME" and "STREAM_P2P": empty on TeamSpeak 3.
-if caps.HasExtension("STREAM_P2P") {
+// supports, such as "FILETIME" and "STREAM_P2P": empty on TeamSpeak 3. The
+// teamspeak.ServerExtension constants name the known ones.
+if caps.HasExtension(teamspeak.ServerExtensionStreamP2P) {
 	// ...
 }
 ```
@@ -390,7 +391,7 @@ err = teamspeak.UploadFileData(ctx, host, upload, bytes.NewReader(data), teamspe
 
 A TeamSpeak 6 server started with S3 file transfer keeps channel files in an
 S3-compatible storage and names `s3` among its extensions
-(`c.ServerCapabilities().Extensions`). The client asks the server for a
+(`c.ServerCapabilities().HasExtension(teamspeak.ServerExtensionS3)`). The client asks the server for a
 presigned URL over the voice connection and moves the bytes with a plain HTTPS
 request to the storage; nothing goes through the file transfer port, and the
 classic file commands above still reach a separate store. Measured on

@@ -289,7 +289,7 @@ func (w *watch) settleLocked(view *View, err error) {
 // streams: its extensions name STREAM_P2P. It is false before the client has
 // connected.
 func (s *Streams) Supported() bool {
-	return s.host.ServerCapabilities().HasExtension(extensionP2P)
+	return s.host.ServerCapabilities().HasExtension(teamspeak.ServerExtensionStreamP2P)
 }
 
 // List returns the streams known now, in the order they became known. What it
