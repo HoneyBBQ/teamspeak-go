@@ -66,7 +66,11 @@ languages differ:
   and `CompleteS3FileUpload`; JavaScript's `uploadS3File` also takes a `Blob`
   or a `Readable` of a declared size. `DownloadS3File` holds at most 64 MiB by
   default, as `DownloadFile` does; JavaScript holds 256 MiB, as its
-  `downloadFile` does.
+  `downloadFile` does. JavaScript's `deleteS3File` takes one path or a list;
+  Go's `DeleteS3File` takes one and `DeleteS3Files` a slice. The S3 avatar and
+  icon functions take `S3TransferOptions` where they reach the storage, as the
+  classic Go avatar functions take `FileTransferOptions`; `RemoveS3Avatar` and
+  `DeleteS3Icon` take none, since their delete goes through the server.
 - **Command diagnostics.** JavaScript also publishes the command names it sends
   and receives on two `diagnostics_channel` channels. Go has no such channel:
   `WithCommandMiddleware`, `WithLineMiddleware` and `WithTrace` are the seams
