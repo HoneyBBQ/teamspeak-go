@@ -335,6 +335,14 @@ func TestDeleteS3File(t *testing.T) {
 	}
 }
 
+func TestDeleteS3File_NoSuccessIsNoData(t *testing.T) {
+	c, _ := newS3Client(t, []string{"s3"}, noAnswer)
+	err := c.DeleteS3File(t.Context(), 4, "/a.txt", S3FileOptions{})
+	if !errors.Is(err, teamspeak.ErrNoData) {
+		t.Errorf("err = %v, want ErrNoData", err)
+	}
+}
+
 func TestListS3Files(t *testing.T) {
 	c, server := newS3Client(t, []string{"s3"}, func(teamspeak.CommandLine) ([]map[string]string, error) {
 		return []map[string]string{{"b64_json": listField(`{"contents":[{"key":"a","size":3}]}`)}}, nil

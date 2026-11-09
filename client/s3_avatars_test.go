@@ -70,6 +70,25 @@ func TestUploadS3Avatar_ARefusedSigningChangesNothing(t *testing.T) {
 	}
 }
 
+func TestUploadS3Avatar_ARefusedFlagIsReturnedWithTheFileStored(t *testing.T) {
+	s := newS3Storage(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	refusal := &teamspeak.ServerError{Code: errcode.PermissionsClientInsufficient}
+	c, server := newS3Client(t, []string{"s3"}, func(line teamspeak.CommandLine) ([]map[string]string, error) {
+		switch {
+		case strings.HasPrefix(line.Text, "s3ft_getpresignedurl"):
+			return []map[string]string{{"url": s.URL + "/bucket/k?sig=secret", "key": "/k"}}, nil
+		case strings.HasPrefix(line.Text, "clientupdate"):
+			return nil, refusal
+		default:
+			return []map[string]string{{"success": "1"}}, nil
+		}
+	})
+	_, err := c.UploadS3Avatar(t.Context(), []byte("pixels"), s.transfer())
+	if !errors.Is(err, refusal) || len(server.lines) != 3 || len(s.bodies) != 1 {
+		t.Errorf("err = %v, sent %q, storage stored %d", err, server.lines, len(s.bodies))
+	}
+}
+
 func TestDownloadS3Avatar(t *testing.T) {
 	status := http.StatusOK
 	s := newS3Storage(t, func(w http.ResponseWriter, _ *http.Request) {

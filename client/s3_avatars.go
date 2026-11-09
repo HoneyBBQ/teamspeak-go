@@ -36,14 +36,12 @@ func (c *Client) s3Download(ctx context.Context, path string, opts S3TransferOpt
 	return data, true, nil
 }
 
-// ownAvatarPath is the path of this client's avatar in channel 0.
-func (c *Client) ownAvatarPath() (string, error) {
-	name, err := teamspeak.AvatarFileName(c.UID())
-	if err != nil {
-		return "", err
-	}
+// ownAvatarPath is the path of this client's avatar in channel 0. Its own uid
+// is the base64 of a hash, which AvatarFileName always takes.
+func (c *Client) ownAvatarPath() string {
+	name, _ := teamspeak.AvatarFileName(c.UID())
 
-	return "/" + name, nil
+	return "/" + name
 }
 
 // UploadS3Avatar uploads data as this client's avatar over S3 and sets
@@ -61,11 +59,7 @@ func (c *Client) ownAvatarPath() (string, error) {
 func (c *Client) UploadS3Avatar(ctx context.Context, data []byte, opts S3TransferOptions) (string, error) {
 	sum := md5.Sum(data) //nolint:gosec // see the import
 	digest := hex.EncodeToString(sum[:])
-	path, err := c.ownAvatarPath()
-	if err != nil {
-		return "", err
-	}
-	err = c.UploadS3File(ctx, 0, path, data, UploadS3FileOptions{Transfer: opts})
+	err := c.UploadS3File(ctx, 0, c.ownAvatarPath(), data, UploadS3FileOptions{Transfer: opts})
 	if err != nil {
 		return "", err
 	}
@@ -98,11 +92,7 @@ func (c *Client) DownloadS3Avatar(
 // not there was an avatar, as the storage's delete does. It takes no transfer
 // options: a delete goes through the server, not to the storage.
 func (c *Client) RemoveS3Avatar(ctx context.Context) error {
-	path, err := c.ownAvatarPath()
-	if err != nil {
-		return err
-	}
-	err = c.DeleteS3File(ctx, 0, path, S3FileOptions{})
+	err := c.DeleteS3File(ctx, 0, c.ownAvatarPath(), S3FileOptions{})
 	if err != nil {
 		return err
 	}
