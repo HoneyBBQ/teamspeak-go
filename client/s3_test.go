@@ -792,3 +792,123 @@ func TestS3TransferError_Unwraps(t *testing.T) {
 		t.Errorf("%v should wrap ErrFileTransfer alone", bare)
 	}
 }
+
+func successAnswer(success string) s3Answer {
+	return func(teamspeak.CommandLine) ([]map[string]string, error) {
+		return []map[string]string{{"success": success}}, nil
+	}
+}
+
+func TestDeleteS3Files_NoPathsSendsNothing(t *testing.T) {
+	c, server := newS3Client(t, []string{"s3"}, successAnswer("1"))
+	err := c.DeleteS3Files(t.Context(), 4, nil, S3FileOptions{})
+	if err != nil || len(server.lines) != 0 {
+		t.Errorf("err = %v, sent %q, want nothing", err, server.lines)
+	}
+}
+
+func TestDeleteS3Files_OnePathIsTheSingleCommand(t *testing.T) {
+	c, server := newS3Client(t, []string{"s3"}, successAnswer("1"))
+	requireNoError(t, c.DeleteS3Files(t.Context(), 4, []string{"a.txt"}, S3FileOptions{}))
+	if want := `s3ft_deletefile chid=4 chpw= key=\/a.txt`; server.lines[0] != want {
+		t.Errorf("sent %q, want %q", server.lines[0], want)
+	}
+}
+
+func TestDeleteS3Files_SeveralPathsEachCarryTheirChannel(t *testing.T) {
+	success := "1"
+	c, server := newS3Client(t, []string{"s3"}, func(teamspeak.CommandLine) ([]map[string]string, error) {
+		return []map[string]string{{"success": success}}, nil
+	})
+	paths := []string{"a b.txt", "dir/c.txt"}
+	requireNoError(t, c.DeleteS3Files(t.Context(), 4, paths, S3FileOptions{}))
+	want := `s3ft_deletefiles chid=4 chpw=|chid=4 key=\/a\sb.txt|chid=4 key=\/dir\/c.txt`
+	if server.lines[0] != want {
+		t.Errorf("sent %q, want %q", server.lines[0], want)
+	}
+
+	success = "0"
+	err := c.DeleteS3Files(t.Context(), 4, paths, S3FileOptions{})
+	var failed *S3TransferError
+	if !errors.As(err, &failed) || err.Error() != "the server could not delete the 2 files from its storage" {
+		t.Errorf("err = %v, want an *S3TransferError", err)
+	}
+}
+
+func TestDeleteS3Files_ARefusedPathIsNotSent(t *testing.T) {
+	c, server := newS3Client(t, []string{"s3"}, successAnswer("1"))
+	err := c.DeleteS3Files(t.Context(), 4, []string{"a", "b//c"}, S3FileOptions{})
+	if !errors.Is(err, teamspeak.ErrInvalidCommand) || len(server.lines) != 0 {
+		t.Errorf("err = %v, sent %q", err, server.lines)
+	}
+}
+
+func TestRenameS3File(t *testing.T) {
+	success := "1"
+	c, server := newS3Client(t, []string{"s3"}, func(teamspeak.CommandLine) ([]map[string]string, error) {
+		return []map[string]string{{"success": success}}, nil
+	})
+	requireNoError(t, c.RenameS3File(t.Context(), 4, "old name.txt", "dir/new.txt", S3FileOptions{}))
+	want := `s3ft_renamefile chid=4 chpw= key_old=\/old\sname.txt key_new=\/dir\/new.txt`
+	if server.lines[0] != want {
+		t.Errorf("sent %q, want %q", server.lines[0], want)
+	}
+
+	success = "0"
+	err := c.RenameS3File(t.Context(), 4, "a", "b", S3FileOptions{})
+	var failed *S3TransferError
+	if !errors.As(err, &failed) || err.Error() != "the server did not rename /a to /b" {
+		t.Errorf("err = %v, want an *S3TransferError", err)
+	}
+
+	n := len(server.lines)
+	err = c.RenameS3File(t.Context(), 4, "a", "b/", S3FileOptions{})
+	if !errors.Is(err, teamspeak.ErrInvalidCommand) || len(server.lines) != n {
+		t.Errorf("err = %v, sent %q", err, server.lines[n:])
+	}
+}
+
+func TestRenameS3Files(t *testing.T) {
+	success := "1"
+	c, server := newS3Client(t, []string{"s3"}, func(teamspeak.CommandLine) ([]map[string]string, error) {
+		return []map[string]string{{"success": success}}, nil
+	})
+	renames := []S3FileRename{{OldPath: "a", NewPath: "b c"}, {OldPath: "d", NewPath: "e/f"}}
+	requireNoError(t, c.RenameS3Files(t.Context(), 4, renames, S3FileOptions{}))
+	want := `s3ft_renamefiles chid=4 chpw=|chid=4 key_old=\/a key_new=\/b\sc|chid=4 key_old=\/d key_new=\/e\/f`
+	if server.lines[0] != want {
+		t.Errorf("sent %q, want %q", server.lines[0], want)
+	}
+
+	success = "0"
+	err := c.RenameS3Files(t.Context(), 4, renames, S3FileOptions{})
+	var failed *S3TransferError
+	wantMsg := "the server reports that the last rename of the batch, /d to /e/f, was not done"
+	if !errors.As(err, &failed) || err.Error() != wantMsg {
+		t.Errorf("err = %v, want %q", err, wantMsg)
+	}
+
+	n := len(server.lines)
+	requireNoError(t, c.RenameS3Files(t.Context(), 4, nil, S3FileOptions{}))
+	err = c.RenameS3Files(t.Context(), 4, []S3FileRename{{OldPath: "a", NewPath: "../b"}}, S3FileOptions{})
+	if !errors.Is(err, teamspeak.ErrInvalidCommand) || len(server.lines) != n {
+		t.Errorf("err = %v, sent %q", err, server.lines[n:])
+	}
+}
+
+func TestS3_RenameAndBatchDeleteRefuseAServerWithoutTheExtension(t *testing.T) {
+	c, server := newS3Client(t, []string{"FILETIME"}, noAnswer)
+	errs := []error{
+		c.DeleteS3Files(t.Context(), 2, []string{"a", "b"}, S3FileOptions{}),
+		c.RenameS3File(t.Context(), 2, "a", "b", S3FileOptions{}),
+		c.RenameS3Files(t.Context(), 2, nil, S3FileOptions{}),
+	}
+	for i, err := range errs {
+		if _, ok := errors.AsType[*S3UnsupportedError](err); !ok {
+			t.Errorf("call %d: err = %v, want *S3UnsupportedError", i, err)
+		}
+	}
+	if len(server.lines) != 0 {
+		t.Errorf("sent %q, want nothing", server.lines)
+	}
+}

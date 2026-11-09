@@ -42,6 +42,9 @@ import (
 //   - The classic file commands (ftinitupload, ftgetfilelist, ...) still work
 //     on such a server, and reach a separate store: a file uploaded one way is
 //     not listed the other.
+//   - A rename is a copy the server makes in the storage, and its copy request
+//     leaves a header unsigned that a storage checking signatures refuses: see
+//     RenameS3File.
 //
 // Every control method takes the channel's password in its options, "" for a
 // channel with none, in cleartext, and sends it the way every file command
@@ -346,21 +349,53 @@ func (c *Client) ListS3Files(
 // Deleting a file that is not there succeeds, as the storage's delete does. A
 // client without delete power is refused with 2568 (insufficient client
 // permissions). It returns an *S3TransferError when the server reports that its
-// own request to the storage failed.
+// own request to the storage failed. DeleteS3Files deletes several at once.
 func (c *Client) DeleteS3File(
 	ctx context.Context, channelID teamspeak.ChannelID, path string, opts S3FileOptions,
+) error {
+	return c.DeleteS3Files(ctx, channelID, []string{path}, opts)
+}
+
+// DeleteS3Files deletes files from a channel's S3 file area: one path, or
+// several in one command (s3ft_deletefiles, each file on a row of its own). The
+// server deletes them from the storage and from the file list it keeps; no
+// paths sends nothing.
+//
+// Deleting a file that is not there succeeds, as the storage's delete does. A
+// client without delete power is refused with 2568 (insufficient client
+// permissions), and then nothing is deleted. It returns an *S3TransferError
+// when the server reports that its own request to the storage failed.
+func (c *Client) DeleteS3Files(
+	ctx context.Context, channelID teamspeak.ChannelID, paths []string, opts S3FileOptions,
 ) error {
 	err := c.assertS3()
 	if err != nil {
 		return err
 	}
-	key, err := s3Path(path)
+	keys, err := s3Paths(paths)
 	if err != nil {
 		return err
 	}
-	// One file per command: the server deletes the file on the first row and
-	// passes over any further row.
-	rows, err := c.Send(ctx, s3Request("s3ft_deletefile", channelID, opts.Password, [][2]string{{"key", key}}, nil))
+	if len(keys) == 0 {
+		return nil
+	}
+	// The single command deletes the file of its first row and passes over any
+	// further row; the batch reads the channel from each file's own row, the
+	// first row carrying the channel and its password only.
+	command := "s3ft_deletefile"
+	var req teamspeak.Request
+	if len(keys) == 1 {
+		req = s3Request(command, channelID, opts.Password, [][2]string{{"key", keys[0]}}, nil)
+	} else {
+		command = "s3ft_deletefiles"
+		chid := strconv.FormatUint(uint64(channelID), 10)
+		rest := make([][][2]string, 0, len(keys))
+		for _, key := range keys {
+			rest = append(rest, [][2]string{{"chid", chid}, {"key", key}})
+		}
+		req = s3Request(command, channelID, opts.Password, nil, rest)
+	}
+	rows, err := c.Send(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -369,7 +404,123 @@ func (c *Client) DeleteS3File(
 		return err
 	}
 	if !ok {
-		return &S3TransferError{msg: "the server could not delete " + key + " from its storage"}
+		if len(keys) == 1 {
+			return &S3TransferError{msg: "the server could not delete " + keys[0] + " from its storage"}
+		}
+
+		return &S3TransferError{msg: fmt.Sprintf("the server could not delete the %d files from its storage", len(keys))}
+	}
+
+	return nil
+}
+
+// s3Paths applies s3Path to each path.
+func s3Paths(paths []string) ([]string, error) {
+	keys := make([]string, 0, len(paths))
+	for _, path := range paths {
+		key, err := s3Path(path)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+
+	return keys, nil
+}
+
+// S3FileRename is one file of a RenameS3Files batch.
+type S3FileRename struct {
+	// OldPath is the file's path now, from the channel's root.
+	OldPath string
+	// NewPath is the path it moves to, in the same channel.
+	NewPath string
+}
+
+// RenameS3File renames or moves one file within a channel's S3 file area
+// (s3ft_renamefile). The server copies the file in the storage to the new path,
+// deletes the old one, and updates the file list it keeps. A file already at
+// the new path is replaced. There is no move to another channel.
+//
+// A client without rename power is refused with 2568 (insufficient client
+// permissions). It returns an *S3TransferError when the server reports that it
+// did not rename the file: there is none at the old path, the new path is the
+// old one, or the storage refused the server's copy.
+//
+// Measured on TeamSpeak 6 6.0.0-beta13.1: the server's copy carries an
+// x-amz-copy-source header it does not sign, which a storage that checks every
+// request's signature refuses (RustFS, versitygw, SeaweedFS and CloudServer
+// did, as S3's signing rules have it), so the rename fails there and the file
+// stays where it was.
+func (c *Client) RenameS3File(
+	ctx context.Context, channelID teamspeak.ChannelID, oldPath, newPath string, opts S3FileOptions,
+) error {
+	err := c.assertS3()
+	if err != nil {
+		return err
+	}
+	keys, err := s3Paths([]string{oldPath, newPath})
+	if err != nil {
+		return err
+	}
+	rows, err := c.Send(ctx, s3Request("s3ft_renamefile", channelID, opts.Password,
+		[][2]string{{"key_old", keys[0]}, {"key_new", keys[1]}}, nil))
+	if err != nil {
+		return err
+	}
+	ok, err := succeeded(rows)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return &S3TransferError{msg: "the server did not rename " + keys[0] + " to " + keys[1]}
+	}
+
+	return nil
+}
+
+// RenameS3Files renames several files within a channel's S3 file area in one
+// command (s3ft_renamefiles, each file on a row of its own). Each is renamed as
+// by RenameS3File; no renames sends nothing.
+//
+// The server tries every rename, and answers once: whether the batch's last
+// rename was done, and nothing about the others. So this returns an
+// *S3TransferError when the last one failed, whatever became of the rest, and
+// nil when it succeeded even if an earlier one failed. List the files, or
+// rename them one at a time, to know each outcome. After a batch whose last
+// rename failed, the list the server keeps shows the others a moment later
+// rather than at once.
+func (c *Client) RenameS3Files(
+	ctx context.Context, channelID teamspeak.ChannelID, renames []S3FileRename, opts S3FileOptions,
+) error {
+	err := c.assertS3()
+	if err != nil {
+		return err
+	}
+	chid := strconv.FormatUint(uint64(channelID), 10)
+	rest := make([][][2]string, 0, len(renames))
+	var last [2]string
+	for _, rename := range renames {
+		keys, pathErr := s3Paths([]string{rename.OldPath, rename.NewPath})
+		if pathErr != nil {
+			return pathErr
+		}
+		last = [2]string{keys[0], keys[1]}
+		rest = append(rest, [][2]string{{"chid", chid}, {"key_old", keys[0]}, {"key_new", keys[1]}})
+	}
+	if len(rest) == 0 {
+		return nil
+	}
+	rows, err := c.Send(ctx, s3Request("s3ft_renamefiles", channelID, opts.Password, nil, rest))
+	if err != nil {
+		return err
+	}
+	ok, err := succeeded(rows)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return &S3TransferError{msg: "the server reports that the last rename of the batch, " +
+			last[0] + " to " + last[1] + ", was not done"}
 	}
 
 	return nil

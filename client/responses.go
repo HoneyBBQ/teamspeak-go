@@ -162,6 +162,19 @@ var responses = map[string]*responseSpec{
 	"s3ft_deletefile": {Correlated: &correlation{
 		Key: "return_code", Notifications: []string{"notify_s3ft_delete"}, EndsCommand: true,
 	}},
+	// One answer for the whole batch, with no error after it.
+	"s3ft_deletefiles": {Correlated: &correlation{
+		Key: "return_code", Notifications: []string{"notify_s3ft_delete"}, EndsCommand: true,
+	}},
+	// The answer carries success, and no error follows it; a refusal (2568 for a
+	// client without rename power) is an error and no answer.
+	"s3ft_renamefile": {Correlated: &correlation{
+		Key: "return_code", Notifications: []string{"notify_s3ft_rename"}, EndsCommand: true,
+	}},
+	// One answer for the whole batch, whose success is the last rename's.
+	"s3ft_renamefiles": {Correlated: &correlation{
+		Key: "return_code", Notifications: []string{"notify_s3ft_rename"}, EndsCommand: true,
+	}},
 	// The file list, as one base64 JSON field, sent ahead of the error.
 	"s3ft_list_files": {Correlated: &correlation{
 		Key: "return_code", Notifications: []string{"notify_s3ft_file_list"},
