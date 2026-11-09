@@ -286,6 +286,21 @@ jobs:
         run: |
           echo "127.0.0.1 s3.localhost teamspeak.s3.localhost" | sudo tee -a /etc/hosts
           ./scripts/s3-lab.sh "$RUNNER_TEMP/s3-lab"
+      # A rename that succeeds needs a storage that checks no signature: the
+      # server's copy leaves a header unsigned, which RustFS refuses. A third
+      # TS6 server on S3Mock, on other ports, adds TEAMSPEAK_S3_UNCHECKED_*.
+      - name: Serve S3 file transfer on a storage that checks no signature
+        if: matrix.server.name == 'TS6'
+        env:
+          TS3_FIXTURE_ENV: ${{ runner.temp }}/ts3-fixture.env
+          TS6_IMAGE: ${{ matrix.server.image }}
+          S3_LAB_STORAGE: s3mock
+          S3_LAB_PREFIX: ts-s3u
+          S3_LAB_VOICE_PORT: "9990"
+          S3_LAB_QUERY_PORT: "10083"
+          S3_LAB_TRANSFER_PORT: "30036"
+          S3_LAB_STORAGE_PORT: "8444"
+        run: ./scripts/s3-lab.sh "$RUNNER_TEMP/s3-lab-unchecked"
       - name: Run integration tests
         env:
           # Where the fixture wrote its environment file.
