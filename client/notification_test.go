@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -194,14 +195,17 @@ func TestHandleClientLeftView_KickSelf_TriggersKickedAndEndsTheSession(t *testin
 		`notifyclientleftview clid=5 reasonid=5 reasonmsg=behave invokerid=1 invokername=Admin`))
 
 	if e := receive(t, kicked); e.ReasonMessage != "behave" || e.InvokerName != "Admin" ||
-		e.Reason != teamspeak.ReasonKickServer {
+		e.Reason != teamspeak.ReasonKickServer || e.BanDuration != nil {
 		t.Errorf("kicked event = %+v", e)
 	}
 	// Reported at once, with its cause, rather than a minute later as a
 	// timeout with none.
 	removed, ok := errors.AsType[*RemovedError](receive(t, disconnected))
-	if !ok || removed.Reason != teamspeak.ReasonKickServer {
-		t.Errorf("disconnected with %v, want a *RemovedError for the kick", removed)
+	if !ok || removed.Reason != teamspeak.ReasonKickServer || removed.BanDuration != nil {
+		t.Errorf("disconnected with %v, want a *RemovedError with nil BanDuration for the kick", removed)
+	}
+	if got, want := removed.Error(), "removed from the server: kicked from server by Admin: behave"; got != want {
+		t.Errorf("RemovedError.Error() = %q, want %q", got, want)
 	}
 	if c.Status() != StatusDisconnected {
 		t.Errorf("status = %v, want StatusDisconnected", c.Status())
@@ -444,6 +448,108 @@ func TestHandleClientPoke_EmptyMessage(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Error("OnPoked callback not called")
+	}
+}
+
+func TestHandleClientLeftView_BanSelf_CarriesBanDurationAndOrder(t *testing.T) {
+	for name, tc := range map[string]struct {
+		line    string
+		wantErr string
+		want    time.Duration
+	}{
+		"temporary": {
+			line:    `notifyclientleftview clid=5 reasonid=6 bantime=15 reasonmsg=behave invokerid=1 invokername=Admin`,
+			wantErr: "removed from the server: banned from server for 15s by Admin: behave",
+			want:    15 * time.Second,
+		},
+		"permanent": {
+			line:    `notifyclientleftview clid=5 reasonid=6 bantime=0 reasonmsg=forever invokerid=1 invokername=Admin`,
+			wantErr: "removed from the server: banned from server permanently by Admin: forever",
+			want:    0,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertBanSelfDelivery(t, tc.line, tc.want, tc.wantErr)
+		})
+	}
+}
+
+func assertBanSelfDelivery(t *testing.T, line string, want time.Duration, wantErr string) {
+	t.Helper()
+	c := connectedTestClient(t)
+	var order []string
+	left := make(chan ClientLeaveEvent, 1)
+	kicked := make(chan KickedEvent, 1)
+	disconnected := make(chan error, 1)
+	noted := make(chan NotificationEvent, 1)
+	c.OnClientLeave(func(e ClientLeaveEvent) {
+		order = append(order, "leave")
+		left <- e
+	})
+	c.OnKicked(func(e KickedEvent) {
+		order = append(order, "kicked")
+		kicked <- e
+	})
+	c.OnDisconnected(func(e DisconnectedEvent) {
+		order = append(order, "disconnected")
+		disconnected <- e.Err
+	})
+	c.OnNotification(func(e NotificationEvent) {
+		order = append(order, "notification")
+		noted <- e
+	})
+
+	c.handleCommand(c.handler, line)
+
+	leaveEvt := receive(t, left)
+	if leaveEvt.BanDuration == nil || *leaveEvt.BanDuration != want {
+		t.Errorf("ClientLeaveEvent.BanDuration = %v, want %v", leaveEvt.BanDuration, want)
+	}
+	kickedEvt := receive(t, kicked)
+	if kickedEvt.Reason != teamspeak.ReasonKickServerBan ||
+		kickedEvt.BanDuration == nil || *kickedEvt.BanDuration != want {
+		t.Errorf("KickedEvent = %+v, want ReasonKickServerBan with %v", kickedEvt, want)
+	}
+	removed, ok := errors.AsType[*RemovedError](receive(t, disconnected))
+	if !ok || removed.Reason != teamspeak.ReasonKickServerBan ||
+		removed.BanDuration == nil || *removed.BanDuration != want {
+		t.Fatalf("DisconnectedEvent.Err = %v, want *RemovedError with %v", removed, want)
+	}
+	if got := removed.Error(); got != wantErr {
+		t.Errorf("RemovedError.Error() = %q, want %q", got, wantErr)
+	}
+	if DefaultShouldRetry(removed, 1) {
+		t.Error("DefaultShouldRetry must not retry a ban")
+	}
+	_ = receive(t, noted)
+	settle(t, c)
+	if wantOrder := []string{"leave", "kicked", "disconnected", "notification"}; !slices.Equal(order, wantOrder) {
+		t.Errorf("delivery order = %v, want %v", order, wantOrder)
+	}
+}
+
+func TestHandleClientLeftView_KickedHandlersDoNotShareBanDuration(t *testing.T) {
+	c := connectedTestClient(t)
+	seenKicked := make(chan *time.Duration, 2)
+	c.OnKicked(func(e KickedEvent) {
+		*e.BanDuration = 99 * time.Second
+		seenKicked <- e.BanDuration
+	})
+	c.OnKicked(func(e KickedEvent) { seenKicked <- e.BanDuration })
+
+	seenDisconnected := make(chan error, 1)
+	c.OnDisconnected(func(e DisconnectedEvent) { seenDisconnected <- e.Err })
+
+	c.handleClientLeftView(c.handler, wire.ParseCommand(
+		`notifyclientleftview clid=5 reasonid=6 bantime=15 invokerid=1 invokername=Admin`))
+
+	receive(t, seenKicked)
+	if second := receive(t, seenKicked); second == nil || *second != 15*time.Second {
+		t.Errorf("second OnKicked handler saw %v, want 15s", second)
+	}
+	removed, ok := errors.AsType[*RemovedError](receive(t, seenDisconnected))
+	if !ok || removed.BanDuration == nil || *removed.BanDuration != 15*time.Second {
+		t.Errorf("RemovedError.BanDuration = %v, want 15s", removed)
 	}
 }
 

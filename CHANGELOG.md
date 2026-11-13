@@ -15,6 +15,15 @@ from v1.0.0 on, a breaking change needs a new major version and import path.
   without an error (found by ulaski). Whispers (`SendWhisper` and
   `SendGroupWhisper`) are not limited this way. Measured on TeamSpeak 3 3.13.8
   and TeamSpeak 6 6.0.0-beta13.1.
+- `BanDuration *time.Duration` on `ClientLeaveEvent`, `KickedEvent`, and
+  `client.RemovedError`, reporting how long a ban lasts (`bantime`, in seconds)
+  when the server ends a session or removes a client with `ReasonKickServerBan`:
+  a pointer to `0` for a permanent ban, a pointer to the duration for a
+  temporary ban, and `nil` when no `bantime` was sent (such as a kick or
+  disconnect). Reported by ulaski.
+- `docs/configuration.md` explains how `client.DefaultShouldRetry` handles
+  `*client.RemovedError` and `errcode.ConnectFailedBanned` (`3329`), with a
+  reconnection recipe for temporary bans and connection-flood blocks.
 
 ## v1.0.0-beta.25 (2026-11-09)
 

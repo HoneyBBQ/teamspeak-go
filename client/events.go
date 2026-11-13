@@ -364,6 +364,12 @@ func emit[E any](c *Client, subs *subscribers[E], name string, evt E) {
 	c.events.Push(func() { subs.Deliver(c.logger, name, evt, nil) })
 }
 
+// emitWithClone queues a lifecycle event with a clone function so each handler
+// but the last gets its own copy.
+func emitWithClone[E any](c *Client, subs *subscribers[E], name string, evt E, clone func(E) E) {
+	c.events.Push(func() { subs.Deliver(c.logger, name, evt, clone) })
+}
+
 // dispatchEvent hands a server event, as the middleware left it, to its
 // handlers.
 func (c *Client) dispatchEvent(evt Event) {

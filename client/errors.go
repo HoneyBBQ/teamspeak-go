@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"strings"
+	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/internal/crypto"
@@ -50,6 +51,9 @@ var errStopped = errors.New("client was disconnected")
 // ban, or the server stopping. The default reconnect policy retries a server
 // that stopped, but not a kick or a ban.
 type RemovedError struct {
+	// BanDuration is how long the ban lasts, a pointer to 0 for a permanent
+	// ban, and nil unless the removal was a ban that carried bantime.
+	BanDuration *time.Duration
 	// ReasonMessage is the reason the server or the invoker gave
 	// (reasonmsg), if any.
 	ReasonMessage string
@@ -63,6 +67,13 @@ type RemovedError struct {
 // Error says why and by whom the client was removed, with the reason given.
 func (e *RemovedError) Error() string {
 	msg := "removed from the server: " + e.Reason.String()
+	if e.BanDuration != nil {
+		if *e.BanDuration == 0 {
+			msg += " permanently"
+		} else {
+			msg += " for " + e.BanDuration.String()
+		}
+	}
 	if e.InvokerName != "" {
 		msg += " by " + e.InvokerName
 	}

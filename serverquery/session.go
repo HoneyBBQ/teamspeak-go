@@ -617,6 +617,12 @@ func emit[E any](c *Client, subs *eventbus.Subscribers[E], name string, evt E) {
 	c.events.Push(func() { subs.Deliver(c.logger, name, evt, nil) })
 }
 
+// emitWithClone queues a lifecycle event with a clone function so each handler
+// but the last gets its own copy.
+func emitWithClone[E any](c *Client, subs *eventbus.Subscribers[E], name string, evt E, clone func(E) E) {
+	c.events.Push(func() { subs.Deliver(c.logger, name, evt, clone) })
+}
+
 // handleNotification reads one notification and dispatches the event it
 // carries. It runs on the engine's read loop, so the state it changes is
 // updated inline and only the delivery is queued.
@@ -771,7 +777,7 @@ func (c *Client) handleClientLeave(cmd *wire.Command) {
 	// that with 516 — but a ban or a shutdown still arrives as a leave, and
 	// the client reports it either way.
 	if isSelf && (evt.Reason == teamspeak.ReasonKickServer || evt.Reason == teamspeak.ReasonKickServerBan) {
-		emit(c, &c.onKicked, "KickedEvent", servernotify.Kicked(evt.Reason, cmd.Params))
+		emitWithClone(c, &c.onKicked, "KickedEvent", servernotify.Kicked(evt.Reason, cmd.Params), servernotify.CloneKicked)
 	}
 }
 
@@ -799,7 +805,7 @@ func (c *Client) handleClientMoved(cmd *wire.Command) {
 	})
 	// A channel kick arrives as a move, not as a leave.
 	if evt.ClientID == c.selfID && evt.Reason == teamspeak.ReasonKickChannel {
-		emit(c, &c.onKicked, "KickedEvent", servernotify.Kicked(evt.Reason, cmd.Params))
+		emitWithClone(c, &c.onKicked, "KickedEvent", servernotify.Kicked(evt.Reason, cmd.Params), servernotify.CloneKicked)
 	}
 }
 

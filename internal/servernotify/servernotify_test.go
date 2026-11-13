@@ -2,6 +2,7 @@ package servernotify_test
 
 import (
 	"context"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -503,5 +504,78 @@ func TestClientMoved_OwnMoveNamesNoInvoker(t *testing.T) {
 	got := servernotify.ClientMoved(row("notifyclientmoved ctid=4 reasonid=0 clid=13"))
 	if got.InvokerID != 0 || got.InvokerName != "" || got.InvokerUID != "" || got.Reason != teamspeak.ReasonNone {
 		t.Errorf("own move = %+v", got)
+	}
+}
+
+func TestClientLeave_ReadsBanDuration(t *testing.T) {
+	noBan := servernotify.ClientLeave(row("notifyclientleftview clid=5 reasonid=5 reasonmsg=bye"))
+	if noBan.BanDuration != nil {
+		t.Errorf("kick BanDuration = %v, want nil", noBan.BanDuration)
+	}
+
+	temp := servernotify.ClientLeave(row("notifyclientleftview clid=5 reasonid=6 bantime=15 reasonmsg=behaved\\sbadly"))
+	if temp.BanDuration == nil || *temp.BanDuration != 15*time.Second {
+		t.Errorf("temp ban BanDuration = %v, want 15s", temp.BanDuration)
+	}
+
+	perm := servernotify.ClientLeave(row("notifyclientleftview clid=5 reasonid=6 bantime=0 reasonmsg=forever"))
+	if perm.BanDuration == nil || *perm.BanDuration != 0 {
+		t.Errorf("perm ban BanDuration = %v, want pointer to 0", perm.BanDuration)
+	}
+
+	for _, raw := range []string{"", "-5", "abc"} {
+		bad := servernotify.ClientLeave(map[string]string{"clid": "5", "reasonid": "6", "bantime": raw})
+		if bad.BanDuration != nil {
+			t.Errorf("bantime=%q read %v, want nil", raw, bad.BanDuration)
+		}
+	}
+
+	huge := servernotify.ClientLeave(map[string]string{"clid": "5", "reasonid": "6", "bantime": "18446744073709551615"})
+	if huge.BanDuration == nil || *huge.BanDuration != time.Duration(math.MaxInt64) {
+		t.Errorf("huge bantime = %v, want math.MaxInt64", huge.BanDuration)
+	}
+}
+
+func TestKicked_ReadsBanDuration(t *testing.T) {
+	kick := servernotify.Kicked(teamspeak.ReasonKickServer, map[string]string{"invokerid": "1", "bantime": "15"})
+	if kick.BanDuration != nil {
+		t.Errorf("server kick BanDuration = %v, want nil", kick.BanDuration)
+	}
+
+	temp := servernotify.Kicked(teamspeak.ReasonKickServerBan, map[string]string{"invokerid": "1", "bantime": "15"})
+	if temp.BanDuration == nil || *temp.BanDuration != 15*time.Second {
+		t.Errorf("temp ban Kicked.BanDuration = %v, want 15s", temp.BanDuration)
+	}
+
+	perm := servernotify.Kicked(teamspeak.ReasonKickServerBan, map[string]string{"invokerid": "1", "bantime": "0"})
+	if perm.BanDuration == nil || *perm.BanDuration != 0 {
+		t.Errorf("perm ban Kicked.BanDuration = %v, want pointer to 0", perm.BanDuration)
+	}
+
+	absent := servernotify.Kicked(teamspeak.ReasonKickServerBan, map[string]string{"invokerid": "1"})
+	if absent.BanDuration != nil {
+		t.Errorf("absent bantime Kicked.BanDuration = %v, want nil", absent.BanDuration)
+	}
+}
+
+func TestCloneClientLeaveAndKicked_DoNotShareBanDuration(t *testing.T) {
+	leave := servernotify.ClientLeave(row("notifyclientleftview cfid=1 ctid=0 clid=5 reasonid=6 bantime=15"))
+	clonedLeave := servernotify.CloneClientLeave(leave)
+	if !reflect.DeepEqual(clonedLeave, leave) {
+		t.Fatalf("CloneClientLeave = %+v, want %+v", clonedLeave, leave)
+	}
+	*clonedLeave.BanDuration = 99 * time.Second
+	if *leave.BanDuration != 15*time.Second {
+		t.Errorf("CloneClientLeave shared BanDuration pointer: original mutated to %v", *leave.BanDuration)
+	}
+
+	kicked := servernotify.Kicked(teamspeak.ReasonKickServerBan, map[string]string{"invokerid": "1", "bantime": "15"})
+	clonedKicked := servernotify.CloneKicked(kicked)
+	if !reflect.DeepEqual(clonedKicked, kicked) {
+		t.Fatalf("CloneKicked = %+v, want %+v", clonedKicked, kicked)
+	}
+	*clonedKicked.BanDuration = 99 * time.Second
+	if *kicked.BanDuration != 15*time.Second {
+		t.Errorf("CloneKicked shared BanDuration pointer: original mutated to %v", *kicked.BanDuration)
 	}
 }

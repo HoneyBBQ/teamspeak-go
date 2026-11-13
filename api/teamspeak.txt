@@ -564,6 +564,7 @@ type ClientLeaveEvent struct
 field ClientLeaveEvent.Previous *ClientEntry
 field ClientLeaveEvent.FromChannelID *ChannelID
 field ClientLeaveEvent.TargetChannelID *ChannelID
+field ClientLeaveEvent.BanDuration *time.Duration
 field ClientLeaveEvent.ReasonMessage string
 field ClientLeaveEvent.InvokerName string
 field ClientLeaveEvent.InvokerUID UID
@@ -946,6 +947,7 @@ type KickClientsOptions struct
 field KickClientsOptions.ReasonMessage string
 field KickClientsOptions.ContinueOnError bool
 type KickedEvent struct
+field KickedEvent.BanDuration *time.Duration
 field KickedEvent.ReasonMessage string
 field KickedEvent.InvokerName string
 field KickedEvent.InvokerUID UID

@@ -1,5 +1,7 @@
 package teamspeak
 
+import "time"
+
 // Event is a server event: a TextMessageEvent, ClientEnterEvent,
 // ClientLeaveEvent, ClientMovedEvent, PokeEvent,
 // NotificationEvent, ClientUpdatedEvent, ClientServerGroupAddedEvent,
@@ -201,6 +203,12 @@ type ClientLeaveEvent struct {
 	// moving out of the channels this client is subscribed to, and nil when the
 	// server sends none.
 	TargetChannelID *ChannelID
+	// BanDuration is how long the ban lasts (bantime, which the server sends in
+	// seconds), a pointer to 0 for a permanent ban, and nil when the
+	// notification carries no bantime (every leave other than a ban,
+	// ReasonKickServerBan). Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6
+	// 6.0.0-beta13.1.
+	BanDuration *time.Duration
 	// ReasonMessage is the reason given for a kick or a ban, or the client's
 	// own parting message.
 	ReasonMessage string
@@ -219,8 +227,13 @@ type ClientLeaveEvent struct {
 	InvokerID ClientID
 }
 
-// KickedEvent is the connected client being kicked from its channel or the server.
+// KickedEvent is the connected client being kicked or banned from its channel
+// or the server.
 type KickedEvent struct {
+	// BanDuration is how long the ban lasts, a pointer to 0 for a permanent
+	// ban, set for ReasonKickServerBan when the server sent bantime, and nil
+	// for a channel or server kick.
+	BanDuration *time.Duration
 	// ReasonMessage is the reason the invoker gave (reasonmsg), if any.
 	ReasonMessage string
 	// InvokerName is who kicked the client (invokername).
