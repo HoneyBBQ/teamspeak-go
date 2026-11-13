@@ -116,6 +116,67 @@ server, or an address that cannot be one. The `OnConnected` and
 `OnDisconnected` events say when the loop made a connection (`Reconnected`) and
 whether it will try again (`WillReconnect`).
 
+`client.DefaultShouldRetry` stops on `*client.RemovedError` for a kick or a ban
+and on `errcode.ConnectFailedBanned` (`3329`). On `3329`, the server states
+which kind of refusal it is in `ExtraMessage` (`extra_msg`):
+
+- temporary ban: `You are banned temporarily. Reason: "<reason>"\nTry again in HH:MM:SS`
+- permanent ban: `You are banned permanently. Reason: "<reason>"`
+- connection-flood IP block: `flood prevention, please try again later`
+
+Rapid retries keep a flood block in place, while a temporary ban's duration is
+already on `RemovedError.BanDuration` (`0` for a permanent ban). A bot that
+rejoins after a temporary ban and backs off for minutes on flood prevention can
+combine `ShouldRetry` with a scheduled rejoin in `OnDisconnected`:
+
+```go
+isFloodBlock := func(err error) bool {
+	se, ok := errors.AsType[*teamspeak.ServerError](err)
+
+	return ok && se.Code == errcode.ConnectFailedBanned &&
+		strings.HasPrefix(se.ExtraMessage, "flood prevention")
+}
+
+c, err := client.New(id, "ts.example.com", "Bot",
+	client.WithReconnect(client.ReconnectOptions{
+		// A flood block only clears once attempts stay minutes apart.
+		Backoff: teamspeak.BackoffPolicy{InitialDelay: 5 * time.Second, MaxDelay: 5 * time.Minute, Factor: 2},
+		ShouldRetry: func(err error, attempt int) bool {
+			return isFloodBlock(err) || client.DefaultShouldRetry(err, attempt)
+		},
+	}),
+)
+
+c.OnDisconnected(func(e client.DisconnectedEvent) {
+	if e.WillReconnect || e.Err == nil {
+		return
+	}
+
+	var delay time.Duration
+	if removed, ok := errors.AsType[*client.RemovedError](e.Err); ok {
+		if removed.BanDuration == nil || *removed.BanDuration == 0 {
+			return // kick or permanent ban: stay disconnected
+		}
+		delay = *removed.BanDuration + time.Second
+	} else if isFloodBlock(e.Err) {
+		// A manual Connect that hit a flood block: wait minutes before trying again.
+		delay = 5 * time.Minute
+	} else {
+		return
+	}
+
+	go func() {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			_ = c.Connect(ctx)
+		case <-ctx.Done():
+		}
+	}()
+})
+```
+
 ## Client version
 
 `clientinit` sends a recent Windows version unless `WithVersion` says

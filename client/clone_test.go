@@ -7,6 +7,7 @@ import (
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/internal/servernotify"
 )
 
 // fill sets v, and everything in it, to a value that is not the zero value:
@@ -31,10 +32,14 @@ func fill(t *testing.T, v reflect.Value, n int) {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		v.SetUint(uint64(n) + 1)
 	case reflect.Struct:
-		if v.Type() != reflect.TypeFor[time.Time]() {
-			t.Fatalf("fill: no value for a %s", v.Type())
+		if v.Type() == reflect.TypeFor[time.Time]() {
+			v.Set(reflect.ValueOf(time.Unix(int64(n)+1, 0)))
+
+			return
 		}
-		v.Set(reflect.ValueOf(time.Unix(int64(n)+1, 0)))
+		for i := range v.NumField() {
+			fill(t, v.Field(i), n+i)
+		}
 	default:
 		t.Fatalf("fill: no value for a %s", v.Type())
 	}
@@ -83,13 +88,28 @@ func sharedField(a, b any) string {
 	return ""
 }
 
-// The changes clone holds every value and shares no pointer or list: a field
-// added to the changes and left out of the clone fails here.
+// The changes and event clones hold every value and share no pointer or list:
+// a field added and left out of the clone fails here.
 func TestEventClonesShareNothing(t *testing.T) {
 	changes := filled[teamspeak.ClientChanges](t)
 	if got := cloneChanges(changes); !reflect.DeepEqual(got, changes) {
 		t.Errorf("cloneChanges = %+v, want %+v", got, changes)
 	} else if shared := sharedField(changes, got); shared != "" {
 		t.Errorf("cloneChanges shares %s", shared)
+	}
+
+	leave := filled[teamspeak.ClientLeaveEvent](t)
+	leave.Previous = nil // CloneClientLeave leaves Previous for the voice client to clone.
+	if got := servernotify.CloneClientLeave(leave); !reflect.DeepEqual(got, leave) {
+		t.Errorf("CloneClientLeave = %+v, want %+v", got, leave)
+	} else if shared := sharedField(leave, got); shared != "" {
+		t.Errorf("CloneClientLeave shares %s", shared)
+	}
+
+	kicked := filled[teamspeak.KickedEvent](t)
+	if got := servernotify.CloneKicked(kicked); !reflect.DeepEqual(got, kicked) {
+		t.Errorf("CloneKicked = %+v, want %+v", got, kicked)
+	} else if shared := sharedField(kicked, got); shared != "" {
+		t.Errorf("CloneKicked shares %s", shared)
 	}
 }

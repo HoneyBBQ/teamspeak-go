@@ -399,6 +399,7 @@ type ReconnectStoppedInfo struct
 field ReconnectStoppedInfo.Cause error
 field ReconnectStoppedInfo.Attempts int
 type RemovedError struct
+field RemovedError.BanDuration *time.Duration
 field RemovedError.ReasonMessage string
 field RemovedError.InvokerName string
 field RemovedError.Reason teamspeak.Reason

@@ -1148,6 +1148,91 @@ func TestNew_RefusesABackoffThatCannotWork(t *testing.T) {
 	}
 }
 
+func TestNotification_ClientLeaveBanDuration(t *testing.T) {
+	d := newFakeDialer(true)
+	c := newClient(t, d)
+
+	done := make(chan error, 1)
+	go func() { done <- c.Connect(context.Background()) }()
+	transport := d.answer(t)
+	err := <-done
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	left := make(chan teamspeak.ClientLeaveEvent, 3)
+	c.OnClientLeave(func(e teamspeak.ClientLeaveEvent) { left <- e })
+
+	transport.lines <- `notifyclientleftview cfid=1 clid=13 ctid=0 reasonid=6 bantime=15 invokerid=1 invokername=Admin`
+	transport.lines <- `notifyclientleftview cfid=1 clid=13 ctid=0 reasonid=6 bantime=0 invokerid=1 invokername=Admin`
+	transport.lines <- `notifyclientleftview cfid=1 clid=13 ctid=0 reasonid=5 invokerid=1 invokername=Admin`
+
+	wantLeaves := []*time.Duration{
+		new(15 * time.Second),
+		new(time.Duration(0)),
+		nil,
+	}
+	for i, want := range wantLeaves {
+		select {
+		case e := <-left:
+			if (e.BanDuration == nil) != (want == nil) || (want != nil && *e.BanDuration != *want) {
+				t.Errorf("leave[%d] BanDuration = %v, want %v", i, e.BanDuration, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("leave[%d] was never delivered", i)
+		}
+	}
+}
+
+func TestNotification_KickedBanDuration(t *testing.T) {
+	d := newFakeDialer(true)
+	c := newClient(t, d)
+
+	done := make(chan error, 1)
+	go func() { done <- c.Connect(context.Background()) }()
+	transport := d.answer(t)
+	err := <-done
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	kickedFirst := make(chan teamspeak.KickedEvent, 3)
+	kickedSecond := make(chan teamspeak.KickedEvent, 3)
+	c.OnKicked(func(e teamspeak.KickedEvent) {
+		if e.BanDuration != nil {
+			*e.BanDuration = 99 * time.Second
+		}
+		kickedFirst <- e
+	})
+	c.OnKicked(func(e teamspeak.KickedEvent) { kickedSecond <- e })
+
+	// clid 7 is this client, from whoami.
+	transport.lines <- `notifyclientleftview cfid=1 clid=7 ctid=0 reasonid=6 bantime=15 invokerid=1 invokername=Admin`
+	transport.lines <- `notifyclientleftview cfid=1 clid=7 ctid=0 reasonid=6 bantime=0 invokerid=1 invokername=Admin`
+	transport.lines <- `notifyclientleftview cfid=1 clid=7 ctid=0 reasonid=5 invokerid=1 invokername=Admin`
+
+	wantKicked := []*time.Duration{
+		new(15 * time.Second),
+		new(time.Duration(0)),
+		nil,
+	}
+	for i, want := range wantKicked {
+		select {
+		case <-kickedFirst:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("kickedFirst[%d] was never delivered", i)
+		}
+		select {
+		case e := <-kickedSecond:
+			if (e.BanDuration == nil) != (want == nil) || (want != nil && *e.BanDuration != *want) {
+				t.Errorf("kickedSecond[%d] BanDuration = %v, want %v", i, e.BanDuration, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("kickedSecond[%d] was never delivered", i)
+		}
+	}
+}
+
 // Measured on TeamSpeak 3 3.13.8 and TeamSpeak 6 6.0.0: a client's own move
 // names no invoker, and TeamSpeak 3 sends no cfid on any move. The event leaves
 // the invoker empty and reads where the client came from in the client list,

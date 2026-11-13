@@ -183,7 +183,30 @@ func ClientLeave(params map[string]string) teamspeak.ClientLeaveEvent {
 
 		FromChannelID:   optChannelID(params, "cfid"),
 		TargetChannelID: optChannelID(params, "ctid"),
+		BanDuration:     optSeconds(params, "bantime"),
 	}
+}
+
+// optSeconds reads a count of seconds a notification may leave out: nil when
+// the key is absent or cannot be parsed as an unsigned integer, a pointer to 0
+// when the server sent 0, and clamped to math.MaxInt64 nanoseconds when larger.
+func optSeconds(params map[string]string, key string) *time.Duration {
+	raw, ok := params[key]
+	if !ok {
+		return nil
+	}
+	count, err := ParseUint64(raw)
+	if err != nil {
+		return nil
+	}
+	var d time.Duration
+	if count > uint64(math.MaxInt64/int64(time.Second)) {
+		d = time.Duration(math.MaxInt64)
+	} else {
+		d = time.Duration(count) * time.Second
+	}
+
+	return &d
 }
 
 // optChannelID reads a channel id a notification may leave out: nil when the
@@ -223,7 +246,13 @@ func ClientMoved(params map[string]string) teamspeak.ClientMovedEvent {
 // channel kick arrives as a move (notifyclientmoved with reasonid=4) and a
 // server kick as a leave (notifyclientleftview).
 func Kicked(reason teamspeak.Reason, params map[string]string) teamspeak.KickedEvent {
+	var banDuration *time.Duration
+	if reason == teamspeak.ReasonKickServerBan {
+		banDuration = optSeconds(params, "bantime")
+	}
+
 	return teamspeak.KickedEvent{
+		BanDuration:   banDuration,
 		ReasonMessage: params["reasonmsg"],
 		InvokerName:   params["invokername"],
 		InvokerUID:    teamspeak.UID(params["invokeruid"]),
@@ -716,6 +745,15 @@ func CloneClientMoved(e teamspeak.ClientMovedEvent) teamspeak.ClientMovedEvent {
 func CloneClientLeave(e teamspeak.ClientLeaveEvent) teamspeak.ClientLeaveEvent {
 	e.FromChannelID = clonePtr(e.FromChannelID)
 	e.TargetChannelID = clonePtr(e.TargetChannelID)
+	e.BanDuration = clonePtr(e.BanDuration)
+
+	return e
+}
+
+// CloneKicked returns a copy of e that shares no memory with it, so a handler
+// editing what it was given cannot change what the next one sees.
+func CloneKicked(e teamspeak.KickedEvent) teamspeak.KickedEvent {
+	e.BanDuration = clonePtr(e.BanDuration)
 
 	return e
 }

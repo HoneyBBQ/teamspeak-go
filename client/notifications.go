@@ -217,9 +217,14 @@ func (c *Client) handleClientLeftView(h *transport.PacketHandler, cmd *wire.Comm
 		return
 	}
 	if evt.Reason == teamspeak.ReasonKickServer || evt.Reason == teamspeak.ReasonKickServerBan {
-		emit(c, &c.onKicked, "KickedEvent", servernotify.Kicked(evt.Reason, cmd.Params))
+		emitWithClone(c, &c.onKicked, "KickedEvent", servernotify.Kicked(evt.Reason, cmd.Params), servernotify.CloneKicked)
 	}
-	c.removedByServer(h, &RemovedError{ReasonMessage: evt.ReasonMessage, InvokerName: evt.InvokerName, Reason: evt.Reason})
+	c.removedByServer(h, &RemovedError{
+		BanDuration:   clonePtr(evt.BanDuration),
+		ReasonMessage: evt.ReasonMessage,
+		InvokerName:   evt.InvokerName,
+		Reason:        evt.Reason,
+	})
 }
 
 // removedByServer ends the session h ran, which the server has ended. The
@@ -262,7 +267,7 @@ func (c *Client) handleClientMoved(h *transport.PacketHandler, cmd *wire.Command
 	// A channel kick moves the client to the default channel; it arrives as
 	// a move, not as leaving view, which is where it used to be looked for.
 	if isSelf && evt.Reason == teamspeak.ReasonKickChannel {
-		emit(c, &c.onKicked, "KickedEvent", servernotify.Kicked(evt.Reason, cmd.Params))
+		emitWithClone(c, &c.onKicked, "KickedEvent", servernotify.Kicked(evt.Reason, cmd.Params), servernotify.CloneKicked)
 	}
 }
 

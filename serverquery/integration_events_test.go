@@ -11,10 +11,12 @@ package serverquery_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
+	"github.com/honeybbq/teamspeak-go/errcode"
 	"github.com/honeybbq/teamspeak-go/prop"
 	"github.com/honeybbq/teamspeak-go/serverquery"
 )
@@ -204,4 +206,98 @@ func TestQueryEvents_ChannelAndServerChanges(t *testing.T) {
 			t.Errorf("the server edited event named %q, want %q", got, serverName+" (ev)")
 		}
 	})
+}
+
+// A ServerQuery observer receives BanDuration on ClientLeaveEvent for temporary
+// and permanent bans, and nil for a kick.
+func TestQueryEvents_BanDuration(t *testing.T) {
+	eventTransports(t, func(t *testing.T, c *serverquery.Client, _ teamspeak.ServerFamily, _ string) {
+		t.Run("kick has nil duration", func(t *testing.T) {
+			voice := voiceClient(t, "ts-go-sqkick-"+uniqueStamp()[:6])
+			left := awaitMatching(t, c.OnClientLeave, "client leave", func(e teamspeak.ClientLeaveEvent) bool {
+				return e.ClientID == voice.ClientID()
+			})
+			ctx := adminCtx(t)
+			err := c.KickClient(ctx, voice.ClientID(), teamspeak.ReasonKickServer,
+				teamspeak.ClientKickOptions{ReasonMessage: "sq-kick"})
+			skipUnlessAllowed(t, err, "KickClient")
+			if err != nil {
+				t.Fatalf("KickClient: %v", err)
+			}
+			got := left()
+			if got.Reason != teamspeak.ReasonKickServer || got.BanDuration != nil {
+				t.Errorf("ClientLeaveEvent = %+v, want ReasonKickServer with nil BanDuration", got)
+			}
+		})
+
+		for name, wantDur := range map[string]time.Duration{
+			"temporary ban": 5 * time.Second,
+			"permanent ban": 0,
+		} {
+			t.Run(name, func(t *testing.T) {
+				assertQueryBanDuration(t, c, wantDur)
+			})
+		}
+	})
+}
+
+func assertQueryBanDuration(
+	t *testing.T,
+	c *serverquery.Client,
+	wantDur time.Duration,
+) {
+	voice := voiceClient(t, "ts-go-sqban-"+uniqueStamp()[:6])
+	var createdIDs []teamspeak.BanID
+	var before []teamspeak.BanEntry
+	cleanup(t, "the bans of the banned client", func(ctx context.Context) error {
+		return deleteQueryBans(ctx, c, createdIDs, before)
+	})
+
+	ctx := adminCtx(t)
+	before = listBansIfAny(ctx, t, c)
+	left := awaitMatching(t, c.OnClientLeave, "client leave", func(e teamspeak.ClientLeaveEvent) bool {
+		return e.ClientID == voice.ClientID()
+	})
+	ids, err := c.BanClient(ctx, voice.ClientID(), teamspeak.BanClientOptions{
+		Duration: wantDur,
+		Reason:   "sq-ban-duration",
+	})
+	skipUnlessAllowed(t, err, "BanClient")
+	if err != nil {
+		t.Fatalf("BanClient: %v", err)
+	}
+	createdIDs = ids
+
+	got := left()
+	err = deleteQueryBans(ctx, c, createdIDs, before)
+	if err != nil {
+		t.Fatalf("deleting bans: %v", err)
+	}
+	if got.Reason != teamspeak.ReasonKickServerBan {
+		t.Errorf("ClientLeaveEvent.Reason = %v, want ReasonKickServerBan", got.Reason)
+	}
+	if got.BanDuration == nil || *got.BanDuration != wantDur {
+		t.Errorf("ClientLeaveEvent.BanDuration = %v, want %v", got.BanDuration, wantDur)
+	}
+}
+
+func deleteQueryBans(
+	ctx context.Context,
+	c *serverquery.Client,
+	ids []teamspeak.BanID,
+	before []teamspeak.BanEntry,
+) error {
+	var firstErr error
+	for _, id := range ids {
+		err := c.DeleteBan(ctx, id)
+		if err != nil && !errors.Is(err, errcode.BanInvalidID) && firstErr == nil {
+			firstErr = err
+		}
+	}
+	_, err := removeBansSince(ctx, c, before)
+	if err != nil && firstErr == nil {
+		firstErr = err
+	}
+
+	return firstErr
 }
