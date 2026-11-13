@@ -2,8 +2,12 @@ package client
 
 import (
 	"encoding/binary"
+	"errors"
+	"strings"
 	"testing"
+	"time"
 
+	teamspeak "github.com/honeybbq/teamspeak-go"
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
@@ -74,5 +78,78 @@ func TestHandleVoicePacket_IgnoresTruncatedPackets(t *testing.T) {
 	var vp VoicePacket
 	if r.TryRead(&vp) {
 		t.Errorf("a truncated packet reached the receiver: %+v", vp)
+	}
+}
+
+func newVoiceTestClientWithPipe(t *testing.T) (*Client, *pipePair) {
+	t.Helper()
+	c, server := newTestClientWithPipe(t)
+	completeCryptoInit(t, c.handler)
+	c.mu.Lock()
+	c.status = StatusConnected
+	c.mu.Unlock()
+	_ = readFromPipe(t, server) // Init1 from Start
+
+	return c, server
+}
+
+func TestSendVoice_MaxFrameSizeAndEmptyFrame(t *testing.T) {
+	if MaxVoiceFrameSize != 484 {
+		t.Fatalf("MaxVoiceFrameSize = %d, want 484", MaxVoiceFrameSize)
+	}
+	c, server := newVoiceTestClientWithPipe(t)
+
+	err := c.SendVoice(make([]byte, MaxVoiceFrameSize), teamspeak.CodecOpusVoice, VoiceOptions{})
+	if err != nil {
+		t.Fatalf("SendVoice(484): %v", err)
+	}
+	if pkt := readFromPipe(t, server); len(pkt) != transport.MaxOutPacketSize {
+		t.Errorf("484-byte frame datagram len = %d, want %d", len(pkt), transport.MaxOutPacketSize)
+	}
+
+	for _, empty := range [][]byte{nil, {}} {
+		err = c.SendVoice(empty, teamspeak.CodecOpusVoice, VoiceOptions{})
+		if err != nil {
+			t.Fatalf("SendVoice(empty): %v", err)
+		}
+		if pkt := readFromPipe(t, server); len(pkt) != 16 {
+			t.Errorf("empty frame datagram len = %d, want 16", len(pkt))
+		}
+	}
+}
+
+func TestSendVoice_RejectsOversizedFrameWithoutSendingOrAdvancingID(t *testing.T) {
+	c, server := newVoiceTestClientWithPipe(t)
+
+	err := c.SendVoice(make([]byte, 10), teamspeak.CodecOpusVoice, VoiceOptions{})
+	if err != nil {
+		t.Fatalf("first SendVoice: %v", err)
+	}
+	first := readFromPipe(t, server)
+	firstID := binary.BigEndian.Uint16(first[13:15])
+
+	for _, size := range []int{MaxVoiceFrameSize + 1, 633} {
+		err = c.SendVoice(make([]byte, size), teamspeak.CodecOpusVoice, VoiceOptions{})
+		if !errors.Is(err, ErrVoiceFrameTooLarge) {
+			t.Errorf("SendVoice(%d) err = %v, want ErrVoiceFrameTooLarge", size, err)
+		}
+		if err == nil || !strings.Contains(err.Error(), "at most 484") {
+			t.Errorf("SendVoice(%d) err = %v, want message mentioning 'at most 484'", size, err)
+		}
+	}
+
+	select {
+	case unexpected := <-server.recv:
+		t.Fatalf("oversized SendVoice sent a %d-byte datagram", len(unexpected))
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	err = c.SendVoice(make([]byte, 10), teamspeak.CodecOpusVoice, VoiceOptions{})
+	if err != nil {
+		t.Fatalf("second SendVoice: %v", err)
+	}
+	second := readFromPipe(t, server)
+	if secondID := binary.BigEndian.Uint16(second[13:15]); secondID != firstID+1 {
+		t.Errorf("voice ID after refused frames = %d, want %d", secondID, firstID+1)
 	}
 }

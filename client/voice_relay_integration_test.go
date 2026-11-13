@@ -7,7 +7,10 @@
 package client_test
 
 import (
+	"errors"
 	"fmt"
+	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -152,6 +155,13 @@ func relayMove(t *testing.T, p *x5Peer, cid teamspeak.ChannelID) {
 func relayPair(t *testing.T, name string) (*x5Peer, *x5Peer) {
 	t.Helper()
 	s, l := x5Connect(t, name+"-s"), x5Connect(t, name+"-l")
+	relayWaitKnown(t, s, l)
+
+	return s, l
+}
+
+func relayWaitKnown(t *testing.T, s, l *x5Peer) {
+	t.Helper()
 	if s.c.ChannelID() != l.c.ChannelID() {
 		t.Skipf("the speaker is in channel %d and the listener in %d: they need the same channel", s.c.ChannelID(), l.c.ChannelID())
 	}
@@ -165,8 +175,6 @@ func relayPair(t *testing.T, name string) (*x5Peer, *x5Peer) {
 			l.c.ClientID(), l.c.ChannelID(), l.c.Status(), s.c.ClientID(), s.c.ChannelID(), s.c.Status(), liveEventWait)
 	}
 	time.Sleep(500 * time.Millisecond)
-
-	return s, l
 }
 
 func TestIntegration_VoiceRelay_DefaultRelaysVoiceAndWhispers(t *testing.T) {
@@ -345,5 +353,134 @@ func TestIntegration_VoiceRelay_UnsubscribingTheCurrentChannelDoesNothing(t *tes
 	}
 	if got := relayHeard(t, s, l, false); got == 0 {
 		t.Errorf("after unsubscribing the current channel no voice was relayed, want some")
+	}
+}
+
+type framePadConn struct {
+	net.PacketConn
+
+	armed  atomic.Bool
+	padded atomic.Int64
+}
+
+func (c *framePadConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	if c.armed.Load() && len(p) == 500 && p[12]&0x0f == 0 {
+		padded := make([]byte, len(p)+1)
+		copy(padded, p)
+		_, err := c.PacketConn.WriteTo(padded, addr)
+		if err != nil {
+			return 0, err
+		}
+		c.padded.Add(1)
+
+		return len(p), nil
+	}
+
+	return c.PacketConn.WriteTo(p, addr)
+}
+
+func relaySendFrames(t *testing.T, frame []byte, send func([]byte) error) {
+	t.Helper()
+	next := time.Now()
+	for range relayFrames {
+		requireNoErr(t, send(frame))
+		next = next.Add(x5Interval)
+		time.Sleep(time.Until(next))
+	}
+}
+
+func relayHeardLen(t *testing.T, l *x5Peer, speaker teamspeak.ClientID, whisper bool, wantLen int, send func() error) int {
+	t.Helper()
+	for attempt := 1; attempt <= 3; attempt++ {
+		l.reset()
+		requireNoErr(t, send())
+		time.Sleep(500 * time.Millisecond)
+		got := 0
+		for _, p := range vrFrom(l.packets(), speaker, whisper) {
+			if p.Len == wantLen {
+				got++
+			}
+		}
+		if got > 0 {
+			if attempt > 1 {
+				t.Logf("relayed len=%d on attempt %d", wantLen, attempt)
+			}
+
+			return got
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	return 0
+}
+
+func assertServerDropsPaddedVoice(t *testing.T, s, l *x5Peer, pad *framePadConn, frame484 []byte) {
+	t.Helper()
+	l.reset()
+	pad.armed.Store(true)
+	t.Cleanup(func() { pad.armed.Store(false) })
+	relaySendFrames(t, frame484, func(b []byte) error {
+		return s.c.SendVoice(b, teamspeak.CodecOpusVoice, client.VoiceOptions{})
+	})
+	pad.armed.Store(false)
+	time.Sleep(500 * time.Millisecond)
+	if got := pad.padded.Load(); got != relayFrames {
+		t.Errorf("padded %d voice datagrams, want %d", got, relayFrames)
+	}
+	if got := len(vrFrom(l.packets(), s.c.ClientID(), false)); got != 0 {
+		t.Errorf("485-byte wire voice frame relayed %d packets, want 0", got)
+	}
+}
+
+func TestIntegration_VoiceRelay_FrameSize(t *testing.T) {
+	var lc net.ListenConfig
+	pc, err := lc.ListenPacket(t.Context(), "udp", "127.0.0.1:0")
+	requireNoErr(t, err)
+	t.Cleanup(func() { _ = pc.Close() })
+	pad := &framePadConn{PacketConn: pc}
+
+	s := x5ConnectWith(t, "relay-frame-s", false, client.WithPacketConn(pad))
+	l := x5Connect(t, "relay-frame-l")
+	relayWaitKnown(t, s, l)
+
+	frame484 := make([]byte, client.MaxVoiceFrameSize)
+	send484 := func() error {
+		relaySendFrames(t, frame484, func(b []byte) error {
+			return s.c.SendVoice(b, teamspeak.CodecOpusVoice, client.VoiceOptions{})
+		})
+
+		return s.c.SendVoice(nil, teamspeak.CodecOpusVoice, client.VoiceOptions{})
+	}
+	if got := relayHeardLen(t, l, s.c.ClientID(), false, client.MaxVoiceFrameSize, send484); got == 0 {
+		t.Errorf("484-byte voice frame was not relayed, want some")
+	}
+
+	err = s.c.SendVoice(make([]byte, client.MaxVoiceFrameSize+1), teamspeak.CodecOpusVoice, client.VoiceOptions{})
+	if !errors.Is(err, client.ErrVoiceFrameTooLarge) {
+		t.Errorf("485-byte SendVoice err = %v, want ErrVoiceFrameTooLarge", err)
+	}
+
+	// Pad 500-byte voice datagrams to 501 bytes on the wire (485-byte frame): the server drops them without an error.
+	assertServerDropsPaddedVoice(t, s, l, pad, frame484)
+
+	frame600 := make([]byte, 600)
+	if got := relayHeardLen(t, l, s.c.ClientID(), true, 600, func() error {
+		relaySendFrames(t, frame600, func(b []byte) error {
+			return s.c.SendWhisper(b, client.WhisperTargets{Clients: []teamspeak.ClientID{l.c.ClientID()}}, teamspeak.CodecOpusVoice)
+		})
+
+		return nil
+	}); got == 0 {
+		t.Errorf("600-byte direct whisper was not relayed, want some")
+	}
+
+	if got := relayHeardLen(t, l, s.c.ClientID(), true, 600, func() error {
+		relaySendFrames(t, frame600, func(b []byte) error {
+			return s.c.SendGroupWhisper(b, client.WhisperToAllClients(client.GroupWhisperAllChannels), teamspeak.CodecOpusVoice)
+		})
+
+		return nil
+	}); got == 0 {
+		t.Errorf("600-byte group whisper was not relayed, want some")
 	}
 }

@@ -162,9 +162,23 @@ err := c.SendVoice(nil, teamspeak.CodecOpusVoice, client.VoiceOptions{})
   `VoiceReceiver` gets a `VoicePacket` with empty `Data`. Send one when the
   speaker stops.
 - `client.VoiceOptions` has no fields yet; pass the zero value.
+- `SendVoice` rejects a frame larger than `client.MaxVoiceFrameSize` (484 bytes)
+  with `client.ErrVoiceFrameTooLarge` before taking a voice packet id and sends
+  nothing.
 - `SendVoice`, `SendWhisper` and `SendGroupWhisper` return an error instead of
   panicking. Without an open connection each returns
   `teamspeak.ErrNotConnected` (check with `errors.Is`) and sends nothing.
+
+A voice packet is at most 500 bytes on the wire and is never fragmented: after
+its 8-byte tag, 5-byte header and 3-byte voice header, 484 bytes remain for
+the audio frame (`client.MaxVoiceFrameSize`), and the server drops any larger
+voice packet without an error. Average frame size is roughly
+`bitrate × duration ÷ 8` (about 320 bytes at 128 kbit/s and 20 ms), though VBR
+peaks higher on complex passages. To keep every frame at or below
+`MaxVoiceFrameSize`, use CBR (or a peak at or below ~193 kbit/s at 20 ms), use
+10 ms frames, or pass `max_data_bytes = 484` (`client.MaxVoiceFrameSize`) to
+`opus_encode`. Whispers (`SendWhisper` and `SendGroupWhisper`) are not limited
+this way.
 
 ### Whispers
 

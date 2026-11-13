@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -487,6 +488,81 @@ func TestHandlerSendVoicePacket_SequenceIncreases(t *testing.T) {
 	seq1 := binary.BigEndian.Uint16(pkt1[13:15])
 	if seq1 != seq0+1 {
 		t.Errorf("expected seq1 = seq0+1 = %d, got %d", seq0+1, seq1)
+	}
+}
+
+func TestHandlerSendVoicePacket_MaxVoiceFrameSizeAndEmptyFrame(t *testing.T) {
+	if MaxVoiceFrameSize != 484 {
+		t.Fatalf("MaxVoiceFrameSize = %d, want 484", MaxVoiceFrameSize)
+	}
+	h, serverConn := newTestHandler(t)
+	defer func() { _ = h.Close() }()
+	_ = readPacket(t, serverConn)
+
+	err := h.SendVoicePacket(make([]byte, MaxVoiceFrameSize), 4)
+	if err != nil {
+		t.Fatalf("SendVoicePacket(484): %v", err)
+	}
+	if pkt := readPacket(t, serverConn); len(pkt) != MaxOutPacketSize {
+		t.Errorf("484-byte frame datagram len = %d, want %d", len(pkt), MaxOutPacketSize)
+	}
+
+	for _, empty := range [][]byte{nil, {}} {
+		err = h.SendVoicePacket(empty, 4)
+		if err != nil {
+			t.Fatalf("SendVoicePacket(empty): %v", err)
+		}
+		if pkt := readPacket(t, serverConn); len(pkt) != tagSize+headerSize+voiceHeaderSize {
+			t.Errorf("empty frame datagram len = %d, want %d", len(pkt), tagSize+headerSize+voiceHeaderSize)
+		}
+	}
+}
+
+func TestHandlerSendVoicePacket_RejectsOversizedFrame(t *testing.T) {
+	h, serverConn := newTestHandler(t)
+	defer func() { _ = h.Close() }()
+	_ = readPacket(t, serverConn)
+
+	for _, size := range []int{MaxVoiceFrameSize + 1, 633} {
+		err := h.SendVoicePacket(make([]byte, size), 4)
+		if !errors.Is(err, ErrVoiceFrameTooLarge) {
+			t.Errorf("SendVoicePacket(%d) err = %v, want ErrVoiceFrameTooLarge", size, err)
+		}
+		if err == nil || !strings.Contains(err.Error(), "at most 484") {
+			t.Errorf("SendVoicePacket(%d) err = %v, want message mentioning 'at most 484'", size, err)
+		}
+	}
+	err := h.SendVoicePacketEncrypted(make([]byte, MaxVoiceFrameSize+1), 4)
+	if !errors.Is(err, ErrVoiceFrameTooLarge) {
+		t.Errorf("SendVoicePacketEncrypted(485) err = %v, want ErrVoiceFrameTooLarge", err)
+	}
+	expectNoPacket(t, serverConn, 50*time.Millisecond)
+}
+
+func TestHandlerSendVoicePacket_RefusedFrameKeepsVoiceIDContiguous(t *testing.T) {
+	h, serverConn := newTestHandler(t)
+	defer func() { _ = h.Close() }()
+	_ = readPacket(t, serverConn)
+
+	err := h.SendVoicePacket(make([]byte, 10), 4)
+	if err != nil {
+		t.Fatalf("first SendVoicePacket: %v", err)
+	}
+	pkt0 := readPacket(t, serverConn)
+	seq0 := binary.BigEndian.Uint16(pkt0[13:15])
+
+	err = h.SendVoicePacket(make([]byte, MaxVoiceFrameSize+1), 4)
+	if !errors.Is(err, ErrVoiceFrameTooLarge) {
+		t.Fatalf("oversized SendVoicePacket err = %v, want ErrVoiceFrameTooLarge", err)
+	}
+	err = h.SendVoicePacket(make([]byte, 10), 4)
+	if err != nil {
+		t.Fatalf("second SendVoicePacket: %v", err)
+	}
+	pkt1 := readPacket(t, serverConn)
+	seq1 := binary.BigEndian.Uint16(pkt1[13:15])
+	if seq1 != seq0+1 {
+		t.Errorf("voice ID after refused frame = %d, want %d", seq1, seq0+1)
 	}
 }
 

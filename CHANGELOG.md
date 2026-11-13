@@ -3,6 +3,19 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- `client.MaxVoiceFrameSize` (484 bytes) and `client.ErrVoiceFrameTooLarge`:
+  the largest audio frame a voice packet carries (500-byte packet minus 8-byte
+  tag, 5-byte header and 3-byte voice header). `SendVoice` returns an error
+  wrapping `ErrVoiceFrameTooLarge` for a larger frame without sending anything
+  or advancing the voice packet id, instead of letting the server drop it
+  without an error (found by ulaski). Whispers (`SendWhisper` and
+  `SendGroupWhisper`) are not limited this way. Measured on TeamSpeak 3 3.13.8
+  and TeamSpeak 6 6.0.0-beta13.1.
+
 ## v1.0.0-beta.25 (2026-11-09)
 
 ### Added
