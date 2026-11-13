@@ -21,6 +21,14 @@ type VoiceOptions struct{}
 // it, and voice receivers get a VoicePacket with empty Data. Without an open
 // connection it returns teamspeak.ErrNotConnected.
 //
+// A frame is at most MaxVoiceFrameSize (484 bytes); a larger one returns an
+// error wrapping ErrVoiceFrameTooLarge without sending anything or advancing the
+// voice packet counter. A voice packet is at most 500 bytes and the server
+// drops a larger one without an error, while whispers are not limited this way.
+// Opus VBR at a high bitrate can exceed MaxVoiceFrameSize on dense passages;
+// a constant bitrate, a lower bitrate, shorter frames, or libopus's
+// max_data_bytes = 484 (MaxVoiceFrameSize) keeps every frame under it.
+//
 // The server relays it only while this client may talk in the channel, its
 // IsTalker set or its talk power at least the channel's needed talk power,
 // and is not away, input-muted or without input hardware, as it last told the
@@ -46,6 +54,16 @@ func notConnected(err error) error {
 
 	return err
 }
+
+// MaxVoiceFrameSize is the largest audio frame a voice packet carries, 484
+// bytes: a 500-byte packet minus its 8-byte tag, 5-byte header and 3-byte
+// voice header. The server drops a larger voice packet without an error, while
+// a whisper is not limited this way.
+const MaxVoiceFrameSize = transport.MaxVoiceFrameSize
+
+// ErrVoiceFrameTooLarge reports a voice frame larger than MaxVoiceFrameSize,
+// which the server would drop without an error.
+var ErrVoiceFrameTooLarge = transport.ErrVoiceFrameTooLarge
 
 // ErrNoWhisperTargets reports a whisper with no one to receive it.
 var ErrNoWhisperTargets = transport.ErrNoWhisperTargets

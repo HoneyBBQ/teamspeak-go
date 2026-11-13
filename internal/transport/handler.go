@@ -29,6 +29,12 @@ const (
 	// MaxOutPacketSize is the largest datagram sent, tag and header included;
 	// longer command payloads are split into fragments.
 	MaxOutPacketSize = 500
+	// MaxVoiceFrameSize is the largest audio frame a voice packet carries: a
+	// 500-byte packet minus its 8-byte tag, 5-byte header and 3-byte voice
+	// header. The server drops a larger voice packet without an error, while
+	// whispers are not limited this way. Measured on TeamSpeak 3 3.13.8 and
+	// TeamSpeak 6 6.0.0-beta13.1.
+	MaxVoiceFrameSize = MaxOutPacketSize - tagSize - headerSize - voiceHeaderSize
 	// ReceivePacketWindowSize is how many command ids past the next expected
 	// one are accepted and queued.
 	ReceivePacketWindowSize = 1024
@@ -91,6 +97,9 @@ var (
 	ErrTooManyWhisperTargets = errors.New("whisper supports at most 32 target clients")
 	// ErrTooManyWhisperChannels is returned when a whisper names more than 255 channels.
 	ErrTooManyWhisperChannels = errors.New("whisper supports at most 255 target channels")
+	// ErrVoiceFrameTooLarge is returned when a voice frame exceeds
+	// MaxVoiceFrameSize, which the server would drop without an error.
+	ErrVoiceFrameTooLarge = errors.New("voice frame exceeds maximum packet size")
 	// ErrNotOpen is returned by a send on a handler that has not started or
 	// has closed.
 	ErrNotOpen = errors.New("connection is not open")
@@ -1241,8 +1250,10 @@ func (h *PacketHandler) doResend(rp *resendPacket, now time.Time) {
 }
 
 // SendVoicePacket sends one unencrypted Voice packet carrying an audio frame
-// in codec. Voice is never acknowledged or resent. On a handler that is not
-// open it returns ErrNotOpen.
+// in codec. Voice is never acknowledged or resent. A frame may be at most
+// MaxVoiceFrameSize bytes (empty for end of speech); a larger one returns
+// ErrVoiceFrameTooLarge without sending anything or advancing the voice packet
+// id. On a handler that is not open it returns ErrNotOpen.
 //
 // Payload layout: u16 voice packet ID, u8 codec, then the frame.
 func (h *PacketHandler) SendVoicePacket(data []byte, codec byte) error {
@@ -1269,15 +1280,10 @@ func (h *PacketHandler) sendVoice(data []byte, codec byte, encrypt bool) error {
 	if !h.IsOpen() {
 		return ErrNotOpen
 	}
-	h.mu.Lock()
-	pID := h.packetCounter[PacketTypeVoice]
-	pGen := h.generationCounter[PacketTypeVoice]
-	h.packetCounter[PacketTypeVoice]++
-	if h.packetCounter[PacketTypeVoice] == 0 {
-		h.generationCounter[PacketTypeVoice]++
+	if len(data) > MaxVoiceFrameSize {
+		return fmt.Errorf("%w: %d bytes, at most %d", ErrVoiceFrameTooLarge, len(data), MaxVoiceFrameSize)
 	}
-	clid := uint16(h.clientID.Load()) //nolint:gosec // stored from a uint16
-	h.mu.Unlock()
+	pID, pGen, clid := h.nextVoiceIdentity()
 
 	payloadLen := voiceHeaderSize + len(data)
 
@@ -1316,6 +1322,20 @@ func (h *PacketHandler) sendVoice(data []byte, codec byte, encrypt bool) error {
 	putPooledBytes(&voicePayloadPool, voicePayload)
 
 	return err
+}
+
+func (h *PacketHandler) nextVoiceIdentity() (uint16, uint32, uint16) {
+	h.mu.Lock()
+	pID := h.packetCounter[PacketTypeVoice]
+	pGen := h.generationCounter[PacketTypeVoice]
+	h.packetCounter[PacketTypeVoice]++
+	if h.packetCounter[PacketTypeVoice] == 0 {
+		h.generationCounter[PacketTypeVoice]++
+	}
+	clid := uint16(h.clientID.Load()) //nolint:gosec // stored from a uint16
+	h.mu.Unlock()
+
+	return pID, pGen, clid
 }
 
 // sealVoice writes the tag, header and payload of voice packet p into final:

@@ -14,6 +14,7 @@ const GroupWhisperCurrentChannel GroupWhisperScope = 1
 const GroupWhisperParentChannel GroupWhisperScope = 2
 const GroupWhisperServerGroup GroupWhisperType = 0
 const GroupWhisperSubchannels GroupWhisperScope = 6
+const MaxVoiceFrameSize untyped int = 484
 const ResolveSourceDirect untyped string = "Direct"
 const ResolveSourceSRV untyped string = "SRV"
 const ResolveSourceTSDNSDirect untyped string = "TSDNS-Direct"
@@ -40,6 +41,7 @@ var ErrNoWhisperTargets error
 var ErrPuzzleTooHard error
 var ErrTooManyWhisperChannels error
 var ErrTooManyWhisperTargets error
+var ErrVoiceFrameTooLarge error
 var ErrVoiceReceiverClosed error
 func DefaultShouldRetry(err error, _ int) bool
 func DownloadS3FileData(ctx context.Context, info *S3FileDownloadInfo, dest io.Writer, opts S3DownloadOptions) error
