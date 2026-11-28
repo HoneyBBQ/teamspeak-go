@@ -201,9 +201,9 @@ func playScript(t *testing.T, script []byte) {
 		case op == 14:
 			for _, r := range requests.all() {
 				if next()%2 == 0 {
-					_, _ = r.Accept(t.Context(), sdp, "")
+					_, _ = r.Accept(t.Context(), sdp, AcceptOptions{})
 				} else {
-					_ = r.Deny(t.Context(), "")
+					_ = r.Deny(t.Context(), DenyOptions{})
 				}
 			}
 		default:

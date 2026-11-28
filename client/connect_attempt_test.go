@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/honeybbq/teamspeak-go/errcode"
 )
 
 var errStaleSocketClosed = errors.New("old socket closed")
@@ -175,7 +177,6 @@ func TestErrorFromAReplacedHandlerIsIgnored(t *testing.T) {
 			reconnect(t, c)
 
 			c.handleCommand(stale, line)
-			c.background.Wait() // a ban disconnects from a goroutine
 
 			if got := c.Status(); got != StatusConnecting {
 				t.Errorf("status = %v after a stale %s, want StatusConnecting", got, name)
@@ -188,16 +189,95 @@ func TestErrorFromAReplacedHandlerIsIgnored(t *testing.T) {
 	}
 }
 
-// A ban noticed on a connection that a new Connect then replaced must not
-// disconnect the new one.
-func TestBanDisconnectSparesAReplacingConnection(t *testing.T) {
+// A ban delivered by a connection that a new Connect has already replaced must
+// not disconnect the new session, even once the new session is connected.
+func TestBanFromAReplacedHandlerSparesAConnectedSession(t *testing.T) {
 	c := connectingClient(t)
 	stale := c.currentHandler()
+	completeCryptoInit(t, stale)
 	reconnect(t, c)
+	completeHandshake(t, c)
 
-	c.disconnectBanned(stale)
+	c.handleCommand(stale, `error id=3329 msg=connection\sfailed,\syou\sare\sbanned`)
 
-	if got := c.Status(); got != StatusConnecting {
-		t.Errorf("status = %v, want the new attempt left alone", got)
+	if got := c.Status(); got != StatusConnected {
+		t.Errorf("status = %v, want the connected session left alone", got)
+	}
+}
+
+// A 3329 ban during clientinit (after crypto init completed) fails Connect
+// directly with errcode.ConnectFailedBanned rather than racing with an
+// internal Disconnect, and sends no clientdisconnect to the server.
+func TestHandleError_BanDuringClientInitReturnsConnectFailedBanned(t *testing.T) {
+	for range 50 {
+		c, serverConn := newTestClientWithPipe(t)
+		// Drain the initial Init1 packet from Start().
+		_ = readFromPipe(t, serverConn)
+		completeCryptoInit(t, c.handler)
+		markConnecting(c)
+
+		var sent []string
+		c.wireHook = func(line string) error {
+			sent = append(sent, line)
+
+			return nil
+		}
+		disconnected := make(chan DisconnectedEvent, 1)
+		c.OnDisconnected(func(e DisconnectedEvent) { disconnected <- e })
+
+		waitDone := make(chan error, 1)
+		go func() { waitDone <- waitWithin(t, c, time.Second) }()
+
+		c.handleCommand(
+			c.handler,
+			`error id=3329 msg=connection\sfailed,\syou\sare\sbanned extra_msg=you\smay\sretry\sin\s60\sseconds`,
+		)
+
+		err := <-waitDone
+		if !errors.Is(err, errcode.ConnectFailedBanned) {
+			t.Fatalf("Connect attempt = %v, want errcode.ConnectFailedBanned", err)
+		}
+		evt := receive(t, disconnected)
+		if !errors.Is(evt.Err, errcode.ConnectFailedBanned) || evt.WillReconnect {
+			t.Fatalf("DisconnectedEvent = %+v, want ConnectFailedBanned and WillReconnect=false", evt)
+		}
+		for _, line := range sent {
+			if strings.HasPrefix(line, "clientdisconnect") {
+				t.Fatalf("sent %q on a refused clientinit", line)
+			}
+		}
+	}
+}
+
+// A 3329 ban arriving on an already-connected session closes it with
+// errcode.ConnectFailedBanned as the DisconnectedEvent cause, without retrying
+// or sending a clean clientdisconnect goodbye.
+func TestHandleError_BanWhileConnectedReportsServerErrorWithoutRetrying(t *testing.T) {
+	c := newTestClient(t, WithReconnect(ReconnectOptions{}))
+	var sent []string
+	c.wireHook = func(line string) error {
+		sent = append(sent, line)
+
+		return nil
+	}
+	disconnected := make(chan DisconnectedEvent, 1)
+	c.OnDisconnected(func(e DisconnectedEvent) { disconnected <- e })
+
+	c.handleCommand(c.handler, `error id=3329 msg=connection\sfailed,\syou\sare\sbanned return_code=1`)
+
+	evt := receive(t, disconnected)
+	if !errors.Is(evt.Err, errcode.ConnectFailedBanned) {
+		t.Fatalf("DisconnectedEvent.Err = %v, want errcode.ConnectFailedBanned", evt.Err)
+	}
+	if evt.WillReconnect {
+		t.Error("DisconnectedEvent.WillReconnect = true on a permanent ban")
+	}
+	if got := c.Status(); got != StatusDisconnected {
+		t.Errorf("status = %v, want StatusDisconnected", got)
+	}
+	for _, line := range sent {
+		if strings.HasPrefix(line, "clientdisconnect") {
+			t.Errorf("sent %q after a server ban", line)
+		}
 	}
 }

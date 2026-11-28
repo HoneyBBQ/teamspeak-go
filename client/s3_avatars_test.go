@@ -131,7 +131,7 @@ func TestDownloadS3Avatar(t *testing.T) {
 
 func TestRemoveS3Avatar_DeletesTheFileThenEmptiesTheFlag(t *testing.T) {
 	c, server := newS3Client(t, []string{"s3"}, successAnswer("1"))
-	requireNoError(t, c.RemoveS3Avatar(t.Context()))
+	requireNoError(t, c.RemoveS3Avatar(t.Context(), S3RemoveOptions{}))
 	name, err := teamspeak.AvatarFileName(c.UID())
 	requireNoError(t, err)
 	if len(server.lines) != 2 ||
@@ -143,7 +143,7 @@ func TestRemoveS3Avatar_DeletesTheFileThenEmptiesTheFlag(t *testing.T) {
 
 func TestRemoveS3Avatar_AFailedDeleteLeavesTheFlag(t *testing.T) {
 	c, server := newS3Client(t, []string{"s3"}, successAnswer("0"))
-	err := c.RemoveS3Avatar(t.Context())
+	err := c.RemoveS3Avatar(t.Context(), S3RemoveOptions{})
 	var failed *S3TransferError
 	if !errors.As(err, &failed) || len(server.lines) != 1 {
 		t.Errorf("err = %v, sent %q", err, server.lines)
@@ -184,7 +184,7 @@ func TestS3Icons(t *testing.T) {
 	}
 
 	n := len(server.lines)
-	requireNoError(t, c.DeleteS3Icon(t.Context(), id))
+	requireNoError(t, c.RemoveS3Icon(t.Context(), id, S3RemoveOptions{}))
 	if server.lines[n] != "s3ft_deletefile chid=0 chpw= key="+file {
 		t.Errorf("sent %q", server.lines[n])
 	}

@@ -229,7 +229,7 @@ func TestIntegration_ChannelWhisperReachesMembersOnly(t *testing.T) {
 	whisperFor(t, func() error {
 		targets := client.WhisperTargets{Channels: []teamspeak.ChannelID{cid}}
 
-		return sender.SendWhisper(whisperFrame, targets, teamspeak.CodecOpusMusic)
+		return sender.SendWhisper(whisperFrame, targets, teamspeak.CodecOpusMusic, client.VoiceOptions{})
 	})
 	if got := memberHears.heard(sender.ClientID()); got == 0 {
 		t.Error("the channel's member heard nothing")
@@ -263,7 +263,7 @@ func TestIntegration_ServerGroupWhisperReachesMembersOnly(t *testing.T) {
 	whisperFor(t, func() error {
 		target := client.WhisperToServerGroup(client.GroupWhisperAllChannels, gid)
 
-		return sender.SendGroupWhisper(whisperFrame, target, teamspeak.CodecOpusMusic)
+		return sender.SendGroupWhisper(whisperFrame, target, teamspeak.CodecOpusMusic, client.VoiceOptions{})
 	})
 	if memberHears.heard(sender.ClientID()) == 0 {
 		t.Error("the group's member heard nothing")
@@ -277,7 +277,7 @@ func TestIntegration_ServerGroupWhisperReachesMembersOnly(t *testing.T) {
 	whisperFor(t, func() error {
 		target := client.WhisperToServerGroup(client.GroupWhisperCurrentChannel, gid)
 
-		return sender.SendGroupWhisper(whisperFrame, target, teamspeak.CodecOpusMusic)
+		return sender.SendGroupWhisper(whisperFrame, target, teamspeak.CodecOpusMusic, client.VoiceOptions{})
 	})
 	if memberHears.heard(sender.ClientID()) == before {
 		t.Error("the member heard nothing under the current-channel scope")
@@ -301,7 +301,7 @@ func TestIntegration_ChannelGroupWhisperReachesHoldersOnly(t *testing.T) {
 	whisperFor(t, func() error {
 		target := client.WhisperToChannelGroup(client.GroupWhisperAllChannels, cgid)
 
-		return sender.SendGroupWhisper(whisperFrame, target, teamspeak.CodecOpusMusic)
+		return sender.SendGroupWhisper(whisperFrame, target, teamspeak.CodecOpusMusic, client.VoiceOptions{})
 	})
 	if memberHears.heard(sender.ClientID()) == 0 {
 		t.Error("the channel group's holder heard nothing")
@@ -414,7 +414,7 @@ func TestIntegration_ConnectionInfoIsAnsweredAndReadByAnotherClient(t *testing.T
 		}
 		time.Sleep(time.Second)
 	}
-	t.Logf("ping %s deviation %s connected %s idle %s ip %q port %d", info.Ping, info.PingDeviation,
+	t.Logf("ping %s deviation %s connected %s idle %s ip %v port %v", info.Ping, info.PingDeviation,
 		info.ConnectedTime, info.IdleTime, info.IP, info.Port)
 	t.Logf("sent speech/keepalive/control packets %d/%d/%d bytes %d/%d/%d", info.Sent.Speech.Packets,
 		info.Sent.Keepalive.Packets, info.Sent.Control.Packets, info.Sent.Speech.Bytes,

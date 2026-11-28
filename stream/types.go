@@ -9,23 +9,37 @@ import (
 )
 
 // ID identifies a stream. The server assigns it when the stream starts.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type ID string
 
 // Source is what a stream shows. The server stores any number, so a stream
 // from a client that sends another value is reported with that number.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type Source uint32
 
 // The sources the protocol names.
 const (
 	// SourceNone is a stream that shows nothing in particular.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	SourceNone Source = iota
 	// SourceCamera is a camera.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	SourceCamera
 	// SourceScreen is a screen, which is what a screen share shows.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	SourceScreen
 	// SourceWindow is one window.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	SourceWindow
 	// SourceSession is a session.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	SourceSession
 )
 
@@ -33,6 +47,8 @@ var sourceNames = [...]string{"none", "camera", "screen", "window", "session"}
 
 // String names the source, such as "screen". A number with no name reads as
 // "Source(7)".
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s Source) String() string {
 	if int(s) < len(sourceNames) {
 		return sourceNames[s]
@@ -47,17 +63,27 @@ func (s Source) known() bool { return int(s) < len(sourceNames) }
 // Accessibility is who a stream says may watch it. Only the publisher enforces
 // it: the server relays every request. A value outside the four is reported with
 // its number.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type Accessibility uint32
 
 // The accessibilities the protocol names.
 const (
 	// AccessibilityNone says nobody may watch.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	AccessibilityNone Accessibility = iota
 	// AccessibilityPublic says anybody may watch.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	AccessibilityPublic
 	// AccessibilityContacts says the publisher's contacts may watch.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	AccessibilityContacts
 	// AccessibilityPrivate says only those invited may watch.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	AccessibilityPrivate
 )
 
@@ -65,6 +91,8 @@ var accessibilityNames = [...]string{"none", "public", "contacts", "private"}
 
 // String names the accessibility, such as "public". A number with no name reads
 // as "Accessibility(7)".
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (a Accessibility) String() string {
 	if int(a) < len(accessibilityNames) {
 		return accessibilityNames[a]
@@ -79,6 +107,8 @@ func (a Accessibility) known() bool { return int(a) < len(accessibilityNames) }
 // Transport is how a stream's media travels, the mode the server reports for
 // it. The server stores any number, so a stream from a client that sends
 // another value is reported with that number.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type Transport uint32
 
 // The transports the protocol names. Only peer to peer has been seen: the
@@ -86,11 +116,15 @@ type Transport uint32
 const (
 	// TransportP2P is media that goes directly between the publisher and each
 	// viewer, with the server relaying only the signalling.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	TransportP2P Transport = 1
 )
 
 // String names the transport, such as "p2p". A number with no name reads as
 // "Transport(2)".
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (t Transport) String() string {
 	if t == TransportP2P {
 		return "p2p"
@@ -107,7 +141,11 @@ func (t Transport) known() bool { return t == TransportP2P }
 // A nil pointer field means the server never reported the value, which is not
 // the same as reporting zero. List, Get and every event hand out their own copy:
 // the pointers point to values nobody else shares.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type Info struct {
+	_ [0]func()
+
 	// Source is what the stream shows.
 	Source *Source
 	// Bitrate is the bitrate the server reports, in bits per second. It is not
@@ -178,6 +216,8 @@ func ptrEqual[T comparable](a, b *T) bool {
 // IceCandidate is an ICE candidate in the shape of the browser's
 // RTCIceCandidateInit and of the candidate init type that WebRTC libraries for
 // Go share with it, so one converts to the other field by field.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type IceCandidate struct {
 	// SDPMid is the media section's id; nil when none.
 	SDPMid *string
@@ -189,6 +229,8 @@ type IceCandidate struct {
 
 // RawSignal is a signalling message this package has no name for, or that was
 // not shaped as the ones it has: handed over rather than dropped.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type RawSignal struct {
 	// Cmd is the message's "cmd"; empty when the JSON had none.
 	Cmd string
@@ -203,6 +245,8 @@ type RawSignal struct {
 }
 
 // Viewer is a client that asked to watch a stream.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type Viewer struct {
 	// UID is the client's unique identifier; empty when the client is out of
 	// view and the server could not say who it is.
@@ -214,23 +258,35 @@ type Viewer struct {
 }
 
 // EndCause says why a stream ended.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type EndCause uint8
 
 // The causes a stream ends with. Streams.OnStopped reports EndCauseServer,
 // EndCauseStopped and EndCauseGone; Published.OnEnded reports all five.
 const (
 	// EndCauseStopped is a stream that Published.Stop ended here.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	EndCauseStopped EndCause = iota + 1
 	// EndCauseServer is a stream the server reported stopped
 	// (notifystreamstopped), whoever stopped it.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	EndCauseServer
 	// EndCauseGone is a stream whose publisher cleared client_is_streaming or
 	// came into view not streaming, with no stop reaching this client within
 	// two seconds.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	EndCauseGone
 	// EndCauseDisconnected is the client's connection ending.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	EndCauseDisconnected
 	// EndCauseShutdown is Streams.Close.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	EndCauseShutdown
 )
 
@@ -240,6 +296,8 @@ var endCauseNames = [...]string{
 }
 
 // String names the cause, such as "gone".
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (c EndCause) String() string {
 	if c > 0 && int(c) < len(endCauseNames) {
 		return endCauseNames[c]
@@ -263,20 +321,32 @@ func (c EndCause) peer() PeerCause {
 }
 
 // PeerCause says why a peer closed.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type PeerCause uint8
 
 // The causes a peer closes with.
 const (
 	// PeerCauseClosed is a peer that the application closed, or a viewer that
 	// left.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	PeerCauseClosed PeerCause = iota + 1
 	// PeerCauseLeft is the other end of the peer leaving the stream.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	PeerCauseLeft
 	// PeerCauseStopped is the stream ending, whoever ended it.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	PeerCauseStopped
 	// PeerCauseDisconnected is the client's connection ending.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	PeerCauseDisconnected
 	// PeerCauseShutdown is Streams.Close.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	PeerCauseShutdown
 )
 
@@ -286,6 +356,8 @@ var peerCauseNames = [...]string{
 }
 
 // String names the cause, such as "left".
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (c PeerCause) String() string {
 	if c > 0 && int(c) < len(peerCauseNames) {
 		return peerCauseNames[c]
@@ -295,6 +367,8 @@ func (c PeerCause) String() string {
 }
 
 // PeerClosedEvent is a peer closing.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type PeerClosedEvent struct {
 	// Cause is why it closed.
 	Cause PeerCause
@@ -304,6 +378,8 @@ type PeerClosedEvent struct {
 }
 
 // EndedEvent is a published stream ending.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type EndedEvent struct {
 	// Cause is why it ended. Always set: a Reason of 0 alone does not say.
 	Cause EndCause
@@ -314,7 +390,11 @@ type EndedEvent struct {
 }
 
 // StoppedEvent is a stream ending, as Streams.OnStopped reports it.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type StoppedEvent struct {
+	_ [0]func()
+
 	// Info is the stream as it was last known.
 	Info Info
 	// Cause is EndCauseServer for a notifystreamstopped, EndCauseStopped for a
@@ -329,7 +409,11 @@ type StoppedEvent struct {
 
 // ViewerEvent is a viewer joining or leaving a stream, as the server tells the
 // owner, the other viewers and, for a join, the clients of the owner's channel.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type ViewerEvent struct {
+	_ [0]func()
+
 	// Info is the stream.
 	Info Info
 	// ClientID is the viewer.
@@ -337,14 +421,20 @@ type ViewerEvent struct {
 }
 
 // WarningCode says what a Warning is about.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type WarningCode string
 
 // WarningOfferWithoutAudio is an SDP offer with no m=audio section: the
 // TeamSpeak 6 client does not answer it.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 const WarningOfferWithoutAudio WarningCode = "offer-without-audio"
 
 // WarningEvent is something the package noticed and did not stop: the offer or
 // message goes out unchanged.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type WarningEvent struct {
 	// Code is what was noticed.
 	Code WarningCode
@@ -357,6 +447,8 @@ type WarningEvent struct {
 }
 
 // Options configures New.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type Options struct {
 	// Logger receives what happens inside: errors nobody handles, and
 	// recovered handler panics. Nil discards it, as the client does.
@@ -371,6 +463,8 @@ type Options struct {
 }
 
 // PublishOptions starts a stream with Streams.Publish.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type PublishOptions struct {
 	// Source is what the stream shows. Nil means SourceScreen.
 	Source *Source
@@ -392,6 +486,8 @@ type PublishOptions struct {
 }
 
 // WatchOptions asks to watch a stream with Streams.Watch.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type WatchOptions struct {
 	// Message goes to the publisher, shown with the request.
 	Message string
@@ -401,30 +497,77 @@ type WatchOptions struct {
 	ClientID teamspeak.ClientID
 }
 
+// AcceptOptions are JoinRequest.Accept's optional parameters.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
+type AcceptOptions struct {
+	// Message goes to the viewer with the offer; "" sends none.
+	Message string
+}
+
+// DenyOptions are JoinRequest.Deny's optional parameters.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
+type DenyOptions struct {
+	// Reason is shown to the viewer with the refusal; "" sends none.
+	Reason string
+}
+
+// StopOptions are Published.Stop's optional parameters.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
+type StopOptions struct {
+	// Reason is the numeric stop reason passed to viewers (0 is the usual one).
+	Reason uint32
+}
+
+// SignalOptions are the optional parameters of Peer.SendCandidate,
+// Peer.SendSignal, ViewerPeer.SendOffer and View.Answer. It has no fields yet:
+// it is reserved for later extensions.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
+type SignalOptions struct{}
+
 // RequestState is where a join request stands.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type RequestState uint8
 
 // The states of a join request.
 const (
 	// RequestPending is a request nobody has answered yet.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	RequestPending RequestState = iota
 	// RequestAccepted is a request Accept took.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	RequestAccepted
 	// RequestDenied is a request Deny refused.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	RequestDenied
 	// RequestFailed is a request whose answer did not reach the server.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	RequestFailed
 	// RequestWithdrawn is a request the viewer took back, or left view
 	// before it was answered. JoinRequest.OnClosed reports it.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	RequestWithdrawn
 	// RequestEnded is a request the stream ended before it was answered.
 	// JoinRequest.OnClosed reports it.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	RequestEnded
 )
 
 var requestStateNames = [...]string{"pending", "accepted", "denied", "failed", "withdrawn", "ended"}
 
 // String names the state, such as "pending".
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s RequestState) String() string {
 	if int(s) < len(requestStateNames) {
 		return requestStateNames[s]

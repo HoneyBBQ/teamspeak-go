@@ -91,9 +91,13 @@ func each(ws ...*watched) []*watched {
 func fieldsSet(v any) []string {
 	var set []string
 	rv := reflect.ValueOf(v)
+	rt := rv.Type()
 	for i := range rv.NumField() {
+		if !rt.Field(i).IsExported() {
+			continue
+		}
 		if !rv.Field(i).IsNil() {
-			set = append(set, rv.Type().Field(i).Name)
+			set = append(set, rt.Field(i).Name)
 		}
 	}
 	slices.Sort(set)

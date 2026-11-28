@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	teamspeak "github.com/honeybbq/teamspeak-go"
@@ -55,6 +56,8 @@ const (
 // A Streams is safe for concurrent use. Its handlers, and those of every
 // object it makes, run one at a time on a goroutine of the Streams' own, in
 // the order the events happened; see the package documentation.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type Streams struct {
 	host   host
 	cmds   *teamspeak.Commands
@@ -94,8 +97,9 @@ type Streams struct {
 	warnings     *topic[WarningEvent]
 
 	bus bus
-	// wg counts the goroutines Close waits for.
-	wg sync.WaitGroup
+	// wg counts the goroutines Close waits for, and running how many are live.
+	wg      sync.WaitGroup
+	running atomic.Int64
 	// gen counts the connections and closings this Streams has seen. The result
 	// of a command sent in an older one is not for the current one.
 	gen uint64
@@ -114,6 +118,8 @@ type Streams struct {
 // that started before this client came is found too.
 //
 // New panics if c is nil. Call Close to detach from c.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func New(c *client.Client, opts Options) *Streams {
 	if c == nil {
 		panic("stream: New needs a client")
@@ -288,6 +294,8 @@ func (w *watch) settleLocked(view *View, err error) {
 // Supported reports whether the connected server says it does peer to peer
 // streams: its extensions name STREAM_P2P. It is false before the client has
 // connected.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) Supported() bool {
 	return s.host.ServerCapabilities().HasExtension(teamspeak.ServerExtensionStreamP2P)
 }
@@ -296,6 +304,8 @@ func (s *Streams) Supported() bool {
 // holds is what this client has heard of: a stream that ends while its
 // publisher is out of the channel is reported to nobody there, and stays until
 // the connection ends.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) List() []Info {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -309,6 +319,8 @@ func (s *Streams) List() []Info {
 }
 
 // Get returns the stream with this id, if known.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) Get(id ID) (Info, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -323,6 +335,8 @@ func (s *Streams) Get(id ID) (Info, bool) {
 // OnStarted registers a handler for a stream becoming known: it started while
 // this client could see it, or discovery found it. It returns a function that
 // removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) OnStarted(handler func(Info)) func() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -332,6 +346,8 @@ func (s *Streams) OnStarted(handler func(Info)) func() {
 
 // OnUpdated registers a handler for what is known of a stream changing. It
 // returns a function that removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) OnUpdated(handler func(Info)) func() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -341,6 +357,8 @@ func (s *Streams) OnUpdated(handler func(Info)) func() {
 
 // OnStopped registers a handler for a stream ending. It returns a function that
 // removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) OnStopped(handler func(StoppedEvent)) func() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -350,6 +368,8 @@ func (s *Streams) OnStopped(handler func(StoppedEvent)) func() {
 
 // OnViewerJoined registers a handler for a viewer being accepted into a
 // stream. It returns a function that removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) OnViewerJoined(handler func(ViewerEvent)) func() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -359,6 +379,8 @@ func (s *Streams) OnViewerJoined(handler func(ViewerEvent)) func() {
 
 // OnViewerLeft registers a handler for a viewer leaving a stream. It returns a
 // function that removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) OnViewerLeft(handler func(ViewerEvent)) func() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -370,6 +392,8 @@ func (s *Streams) OnViewerLeft(handler func(ViewerEvent)) func() {
 // request the server refused. Errors that happen before the first handler is
 // registered are kept, up to 256, and delivered to it; until then they are
 // logged. It returns a function that removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) OnError(handler func(error)) func() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -381,6 +405,8 @@ func (s *Streams) OnError(handler func(error)) func() {
 // through, such as an offer the TeamSpeak 6 client will not answer. Warnings
 // are kept for the first handler, as errors are. It returns a function that
 // removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) OnWarning(handler func(WarningEvent)) func() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -404,6 +430,8 @@ func (s *Streams) OnWarning(handler func(WarningEvent)) func() {
 // The commands outlive ctx by up to five seconds, so pass a context that is not
 // already cancelled, such as context.WithoutCancel(ctx), when closing because a
 // context was. Close is idempotent; after it every call returns ErrClosed.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) Close(ctx context.Context) error {
 	connected := s.host.Status() == client.StatusConnected
 
@@ -421,7 +449,7 @@ func (s *Streams) Close(ctx context.Context) error {
 	if connected {
 		base := context.WithoutCancel(ctx)
 		for _, bye := range goodbyes {
-			s.wg.Go(func() {
+			s.run(func() {
 				byeCtx, cancel := context.WithTimeout(base, goodbyeTimeout)
 				defer cancel()
 				err := bye(byeCtx)
@@ -437,15 +465,24 @@ func (s *Streams) Close(ctx context.Context) error {
 		off()
 	}
 	done := make(chan struct{})
-	go func() {
+	if s.running.Load() == 0 {
 		s.wg.Wait()
 		close(done)
-	}()
+	} else {
+		go func() {
+			s.wg.Wait()
+			close(done)
+		}()
+	}
 	var waitErr error
 	select {
 	case <-done:
-	case <-ctx.Done():
-		waitErr = fmt.Errorf("stream: closing: %w", ctx.Err())
+	default:
+		select {
+		case <-done:
+		case <-ctx.Done():
+			waitErr = fmt.Errorf("stream: closing: %w", ctx.Err())
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -473,6 +510,8 @@ func (s *Streams) Close(ctx context.Context) error {
 // Publish returns an *UnsupportedError, without sending anything, on a server
 // that is not TeamSpeak 6, ErrInvalidOptions for an option that is out of
 // range, and the server's refusal as a *teamspeak.ServerError.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) Publish(ctx context.Context, opts PublishOptions) (*Published, error) {
 	err := s.usable()
 	if err != nil {
@@ -512,6 +551,8 @@ func (s *Streams) Publish(ctx context.Context, opts PublishOptions) (*Published,
 // for, and the server's own error otherwise, among them 5638
 // (errcode.StreamAlreadyJoined) when this client already asked. When the wait
 // ends with ctx, the request is withdrawn.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (s *Streams) Watch(ctx context.Context, id ID, opts WatchOptions) (*View, error) {
 	err := s.usable()
 	if err != nil {

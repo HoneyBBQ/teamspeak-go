@@ -12,8 +12,8 @@ import (
 	"github.com/honeybbq/teamspeak-go/internal/transport"
 )
 
-// VoiceOptions are SendVoice's optional parameters. It has no fields yet: it is
-// reserved for later.
+// VoiceOptions are SendVoice's, SendWhisper's and SendGroupWhisper's optional
+// parameters. It has no fields yet: it is reserved for later.
 type VoiceOptions struct{}
 
 // SendVoice sends one encoded audio frame, normally teamspeak.CodecOpusVoice
@@ -98,7 +98,9 @@ type WhisperTargets struct {
 // i_client_needed_whisper_power. Talk power does not apply to a whisper, but
 // the rest of what decides whether voice is relayed does: see SendVoice.
 // Without an open connection it returns teamspeak.ErrNotConnected.
-func (c *Client) SendWhisper(data []byte, targets WhisperTargets, codec teamspeak.Codec) error {
+func (c *Client) SendWhisper(
+	data []byte, targets WhisperTargets, codec teamspeak.Codec, _ VoiceOptions,
+) error {
 	clients := make([]uint16, len(targets.Clients))
 	for i, id := range targets.Clients {
 		clients[i] = uint16(id)
@@ -213,7 +215,9 @@ func (t GroupWhisperTarget) Scope() GroupWhisperScope { return t.scope }
 // ErrInvalidWhisperTarget. Whether a client hears it is the server's decision,
 // as for SendWhisper. Without an open connection it returns
 // teamspeak.ErrNotConnected.
-func (c *Client) SendGroupWhisper(data []byte, target GroupWhisperTarget, codec teamspeak.Codec) error {
+func (c *Client) SendGroupWhisper(
+	data []byte, target GroupWhisperTarget, codec teamspeak.Codec, _ VoiceOptions,
+) error {
 	if !target.valid {
 		return ErrInvalidWhisperTarget
 	}

@@ -357,7 +357,7 @@ func TestQueryFiles_Icons(t *testing.T) {
 				set:  func(id teamspeak.IconID) error { return c.SetClientIcon(ctx, dbid, id) },
 				read: func() (teamspeak.IconID, bool) {
 					v, ok := hasIconPerm(func() ([]teamspeak.PermissionEntry, error) {
-						return c.ListClientPermissions(ctx, dbid)
+						return c.ListClientPermissions(ctx, dbid, teamspeak.PermissionListOptions{})
 					})
 
 					return teamspeak.IconID(uint32(v)), ok

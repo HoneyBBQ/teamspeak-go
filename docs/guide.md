@@ -189,11 +189,11 @@ A whisper goes to the targets you name instead of to the channel.
 err := c.SendWhisper(frame, client.WhisperTargets{
 	Clients:  []teamspeak.ClientID{clid},
 	Channels: []teamspeak.ChannelID{cid},
-}, teamspeak.CodecOpusVoice)
+}, teamspeak.CodecOpusVoice, client.VoiceOptions{})
 
 // To a group.
 target := client.WhisperToServerGroup(client.GroupWhisperAllChannels, sgid)
-err = c.SendGroupWhisper(frame, target, teamspeak.CodecOpusVoice)
+err = c.SendGroupWhisper(frame, target, teamspeak.CodecOpusVoice, client.VoiceOptions{})
 ```
 
 - `SendWhisper` takes `WhisperTargets{Clients, Channels}`. It returns
@@ -309,7 +309,7 @@ err = c.AddChannelPermission(ctx, cid, teamspeak.PermissionByName(perm.ChannelNe
 // asked; a name the server does not know refuses all of them with 2562.
 own, err := c.GetOwnPermissions(ctx, []teamspeak.Permission{
 	teamspeak.PermissionByName(perm.ClientBanList), teamspeak.PermissionByName(perm.ChannelNeededJoinPower),
-})
+}, teamspeak.OwnPermissionOptions{})
 
 // 0 bans permanently; anything else is sent in whole seconds. The server bans
 // the client's uid and IP (and MyTeamSpeak id); over the voice protocol it
@@ -408,7 +408,8 @@ S3-compatible storage and names `s3` among its extensions
 (`c.ServerCapabilities().HasExtension(teamspeak.ServerExtensionS3)`). The client asks the server for a
 presigned URL over the voice connection and moves the bytes with a plain HTTPS
 request to the storage; nothing goes through the file transfer port, and the
-classic file commands above still reach a separate store. Measured on
+classic file commands above still reach a separate store. TeamSpeak does not
+document these commands, so the S3 API is marked `Experimental:`. Measured on
 TeamSpeak 6 6.0.0-beta13.1.
 
 | Method | Description |
@@ -419,8 +420,8 @@ TeamSpeak 6 6.0.0-beta13.1.
 | `DeleteS3File(ctx, cid, path, S3FileOptions)` / `DeleteS3Files(ctx, cid, paths, S3FileOptions)` | Delete one file, or several in one command; a file that is not there is deleted without an error |
 | `RenameS3File(ctx, cid, oldPath, newPath, S3FileOptions)` / `RenameS3Files(ctx, cid, []S3FileRename, S3FileOptions)` | Rename or move files within the channel |
 | `InitS3FileUpload(ctx, cid, path, size, S3FileOptions)` / `InitS3FileDownload(ctx, cid, path, S3FileOptions)` | Ask for a presigned URL |
-| `client.UploadS3FileData(ctx, info, reader, S3TransferOptions)` / `client.DownloadS3FileData(ctx, info, writer, S3DownloadOptions)` | Move the bytes to or from the storage, for a stream |
-| `CompleteS3FileUpload(ctx, info, S3FileOptions)` | Tell the server an upload is stored, so it lists the file |
+| `client.UploadS3FileData(ctx, info, reader, S3TransferOptions)` / `client.DownloadS3FileData(ctx, info, writer, S3DownloadOptions)` | Move the bytes to or from the storage, for a stream (`UploadS3FileData` returns `S3UploadResult`) |
+| `CompleteS3FileUpload(ctx, info, CompleteS3UploadOptions)` | Tell the server an upload is stored, so it lists the file |
 
 ```go
 err := c.UploadS3File(ctx, cid, "/docs/notes.txt", data, client.UploadS3FileOptions{})
@@ -478,8 +479,8 @@ stores.
 |---|---|
 | `UploadS3Avatar(ctx, data, S3TransferOptions)` | Upload under the own avatar name, tell the server it is done, set `client_flag_avatar`; returns the MD5 |
 | `DownloadS3Avatar(ctx, uid, S3TransferOptions)` | The avatar's bytes; false when the storage has none (404) |
-| `RemoveS3Avatar(ctx)` | Delete the own avatar file and empty the flag |
-| `UploadS3Icon(ctx, data, S3TransferOptions)` / `DownloadS3Icon(ctx, id, S3TransferOptions)` / `DeleteS3Icon(ctx, id)` | The icon file `/icon_<id>` in channel 0, `id` being `teamspeak.IconIDOf(data)` |
+| `RemoveS3Avatar(ctx, S3RemoveOptions)` | Delete the own avatar file and empty the flag |
+| `UploadS3Icon(ctx, data, S3TransferOptions)` / `DownloadS3Icon(ctx, id, S3TransferOptions)` / `RemoveS3Icon(ctx, id, S3RemoveOptions)` | The icon file `/icon_<id>` in channel 0, `id` being `teamspeak.IconIDOf(data)` |
 
 An avatar over `i_client_max_avatar_filesize` (200000 bytes by default,
 inclusive) and an icon over `i_max_icon_filesize` (8192 for a Server Admin), or

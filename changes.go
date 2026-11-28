@@ -19,6 +19,8 @@ import (
 // ChannelID (a move arrives as ClientMovedEvent), Created, LastConnected and
 // IdleTime are never set by it, though Apply honours them.
 type ClientChanges struct {
+	_ [0]func()
+
 	// Created is the new ClientEntry.Created.
 	Created *time.Time
 	// LastConnected is the new ClientEntry.LastConnected.
@@ -171,6 +173,8 @@ func (c ClientChanges) Apply(e ClientEntry) ClientEntry {
 // Channel, apart from ID, under the same names, with the optional ones of
 // Channel (TotalClients and the like) as plain pointers here as well.
 type ChannelChanges struct {
+	_ [0]func()
+
 	// UID is the new Channel.UID.
 	UID *ChannelUID
 	// Name is the new Channel.Name.

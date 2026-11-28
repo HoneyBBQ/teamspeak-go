@@ -93,7 +93,8 @@ func TestSendsWithoutAConnectionReturnErrNotConnected(t *testing.T) {
 	if !errors.Is(err, teamspeak.ErrNotConnected) {
 		t.Errorf("SendVoice = %v, want ErrNotConnected", err)
 	}
-	err = c.SendWhisper([]byte{1}, WhisperTargets{Clients: []teamspeak.ClientID{1}}, teamspeak.CodecOpusVoice)
+	err = c.SendWhisper(
+		[]byte{1}, WhisperTargets{Clients: []teamspeak.ClientID{1}}, teamspeak.CodecOpusVoice, VoiceOptions{})
 	if !errors.Is(err, teamspeak.ErrNotConnected) {
 		t.Errorf("SendWhisper = %v, want ErrNotConnected", err)
 	}
@@ -141,7 +142,8 @@ func TestSendsWhileConnectingReturnErrNotConnected(t *testing.T) {
 
 	checks := map[string]error{
 		"SendVoice":   c.SendVoice([]byte{1}, teamspeak.CodecOpusVoice, VoiceOptions{}),
-		"SendWhisper": c.SendWhisper([]byte{1}, WhisperTargets{Clients: []teamspeak.ClientID{1}}, teamspeak.CodecOpusVoice),
+		"SendWhisper": c.SendWhisper(
+			[]byte{1}, WhisperTargets{Clients: []teamspeak.ClientID{1}}, teamspeak.CodecOpusVoice, VoiceOptions{}),
 		"ExecNoWait":  c.ExecNoWait(t.Context(), "clientupdate"),
 	}
 	_, checks["Exec"] = c.Exec(t.Context(), "whoami")

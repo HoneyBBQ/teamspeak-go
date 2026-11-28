@@ -19,6 +19,8 @@ import (
 
 // Channel is a channel as channellist or channelinfo reports it.
 type Channel struct {
+	_ [0]func()
+
 	// UID is the channel's unique identifier (channel_unique_identifier),
 	// which the server assigns once; empty when the server does not send it.
 	// channellist does not, so ListChannels leaves it empty.
@@ -445,8 +447,7 @@ type ChannelListOptions struct{}
 // for -topic -flags -voice -limits -icon, without which the server answers
 // only the id, parent, order, name, client count and subscribe power. It asks
 // for -secondsempty and -banners too: -banners brings the channel's banner into
-// BannerURL and BannerMode, and -secondsempty adds seconds_empty to each row,
-// which Channel has no field for yet.
+// BannerURL and BannerMode, and -secondsempty brings EmptyFor.
 //
 // Description and UID are not part of channellist and stay empty; use
 // GetChannelInfo, or the voice client's GetChannelDescription, for them.
@@ -553,7 +554,9 @@ func (c *Commands) DeleteChannelPermission(ctx context.Context, cid ChannelID, p
 }
 
 // ListChannelPermissions returns permissions set directly on a channel.
-func (c *Commands) ListChannelPermissions(ctx context.Context, cid ChannelID) ([]PermissionEntry, error) {
+func (c *Commands) ListChannelPermissions(
+	ctx context.Context, cid ChannelID, _ PermissionListOptions,
+) ([]PermissionEntry, error) {
 	rows, err := c.list(ctx, "channelpermlist", []param{idArg("cid", cid)})
 	if err != nil {
 		return nil, err
@@ -570,7 +573,7 @@ func (c *Commands) ListChannelPermissions(ctx context.Context, cid ChannelID) ([
 // ListChannelClientPermissions returns permissions granted to one client within
 // one channel.
 func (c *Commands) ListChannelClientPermissions(
-	ctx context.Context, cid ChannelID, clientDBID ClientDBID,
+	ctx context.Context, cid ChannelID, clientDBID ClientDBID, _ PermissionListOptions,
 ) ([]PermissionEntry, error) {
 	rows, err := c.list(ctx, "channelclientpermlist", []param{
 		idArg("cid", cid),

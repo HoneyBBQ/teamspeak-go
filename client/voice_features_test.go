@@ -108,12 +108,13 @@ func TestSendGroupWhisper_RefusesATargetThatIsNotAConstruction(t *testing.T) {
 		"zero value":    {},
 		"unknown scope": WhisperToAllClients(GroupWhisperScope(7)),
 	} {
-		err := c.SendGroupWhisper([]byte{1}, target, teamspeak.CodecOpusVoice)
+		err := c.SendGroupWhisper([]byte{1}, target, teamspeak.CodecOpusVoice, VoiceOptions{})
 		if !errors.Is(err, ErrInvalidWhisperTarget) {
 			t.Errorf("%s: err = %v, want ErrInvalidWhisperTarget", name, err)
 		}
 	}
-	err := c.SendGroupWhisper([]byte{1}, WhisperToServerGroup(GroupWhisperCurrentChannel, 6), teamspeak.CodecOpusVoice)
+	err := c.SendGroupWhisper(
+		[]byte{1}, WhisperToServerGroup(GroupWhisperCurrentChannel, 6), teamspeak.CodecOpusVoice, VoiceOptions{})
 	if err != nil {
 		t.Errorf("a valid target: %v", err)
 	}
@@ -145,7 +146,7 @@ func TestGroupWhisperConstructors(t *testing.T) {
 func TestSendWhisper_ChannelsAndLimits(t *testing.T) {
 	c := newTestClient(t)
 	send := func(targets WhisperTargets) error {
-		return c.SendWhisper([]byte{1}, targets, teamspeak.CodecOpusVoice)
+		return c.SendWhisper([]byte{1}, targets, teamspeak.CodecOpusVoice, VoiceOptions{})
 	}
 	err := send(WhisperTargets{})
 	if !errors.Is(err, ErrNoWhisperTargets) {

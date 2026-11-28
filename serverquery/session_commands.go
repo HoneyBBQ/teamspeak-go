@@ -190,7 +190,7 @@ func (c *Client) learnServer(ctx context.Context, eng *engine.Client) error {
 		return nil
 	}
 	if listClients {
-		c.readClientList(ctx, eng)
+		return c.readClientList(ctx, eng)
 	}
 
 	return nil
@@ -257,9 +257,8 @@ func (c *Client) RegisterNotifications(ctx context.Context, category Category, o
 	if err != nil {
 		return err
 	}
-	c.readClientList(ctx, eng)
 
-	return nil
+	return c.readClientList(ctx, eng)
 }
 
 // UnregisterNotificationsOptions are UnregisterNotifications' optional

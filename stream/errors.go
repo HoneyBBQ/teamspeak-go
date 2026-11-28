@@ -12,15 +12,23 @@ import (
 var (
 	// ErrClosed is returned by a call on a Streams after Close, and by a call on
 	// a peer after it closed.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	ErrClosed = errors.New("stream: closed")
 	// ErrNotPending is returned by JoinRequest.Accept and Deny for a request
 	// that was answered already or is no longer waiting for an answer.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	ErrNotPending = errors.New("stream: the join request is not pending")
 	// ErrAlreadyWatching is returned by Watch for a stream this Streams is
 	// already watching or asking to watch.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	ErrAlreadyWatching = errors.New("stream: already watching the stream")
 	// ErrInvalidOptions is returned for an option that is out of range, such as
 	// a bitrate below zero or a source the protocol has no number for.
+	//
+	// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 	ErrInvalidOptions = errors.New("stream: invalid options")
 )
 
@@ -36,6 +44,8 @@ var (
 // stream commands, not even with an error, so Publish and Watch return this
 // before sending instead of waiting out a timeout. Before the client has
 // connected no server has named any, and it counts as unsupported the same way.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type UnsupportedError struct {
 	// Version is the virtualserver_version the server sent; empty before the
 	// client has connected.
@@ -48,6 +58,8 @@ type UnsupportedError struct {
 }
 
 // Error describes the server and the extensions it named.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (e *UnsupportedError) Error() string {
 	what := "an unknown server"
 	if e.Family != client.ServerFamilyUnknown {
@@ -69,6 +81,8 @@ func (e *UnsupportedError) Error() string {
 // way this package carries it: the signalling here is for peer to peer
 // streams, and the server reported another transport for this one. Watch
 // returns it before sending anything.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type TransportUnsupportedError struct {
 	// StreamID is the stream that was asked for.
 	StreamID ID
@@ -77,6 +91,8 @@ type TransportUnsupportedError struct {
 }
 
 // Error names the stream and its transport.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (e *TransportUnsupportedError) Error() string {
 	return fmt.Sprintf("stream: stream %s uses transport %s; only %s streams can be watched",
 		e.StreamID, e.Transport, TransportP2P)
@@ -88,6 +104,8 @@ func (e *TransportUnsupportedError) Error() string {
 // The server remembers no decision, so a client can ask again, and every ask is
 // relayed to the publisher. A publisher that means to refuse for good can set
 // Options.RememberDenied, or leave the request unanswered.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type JoinDeniedError struct {
 	// StreamID is the stream that was asked for.
 	StreamID ID
@@ -96,6 +114,8 @@ type JoinDeniedError struct {
 }
 
 // Error quotes the owner's message, if it gave one.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (e *JoinDeniedError) Error() string {
 	msg := "stream: the stream's owner denied the request to watch it"
 	if e.Message != "" {
@@ -110,6 +130,8 @@ func (e *JoinDeniedError) Error() string {
 // answer, so the call fails before sending instead of timing out; Limit has
 // the figure this package holds to. An SDP offer of a few kilobytes is far
 // under it.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type PayloadTooLargeError struct {
 	// Command is the command that would have been sent.
 	Command string
@@ -120,6 +142,8 @@ type PayloadTooLargeError struct {
 }
 
 // Error says how long the line is.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (e *PayloadTooLargeError) Error() string {
 	return fmt.Sprintf("stream: %s is %d bytes escaped; the server takes at most %d", e.Command, e.Size, e.Limit)
 }
@@ -131,6 +155,8 @@ func (e *PayloadTooLargeError) Error() string {
 //
 // When the server refused with 5635, Unwrap gives that *teamspeak.ServerError,
 // so errors.Is(err, errcode.StreamNotFound) holds too.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type EndedError struct {
 	err error
 	// StreamID is the stream that ended.
@@ -138,11 +164,15 @@ type EndedError struct {
 }
 
 // Error names the stream.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (e *EndedError) Error() string {
 	return fmt.Sprintf("stream: stream %s has ended, or is not known", e.StreamID)
 }
 
 // Unwrap returns the server's refusal, when there was one.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (e *EndedError) Unwrap() error { return e.err }
 
 // isGone reports whether err says the connection is not there to send on.

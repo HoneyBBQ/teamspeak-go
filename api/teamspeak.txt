@@ -86,7 +86,6 @@ var ErrFileTransfer error
 var ErrInvalidBackoff error
 var ErrInvalidCommand error
 var ErrInvalidUID error
-var ErrMissingDependency error
 var ErrNoData error
 var ErrNotConnected error
 var ErrServer error
@@ -460,7 +459,8 @@ type ClientChatComposingEvent struct
 field ClientChatComposingEvent.UID UID
 field ClientChatComposingEvent.ClientID ClientID
 type ClientConnectionInfo struct
-field ClientConnectionInfo.IP string
+field ClientConnectionInfo.IP *string
+field ClientConnectionInfo.Port *uint16
 field ClientConnectionInfo.Sent ConnectionTrafficByClass
 field ClientConnectionInfo.Received ConnectionTrafficByClass
 field ClientConnectionInfo.ServerToClientLoss PacketLoss
@@ -472,7 +472,6 @@ field ClientConnectionInfo.IdleTime time.Duration
 field ClientConnectionInfo.FileTransferBandwidthSent uint64
 field ClientConnectionInfo.FileTransferBandwidthReceived uint64
 field ClientConnectionInfo.ID ClientID
-field ClientConnectionInfo.Port uint16
 type ClientDBID uint64
 type ClientDatabaseEditOptions struct
 field ClientDatabaseEditOptions.Description *string
@@ -740,10 +739,10 @@ method (*Commands) GetFileInfo(ctx context.Context, channelID ChannelID, path st
 method (*Commands) GetHostInfo(ctx context.Context) (Properties, error)
 method (*Commands) GetInstanceInfo(ctx context.Context) (Properties, error)
 method (*Commands) GetMessage(ctx context.Context, messageID MessageID) (OfflineMessage, error)
-method (*Commands) GetOwnPermission(ctx context.Context, perm Permission) (OwnPermission, error)
-method (*Commands) GetOwnPermissions(ctx context.Context, perms []Permission) ([]OwnPermission, error)
+method (*Commands) GetOwnPermission(ctx context.Context, perm Permission, _ OwnPermissionOptions) (OwnPermission, error)
+method (*Commands) GetOwnPermissions(ctx context.Context, perms []Permission, _ OwnPermissionOptions) ([]OwnPermission, error)
 method (*Commands) GetPermissionIDByName(ctx context.Context, name string) (PermissionID, bool, error)
-method (*Commands) GetPermissionOverview(ctx context.Context, channelID ChannelID, clientDBID ClientDBID) ([]PermissionOverviewEntry, error)
+method (*Commands) GetPermissionOverview(ctx context.Context, channelID ChannelID, clientDBID ClientDBID, _ PermissionOverviewOptions) ([]PermissionOverviewEntry, error)
 method (*Commands) GetServerGroupsByClient(ctx context.Context, clientDBID ClientDBID) ([]ServerGroupRef, error)
 method (*Commands) GetServerIDByPort(ctx context.Context, port uint16) (ServerID, error)
 method (*Commands) GetServerInfo(ctx context.Context) (Properties, error)
@@ -757,14 +756,14 @@ method (*Commands) ListAPIKeys(ctx context.Context, opts APIKeyListOptions) ([]A
 method (*Commands) ListActiveTransfers(ctx context.Context) ([]ActiveTransfer, error)
 method (*Commands) ListBans(ctx context.Context, opts BanListOptions) ([]BanEntry, error)
 method (*Commands) ListBindings(ctx context.Context, opts BindingListOptions) ([]Binding, error)
-method (*Commands) ListChannelClientPermissions(ctx context.Context, cid ChannelID, clientDBID ClientDBID) ([]PermissionEntry, error)
+method (*Commands) ListChannelClientPermissions(ctx context.Context, cid ChannelID, clientDBID ClientDBID, _ PermissionListOptions) ([]PermissionEntry, error)
 method (*Commands) ListChannelGroupClients(ctx context.Context, opts ChannelGroupClientListOptions) ([]ChannelGroupMembership, error)
-method (*Commands) ListChannelGroupPermissions(ctx context.Context, channelGroupID ChannelGroupID) ([]PermissionEntry, error)
+method (*Commands) ListChannelGroupPermissions(ctx context.Context, channelGroupID ChannelGroupID, _ PermissionListOptions) ([]PermissionEntry, error)
 method (*Commands) ListChannelGroups(ctx context.Context, _ ChannelGroupListOptions) ([]ChannelGroup, error)
-method (*Commands) ListChannelPermissions(ctx context.Context, cid ChannelID) ([]PermissionEntry, error)
+method (*Commands) ListChannelPermissions(ctx context.Context, cid ChannelID, _ PermissionListOptions) ([]PermissionEntry, error)
 method (*Commands) ListChannels(ctx context.Context, _ ChannelListOptions) ([]Channel, error)
 method (*Commands) ListClientDatabase(ctx context.Context, opts ClientDatabasePageOptions) ([]ClientDatabaseEntry, error)
-method (*Commands) ListClientPermissions(ctx context.Context, clientDBID ClientDBID) ([]PermissionEntry, error)
+method (*Commands) ListClientPermissions(ctx context.Context, clientDBID ClientDBID, _ PermissionListOptions) ([]PermissionEntry, error)
 method (*Commands) ListClients(ctx context.Context, options ClientListOptions) ([]ClientEntry, error)
 method (*Commands) ListComplaints(ctx context.Context, opts ComplaintListOptions) ([]Complaint, error)
 method (*Commands) ListCustomProperties(ctx context.Context, clientDBID ClientDBID) ([]CustomProperty, error)
@@ -775,7 +774,7 @@ method (*Commands) ListPermissions(ctx context.Context) ([]PermissionInfo, error
 method (*Commands) ListPrivilegeKeys(ctx context.Context) ([]PrivilegeKey, error)
 method (*Commands) ListQueryLogins(ctx context.Context, opts QueryLoginListOptions) ([]QueryLogin, error)
 method (*Commands) ListServerGroupClients(ctx context.Context, serverGroupID ServerGroupID, opts ServerGroupClientListOptions) ([]ServerGroupMember, error)
-method (*Commands) ListServerGroupPermissions(ctx context.Context, serverGroupID ServerGroupID) ([]PermissionEntry, error)
+method (*Commands) ListServerGroupPermissions(ctx context.Context, serverGroupID ServerGroupID, _ PermissionListOptions) ([]PermissionEntry, error)
 method (*Commands) ListServerGroups(ctx context.Context, _ ServerGroupListOptions) ([]ServerGroup, error)
 method (*Commands) ListServers(ctx context.Context, opts ServerListOptions) ([]VirtualServer, error)
 method (*Commands) ListTempPasswords(ctx context.Context) ([]TempPassword, error)
@@ -987,6 +986,7 @@ type OwnPermission struct
 field OwnPermission.Name string
 field OwnPermission.ID PermissionID
 field OwnPermission.Value int32
+type OwnPermissionOptions struct
 type PacketLoss struct
 field PacketLoss.Speech float32
 field PacketLoss.Keepalive float32
@@ -1011,6 +1011,7 @@ type PermissionInfo struct
 field PermissionInfo.Name string
 field PermissionInfo.Description string
 field PermissionInfo.ID PermissionID
+type PermissionListOptions struct
 type PermissionLocation struct
 field PermissionLocation.ServerGroupID ServerGroupID
 field PermissionLocation.DatabaseID ClientDBID
@@ -1025,6 +1026,7 @@ embed PermissionOverviewEntry PermissionLocation
 field PermissionOverviewEntry.Value int32
 field PermissionOverviewEntry.Negated bool
 field PermissionOverviewEntry.Skip bool
+type PermissionOverviewOptions struct
 type PermissionTarget int
 method (PermissionTarget) String() string
 type PluginCommandEvent struct
@@ -1086,6 +1088,7 @@ field RecursiveFilesOptions.Password string
 field RecursiveFilesOptions.MaxDepth int
 type Request struct
 method (Request) Command() string
+method (Request) Encode(encodePassword func(password string) string) string
 method (Request) GoString() string
 method (Request) LogValue() slog.Value
 method (Request) String() string
@@ -1220,21 +1223,21 @@ field UploadFileOptions.Password string
 field UploadFileOptions.Overwrite bool
 field UploadFileOptions.Resume bool
 type VirtualServer struct
-field VirtualServer.Name string
-field VirtualServer.Status VirtualServerStatus
-field VirtualServer.UID string
-field VirtualServer.MachineID string
-field VirtualServer.Uptime time.Duration
-field VirtualServer.ID ServerID
-field VirtualServer.ClientsOnline int32
-field VirtualServer.QueryClientsOnline int32
-field VirtualServer.MaxClients int32
-field VirtualServer.Port uint16
-field VirtualServer.Autostart bool
-field VirtualServer.UUID string
+field VirtualServer.Name *string
+field VirtualServer.UID *string
+field VirtualServer.MachineID *string
+field VirtualServer.UUID *string
+field VirtualServer.Uptime *time.Duration
+field VirtualServer.ClientsOnline *int32
+field VirtualServer.QueryClientsOnline *int32
+field VirtualServer.MaxClients *int32
+field VirtualServer.Autostart *bool
 field VirtualServer.GuestCanCreateChannels *bool
 field VirtualServer.GuestCanCreateHomebase *bool
 field VirtualServer.WeblistEnabled *bool
+field VirtualServer.Status VirtualServerStatus
+field VirtualServer.ID ServerID
+field VirtualServer.Port uint16
 type VirtualServerStatus string
 type WhoAmI struct
 field WhoAmI.ServerStatus VirtualServerStatus

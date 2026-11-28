@@ -175,64 +175,124 @@ type connectKind struct {
 	fromCaller bool
 }
 
-// connect runs one connection attempt.
-func (c *Client) connect(ctx context.Context, kind connectKind) error {
+// attemptState holds the snapshot beginAttempt takes for one connection attempt.
+type attemptState struct {
+	dialer     Dialer
+	logger     *slog.Logger
+	server     *serverTarget
+	nickname   string
+	categories []Category
+	gen        uint64
+}
+
+func (c *Client) beginAttempt(cancel context.CancelFunc, fromCaller bool) (attemptState, error) {
 	c.mu.Lock()
 	if c.status != teamspeak.StatusDisconnected {
 		c.mu.Unlock()
 
-		return teamspeak.ErrAlreadyConnected
+		return attemptState{}, teamspeak.ErrAlreadyConnected
 	}
-	if kind.fromCaller {
+	if fromCaller {
 		// A caller's Connect undoes an earlier Disconnect and takes the slot
 		// back from a retry loop waiting out its delay.
 		c.setStoppedLocked(false)
 	} else if c.stopped {
 		c.mu.Unlock()
 
-		return errStopped
+		return attemptState{}, errStopped
 	}
+	c.gen++
+	c.attemptCancel = cancel
+	c.attemptEngine = nil
 	c.status = teamspeak.StatusConnecting
-	dialer, logger := c.dialer, c.logger
-	server, nickname := c.server, c.nickname
-	categories := c.categories
+	state := attemptState{
+		dialer:     c.dialer,
+		logger:     c.logger,
+		server:     c.server,
+		nickname:   c.nickname,
+		categories: c.categories,
+		gen:        c.gen,
+	}
 	c.mu.Unlock()
+
+	return state, nil
+}
+
+// connect runs one connection attempt.
+func (c *Client) connect(ctx context.Context, kind connectKind) error {
+	if kind.fromCaller {
+		err := ctx.Err()
+		if err != nil {
+			return err
+		}
+	}
+	attemptCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	state, err := c.beginAttempt(cancel, kind.fromCaller)
+	if err != nil {
+		return err
+	}
 
 	// A transport that cannot deliver notifications is not asked for them: the
 	// server refuses the command there (WebQuery answers 5120, "out of scope"),
 	// which would fail a connect that has no use for events in the first place.
-	if !dialer.SupportsNotifications() {
+	categories := state.categories
+	if !state.dialer.SupportsNotifications() {
 		categories = nil
 	}
 
-	logger.InfoContext(ctx, "connecting",
-		slog.String("transport", dialer.String()), slog.Bool("reconnect", !kind.fromCaller))
+	state.logger.InfoContext(attemptCtx, "connecting",
+		slog.String("transport", state.dialer.String()), slog.Bool("reconnect", !kind.fromCaller))
 
-	eng, err := c.open(ctx, dialer)
+	eng, err := c.open(attemptCtx, state.dialer, state.gen)
 	if err != nil {
-		return c.failAttempt(dialer, err, !kind.fromCaller)
+		return c.failAttempt(ctx, state.dialer, err, state.gen, !kind.fromCaller)
 	}
 
-	err = c.handshake(ctx, eng, handshakeOptions{
-		login:      dialer.credentials(),
-		server:     server,
-		nickname:   nickname,
+	err = c.handshake(attemptCtx, eng, state.gen, handshakeOptions{
+		login:      state.dialer.credentials(),
+		server:     state.server,
+		nickname:   state.nickname,
 		categories: categories,
 	})
 	if err != nil {
 		_ = eng.Close()
 
-		return c.failAttempt(dialer, err, !kind.fromCaller)
+		return c.failAttempt(ctx, state.dialer, err, state.gen, !kind.fromCaller)
 	}
 
+	return c.completeAttempt(ctx, state.gen, eng, kind.fromCaller)
+}
+
+func (c *Client) completeAttempt(callerCtx context.Context, gen uint64, eng *engine.Client, fromCaller bool) error {
 	c.mu.Lock()
+	if c.gen != gen || c.stopped || c.status != teamspeak.StatusConnecting {
+		c.mu.Unlock()
+		_ = eng.Close()
+
+		return abortedAttemptErr(callerCtx, !fromCaller)
+	}
+	c.attemptCancel = nil
+	c.attemptEngine = nil
 	c.engine = eng
 	c.status = teamspeak.StatusConnected
 	c.mu.Unlock()
 
-	emit(c, &c.onConnected, "Connected", teamspeak.ConnectedEvent{Reconnected: !kind.fromCaller})
+	emit(c, &c.onConnected, "Connected", teamspeak.ConnectedEvent{Reconnected: !fromCaller})
 
 	return nil
+}
+
+func abortedAttemptErr(callerCtx context.Context, reconnect bool) error {
+	if reconnect {
+		return errStopped
+	}
+	if callerCtx.Err() != nil {
+		return callerCtx.Err()
+	}
+
+	return teamspeak.ErrNotConnected
 }
 
 // guestRefusal says so when a guest connection failed because the server offers
@@ -256,10 +316,15 @@ func guestRefusal(dialer Dialer, err error) error {
 
 // failAttempt ends a failed connection attempt and returns the error to report,
 // which says so when the failure was a guest connection with nothing to be a
-// guest of.
-func (c *Client) failAttempt(dialer Dialer, err error, reconnect bool) error {
+// guest of. If Disconnect ended the attempt first, it returns the Disconnect's
+// cancellation outcome instead.
+func (c *Client) failAttempt(
+	callerCtx context.Context, dialer Dialer, err error, gen uint64, reconnect bool,
+) error {
 	err = guestRefusal(dialer, err)
-	c.finishAttempt(err, reconnect)
+	if !c.finishAttempt(gen, err, reconnect) {
+		return abortedAttemptErr(callerCtx, reconnect)
+	}
 
 	return err
 }
@@ -297,7 +362,7 @@ type handshakeOptions struct {
 }
 
 // open dials and wires a fresh engine to this client.
-func (c *Client) open(ctx context.Context, dialer Dialer) (*engine.Client, error) {
+func (c *Client) open(ctx context.Context, dialer Dialer, gen uint64) (*engine.Client, error) {
 	transport, err := dialer.open(ctx)
 	if err != nil {
 		return nil, err
@@ -305,10 +370,18 @@ func (c *Client) open(ctx context.Context, dialer Dialer) (*engine.Client, error
 
 	eng := engine.New(transport, c.lineMiddlewares...)
 	eng.OnNotification = c.handleNotification
-	eng.OnClosed = c.handleClosed
+	// OnClosed runs from the reader goroutine after open's caller context has ended.
+	eng.OnClosed = func(cause error) { c.handleClosed(eng, cause) } //nolint:contextcheck // see above
 
 	c.mu.Lock()
+	if c.gen != gen || c.stopped || c.status != teamspeak.StatusConnecting {
+		c.mu.Unlock()
+		_ = eng.Close()
+
+		return nil, teamspeak.ErrNotConnected
+	}
 	c.transport = transport
+	c.attemptEngine = eng
 	c.mu.Unlock()
 
 	return eng, nil
@@ -317,9 +390,9 @@ func (c *Client) open(ctx context.Context, dialer Dialer) (*engine.Client, error
 // handshake runs everything a query session needs once the transport is open,
 // in the order the server requires: the login, then the server, then the
 // nickname — which the server refuses before a server is selected — then the
-// version, the client list the events draw their extra fields from, and the
-// notification categories.
-func (c *Client) handshake(ctx context.Context, eng *engine.Client, opts handshakeOptions) error {
+// version, the notification categories, and the client list the events draw
+// their extra fields from.
+func (c *Client) handshake(ctx context.Context, eng *engine.Client, gen uint64, opts handshakeOptions) error {
 	err := c.authenticate(ctx, eng, opts)
 	if err != nil {
 		return err
@@ -354,9 +427,11 @@ func (c *Client) handshake(ctx context.Context, eng *engine.Client, opts handsha
 	}
 
 	c.mu.Lock()
-	c.eventsPending = pending
-	c.family = family
-	c.version = version
+	if c.gen == gen {
+		c.eventsPending = pending
+		c.family = family
+		c.version = version
+	}
 	c.mu.Unlock()
 
 	return nil
@@ -411,7 +486,7 @@ func (c *Client) registerCategories(ctx context.Context, eng *engine.Client, cat
 		}
 	}
 	if len(categories) > 0 {
-		c.readClientList(ctx, eng)
+		return c.readClientList(ctx, eng)
 	}
 
 	return nil
@@ -457,7 +532,9 @@ func (c *Client) readSelf(ctx context.Context, eng *engine.Client) error {
 	}
 
 	c.mu.Lock()
-	c.selfID = servernotify.ParseClientID(rows[0]["client_id"])
+	if c.engine == eng || c.attemptEngine == eng {
+		c.selfID = servernotify.ParseClientID(rows[0]["client_id"])
+	}
 	c.mu.Unlock()
 
 	return nil
@@ -487,16 +564,21 @@ func (c *Client) registerCategory(ctx context.Context, eng *engine.Client, categ
 // flag and the mute state are as of the listing and do not follow later
 // changes.
 //
-// Failing to read it is not fatal: the session works, and a missing group list
-// only leaves a field empty.
-func (c *Client) readClientList(ctx context.Context, eng *engine.Client) {
+// A server refusal (such as missing b_virtualserver_client_list) is logged and
+// ignored: the session works, and a missing group list only leaves a field
+// empty. A lost connection or cancelled context fails the caller.
+func (c *Client) readClientList(ctx context.Context, eng *engine.Client) error {
 	rows, err := eng.Exec(ctx, wire.BuildCommandOrdered("clientlist",
 		[][2]string{{"-uid", ""}, {"-groups", ""}, {"-away", ""}, {"-voice", ""}}))
 	if err != nil {
-		c.logger.WarnContext(ctx, "could not read the client list, so event fields it fills will be empty",
-			slog.Any("error", err))
+		if errors.Is(err, teamspeak.ErrServer) {
+			c.logger.WarnContext(ctx, "could not read the client list, so event fields it fills will be empty",
+				slog.Any("error", err))
 
-		return
+			return nil
+		}
+
+		return fmt.Errorf("clientlist: %w", err)
 	}
 
 	clients := make(map[teamspeak.ClientID]teamspeak.ClientEntry, len(rows))
@@ -509,24 +591,27 @@ func (c *Client) readClientList(ctx context.Context, eng *engine.Client) {
 	}
 
 	c.mu.Lock()
-	c.clients = clients
+	if c.engine == eng || c.attemptEngine == eng {
+		c.clients = clients
+	}
 	c.mu.Unlock()
+
+	return nil
 }
 
 // finishAttempt puts the client back to disconnected after a failed Connect
-// and reports the cause. A deliberate Disconnect is reported as such rather
-// than as a failure.
-func (c *Client) finishAttempt(err error, reconnect bool) {
+// and reports the cause. It returns false when Disconnect ended or superseded
+// the attempt first.
+func (c *Client) finishAttempt(gen uint64, err error, reconnect bool) bool {
 	c.mu.Lock()
-	if c.stopped {
-		// A Disconnect landed during the attempt; its own event is the one to
-		// report.
+	if c.gen != gen || c.stopped {
+		// A Disconnect landed during the attempt; its own state stands.
 		c.mu.Unlock()
 
-		return
+		return false
 	}
 	c.status = teamspeak.StatusDisconnected
-	c.engine, c.transport = nil, nil
+	c.engine, c.attemptEngine, c.attemptCancel, c.transport = nil, nil, nil, nil
 	c.mu.Unlock()
 
 	c.logger.Debug("connection attempt failed", slog.Any("error", err))
@@ -536,21 +621,16 @@ func (c *Client) finishAttempt(err error, reconnect bool) {
 		Err:           err,
 		WillReconnect: reconnect && c.willRetry(err, c.nextAttempt()),
 	})
+
+	return true
 }
 
 // handleClosed runs when the connection ends on its own. A close this client
 // asked for is Disconnect's to report; a close it did not is an outage, which
 // the reconnect loop may retry.
-func (c *Client) handleClosed(cause error) {
+func (c *Client) handleClosed(eng *engine.Client, cause error) {
 	c.mu.Lock()
-	if c.stopped || c.status == teamspeak.StatusDisconnected {
-		c.mu.Unlock()
-
-		return
-	}
-	if c.status == teamspeak.StatusConnecting {
-		// The transport died mid-handshake: the attempt is failing, and
-		// Connect reports it.
+	if c.stopped || c.status != teamspeak.StatusConnected || (eng != nil && c.engine != eng) {
 		c.mu.Unlock()
 
 		return
@@ -578,19 +658,34 @@ func (c *Client) handleClosed(cause error) {
 //
 // A clean session is told to quit first, where the transport has a session to
 // end; WebQuery has none. Disconnect on a client that is not connected does
-// nothing. A running reconnect loop is stopped: a deliberate Disconnect is
-// never undone by a retry.
+// nothing; called while Connect is still in progress, it cancels the attempt
+// and closes its transport so Connect returns teamspeak.ErrNotConnected. A
+// running reconnect loop is stopped: a deliberate Disconnect is never undone by
+// a retry.
 //
 // Experimental: this package may change in a minor release.
 func (c *Client) Disconnect(ctx context.Context) error {
 	c.mu.Lock()
+	c.gen++
 	c.setStoppedLocked(true)
 	status := c.status
 	eng := c.engine
+	attemptEng := c.attemptEngine
+	attemptCancel := c.attemptCancel
 	c.status = teamspeak.StatusDisconnected
-	c.engine = nil
+	c.engine, c.attemptEngine, c.attemptCancel, c.transport = nil, nil, nil, nil
 	c.mu.Unlock()
 
+	if attemptCancel != nil {
+		attemptCancel()
+	}
+	if status == teamspeak.StatusConnecting {
+		if attemptEng != nil {
+			_ = attemptEng.Close()
+		}
+
+		return nil
+	}
 	if status == teamspeak.StatusDisconnected || eng == nil {
 		return nil
 	}

@@ -45,6 +45,9 @@ func filled[T any](t *testing.T) T {
 	var v T
 	rv := reflect.ValueOf(&v).Elem()
 	for i := range rv.NumField() {
+		if !rv.Type().Field(i).IsExported() {
+			continue
+		}
 		fill(t, rv.Field(i), i)
 	}
 
@@ -74,6 +77,9 @@ func addrs(f reflect.Value) []uintptr {
 // record and its changes) as long as the fields have the same names.
 func sharesMemory(a, b reflect.Value) string {
 	for i := range a.NumField() {
+		if !a.Type().Field(i).IsExported() {
+			continue
+		}
 		name := a.Type().Field(i).Name
 		other := b.FieldByName(name)
 		if !other.IsValid() {
@@ -123,6 +129,9 @@ func TestApplyCopiesEveryField(t *testing.T) {
 func assertApplied(t *testing.T, changes, record reflect.Value) {
 	t.Helper()
 	for i := range changes.NumField() {
+		if !changes.Type().Field(i).IsExported() {
+			continue
+		}
 		name := changes.Type().Field(i).Name
 		want := changes.Field(i).Elem()
 		got := pointee(record.FieldByName(name))

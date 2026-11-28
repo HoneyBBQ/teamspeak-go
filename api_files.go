@@ -195,6 +195,8 @@ func (c *Commands) StopFileTransfer(
 
 // ActiveTransfer is a file transfer in progress.
 type ActiveTransfer struct {
+	_ [0]func()
+
 	// Path is the directory the file is in (path).
 	Path string
 	// Name is the file's name (name).

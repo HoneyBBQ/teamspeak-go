@@ -3,6 +3,91 @@
 All notable changes to this module. It follows [Semantic Versioning](https://semver.org);
 from v1.0.0 on, a breaking change needs a new major version and import path.
 
+## Unreleased
+
+### Added
+
+- `teamspeak.Request.Encode(encodePassword)` renders a typed `Request` as a wire
+  command line for custom `Executor` implementations passed to `NewCommands`,
+  while `String`, `GoString` and `LogValue` continue to redact parameters and
+  passwords to the command name alone.
+- `client.S3UploadResult` (carrying the storage's `ETag` header),
+  `client.CompleteS3UploadOptions` (`Password` and `ETag`) and
+  `client.S3RemoveOptions`.
+- `stream.AcceptOptions`, `stream.DenyOptions`, `stream.StopOptions` and
+  `stream.SignalOptions` for extensible stream signalling calls.
+- `teamspeak.OwnPermissionOptions`, `teamspeak.PermissionListOptions` and
+  `teamspeak.PermissionOverviewOptions` reservation structs on the permission
+  queries.
+
+### Changed
+
+- **Breaking:** `client.DeleteS3Icon` is renamed to `client.RemoveS3Icon` (matching
+  `RemoveIcon` and `RemoveS3Avatar`), and both `RemoveS3Avatar` and
+  `RemoveS3Icon` take `client.S3RemoveOptions`.
+- **Breaking:** `client.UploadS3FileData` returns `(S3UploadResult, error)`, and
+  `(*Client).CompleteS3FileUpload` takes `CompleteS3UploadOptions` instead of
+  `S3FileOptions`.
+- **Breaking:** `stream` signalling methods take options structs instead of bare
+  trailing primitives: `(*JoinRequest).Accept(ctx, offer, AcceptOptions)`,
+  `(*JoinRequest).Deny(ctx, DenyOptions)`, `(*Published).Stop(ctx, StopOptions)`,
+  `(*Peer).SendCandidate(ctx, c, SignalOptions)`,
+  `(*Peer).SendSignal(ctx, cmd, args, SignalOptions)`,
+  `(*ViewerPeer).SendOffer(ctx, sdp, SignalOptions)` and
+  `(*View).Answer(ctx, sdp, SignalOptions)`.
+- **Breaking:** `(*Client).SendWhisper` and `(*Client).SendGroupWhisper` take a
+  trailing `client.VoiceOptions` (matching `SendVoice`), and `GetOwnPermission`,
+  `GetOwnPermissions`, `GetPermissionOverview`, `ListChannelPermissions`,
+  `ListChannelClientPermissions`, `ListChannelGroupPermissions`,
+  `ListServerGroupPermissions` and `ListClientPermissions` take their trailing
+  options structs.
+- **Breaking:** `VirtualServer` fields omitted under `ServerListOptions.Short` or
+  on TeamSpeak 3 (`Name`, `UID`, `UUID`, `MachineID`, `Uptime`, `ClientsOnline`,
+  `QueryClientsOnline`, `MaxClients`, `Autostart`) and `ClientConnectionInfo`'s
+  `IP` and `Port` (omitted without `b_client_remoteaddress_view`) are pointers,
+  `nil` when absent on the wire.
+- **Breaking:** Server record and event structs (`Channel`, `ChannelChanges`,
+  `ClientChanges`, `VirtualServer`, `BanEntry`, `ClientDatabaseEntry`,
+  `ServerConnectionInfo`, `ClientConnectionInfo`, `WhoAmI`, `ActiveTransfer`,
+  `PermissionOverviewEntry`, `client.S3FileUploadInfo`,
+  `client.S3FileDownloadInfo`, `client.S3FileEntry`, `client.S3UploadResult`,
+  `stream.Info`, `stream.StoppedEvent` and `stream.ViewerEvent`) are
+  non-comparable (`_ [0]func()`) so pointer-bearing records cannot be compared
+  by pointer address with `==` and future slice or map fields remain
+  non-breaking.
+- The `stream` package and `*S3*` symbols in `client` are marked `Experimental:`
+  in their doc comments, alongside missing `Experimental:` tags in
+  `serverquery` and `NewChannelTree`.
+- Updated `golang.org/x/crypto` to `v0.59.0`, `golang.org/x/sys` to `v0.50.0`,
+  `github.com/oasisprotocol/curve25519-voi`, and `github.com/pion/webrtc/v4` in
+  `stream/e2e` to `v4.2.29`.
+
+### Fixed
+
+- When `clientinit` is refused with `errcode.ConnectFailedBanned` (`3329`), the
+  voice client no longer spawns a background `Disconnect` that races with
+  handshake teardown and masks `3329` as `"Disconnect was called before the
+  handshake completed"`; if an established session receives `3329`, it closes
+  with the server's ban error instead of emitting `DisconnectedEvent{Err: nil}`.
+- `serverquery.Client` fails `Connect`, `Use` and `RegisterNotifications` when
+  the initial `clientlist` fails with a transport or context error instead of
+  leaving a closed connection in `StatusConnected` (still tolerating
+  `*teamspeak.ServerError` such as missing `b_virtualserver_client_list`), and
+  `Disconnect` cancels in-flight `Connect` and reconnect attempts immediately
+  via generation tracking.
+- Calling `(*client.Client).Connect` with an already-cancelled `ctx` returns
+  `ctx.Err()` immediately without returning `ErrAlreadyConnected`, clearing the
+  cached `ServerView`, or sending an `Init1` packet; `(*stream.Streams).Close`
+  returns `nil` deterministically when no farewell goroutines are running even if
+  `ctx` is already cancelled.
+- Corrected `Commands.SetQueryLogin`, `ListChannels` and `ListServers` doc
+  comments, and `osv-scanner.toml`'s `golang.org/x/crypto` note.
+
+### Removed
+
+- **Breaking:** Unused `teamspeak.ErrMissingDependency` and
+  `serverquery.ErrMissingDependency` sentinels.
+
 ## v1.0.0-beta.26 (2026-11-13)
 
 ### Added
@@ -1615,7 +1700,8 @@ The changes from the earlier v1 previews are listed first, under
 | `identity.UID(pk, alg)` returns `string` | returns `teamspeak.UID` |
 | `c.UniqueIdentifier()` | `c.UID()` |
 | `Channel.UniqueIdentifier string` | `Channel.UID teamspeak.ChannelUID` |
-| `client.TextMessage`, `VoiceData`, `RawNotification`, `ClientLeftViewEvent` | `TextMessageEvent`, `VoiceDataEvent`, `NotificationEvent`, `ClientLeaveEvent` |
+| `client.TextMessage`, `RawNotification`, `ClientLeftViewEvent` | `TextMessageEvent`, `NotificationEvent`, `ClientLeaveEvent` |
+| `VoiceData` / `OnVoiceData` | removed; read frames from `c.NewVoiceReceiver(VoiceReceiverOptions{})` (`VoiceReceiver`) |
 | `ClientMovedEvent.ID`, `ClientLeftViewEvent.ID` | `.ClientID` |
 | `CommandMiddleware func(func(string) error) func(string) error` | `func(next teamspeak.Executor) teamspeak.Executor`, with `teamspeak.ExecutorFunc` |
 | `ListClients(ctx)` | `ListClients(ctx, teamspeak.ClientListOptions{})` |
@@ -1655,8 +1741,8 @@ The changes from the earlier v1 previews are listed first, under
 | `ServerFamilyUnknown == "unknown"` | the zero value `""`; `String()` still says "unknown" |
 | `c.Commands = …` | not assignable; the typed commands are still the client's methods |
 | `banID, err := c.BanClient(…)` | `banIDs, err := c.BanClient(…)`, a `[]BanID` |
-| `DialFileTransfer(ctx, host, port, key, dialer)`, and `dialer` last in `UploadFileData`, `DownloadFileData` | `…, FileTransferOptions{Dialer: dialer})`; `nil` is `FileTransferOptions{}` |
-| `req.Encode(…)`, `client.ParseServerCapabilities(…)` | internal; `c.ServerCapabilities()` reports the record |
+| `DialFileTransfer(ctx, host, port, key, dialer)`, and `dialer` last in `UploadFileData`, `DownloadFileData` | `…, FileTransferOptions{Dialer: dialer})`; pass `FileTransferOptions{}` for the default dialer |
+| `client.ParseServerCapabilities(…)` | internal; `c.ServerCapabilities()` reports the record (`Request.Encode` renders a typed `Request` for custom `Executor`s) |
 | `Complaint.Timestamp`, `OfflineMessage.Timestamp` | `.Created`, `.Sent` |
 | `TempPassword.Start`, `.End` | `.Starts`, `.Ends` |
 | `FileEntry.ModifiedAt`, `PrivilegeKey.CreatedAt` | `.Modified`, `.Created` |
@@ -1708,7 +1794,7 @@ channels, err := c.ListChannels()
 err = c.ClientMove(clid, 5, "")
 
 // v1
-channels, err := c.ListChannels(ctx)
+channels, err := c.ListChannels(ctx, teamspeak.ChannelListOptions{})
 err = c.MoveClient(ctx, clid, teamspeak.ChannelID(5), teamspeak.ClientMoveOptions{})
 ```
 
@@ -1755,7 +1841,9 @@ c.OnKicked(func(e client.KickedEvent) { … }) // e.ReasonMessage, e.Reason, e.I
 ```
 
 `OnClientEnter` receives a `client.ClientEnterEvent`, which embeds
-`teamspeak.ClientInfo`. `ReasonID` fields are `Reason teamspeak.Reason`.
+`teamspeak.ClientEntry`. `ReasonID` fields are `Reason` (`teamspeak.Reason` on
+`KickedEvent`, `*teamspeak.Reason` on `ClientEnterEvent` and
+`ClientLeaveEvent`).
 `OnDisconnected` receives nil only after `Disconnect`; otherwise the cause.
 
 Middleware is set when the client is built, with `client.WithCommandMiddleware`

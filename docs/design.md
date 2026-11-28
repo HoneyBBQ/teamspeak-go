@@ -44,7 +44,7 @@ errors its own functions return:
 
 | Package | Errors |
 | --- | --- |
-| `teamspeak` (shared by every client) | `ErrServer` and `*ServerError`; `ErrNotConnected`, `ErrAlreadyConnected`, `ErrNoData`, `ErrFileTransfer`, `ErrInvalidCommand`, `ErrInvalidUID`, `ErrInvalidBackoff`, `ErrMissingDependency` |
+| `teamspeak` (shared by every client) | `ErrServer` and `*ServerError`; `ErrNotConnected`, `ErrAlreadyConnected`, `ErrNoData`, `ErrFileTransfer`, `ErrInvalidCommand`, `ErrInvalidUID`, `ErrInvalidBackoff` |
 | `client` (voice only) | `ErrConnectionTimeout`, `ErrConnectionStalled`, `ErrHandshake`, `ErrPuzzleTooHard`, `ErrInvalidAddress`, `ErrInvalidConfig`, `ErrAlreadyConnected`, `ErrVoiceFrameTooLarge`, the whisper target errors (`ErrNoWhisperTargets`, `ErrTooManyWhisperTargets`, `ErrTooManyWhisperChannels`, `ErrInvalidWhisperTarget`), `ErrVoiceReceiverClosed`, `*RemovedError` (kick, ban or server stop), `*S3TransferError`, `*S3UnsupportedError` |
 | `serverquery` (query only) | `ErrInvalidConfig`, `ErrDial`, `ErrAuth`, `ErrNoGuestAccess`, `ErrHostKey`, `ErrLineTooLong`, `*WebQueryHTTPError` |
 | `stream` | `ErrClosed`, `ErrNotPending`, `ErrAlreadyWatching`, `ErrInvalidOptions`, `*UnsupportedError`, `*TransportUnsupportedError`, `*JoinDeniedError`, `*PayloadTooLargeError`, `*EndedError` (which also matches the server's 5635) |
@@ -196,9 +196,10 @@ in review. The enumerations and event types may gain members in a minor
 release; give a `switch` over them a default case.
 
 An API that may still change in a minor release says `Experimental:` in its doc
-comment, which `go doc` and pkg.go.dev show. Today that is the whole
-`serverquery` package, the server view (`Client.View`, `ServerView`,
-`ViewStatus` and the view events), `ChannelTree`, the voice receiver
+comment, which `go doc` and pkg.go.dev show. Today that is the `serverquery`
+and `stream` packages, TeamSpeak 6 S3 file transfer (`*S3*` in `client`), the
+server view (`Client.View`, `Client.WaitView`, `ServerView`, `ViewStatus` and
+the view events), `ChannelTree` and `NewChannelTree`, the voice receiver
 (`Client.NewVoiceReceiver`, `VoiceReceiver`, `VoicePacket`,
 `VoiceReceiverOptions` and `ErrVoiceReceiverClosed`), the `Previous` field of the
 client-leave and channel-deleted events, and `Client.GetServerVariables`.

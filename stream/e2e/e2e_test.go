@@ -177,7 +177,7 @@ func (p *publisherSide) accept(t *testing.T, request *stream.JoinRequest, wire *
 	}
 	wire.offer = len(offer.SDP)
 	t.Logf("offer: %d bytes", wire.offer)
-	peer, err := request.Accept(t.Context(), offer.SDP, "welcome")
+	peer, err := request.Accept(t.Context(), offer.SDP, stream.AcceptOptions{Message: "welcome"})
 	if err != nil {
 		t.Fatalf("Accept (offer of %d bytes): %v", len(offer.SDP), err)
 	}
@@ -198,7 +198,7 @@ func (p *publisherSide) accept(t *testing.T, request *stream.JoinRequest, wire *
 	})
 	go func() {
 		for c := range p.gathered {
-			err := peer.SendCandidate(t.Context(), toStream(c))
+			err := peer.SendCandidate(t.Context(), toStream(c), stream.SignalOptions{})
 			if err != nil && t.Context().Err() == nil {
 				t.Errorf("publisher SendCandidate: %v", err)
 			}
@@ -282,13 +282,13 @@ func (v *viewerSide) answer(t *testing.T, view *stream.View, wire *sizes) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = view.Answer(t.Context(), answer.SDP)
+	err = view.Answer(t.Context(), answer.SDP, stream.SignalOptions{})
 	if err != nil {
 		t.Fatalf("Answer (%d bytes): %v", len(answer.SDP), err)
 	}
 	go func() {
 		for c := range found {
-			err := view.SendCandidate(t.Context(), toStream(c))
+			err := view.SendCandidate(t.Context(), toStream(c), stream.SignalOptions{})
 			if err != nil && t.Context().Err() == nil {
 				t.Errorf("viewer SendCandidate: %v", err)
 			}

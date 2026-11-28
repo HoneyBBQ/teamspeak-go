@@ -88,6 +88,8 @@ func (e *RemovedError) Error() string {
 // a request with an HTTP error, a request got no answer, or the server reports
 // that its own request to the storage failed. The message names the file, never
 // the presigned URL. It wraps teamspeak.ErrFileTransfer, and Err when set.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 type S3TransferError struct {
 	// Err is why no answer came, or nil.
 	Err error
@@ -104,6 +106,8 @@ type S3TransferError struct {
 }
 
 // Error describes the failure, and why no answer came when that is known.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (e *S3TransferError) Error() string {
 	if e.Err == nil {
 		return e.msg
@@ -113,6 +117,8 @@ func (e *S3TransferError) Error() string {
 }
 
 // Unwrap returns teamspeak.ErrFileTransfer, and Err when it is set.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (e *S3TransferError) Unwrap() []error {
 	if e.Err == nil {
 		return []error{teamspeak.ErrFileTransfer}
@@ -128,6 +134,8 @@ func (e *S3TransferError) Unwrap() []error {
 // names no extension, with an error that names no command, so they would wait
 // out their timeout. Before the client has connected no server has named any,
 // and it counts as unsupported the same way.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 type S3UnsupportedError struct {
 	// Family is the server generation the client found.
 	Family ServerFamily
@@ -139,6 +147,8 @@ type S3UnsupportedError struct {
 }
 
 // Error describes the server and the extensions it named.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (e *S3UnsupportedError) Error() string {
 	what := "an unknown server"
 	if e.Family != ServerFamilyUnknown {

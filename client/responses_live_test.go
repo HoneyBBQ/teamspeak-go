@@ -286,7 +286,8 @@ func TestLive_VoiceAnswersCarryRows(t *testing.T) {
 func TestLive_GetOwnPermission(t *testing.T) {
 	c := requireSharedClient(t)
 
-	got, err := c.GetOwnPermission(t.Context(), teamspeak.PermissionByName(perm.ClientPermissionOverviewOwn))
+	got, err := c.GetOwnPermission(
+		t.Context(), teamspeak.PermissionByName(perm.ClientPermissionOverviewOwn), teamspeak.OwnPermissionOptions{})
 	skipIfDenied(t, err, "permget")
 	requireNoErr(t, err)
 	if got.Name != perm.ClientPermissionOverviewOwn || got.ID == 0 || got.Value < 1 {
@@ -294,7 +295,8 @@ func TestLive_GetOwnPermission(t *testing.T) {
 			perm.ClientPermissionOverviewOwn, got)
 	}
 
-	_, err = c.GetOwnPermission(t.Context(), teamspeak.PermissionByName("b_no_such_permission"))
+	_, err = c.GetOwnPermission(
+		t.Context(), teamspeak.PermissionByName("b_no_such_permission"), teamspeak.OwnPermissionOptions{})
 	if !errors.Is(err, errcode.PermissionInvalidPermID) {
 		t.Errorf("an unknown permission: %v, want 2562", err)
 	}
@@ -310,21 +312,21 @@ func TestLive_GetOwnPermissions(t *testing.T) {
 		teamspeak.PermissionByName(perm.ClientBanList),
 		teamspeak.PermissionByName(perm.ClientPermissionOverviewOwn),
 	}
-	got, err := c.GetOwnPermissions(t.Context(), asked)
+	got, err := c.GetOwnPermissions(t.Context(), asked, teamspeak.OwnPermissionOptions{})
 	skipIfDenied(t, err, "permget")
 	requireNoErr(t, err)
 	if len(got) != len(asked) {
 		t.Fatalf("%d rows for %d permissions: %+v", len(got), len(asked), got)
 	}
 	for i, p := range asked {
-		single, singleErr := c.GetOwnPermission(t.Context(), p)
+		single, singleErr := c.GetOwnPermission(t.Context(), p, teamspeak.OwnPermissionOptions{})
 		if singleErr != nil || got[i] != single {
 			t.Errorf("row %d = %+v, want %+v as read alone (%v)", i, got[i], single, singleErr)
 		}
 	}
 
 	mixed := []teamspeak.Permission{asked[0], teamspeak.PermissionByID(got[1].ID), asked[1], asked[0]}
-	both, err := c.GetOwnPermissions(t.Context(), mixed)
+	both, err := c.GetOwnPermissions(t.Context(), mixed, teamspeak.OwnPermissionOptions{})
 	if err != nil || len(both) != len(mixed) {
 		t.Fatalf("mixed: %+v, %v", both, err)
 	}
@@ -335,7 +337,8 @@ func TestLive_GetOwnPermissions(t *testing.T) {
 	}
 
 	unknown := teamspeak.PermissionByName("b_no_such_permission")
-	none, err := c.GetOwnPermissions(t.Context(), []teamspeak.Permission{asked[0], unknown})
+	none, err := c.GetOwnPermissions(
+		t.Context(), []teamspeak.Permission{asked[0], unknown}, teamspeak.OwnPermissionOptions{})
 	if !errors.Is(err, errcode.PermissionInvalidPermID) || none != nil {
 		t.Errorf("an unknown permission: %v, %v, want nil and 2562", none, err)
 	}

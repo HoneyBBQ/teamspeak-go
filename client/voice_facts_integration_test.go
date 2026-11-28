@@ -34,7 +34,9 @@ func (p *x5Peer) sendVoice(codec teamspeak.Codec) func(int, []byte) error {
 }
 
 func (p *x5Peer) sendWhisper(targets client.WhisperTargets) func(int, []byte) error {
-	return func(_ int, d []byte) error { return p.c.SendWhisper(d, targets, teamspeak.CodecOpusVoice) }
+	return func(_ int, d []byte) error {
+		return p.c.SendWhisper(d, targets, teamspeak.CodecOpusVoice, client.VoiceOptions{})
+	}
 }
 
 // x5Room makes a temporary channel with the given codec_is_unencrypted flag and
@@ -210,6 +212,12 @@ func TestIntegration_X5_T2_LiveModeSwitch(t *testing.T) {
 	}
 }
 
+func x5GroupWhisper(p *x5Peer, target client.GroupWhisperTarget) func(int, []byte) error {
+	return func(_ int, d []byte) error {
+		return p.c.SendGroupWhisper(d, target, teamspeak.CodecOpusVoice, client.VoiceOptions{})
+	}
+}
+
 func TestIntegration_X5_T5_WhisperPacketForms(t *testing.T) {
 	admin := requireAdmin(t)
 	l := newX5Log(t)
@@ -233,18 +241,16 @@ func TestIntegration_X5_T5_WhisperPacketForms(t *testing.T) {
 	}{
 		{"direct/clients=[B]", a.sendWhisper(client.WhisperTargets{Clients: []teamspeak.ClientID{b.c.ClientID()}})},
 		{"direct/channels=[B's channel]", a.sendWhisper(client.WhisperTargets{Channels: []teamspeak.ChannelID{b.c.ChannelID()}})},
-		{"group/server-group", func(_ int, d []byte) error {
-			return a.c.SendGroupWhisper(d, client.WhisperToServerGroup(client.GroupWhisperAllChannels, sgid), teamspeak.CodecOpusVoice)
-		}},
-		{"group/channel-group", func(_ int, d []byte) error {
-			return a.c.SendGroupWhisper(d, client.WhisperToChannelGroup(client.GroupWhisperAllChannels, cgid), teamspeak.CodecOpusVoice)
-		}},
-		{"group/all-clients/current-channel", func(_ int, d []byte) error {
-			return a.c.SendGroupWhisper(d, client.WhisperToAllClients(client.GroupWhisperCurrentChannel), teamspeak.CodecOpusVoice)
-		}},
-		{"group/channel-commanders/current-channel", func(_ int, d []byte) error {
-			return a.c.SendGroupWhisper(d, client.WhisperToChannelCommanders(client.GroupWhisperCurrentChannel), teamspeak.CodecOpusVoice)
-		}},
+		{"group/server-group", x5GroupWhisper(a, client.WhisperToServerGroup(client.GroupWhisperAllChannels, sgid))},
+		{"group/channel-group", x5GroupWhisper(a, client.WhisperToChannelGroup(client.GroupWhisperAllChannels, cgid))},
+		{
+			"group/all-clients/current-channel",
+			x5GroupWhisper(a, client.WhisperToAllClients(client.GroupWhisperCurrentChannel)),
+		},
+		{
+			"group/channel-commanders/current-channel",
+			x5GroupWhisper(a, client.WhisperToChannelCommanders(client.GroupWhisperCurrentChannel)),
+		},
 	}
 	for _, tc := range cases {
 		b.reset()

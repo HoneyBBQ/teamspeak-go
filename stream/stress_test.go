@@ -46,9 +46,9 @@ func TestStress_PublishFloodAndClose(t *testing.T) {
 					p, err := s.Publish(ctx, PublishOptions{Name: "n"})
 					cancel()
 					if err == nil {
-						p.OnRequest(func(r *JoinRequest) { _ = r.Deny(context.Background(), "") })
+						p.OnRequest(func(r *JoinRequest) { _ = r.Deny(context.Background(), DenyOptions{}) })
 						if rand.IntN(3) == 0 {
-							_ = p.Stop(context.Background(), 0)
+							_ = p.Stop(context.Background(), StopOptions{})
 						}
 					}
 				}

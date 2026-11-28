@@ -145,7 +145,7 @@ func TestQueryAdmin_PermissionRoundTrip(t *testing.T) {
 					return c.DeleteChannelPermission(ctx, cid, p)
 				},
 				list: func(ctx context.Context) ([]teamspeak.PermissionEntry, error) {
-					return c.ListChannelPermissions(ctx, cid)
+					return c.ListChannelPermissions(ctx, cid, teamspeak.PermissionListOptions{})
 				},
 				target: teamspeak.PermissionTargetChannel,
 				at:     func(l teamspeak.PermissionLocation) bool { return l.ChannelID == cid },
@@ -159,7 +159,7 @@ func TestQueryAdmin_PermissionRoundTrip(t *testing.T) {
 					return c.DeleteChannelGroupPermission(ctx, cgid, p)
 				},
 				list: func(ctx context.Context) ([]teamspeak.PermissionEntry, error) {
-					return c.ListChannelGroupPermissions(ctx, cgid)
+					return c.ListChannelGroupPermissions(ctx, cgid, teamspeak.PermissionListOptions{})
 				},
 				target: teamspeak.PermissionTargetChannelGroup,
 				at:     func(l teamspeak.PermissionLocation) bool { return l.ChannelGroupID == cgid },
@@ -173,7 +173,7 @@ func TestQueryAdmin_PermissionRoundTrip(t *testing.T) {
 					return c.DeleteClientPermission(ctx, dbid, p)
 				},
 				list: func(ctx context.Context) ([]teamspeak.PermissionEntry, error) {
-					return c.ListClientPermissions(ctx, dbid)
+					return c.ListClientPermissions(ctx, dbid, teamspeak.PermissionListOptions{})
 				},
 				target: teamspeak.PermissionTargetClient,
 				at:     func(l teamspeak.PermissionLocation) bool { return l.DatabaseID == dbid && l.ChannelID == 0 },
@@ -187,7 +187,7 @@ func TestQueryAdmin_PermissionRoundTrip(t *testing.T) {
 					return c.DeleteChannelClientPermission(ctx, cid, dbid, p)
 				},
 				list: func(ctx context.Context) ([]teamspeak.PermissionEntry, error) {
-					return c.ListChannelClientPermissions(ctx, cid, dbid)
+					return c.ListChannelClientPermissions(ctx, cid, dbid, teamspeak.PermissionListOptions{})
 				},
 				target: teamspeak.PermissionTargetChannelClient,
 				at:     func(l teamspeak.PermissionLocation) bool { return l.ChannelID == cid && l.DatabaseID == dbid },
@@ -201,7 +201,7 @@ func TestQueryAdmin_PermissionRoundTrip(t *testing.T) {
 					return c.DeleteServerGroupPermission(ctx, sgid, p)
 				},
 				list: func(ctx context.Context) ([]teamspeak.PermissionEntry, error) {
-					return c.ListServerGroupPermissions(ctx, sgid)
+					return c.ListServerGroupPermissions(ctx, sgid, teamspeak.PermissionListOptions{})
 				},
 				target: teamspeak.PermissionTargetServerGroup,
 				at:     func(l teamspeak.PermissionLocation) bool { return l.ServerGroupID == sgid },
@@ -243,7 +243,7 @@ func assertPermissionRoundTrip(
 	// client in the scratch channel, which every holder here applies to
 	// except the server group, which the client is not in.
 	overview := func() []teamspeak.PermissionOverviewEntry {
-		entries, err := c.GetPermissionOverview(ctx, cid, dbid)
+		entries, err := c.GetPermissionOverview(ctx, cid, dbid, teamspeak.PermissionOverviewOptions{})
 		if err != nil {
 			t.Fatalf("GetPermissionOverview: %v", err)
 		}

@@ -103,7 +103,7 @@ func TestJoinRequests_RemembersADeniedClientThatWasOutOfViewByTheUidTheServerGav
 		}
 		e.ask(p, 12, "")
 		e.settle()
-		err := reqs.all()[0].Deny(t.Context(), "no")
+		err := reqs.all()[0].Deny(t.Context(), DenyOptions{Reason: "no"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -195,7 +195,7 @@ func TestJoinRequests_DoesNotRepeatARequestFromAViewerPendingOrConnected(t *test
 		if reqs.len() != 1 {
 			t.Fatalf("requests = %d while pending", reqs.len())
 		}
-		_, err := reqs.all()[0].Accept(t.Context(), sdp, "")
+		_, err := reqs.all()[0].Accept(t.Context(), sdp, AcceptOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -214,7 +214,7 @@ func TestJoinRequests_AnswersAnAcceptedRequestWithTheOfferAndReturnsThePeer(t *t
 		e.h.see(9, nil)
 		e.ask(p, 9, "")
 		e.settle()
-		peer, err := reqs.all()[0].Accept(t.Context(), sdp, "welcome")
+		peer, err := reqs.all()[0].Accept(t.Context(), sdp, AcceptOptions{Message: "welcome"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -244,7 +244,7 @@ func TestJoinRequests_AnswersADenialWithAnEmptyOfferAndTheReason(t *testing.T) {
 		e.h.see(9, nil)
 		e.ask(p, 9, "")
 		e.settle()
-		err := reqs.all()[0].Deny(t.Context(), "not today")
+		err := reqs.all()[0].Deny(t.Context(), DenyOptions{Reason: "not today"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -269,15 +269,15 @@ func TestJoinRequests_AnswersOnceASecondAnswerFailsAndSendsNothing(t *testing.T)
 		e.ask(p, 9, "")
 		e.settle()
 		r := reqs.all()[0]
-		err := r.Deny(t.Context(), "")
+		err := r.Deny(t.Context(), DenyOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = r.Accept(t.Context(), sdp, "")
+		_, err = r.Accept(t.Context(), sdp, AcceptOptions{})
 		if !errors.Is(err, ErrNotPending) {
 			t.Errorf("Accept err = %v", err)
 		}
-		err = r.Deny(t.Context(), "")
+		err = r.Deny(t.Context(), DenyOptions{})
 		if !errors.Is(err, ErrNotPending) {
 			t.Errorf("Deny err = %v", err)
 		}
@@ -294,7 +294,7 @@ func TestJoinRequests_AsksForANonEmptyOffer(t *testing.T) {
 		e.h.see(9, nil)
 		e.ask(p, 9, "")
 		e.settle()
-		_, err := reqs.all()[0].Accept(t.Context(), "", "")
+		_, err := reqs.all()[0].Accept(t.Context(), "", AcceptOptions{})
 		if !errors.Is(err, ErrInvalidOptions) {
 			t.Errorf("err = %v", err)
 		}
@@ -313,14 +313,14 @@ func TestJoinRequests_RefusesAnOfferTooLongAndLeavesTheRequestToBeAnsweredAgain(
 		e.settle()
 		r := reqs.all()[0]
 		var big *PayloadTooLargeError
-		_, err := r.Accept(t.Context(), strings.Repeat("a", maxCommandLineBytes), "")
+		_, err := r.Accept(t.Context(), strings.Repeat("a", maxCommandLineBytes), AcceptOptions{})
 		if !errors.As(err, &big) || big.Command != "respondjoinstreamrequest" {
 			t.Fatalf("err = %v", err)
 		}
 		if r.State() != RequestPending || len(p.Viewers()) != 0 {
 			t.Errorf("state %v, viewers %d", r.State(), len(p.Viewers()))
 		}
-		_, err = r.Accept(t.Context(), sdp, "")
+		_, err = r.Accept(t.Context(), sdp, AcceptOptions{})
 		if err != nil {
 			t.Errorf("shortened: %v", err)
 		}
@@ -338,7 +338,7 @@ func TestJoinRequests_MarksARequestFailedAndClosesItsPeerWhenTheAnswerIsRefused(
 			return nil, serverError(errcode.StreamJoinRequestRedacted), s.name == "respondjoinstreamrequest"
 		}
 		r := reqs.all()[0]
-		_, err := r.Accept(t.Context(), sdp, "")
+		_, err := r.Accept(t.Context(), sdp, AcceptOptions{})
 		if !errors.Is(err, errcode.StreamJoinRequestRedacted) {
 			t.Fatalf("err = %v", err)
 		}
@@ -358,7 +358,7 @@ func TestJoinRequests_DropsAPendingRequestTheViewerWithdrew(t *testing.T) {
 		e.withdraw(p, 9)
 		e.settle()
 		r := reqs.all()[0]
-		_, err := r.Accept(t.Context(), sdp, "")
+		_, err := r.Accept(t.Context(), sdp, AcceptOptions{})
 		if !errors.Is(err, ErrNotPending) {
 			t.Errorf("err = %v", err)
 		}
@@ -375,7 +375,7 @@ func TestJoinRequests_AsksAgainAfterADenialSinceTheServerForgets(t *testing.T) {
 		e.h.see(9, nil)
 		e.ask(p, 9, "")
 		e.settle()
-		err := reqs.all()[0].Deny(t.Context(), "")
+		err := reqs.all()[0].Deny(t.Context(), DenyOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -394,7 +394,7 @@ func TestJoinRequests_LeavesADeniedClientUnansweredWhenRememberDeniedIsOn(t *tes
 		e.h.see(9, nil)
 		e.ask(p, 9, "")
 		e.settle()
-		err := reqs.all()[0].Deny(t.Context(), "")
+		err := reqs.all()[0].Deny(t.Context(), DenyOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -417,7 +417,7 @@ func TestJoinRequests_DoesNotRememberADenialTheServerRefused(t *testing.T) {
 		e.h.reply = func(s sent) ([]map[string]string, error, bool) {
 			return nil, serverError(errcode.StreamJoinRequestRedacted), s.name == "respondjoinstreamrequest"
 		}
-		err := reqs.all()[0].Deny(t.Context(), "")
+		err := reqs.all()[0].Deny(t.Context(), DenyOptions{})
 		if err == nil {
 			t.Fatal("no error")
 		}
@@ -437,7 +437,7 @@ func TestJoinRequests_RemembersNothingByDefault(t *testing.T) {
 		for range 3 {
 			e.ask(p, 9, "")
 			e.settle()
-			err := reqs.all()[reqs.len()-1].Deny(t.Context(), "")
+			err := reqs.all()[reqs.len()-1].Deny(t.Context(), DenyOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -468,7 +468,7 @@ func TestJoinRequests_SendsTheMessageGivenToAccept(t *testing.T) {
 		e.h.see(9, nil)
 		e.ask(p, 9, "")
 		e.settle()
-		_, err := reqs.all()[0].Accept(t.Context(), sdp, "hello ü")
+		_, err := reqs.all()[0].Accept(t.Context(), sdp, AcceptOptions{Message: "hello ü"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -534,7 +534,7 @@ func TestJoinRequestClosing_EmitsEndedWhenTheStreamStopsIsStoppedHereOrIsClosed(
 		"server stop": func(e *env, p *Published) {
 			e.h.notify(notify.StreamStopped, map[string]string{"id": string(p.ID())})
 		},
-		"stop here":  func(e *env, p *Published) { _ = p.Stop(e.t.Context(), 0) },
+		"stop here":  func(e *env, p *Published) { _ = p.Stop(e.t.Context(), StopOptions{}) },
 		"close":      func(e *env, _ *Published) { _ = e.s.Close(e.t.Context()) },
 		"disconnect": func(e *env, _ *Published) { e.h.disconnect() },
 	} {
@@ -546,7 +546,7 @@ func TestJoinRequestClosing_EmitsEndedWhenTheStreamStopsIsStoppedHereOrIsClosed(
 				if got := closed.all(); len(got) != 1 || got[0] != RequestEnded || r.State() != RequestEnded {
 					t.Errorf("closed = %v, state %v", got, r.State())
 				}
-				_, err := r.Accept(t.Context(), sdp, "")
+				_, err := r.Accept(t.Context(), sdp, AcceptOptions{})
 				if !errors.Is(err, ErrNotPending) {
 					t.Errorf("Accept err = %v", err)
 				}
@@ -581,11 +581,11 @@ func TestJoinRequestClosing_EmitsNothingForARequestThatIsAcceptedOrDeniedThenThe
 		for _, r := range reqs.all() {
 			r.OnClosed(closed.add)
 		}
-		_, err := reqs.all()[0].Accept(t.Context(), sdp, "")
+		_, err := reqs.all()[0].Accept(t.Context(), sdp, AcceptOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = reqs.all()[1].Deny(t.Context(), "")
+		err = reqs.all()[1].Deny(t.Context(), DenyOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -603,7 +603,7 @@ func TestJoinRequestClosing_EmitsNothingForARequestWhoseAnswerFailed(t *testing.
 		e.h.reply = func(s sent) ([]map[string]string, error, bool) {
 			return nil, serverError(errcode.StreamNotFound), s.name == "respondjoinstreamrequest"
 		}
-		_, err := r.Accept(t.Context(), sdp, "")
+		_, err := r.Accept(t.Context(), sdp, AcceptOptions{})
 		if _, ok := errors.AsType[*EndedError](err); !ok {
 			t.Fatalf("err = %v, want *EndedError", err)
 		}
@@ -668,7 +668,7 @@ func audioSetup(e *env) (*Published, *JoinRequest, *collector[WarningEvent]) {
 func TestOffersWithoutAudio_WarnsOnAcceptAndStillSendsTheOfferUnchanged(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		p, r, warnings := audioSetup(e)
-		_, err := r.Accept(t.Context(), video, "")
+		_, err := r.Accept(t.Context(), video, AcceptOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -690,7 +690,7 @@ func TestOffersWithoutAudio_DoesNotWarnForAnOfferWithAnAudioSectionInAnyOrder(t 
 	for _, offer := range []string{sdp, "v=0\r\nm=video 9 X 96\r\nm=audio 9 X 111\r\n", "m=audio\t9 X 1\r\n"} {
 		run(t, func(t *testing.T, e *env) {
 			_, r, warnings := audioSetup(e)
-			_, err := r.Accept(t.Context(), offer, "")
+			_, err := r.Accept(t.Context(), offer, AcceptOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -705,11 +705,11 @@ func TestOffersWithoutAudio_DoesNotWarnForAnOfferWithAnAudioSectionInAnyOrder(t 
 func TestOffersWithoutAudio_WarnsOnARenegotiationOfferWithoutAudioAndSendsIt(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		_, r, warnings := audioSetup(e)
-		peer, err := r.Accept(t.Context(), sdp, "")
+		peer, err := r.Accept(t.Context(), sdp, AcceptOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = peer.SendOffer(t.Context(), video)
+		err = peer.SendOffer(t.Context(), video, SignalOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -727,11 +727,11 @@ func TestOffersWithoutAudio_WarnsOnARenegotiationOfferWithoutAudioAndSendsIt(t *
 func TestOffersWithoutAudio_DoesNotWarnForADenialOrForAnOfferRefusedAsTooLong(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		_, r, warnings := audioSetup(e)
-		_, err := r.Accept(t.Context(), strings.Repeat("v", maxCommandLineBytes), "")
+		_, err := r.Accept(t.Context(), strings.Repeat("v", maxCommandLineBytes), AcceptOptions{})
 		if err == nil {
 			t.Fatal("no error")
 		}
-		err = r.Deny(t.Context(), "no")
+		err = r.Deny(t.Context(), DenyOptions{Reason: "no"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -749,12 +749,12 @@ func TestOffersWithoutAudio_KeepsWarningsForTheFirstHandlerBounded(t *testing.T)
 		e.h.see(9, nil)
 		e.ask(p, 9, "")
 		e.settle()
-		peer, err := reqs.all()[0].Accept(t.Context(), video, "")
+		peer, err := reqs.all()[0].Accept(t.Context(), video, AcceptOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		for range maxKept + 4 {
-			err := peer.SendOffer(t.Context(), video)
+			err := peer.SendOffer(t.Context(), video, SignalOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -777,7 +777,7 @@ func acceptViewer(t *testing.T, e *env, p *Published) *ViewerPeer {
 	e.h.see(viewerID, nil)
 	e.ask(p, viewerID, "")
 	e.settle()
-	peer, err := reqs.all()[reqs.len()-1].Accept(t.Context(), sdp, "")
+	peer, err := reqs.all()[reqs.len()-1].Accept(t.Context(), sdp, AcceptOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -809,7 +809,7 @@ func TestViewerPeer_DeliversAnAnswerAndCandidatesAndSendsCandidatesAndOffers(t *
 		if len(got) != 1 || got[0].Candidate != want.Candidate || *got[0].SDPMid != "0" || *got[0].SDPMLineIndex != 0 {
 			t.Errorf("candidates = %+v", got)
 		}
-		err := peer.SendCandidate(t.Context(), want)
+		err := peer.SendCandidate(t.Context(), want, SignalOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -867,21 +867,21 @@ func TestViewerPeer_SendsAMessageOfTheApplicationsOwn(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		p := e.publish(PublishOptions{Name: "x"})
 		peer := acceptViewer(t, e, p)
-		err := peer.SendSignal(t.Context(), "mute", map[string]bool{"on": true})
+		err := peer.SendSignal(t.Context(), "mute", map[string]bool{"on": true}, SignalOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got := e.h.commands("streamsignaling")[0].params["json"]; got != `{"cmd":"mute","args":{"on":true}}` {
 			t.Errorf("json = %q", got)
 		}
-		err = peer.SendSignal(t.Context(), "ping", nil)
+		err = peer.SendSignal(t.Context(), "ping", nil, SignalOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got := e.h.commands("streamsignaling")[1].params["json"]; got != `{"cmd":"ping"}` {
 			t.Errorf("json = %q", got)
 		}
-		err = peer.SendSignal(t.Context(), "x", make(chan int))
+		err = peer.SendSignal(t.Context(), "x", make(chan int), SignalOptions{})
 		if err == nil {
 			t.Error("an unencodable argument was sent")
 		}
@@ -893,7 +893,7 @@ func TestViewerPeer_RefusesAMessageTooLongBeforeSending(t *testing.T) {
 		p := e.publish(PublishOptions{Name: "x"})
 		peer := acceptViewer(t, e, p)
 		before := e.h.count()
-		err := peer.SendSignal(t.Context(), "big", strings.Repeat("x", maxCommandLineBytes))
+		err := peer.SendSignal(t.Context(), "big", strings.Repeat("x", maxCommandLineBytes), SignalOptions{})
 		if _, ok := errors.AsType[*PayloadTooLargeError](err); !ok {
 			t.Errorf("err = %v", err)
 		}
@@ -927,7 +927,7 @@ func TestViewerPeer_ClosesWhenTheViewerLeavesHoweverItSaysSoOnce(t *testing.T) {
 				if got := closed.all(); len(got) != 1 || got[0].Cause != PeerCauseLeft || !peer.Closed() || len(p.Viewers()) != 0 {
 					t.Errorf("closed = %+v", got)
 				}
-				err := peer.SendCandidate(t.Context(), IceCandidate{Candidate: "c"})
+				err := peer.SendCandidate(t.Context(), IceCandidate{Candidate: "c"}, SignalOptions{})
 				if !errors.Is(err, ErrClosed) {
 					t.Errorf("send on a closed peer: %v", err)
 				}
@@ -999,7 +999,7 @@ func TestStoppingAStream_SendsStopstreamWithTheReasonEndsTheStreamHereAndTellsNo
 		p.OnEnded(ended.add)
 		e.s.OnStopped(stopped.add)
 		peer.OnClosed(closed.add)
-		err := p.Stop(t.Context(), 7)
+		err := p.Stop(t.Context(), StopOptions{Reason: 7})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1021,7 +1021,7 @@ func TestStoppingAStream_SendsStopstreamWithTheReasonEndsTheStreamHereAndTellsNo
 			t.Errorf("peer closed = %+v", got)
 		}
 		// Stopping again sends nothing.
-		err = p.Stop(t.Context(), 0)
+		err = p.Stop(t.Context(), StopOptions{})
 		if err != nil || len(e.h.commands("stopstream")) != 1 {
 			t.Errorf("second stop: %v", err)
 		}
@@ -1034,7 +1034,7 @@ func TestStoppingAStream_CountsAStreamTheServerNoLongerKnowsAsStopped(t *testing
 		e.h.reply = func(s sent) ([]map[string]string, error, bool) {
 			return nil, serverError(errcode.StreamNotFound), s.name == "stopstream"
 		}
-		err := p.Stop(t.Context(), 0)
+		err := p.Stop(t.Context(), StopOptions{})
 		if err != nil || !p.Ended() {
 			t.Errorf("err %v, ended %v", err, p.Ended())
 		}
@@ -1047,7 +1047,7 @@ func TestStoppingAStream_LeavesTheStreamRunningWhenTheServerRefusesTheCommand(t 
 		e.h.reply = func(s sent) ([]map[string]string, error, bool) {
 			return nil, serverError(errcode.PermissionsClientInsufficient), s.name == "stopstream"
 		}
-		err := p.Stop(t.Context(), 0)
+		err := p.Stop(t.Context(), StopOptions{})
 		if !errors.Is(err, errcode.PermissionsClientInsufficient) || p.Ended() {
 			t.Errorf("err %v, ended %v", err, p.Ended())
 		}

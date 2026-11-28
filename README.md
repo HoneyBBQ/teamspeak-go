@@ -96,8 +96,8 @@ func main() {
 | ----------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------- |
 | `github.com/honeybbq/teamspeak-go`              | What every client shares: typed commands, results, events, errors, ids     | [Design](docs/design.md)                    |
 | `github.com/honeybbq/teamspeak-go/client`       | The voice client: session, events, voice, reconnection, file transfers     | [Guide](docs/guide.md)                      |
-| `github.com/honeybbq/teamspeak-go/serverquery`  | The ServerQuery client over raw TCP, SSH or WebQuery                       | [ServerQuery](docs/serverquery.md)          |
-| `github.com/honeybbq/teamspeak-go/stream`       | TeamSpeak 6 screen-share signalling; no WebRTC code                        | [Streams](docs/streams.md)                  |
+| `github.com/honeybbq/teamspeak-go/serverquery`  | The ServerQuery client over raw TCP, SSH or WebQuery (experimental)        | [ServerQuery](docs/serverquery.md)          |
+| `github.com/honeybbq/teamspeak-go/stream`       | TeamSpeak 6 screen-share signalling; no WebRTC code (experimental)         | [Streams](docs/streams.md)                  |
 | `github.com/honeybbq/teamspeak-go/identity`     | Creating, storing and inspecting identities                                | [Identity](docs/guide.md#identity)          |
 | `github.com/honeybbq/teamspeak-go/versions`     | Client versions a server accepts, for `client.WithVersion`                 | [Configuration](docs/configuration.md)      |
 

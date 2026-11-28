@@ -1,10 +1,6 @@
 package serverquery
 
-import (
-	"errors"
-
-	teamspeak "github.com/honeybbq/teamspeak-go"
-)
+import "errors"
 
 // The errors this package reports beyond the ones every client shares. A
 // refusal from the server is a *teamspeak.ServerError, as it is for the voice
@@ -14,12 +10,16 @@ import (
 // ErrInvalidConfig reports a client [New] cannot build as configured, such as
 // no dialer, a login over a transport that has none, or events asked for over
 // a transport that cannot deliver them.
+//
+// Experimental: this package may change in a minor release.
 var ErrInvalidConfig = errors.New("invalid query client configuration")
 
 // ErrDial reports a connection that could not be opened: a refused TCP
 // connection, an SSH failure that is not authentication, or a WebQuery the
 // request could not reach. The cause is wrapped, so errors.Is still matches
 // what the transport reported.
+//
+// Experimental: this package may change in a minor release.
 var ErrDial = errors.New("could not open the query connection")
 
 // ErrAuth reports an SSH login the server refused.
@@ -28,6 +28,8 @@ var ErrDial = errors.New("could not open the query connection")
 // "unable to authenticate", so that text is the only thing there is to match
 // on; the package has no exported error for it. The wrapped cause is the
 // library's own error.
+//
+// Experimental: this package may change in a minor release.
 var ErrAuth = errors.New("the query login was refused")
 
 // ErrNoGuestAccess reports a guest connection ([SSHGuest], [WebGuest]) that the
@@ -37,6 +39,8 @@ var ErrAuth = errors.New("the query login was refused")
 // The server's own refusal is wrapped beside it, so errors.Is still matches
 // [ErrAuth] for an SSH login and the code, errcode.APIKeyMissing (5124), for
 // WebQuery.
+//
+// Experimental: this package may change in a minor release.
 var ErrNoGuestAccess = errors.New("the server does not offer guest access (TeamSpeak 3 has none)")
 
 // ErrHostKey reports an SSH server whose host key was not accepted: the check
@@ -45,6 +49,8 @@ var ErrNoGuestAccess = errors.New("the server does not offer guest access (TeamS
 // A host that is not in the known_hosts file and a host whose key has changed
 // both wrap it; the wrapped error says which, so an unknown host is not
 // mistaken for an attack, nor the other way round.
+//
+// Experimental: this package may change in a minor release.
 var ErrHostKey = errors.New("the ssh host key was not accepted")
 
 // ErrLineTooLong reports a connection the server sent a line longer than 256
@@ -54,12 +60,9 @@ var ErrHostKey = errors.New("the ssh host key was not accepted")
 // longest answer measured on TeamSpeak 3 and 6, the permission list, is under
 // 100 KiB. A server that sends more is not speaking ServerQuery, and reading
 // on would only fill memory.
+//
+// Experimental: this package may change in a minor release.
 var ErrLineTooLong = errors.New("the server sent a line longer than the limit")
-
-// ErrMissingDependency reports a transport whose dependency was left out of
-// the build. It is teamspeak.ErrMissingDependency, so a caller matching either
-// name matches both.
-var ErrMissingDependency = teamspeak.ErrMissingDependency
 
 // Why a connect or a command failed, when it is not the server's own answer.
 var (

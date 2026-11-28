@@ -427,3 +427,58 @@ func TestConnect_RefusesAnInvalidResolvedAddress(t *testing.T) {
 		t.Errorf("status = %v", got)
 	}
 }
+
+// A pre-cancelled context fails Connect immediately with ctx.Err(), before
+// resolving or sending an Init1 packet.
+func TestConnect_PreCancelledContextSendsNoPacket(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	listener, err := (&net.ListenConfig{}).ListenPacket(t.Context(), "udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	id, err := identity.Parse(testClientIdentity)
+	if err != nil {
+		t.Fatalf("identity: %v", err)
+	}
+	fresh := mustNew(t, id, "TestBot", WithResolver(fixedResolver(listener.LocalAddr().String())))
+	err = fresh.Connect(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Connect(canceled) = %v, want context.Canceled", err)
+	}
+	_ = listener.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+	var buf [64]byte
+	n, _, readErr := listener.ReadFrom(buf[:])
+	if readErr == nil || n > 0 {
+		t.Fatalf("Connect(canceled) sent %d bytes on the socket", n)
+	}
+}
+
+// On an already-connected client, Connect with a pre-cancelled context returns
+// ctx.Err() rather than ErrAlreadyConnected and leaves the live view untouched.
+func TestConnect_PreCancelledContextLeavesLiveSessionUntouched(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	live := newTestClient(t)
+	live.mu.Lock()
+	live.resetViewLocked()
+	live.mu.Unlock()
+	live.handleCommand(live.handler, "channellist cid=1 cpid=0 channel_order=0 channel_name=Lobby")
+	live.finishViewWelcome(live.handler)
+	if got := live.View().Status; got != ViewLive {
+		t.Fatalf("view status = %v, want ViewLive", got)
+	}
+	err := live.Connect(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Connect(canceled) while connected = %v, want context.Canceled", err)
+	}
+	if got := live.Status(); got != StatusConnected {
+		t.Errorf("status = %v, want StatusConnected", got)
+	}
+	if got := live.View(); got.Status != ViewLive || len(got.Channels()) != 1 {
+		t.Errorf("view = %v (%d channels), want untouched ViewLive", got.Status, len(got.Channels()))
+	}
+}

@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"strings"
@@ -200,4 +201,19 @@ func TestJoinRequests_StartsEveryLookupAtOnce(t *testing.T) {
 			t.Errorf("requests = %d", reqs.len())
 		}
 	})
+}
+
+// Close with a pre-cancelled context succeeds deterministically when there are
+// no farewell commands to wait on, rather than racing done against ctx.Done().
+func TestClose_PreCancelledContextWithNoFarewellsSucceedsDeterministically(t *testing.T) {
+	for range 50 {
+		run(t, func(t *testing.T, e *env) {
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			err := e.s.Close(ctx)
+			if err != nil {
+				t.Fatalf("Close(canceled) with 0 farewells = %v, want nil", err)
+			}
+		})
+	}
 }

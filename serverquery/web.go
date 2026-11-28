@@ -76,6 +76,8 @@ type webDialer struct {
 // WebQuery keeps no session to push notifications to, so [Dialer.SupportsNotifications]
 // is false and the On… methods for server events do nothing here. The server
 // also refuses every file transfer command over it.
+//
+// Experimental: this package may change in a minor release.
 func Web(baseURL, apiKey string) Dialer {
 	return WebWith(baseURL, apiKey, WebOptions{})
 }

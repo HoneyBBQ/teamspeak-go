@@ -58,6 +58,8 @@ const defaultS3DownloadLimit = 64 << 20
 const s3ErrorBodyLimit = 64 << 10
 
 // S3FileOptions are the optional parameters of the S3 file commands.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 type S3FileOptions struct {
 	// Password is the channel's password, "" for none (chpw).
 	Password string
@@ -69,7 +71,11 @@ type S3FileOptions struct {
 // URL is a credential: whoever holds it can write the file until it expires,
 // after the server's s3ft-presigned-url-expiration (300 seconds by default).
 // Keep it out of logs.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 type S3FileUploadInfo struct {
+	_ [0]func()
+
 	// Path is the file's path from the channel's root, as the server confirmed
 	// it.
 	Path string
@@ -84,7 +90,11 @@ type S3FileUploadInfo struct {
 
 // S3FileDownloadInfo is a download the server signed. URL is a credential as an
 // upload's is: whoever holds it can read the file until it expires.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 type S3FileDownloadInfo struct {
+	_ [0]func()
+
 	// Path is the file's path from the channel's root, as the server confirmed
 	// it.
 	Path string
@@ -95,7 +105,11 @@ type S3FileDownloadInfo struct {
 }
 
 // S3FileEntry is one file in a channel's S3 file area.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 type S3FileEntry struct {
+	_ [0]func()
+
 	// ModifiedAt is when the storage last wrote the file; the zero time when the
 	// server sent none it could read.
 	ModifiedAt time.Time
@@ -107,6 +121,8 @@ type S3FileEntry struct {
 }
 
 // S3TransferOptions say how an S3 transfer reaches the storage.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 type S3TransferOptions struct {
 	// HTTPClient sends the request; nil means http.DefaultClient. Pass one to
 	// route through a proxy, trust another certificate authority, time or watch
@@ -123,6 +139,8 @@ func (o S3TransferOptions) client() *http.Client {
 }
 
 // S3DownloadOptions are DownloadS3FileData's optional parameters.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 type S3DownloadOptions struct {
 	// Transfer says how the request reaches the storage.
 	Transfer S3TransferOptions
@@ -242,6 +260,8 @@ func (c *Client) presign(
 // It returns *S3UnsupportedError unless the server names "s3" among its
 // extensions, and an error wrapping teamspeak.ErrInvalidCommand for a path
 // that cannot be sent (see UploadS3File).
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) InitS3FileUpload(
 	ctx context.Context, channelID teamspeak.ChannelID, path string, size uint64, opts S3FileOptions,
 ) (*S3FileUploadInfo, error) {
@@ -260,6 +280,8 @@ func (c *Client) InitS3FileUpload(
 // The server signs a download whether or not the file is there: a missing one
 // is the 404 of the download itself. A client without download power is refused
 // with 2049 (invalid file permissions), as is a channel that does not exist.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) InitS3FileDownload(
 	ctx context.Context, channelID teamspeak.ChannelID, path string, opts S3FileOptions,
 ) (*S3FileDownloadInfo, error) {
@@ -283,13 +305,29 @@ func succeeded(rows []map[string]string) (bool, error) {
 	return false, teamspeak.ErrNoData
 }
 
+// CompleteS3UploadOptions are CompleteS3FileUpload's optional parameters.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
+type CompleteS3UploadOptions struct {
+	// Password is the channel's password, "" for none (chpw).
+	Password string
+	// ETag is the ETag header the storage returned for the upload, such as
+	// S3UploadResult.ETag; "" when none was reported. Reserved for server
+	// revisions that inspect the upload receipt.
+	ETag string
+}
+
 // CompleteS3FileUpload tells the server an upload is stored, after
 // UploadS3FileData. The server then reads the channel's file list from the
 // storage again, and lists the file; without this it does not.
 //
 // It returns an *S3TransferError when the server reports that its own request
 // to the storage failed.
-func (c *Client) CompleteS3FileUpload(ctx context.Context, info *S3FileUploadInfo, opts S3FileOptions) error {
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
+func (c *Client) CompleteS3FileUpload(
+	ctx context.Context, info *S3FileUploadInfo, opts CompleteS3UploadOptions,
+) error {
 	err := c.assertS3()
 	if err != nil {
 		return err
@@ -320,6 +358,8 @@ func (c *Client) CompleteS3FileUpload(ctx context.Context, info *S3FileUploadInf
 // directories, only paths. A file uploaded without CompleteS3FileUpload is
 // missing from it until the server reads the list again. A channel that does
 // not exist has no files.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) ListS3Files(
 	ctx context.Context, channelID teamspeak.ChannelID, opts S3FileOptions,
 ) ([]S3FileEntry, error) {
@@ -347,6 +387,8 @@ func (c *Client) ListS3Files(
 // client without delete power is refused with 2568 (insufficient client
 // permissions). It returns an *S3TransferError when the server reports that its
 // own request to the storage failed. DeleteS3Files deletes several at once.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) DeleteS3File(
 	ctx context.Context, channelID teamspeak.ChannelID, path string, opts S3FileOptions,
 ) error {
@@ -362,6 +404,8 @@ func (c *Client) DeleteS3File(
 // client without delete power is refused with 2568 (insufficient client
 // permissions), and then nothing is deleted. It returns an *S3TransferError
 // when the server reports that its own request to the storage failed.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) DeleteS3Files(
 	ctx context.Context, channelID teamspeak.ChannelID, paths []string, opts S3FileOptions,
 ) error {
@@ -426,6 +470,8 @@ func s3Paths(paths []string) ([]string, error) {
 }
 
 // S3FileRename is one file of a RenameS3Files batch.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 type S3FileRename struct {
 	// OldPath is the file's path now, from the channel's root.
 	OldPath string
@@ -448,6 +494,8 @@ type S3FileRename struct {
 // request's signature refuses (RustFS, versitygw, SeaweedFS and CloudServer
 // did, as S3's signing rules have it), so the rename fails there and the file
 // stays where it was.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) RenameS3File(
 	ctx context.Context, channelID teamspeak.ChannelID, oldPath, newPath string, opts S3FileOptions,
 ) error {
@@ -486,6 +534,8 @@ func (c *Client) RenameS3File(
 // rename them one at a time, to know each outcome. After a batch whose last
 // rename failed, the list the server keeps shows the others a moment later
 // rather than at once.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) RenameS3Files(
 	ctx context.Context, channelID teamspeak.ChannelID, renames []S3FileRename, opts S3FileOptions,
 ) error {
@@ -691,6 +741,17 @@ func requestFailed(ctx context.Context, what string, err error) error {
 	return requestFailedOr(ctx, what, &S3TransferError{Err: noURL(err), msg: what + " got no answer from the storage"})
 }
 
+// S3UploadResult is what the storage reported when storing an upload.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
+type S3UploadResult struct {
+	_ [0]func()
+
+	// ETag is the ETag response header the storage returned, "" when it sent
+	// none.
+	ETag string
+}
+
 // UploadS3FileData sends a file to the storage, over an upload
 // InitS3FileUpload signed. data must give exactly info.Size bytes: a reader
 // that gives fewer or more fails the upload, and nothing is stored.
@@ -701,7 +762,11 @@ func requestFailed(ctx context.Context, what string, err error) error {
 // that is the wrong length, or fails reading, is an error wrapping
 // teamspeak.ErrFileTransfer; so is one from ctx ending the request, which
 // matches ctx.Err() too.
-func UploadS3FileData(ctx context.Context, info *S3FileUploadInfo, data io.Reader, opts S3TransferOptions) error {
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
+func UploadS3FileData(
+	ctx context.Context, info *S3FileUploadInfo, data io.Reader, opts S3TransferOptions,
+) (S3UploadResult, error) {
 	what := "the upload of " + info.Path
 	body := &exactBody{data: data, size: info.Size}
 	var reader io.Reader = body
@@ -710,31 +775,33 @@ func UploadS3FileData(ctx context.Context, info *S3FileUploadInfo, data io.Reade
 		// all; a reader of unknown length would be sent chunked.
 		reader = http.NoBody
 		var extra [1]byte
-		if n, _ := io.ReadFull(data, extra[:]); n > 0 {
-			return fmt.Errorf("%w: file transfer sent more than the declared 0 bytes", teamspeak.ErrFileTransfer)
+		n, _ := io.ReadFull(data, extra[:])
+		if n > 0 {
+			return S3UploadResult{},
+				fmt.Errorf("%w: file transfer sent more than the declared 0 bytes", teamspeak.ErrFileTransfer)
 		}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, info.URL, reader)
 	if err != nil {
-		return &S3TransferError{Err: noURL(err), msg: what + " could not be sent"}
+		return S3UploadResult{}, &S3TransferError{Err: noURL(err), msg: what + " could not be sent"}
 	}
 	// Signed with the URL: the storage refuses a body of another length.
 	req.ContentLength = int64(info.Size) //nolint:gosec // a size the server signs is under 5 GiB
 	resp, err := opts.client().Do(req)
 	if err != nil {
 		if body.err != nil && ctx.Err() == nil {
-			return body.err
+			return S3UploadResult{}, body.err
 		}
 
-		return requestFailed(ctx, what, err)
+		return S3UploadResult{}, requestFailed(ctx, what, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return storageRefused(what, resp)
+		return S3UploadResult{}, storageRefused(what, resp)
 	}
 
-	return nil
+	return S3UploadResult{ETag: resp.Header.Get("ETag")}, nil
 }
 
 // trackedWriter remembers the error its writer returned, to tell it from one of
@@ -828,6 +895,8 @@ func brokeOff(ctx context.Context, what string, err error) error {
 // expired, one with 403. A body that stops short is an *S3TransferError too,
 // and dest keeps what had arrived. An error of dest, or of ctx ending the
 // request, wraps teamspeak.ErrFileTransfer.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func DownloadS3FileData(
 	ctx context.Context, info *S3FileDownloadInfo, dest io.Writer, opts S3DownloadOptions,
 ) error {
@@ -841,6 +910,8 @@ func DownloadS3FileData(
 }
 
 // UploadS3FileOptions are UploadS3File's optional parameters.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 type UploadS3FileOptions struct {
 	// Transfer says how the request reaches the storage.
 	Transfer S3TransferOptions
@@ -866,6 +937,8 @@ type UploadS3FileOptions struct {
 // that reports its own request to the storage failed, is an *S3TransferError. A
 // server that does not name "s3" among its extensions is refused with an
 // *S3UnsupportedError before anything is sent.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) UploadS3File(
 	ctx context.Context, channelID teamspeak.ChannelID, path string, data []byte, opts UploadS3FileOptions,
 ) error {
@@ -874,15 +947,17 @@ func (c *Client) UploadS3File(
 	if err != nil {
 		return err
 	}
-	err = UploadS3FileData(ctx, info, bytes.NewReader(data), opts.Transfer)
+	res, err := UploadS3FileData(ctx, info, bytes.NewReader(data), opts.Transfer)
 	if err != nil {
 		return err
 	}
 
-	return c.CompleteS3FileUpload(ctx, info, files)
+	return c.CompleteS3FileUpload(ctx, info, CompleteS3UploadOptions{Password: opts.Password, ETag: res.ETag})
 }
 
 // DownloadS3FileOptions are DownloadS3File's optional parameters.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 type DownloadS3FileOptions struct {
 	// Transfer says how the request reaches the storage.
 	Transfer S3TransferOptions
@@ -905,6 +980,8 @@ type DownloadS3FileOptions struct {
 // A file that is not there is an *S3TransferError with Status 404. A download
 // of more than MaxSize bytes fails with an error wrapping
 // teamspeak.ErrFileTransfer. Paths and refusals are as for UploadS3File.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) DownloadS3File(
 	ctx context.Context, channelID teamspeak.ChannelID, path string, opts DownloadS3FileOptions,
 ) ([]byte, error) {

@@ -13,6 +13,8 @@ import (
 // A Dialer is a description rather than a connection: it holds where to
 // connect and who to log in as, and opens a fresh connection every time, which
 // is what reconnection needs. A client reuses one for the life of the client.
+//
+// Experimental: this package may change in a minor release.
 type Dialer interface {
 	// SupportsNotifications reports whether the server can push notifications
 	// over this connection. Raw TCP and SSH can; WebQuery has no session for

@@ -21,6 +21,8 @@ const maxClosedViewers = 1024
 // Its handlers run on the Streams' queue. A request or an end that happens
 // before OnRequest or OnEnded is first called is kept, up to 256, and delivered
 // to the first handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type Published struct {
 	s        *Streams
 	requests *topic[*JoinRequest]
@@ -86,9 +88,13 @@ func newPublished(s *Streams, initial Info) *Published {
 }
 
 // ID returns the stream's id.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Published) ID() ID { return p.id }
 
 // Info returns what is known of the stream now.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Published) Info() Info {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
@@ -101,6 +107,8 @@ func (p *Published) Info() Info {
 }
 
 // Ended reports whether the stream has ended.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Published) Ended() bool {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
@@ -111,6 +119,8 @@ func (p *Published) Ended() bool {
 // Viewers returns the viewers let in and still there, by client id. It is this
 // client's own, live list; Info.Viewers, which every client has for every
 // stream, is the count the server last reported and includes pending requests.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Published) Viewers() []*ViewerPeer {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
@@ -126,6 +136,8 @@ func (p *Published) Viewers() []*ViewerPeer {
 
 // OnRequest registers a handler for a client asking to watch. It returns a
 // function that removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Published) OnRequest(handler func(*JoinRequest)) func() {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
@@ -135,6 +147,8 @@ func (p *Published) OnRequest(handler func(*JoinRequest)) func() {
 
 // OnEnded registers a handler for the stream ending. It returns a function that
 // removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Published) OnEnded(handler func(EndedEvent)) func() {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
@@ -142,23 +156,25 @@ func (p *Published) OnEnded(handler func(EndedEvent)) func() {
 	return p.ended.on(handler)
 }
 
-// Stop stops the stream, for everyone. reason is a number the server passes to
-// the viewers (0 is the usual one). Stop returns once the server took the
-// command, with the stream ended here too: the server tells the one who
-// stopped nothing. A stream the server no longer knows counts as stopped; on any
-// other failure the stream is left running.
-func (p *Published) Stop(ctx context.Context, reason uint32) error {
+// Stop stops the stream, for everyone. StopOptions.Reason is a number the
+// server passes to the viewers (0 is the usual one). Stop returns once the
+// server took the command, with the stream ended here too: the server tells the
+// one who stopped nothing. A stream the server no longer knows counts as
+// stopped; on any other failure the stream is left running.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
+func (p *Published) Stop(ctx context.Context, opts StopOptions) error {
 	if p.Ended() {
 		return nil
 	}
-	err := p.s.stopStream(ctx, p.id, reason)
+	err := p.s.stopStream(ctx, p.id, opts.Reason)
 	if err != nil {
 		return err
 	}
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
 
-	p.s.endLocked(p.id, reason, EndCauseStopped)
+	p.s.endLocked(p.id, opts.Reason, EndCauseStopped)
 
 	return nil
 }
@@ -315,6 +331,8 @@ func (p *Published) viewersLocked() []*ViewerPeer {
 // server relays every request, from any channel, and enforces neither the
 // viewer limit nor the accessibility: deciding is the publisher's job, and
 // nothing is accepted for it. A request is answered once.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type JoinRequest struct {
 	p       *Published
 	closed  *topic[RequestState]
@@ -324,15 +342,23 @@ type JoinRequest struct {
 }
 
 // StreamID returns the stream asked for.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (r *JoinRequest) StreamID() ID { return r.p.id }
 
 // Viewer returns who asked.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (r *JoinRequest) Viewer() Viewer { return r.viewer }
 
 // Message returns the message that came with the request; it may be empty.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (r *JoinRequest) Message() string { return r.message }
 
 // State returns where the request stands.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (r *JoinRequest) State() RequestState {
 	r.p.s.mu.Lock()
 	defer r.p.s.mu.Unlock()
@@ -347,6 +373,8 @@ func (r *JoinRequest) State() RequestState {
 // themselves are called. From then on Accept and Deny return ErrNotPending. A
 // close that happens before the first handler is registered is kept for it. It
 // returns a function that removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (r *JoinRequest) OnClosed(handler func(RequestState)) func() {
 	r.p.s.mu.Lock()
 	defer r.p.s.mu.Unlock()
@@ -354,19 +382,21 @@ func (r *JoinRequest) OnClosed(handler func(RequestState)) func() {
 	return r.closed.on(handler)
 }
 
-// Accept lets the viewer in, with the SDP offer it will answer and a message
-// that goes with it, which may be empty. It returns the peer once the server
+// Accept lets the viewer in, with the SDP offer it will answer and an optional
+// message in opts that goes with it. It returns the peer once the server
 // took the answer. An offer that is too long returns a *PayloadTooLargeError
 // before sending and without using the request up, so it may be shortened and
 // tried again. An offer with no m=audio section is sent as it is, with a
 // WarningOfferWithoutAudio on Streams.OnWarning. A request that was answered or
 // is no longer pending returns ErrNotPending.
-func (r *JoinRequest) Accept(ctx context.Context, offer, message string) (*ViewerPeer, error) {
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
+func (r *JoinRequest) Accept(ctx context.Context, offer string, opts AcceptOptions) (*ViewerPeer, error) {
 	if offer == "" {
 		return nil, fmt.Errorf("%w: the offer must be a non-empty SDP string", ErrInvalidOptions)
 	}
 	s, clid := r.p.s, r.viewer.ClientID
-	req := respondRequest(r.p.id, clid, message, offer, true)
+	req := respondRequest(r.p.id, clid, opts.Message, offer, true)
 
 	s.mu.Lock()
 	if r.state != RequestPending {
@@ -406,12 +436,15 @@ func (r *JoinRequest) Accept(ctx context.Context, offer, message string) (*Viewe
 	return peer, nil
 }
 
-// Deny refuses, with a reason the viewer sees, which may be empty. The server
-// forgets a refusal, so the viewer may ask again; with Options.RememberDenied,
-// requests from this client's unique identifier are then left unanswered.
-func (r *JoinRequest) Deny(ctx context.Context, reason string) error {
+// Deny refuses, with an optional reason in opts that the viewer sees. The
+// server forgets a refusal, so the viewer may ask again; with
+// Options.RememberDenied, requests from this client's unique identifier are
+// then left unanswered.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
+func (r *JoinRequest) Deny(ctx context.Context, opts DenyOptions) error {
 	s, clid := r.p.s, r.viewer.ClientID
-	req := respondRequest(r.p.id, clid, reason, "", false)
+	req := respondRequest(r.p.id, clid, opts.Reason, "", false)
 
 	s.mu.Lock()
 	if r.state != RequestPending {

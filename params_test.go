@@ -614,19 +614,19 @@ func TestEveryListTreatsAnEmptyResultAsEmpty(t *testing.T) {
 	empty := &ServerError{Code: errcode.DatabaseEmptyResult}
 	lists := map[string]func(c *Commands) error{
 		"ListChannelPermissions": func(c *Commands) error {
-			return errOf(c.ListChannelPermissions(t.Context(), 1))
+			return errOf(c.ListChannelPermissions(t.Context(), 1, PermissionListOptions{}))
 		},
 		"ListChannelClientPermissions": func(c *Commands) error {
-			return errOf(c.ListChannelClientPermissions(t.Context(), 1, 2))
+			return errOf(c.ListChannelClientPermissions(t.Context(), 1, 2, PermissionListOptions{}))
 		},
 		"ListClientPermissions": func(c *Commands) error {
-			return errOf(c.ListClientPermissions(t.Context(), 1))
+			return errOf(c.ListClientPermissions(t.Context(), 1, PermissionListOptions{}))
 		},
 		"ListChannelGroupPermissions": func(c *Commands) error {
-			return errOf(c.ListChannelGroupPermissions(t.Context(), 1))
+			return errOf(c.ListChannelGroupPermissions(t.Context(), 1, PermissionListOptions{}))
 		},
 		"ListServerGroupPermissions": func(c *Commands) error {
-			return errOf(c.ListServerGroupPermissions(t.Context(), 1))
+			return errOf(c.ListServerGroupPermissions(t.Context(), 1, PermissionListOptions{}))
 		},
 		"ListFiles": func(c *Commands) error {
 			return errOf(c.ListFiles(t.Context(), 1, "/", FileOptions{}))

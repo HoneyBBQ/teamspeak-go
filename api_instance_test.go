@@ -26,16 +26,17 @@ func TestListServers(t *testing.T) {
 		t.Errorf("sent %q, want %q", s.sent[0], want)
 	}
 	want := VirtualServer{
-		ID: 2, Port: 9987, Status: VirtualServerStatusOnline, Name: "ctw new", UID: "6SM/NYHQYWb74oLekyndKNO415Q=",
-		Uptime: 44 * time.Second, ClientsOnline: 0, QueryClientsOnline: 1, MaxClients: 8, Autostart: true,
+		ID: 2, Port: 9987, Status: VirtualServerStatusOnline,
+		Name: new("ctw new"), UID: new("6SM/NYHQYWb74oLekyndKNO415Q="), MachineID: new(""),
+		Uptime: new(44 * time.Second), ClientsOnline: new(int32(0)), QueryClientsOnline: new(int32(1)),
+		MaxClients: new(int32(8)), Autostart: new(true),
 	}
 	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Errorf("servers = %+v, want %+v", got, want)
 	}
 }
 
-// -short answers the id, port and status only, and TeamSpeak 6 adds fields
-// VirtualServer has no home for.
+// -short answers the id, port and status only, leaving the omitted fields nil.
 func TestListServers_Short(t *testing.T) {
 	s := &script{replies: []reply{{rows: []map[string]string{
 		{"virtualserver_id": "1", "virtualserver_port": "9987", "virtualserver_status": "offline"},

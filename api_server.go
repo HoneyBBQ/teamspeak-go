@@ -217,6 +217,8 @@ func (c *Commands) GetVersion(ctx context.Context) (ServerVersion, error) {
 
 // WhoAmI is which server and client a connection is, as the server sees it.
 type WhoAmI struct {
+	_ [0]func()
+
 	// ServerStatus is the virtual server's state (virtualserver_status).
 	ServerStatus VirtualServerStatus
 	// ServerUID is the virtual server's unique identifier
@@ -279,6 +281,8 @@ func (c *Commands) WhoAmI(ctx context.Context) (WhoAmI, error) {
 // ServerConnectionInfo is the virtual server's traffic statistics, as
 // serverrequestconnectioninfo reports them. Rates are in bytes per second.
 type ServerConnectionInfo struct {
+	_ [0]func()
+
 	// FileTransferBandwidthSent and FileTransferBandwidthReceived are the
 	// file transfer bandwidth (connection_filetransfer_bandwidth_*).
 	FileTransferBandwidthSent uint64
@@ -607,7 +611,7 @@ func (c *Commands) GetServerGroupsByClient(ctx context.Context, clientDBID Clien
 
 // ListServerGroupPermissions returns the permissions set on a server group.
 func (c *Commands) ListServerGroupPermissions(
-	ctx context.Context, serverGroupID ServerGroupID,
+	ctx context.Context, serverGroupID ServerGroupID, _ PermissionListOptions,
 ) ([]PermissionEntry, error) {
 	rows, err := c.list(ctx, "servergrouppermlist", []param{idArg("sgid", serverGroupID)})
 	if err != nil {

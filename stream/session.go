@@ -48,9 +48,17 @@ func (s *Streams) spawnLocked(fn func()) bool {
 	if s.closed {
 		return false
 	}
-	s.wg.Go(fn)
+	s.run(fn)
 
 	return true
+}
+
+func (s *Streams) run(fn func()) {
+	s.running.Add(1)
+	s.wg.Go(func() {
+		defer s.running.Add(-1)
+		fn()
+	})
 }
 
 // reportLocked tells OnError of a failure nobody awaits. With no handler yet,

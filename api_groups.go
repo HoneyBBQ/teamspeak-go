@@ -220,9 +220,14 @@ func (c *Commands) ListChannelGroupClients(
 	return out, nil
 }
 
+// PermissionListOptions are the optional parameters for listing permissions on
+// a channel, group or client. It has no fields yet: it is reserved for flags
+// such as -permsid.
+type PermissionListOptions struct{}
+
 // ListChannelGroupPermissions returns the permissions set on a channel group.
 func (c *Commands) ListChannelGroupPermissions(
-	ctx context.Context, channelGroupID ChannelGroupID,
+	ctx context.Context, channelGroupID ChannelGroupID, _ PermissionListOptions,
 ) ([]PermissionEntry, error) {
 	rows, err := c.list(ctx, "channelgrouppermlist", []param{idArg("cgid", channelGroupID)})
 	if err != nil {
@@ -346,6 +351,10 @@ type OwnPermission struct {
 	Value int32
 }
 
+// OwnPermissionOptions are GetOwnPermission's and GetOwnPermissions' optional
+// parameters. It has no fields yet: it is reserved for later extensions.
+type OwnPermissionOptions struct{}
+
 // GetOwnPermission returns a permission's value for this connection's own
 // client, as the server works it out from the client's groups and overrides.
 // It sends permget.
@@ -355,7 +364,9 @@ type OwnPermission struct {
 // it, over ServerQuery and the voice protocol. TeamSpeak 6 also takes the
 // permission of another identity, through an authentication token, which this
 // does not send.
-func (c *Commands) GetOwnPermission(ctx context.Context, perm Permission) (OwnPermission, error) {
+func (c *Commands) GetOwnPermission(
+	ctx context.Context, perm Permission, _ OwnPermissionOptions,
+) (OwnPermission, error) {
 	row, err := c.queryRow(ctx, "permget", "permvalue", []param{permArg(perm)})
 	if err != nil {
 		return OwnPermission{}, err
@@ -390,7 +401,9 @@ func parseOwnPermission(row map[string]string) OwnPermission {
 // PermissionByID and PermissionByName is therefore sent as two commands, the
 // names and then the ids, and the rows are put back in the order asked. An
 // invalid Permission is refused before anything is sent.
-func (c *Commands) GetOwnPermissions(ctx context.Context, perms []Permission) ([]OwnPermission, error) {
+func (c *Commands) GetOwnPermissions(
+	ctx context.Context, perms []Permission, _ OwnPermissionOptions,
+) ([]OwnPermission, error) {
 	if len(perms) == 0 {
 		return nil, nil
 	}
@@ -518,6 +531,8 @@ func (c *Commands) FindPermission(ctx context.Context, perm Permission) ([]Permi
 type PermissionOverviewEntry struct {
 	PermissionLocation
 
+	_ [0]func()
+
 	// Value is the permission's value there (v).
 	Value int32
 	// Negated reports a negated value (n).
@@ -525,6 +540,10 @@ type PermissionOverviewEntry struct {
 	// Skip reports a value that skips channel and client overrides (s).
 	Skip bool
 }
+
+// PermissionOverviewOptions are GetPermissionOverview's optional parameters.
+// It has no fields yet: it is reserved for later extensions.
+type PermissionOverviewOptions struct{}
 
 // GetPermissionOverview returns every permission that applies to a client in a
 // channel, from every source, unfiltered.
@@ -534,7 +553,7 @@ type PermissionOverviewEntry struct {
 // everywhere else, so taking one here would make the useful call impossible.
 // Each row names its permission (p), so one is easy to pick out.
 func (c *Commands) GetPermissionOverview(
-	ctx context.Context, channelID ChannelID, clientDBID ClientDBID,
+	ctx context.Context, channelID ChannelID, clientDBID ClientDBID, _ PermissionOverviewOptions,
 ) ([]PermissionOverviewEntry, error) {
 	rows, err := c.list(ctx, "permoverview", []param{
 		idArg("cid", channelID),
