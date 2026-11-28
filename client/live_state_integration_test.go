@@ -116,9 +116,13 @@ func await[E any](t *testing.T, ch <-chan E, what string, match func(E) bool) E 
 func setFields(changes teamspeak.ClientChanges) []string {
 	var set []string
 	v := reflect.ValueOf(changes)
+	rt := v.Type()
 	for i := range v.NumField() {
+		if !rt.Field(i).IsExported() {
+			continue
+		}
 		if !v.Field(i).IsNil() {
-			set = append(set, v.Type().Field(i).Name)
+			set = append(set, rt.Field(i).Name)
 		}
 	}
 	slices.Sort(set)
