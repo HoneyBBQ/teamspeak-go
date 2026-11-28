@@ -286,13 +286,14 @@ func TestLive_S3ListsAStoredFileOnlyOnceTheServerIsToldTheUploadIsDone(t *testin
 	ctx := t.Context()
 	info, err := l.c.InitS3FileUpload(ctx, l.cid, path, 3, client.S3FileOptions{})
 	requireNoErr(t, err)
-	requireNoErr(t, client.UploadS3FileData(ctx, info, strings.NewReader("abc"), l.transfer))
+	res, err := client.UploadS3FileData(ctx, info, strings.NewReader("abc"), l.transfer)
+	requireNoErr(t, err)
 	// A test that expects nothing measures once.
 	time.Sleep(time.Second)
 	if _, ok := l.listed(t, path); ok {
 		t.Error("the file is listed before the server was told the upload is done")
 	}
-	requireNoErr(t, l.c.CompleteS3FileUpload(ctx, info, client.S3FileOptions{}))
+	requireNoErr(t, l.c.CompleteS3FileUpload(ctx, info, client.CompleteS3UploadOptions{ETag: res.ETag}))
 	if _, ok := l.listed(t, path); !ok {
 		t.Error("the file is not listed after CompleteS3FileUpload")
 	}
@@ -553,7 +554,7 @@ func TestLive_S3AvatarIsSeenFlaggedAndDownloadedByteForByte(t *testing.T) {
 	t.Cleanup(func() {
 		ctx, cancel := cleanupContext()
 		defer cancel()
-		_ = a.c.RemoveS3Avatar(ctx)
+		_ = a.c.RemoveS3Avatar(ctx, client.S3RemoveOptions{})
 	})
 
 	got, err := a.c.UploadS3Avatar(t.Context(), data, a.transfer)
@@ -590,7 +591,7 @@ func TestLive_S3AvatarIsSeenFlaggedAndDownloadedByteForByte(t *testing.T) {
 func requireS3AvatarRemoved(t *testing.T, a *s3Avatars) {
 	t.Helper()
 	cleared := listen(t, a.bystander.OnClientUpdated)
-	requireNoErr(t, a.c.RemoveS3Avatar(t.Context()))
+	requireNoErr(t, a.c.RemoveS3Avatar(t.Context(), client.S3RemoveOptions{}))
 	await(t, cleared, "the avatar flag emptied", func(e teamspeak.ClientUpdatedEvent) bool {
 		return e.ClientID == a.c.ClientID() && e.Changes.Avatar != nil && *e.Changes.Avatar == ""
 	})
@@ -608,7 +609,7 @@ func TestLive_S3AnotherClientsAvatarIsRefusedToDelete(t *testing.T) {
 	t.Cleanup(func() {
 		ctx, cancel := cleanupContext()
 		defer cancel()
-		_ = a.c.RemoveS3Avatar(ctx)
+		_ = a.c.RemoveS3Avatar(ctx, client.S3RemoveOptions{})
 	})
 	name, err := teamspeak.AvatarFileName(a.c.UID())
 	requireNoErr(t, err)
@@ -635,11 +636,11 @@ func TestLive_S3IconIsDownloadedByABystanderAndDeleted(t *testing.T) {
 	if !ok || !bytes.Equal(blob, data) {
 		t.Fatalf("DownloadS3Icon = %q, %v, want the uploaded bytes", blob, ok)
 	}
-	requireNoErr(t, a.owner.DeleteS3Icon(t.Context(), id))
+	requireNoErr(t, a.owner.RemoveS3Icon(t.Context(), id, client.S3RemoveOptions{}))
 	_, ok, err = a.bystander.DownloadS3Icon(t.Context(), id, a.transfer)
 	requireNoErr(t, err)
 	if ok {
-		t.Error("the icon is still there after DeleteS3Icon")
+		t.Error("the icon is still there after RemoveS3Icon")
 	}
 }
 
@@ -648,7 +649,7 @@ func TestLive_S3IconsAreRefusedWithoutBIconManage(t *testing.T) {
 	data := []byte("icon " + s3Run())
 	_, err := a.bystander.UploadS3Icon(t.Context(), data, a.transfer)
 	requireServerCode(t, err, errcode.FileInvalidPermissions)
-	err = a.bystander.DeleteS3Icon(t.Context(), teamspeak.IconIDOf(data))
+	err = a.bystander.RemoveS3Icon(t.Context(), teamspeak.IconIDOf(data), client.S3RemoveOptions{})
 	requireServerCode(t, err, errcode.PermissionsClientInsufficient)
 }
 

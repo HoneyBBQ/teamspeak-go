@@ -260,7 +260,8 @@ func TestGetClientConnectionInfo_AsksAndReadsTheFigures(t *testing.T) {
 	}
 	if info.ID != 5 || info.Ping != 12500*time.Microsecond || info.PingDeviation != 1250*time.Microsecond ||
 		info.ConnectedTime != 4*time.Second || info.IdleTime != 3*time.Second ||
-		info.IP != "10.0.0.1" || info.Port != 9000 || info.FileTransferBandwidthSent != 11 {
+		info.IP == nil || *info.IP != "10.0.0.1" || info.Port == nil || *info.Port != 9000 ||
+		info.FileTransferBandwidthSent != 11 {
 		t.Errorf("info = %+v", info)
 	}
 	if info.Sent.Speech.Packets != 7 || info.Received.Control.Bytes != 800 ||
@@ -273,7 +274,7 @@ func TestGetClientConnectionInfo_AsksAndReadsTheFigures(t *testing.T) {
 func TestGetClientConnectionInfo_LeavesIPAndPortOutWhenAbsent(t *testing.T) {
 	s := &script{replies: []reply{{rows: []map[string]string{{"clid": "5"}}}}}
 	info, err := NewCommands(s).GetClientConnectionInfo(t.Context(), 5)
-	if err != nil || info.IP != "" || info.Port != 0 || info.Ping != 0 {
+	if err != nil || info.IP != nil || info.Port != nil || info.Ping != 0 {
 		t.Errorf("info = %+v, err = %v", info, err)
 	}
 }

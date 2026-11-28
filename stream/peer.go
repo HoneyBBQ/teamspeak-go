@@ -14,6 +14,8 @@ import (
 // An event that happens before its handler is first registered is kept, up to
 // 256 per event, and delivered to the first handler of that event, so nothing
 // is lost in the time between receiving a peer and attaching to it.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type Peer struct {
 	s *Streams
 	// pub is the stream a viewer's peer belongs to; nil for a View.
@@ -56,12 +58,18 @@ func newPeer(s *Streams, pub *Published, id ID, clid teamspeak.ClientID) *Peer {
 }
 
 // StreamID returns the stream.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Peer) StreamID() ID { return p.streamID }
 
 // ClientID returns the client at the other end.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Peer) ClientID() teamspeak.ClientID { return p.clientID }
 
 // Closed reports whether the peer has closed.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Peer) Closed() bool {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
@@ -71,6 +79,8 @@ func (p *Peer) Closed() bool {
 
 // OnOffer registers a handler for a renegotiation offer from the publisher: an
 // SDP. It returns a function that removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Peer) OnOffer(handler func(sdp string)) func() {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
@@ -80,6 +90,8 @@ func (p *Peer) OnOffer(handler func(sdp string)) func() {
 
 // OnAnswer registers a handler for the viewer's SDP answer. It returns a
 // function that removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Peer) OnAnswer(handler func(sdp string)) func() {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
@@ -89,6 +101,8 @@ func (p *Peer) OnAnswer(handler func(sdp string)) func() {
 
 // OnCandidate registers a handler for an ICE candidate from the other end. It
 // returns a function that removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Peer) OnCandidate(handler func(IceCandidate)) func() {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
@@ -99,6 +113,8 @@ func (p *Peer) OnCandidate(handler func(IceCandidate)) func() {
 // OnSignal registers a handler for a signalling message that is none of the
 // above, or was not shaped as they are. It returns a function that removes the
 // handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Peer) OnSignal(handler func(RawSignal)) func() {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
@@ -108,6 +124,8 @@ func (p *Peer) OnSignal(handler func(RawSignal)) func() {
 
 // OnClosed registers a handler for the peer closing, for whatever cause. It
 // returns a function that removes the handler.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Peer) OnClosed(handler func(PeerClosedEvent)) func() {
 	p.s.mu.Lock()
 	defer p.s.mu.Unlock()
@@ -116,7 +134,9 @@ func (p *Peer) OnClosed(handler func(PeerClosedEvent)) func() {
 }
 
 // SendCandidate sends an ICE candidate to the other end.
-func (p *Peer) SendCandidate(ctx context.Context, c IceCandidate) error {
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
+func (p *Peer) SendCandidate(ctx context.Context, c IceCandidate, _ SignalOptions) error {
 	return p.sendJSON(ctx, candidateJSON(c))
 }
 
@@ -124,7 +144,9 @@ func (p *Peer) SendCandidate(ctx context.Context, c IceCandidate) error {
 // {"cmd":cmd,"args":args} with args encoded as JSON (left out when nil). The
 // server relays it unseen, and a receiver that does not understand the shape
 // drops it without a word.
-func (p *Peer) SendSignal(ctx context.Context, cmd string, args any) error {
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
+func (p *Peer) SendSignal(ctx context.Context, cmd string, args any, _ SignalOptions) error {
 	text, err := encodeSignal(cmd, args)
 	if err != nil {
 		return fmt.Errorf("stream: encoding the signal: %w", err)
@@ -141,6 +163,8 @@ func (p *Peer) SendSignal(ctx context.Context, cmd string, args any) error {
 // and may keep signalling, which is ignored, and may ask again, which is a new
 // request. Stop the stream to end it for everyone. Closing a closed peer does
 // nothing.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (p *Peer) Close(ctx context.Context) error {
 	p.s.mu.Lock()
 	if p.closed {
@@ -217,6 +241,8 @@ func (p *Peer) endLocked(c PeerClosedEvent) {
 }
 
 // ViewerPeer is the publisher's end for one accepted viewer.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type ViewerPeer struct {
 	*Peer
 }
@@ -226,7 +252,9 @@ type ViewerPeer struct {
 // viewer takes it is up to the viewer: renegotiation has not been tried. An
 // offer with no m=audio section is sent as it is, with a
 // WarningOfferWithoutAudio.
-func (v *ViewerPeer) SendOffer(ctx context.Context, sdp string) error {
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
+func (v *ViewerPeer) SendOffer(ctx context.Context, sdp string, _ SignalOptions) error {
 	if !hasAudioSection(sdp) {
 		v.s.mu.Lock()
 		v.s.warnNoAudioLocked(v.streamID, v.clientID)
@@ -238,6 +266,8 @@ func (v *ViewerPeer) SendOffer(ctx context.Context, sdp string) error {
 
 // View is the viewer's end of a stream it was let into, made by Streams.Watch.
 // It is unrelated to client.ServerView.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 type View struct {
 	*Peer
 
@@ -245,14 +275,20 @@ type View struct {
 }
 
 // Offer returns the publisher's SDP offer.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (v *View) Offer() string { return v.offer }
 
 // Answer sends the SDP answer to the offer.
-func (v *View) Answer(ctx context.Context, sdp string) error {
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
+func (v *View) Answer(ctx context.Context, sdp string, _ SignalOptions) error {
 	return v.sendJSON(ctx, answerJSON(sdp))
 }
 
 // Leave leaves the stream: the same as Close.
+//
+// Experimental: TeamSpeak does not document the stream protocol; this may change in a minor release.
 func (v *View) Leave(ctx context.Context) error {
 	return v.Close(ctx)
 }

@@ -558,7 +558,9 @@ func batchHolders(t *testing.T, c *serverquery.Client, join, subscribe teamspeak
 				return c.AddChannelPermissions(ctx, cid, e, o)
 			},
 			remove: func() error { return c.DeleteChannelPermissions(ctx, cid, names) },
-			list:   func() ([]teamspeak.PermissionEntry, error) { return c.ListChannelPermissions(ctx, cid) },
+			list: func() ([]teamspeak.PermissionEntry, error) {
+				return c.ListChannelPermissions(ctx, cid, teamspeak.PermissionListOptions{})
+			},
 		},
 		{
 			name:    "channel group",
@@ -567,7 +569,9 @@ func batchHolders(t *testing.T, c *serverquery.Client, join, subscribe teamspeak
 				return c.AddChannelGroupPermissions(ctx, cgid, e, o)
 			},
 			remove: func() error { return c.DeleteChannelGroupPermissions(ctx, cgid, names, flag) },
-			list:   func() ([]teamspeak.PermissionEntry, error) { return c.ListChannelGroupPermissions(ctx, cgid) },
+			list: func() ([]teamspeak.PermissionEntry, error) {
+				return c.ListChannelGroupPermissions(ctx, cgid, teamspeak.PermissionListOptions{})
+			},
 		},
 		{
 			name:    "client",
@@ -576,7 +580,9 @@ func batchHolders(t *testing.T, c *serverquery.Client, join, subscribe teamspeak
 				return c.AddClientPermissions(ctx, dbid, e, o)
 			},
 			remove: func() error { return c.DeleteClientPermissions(ctx, dbid, names) },
-			list:   func() ([]teamspeak.PermissionEntry, error) { return c.ListClientPermissions(ctx, dbid) },
+			list: func() ([]teamspeak.PermissionEntry, error) {
+				return c.ListClientPermissions(ctx, dbid, teamspeak.PermissionListOptions{})
+			},
 		},
 		{
 			name:    "channel client",
@@ -586,7 +592,7 @@ func batchHolders(t *testing.T, c *serverquery.Client, join, subscribe teamspeak
 			},
 			remove: func() error { return c.DeleteChannelClientPermissions(ctx, cid, dbid, names) },
 			list: func() ([]teamspeak.PermissionEntry, error) {
-				return c.ListChannelClientPermissions(ctx, cid, dbid)
+				return c.ListChannelClientPermissions(ctx, cid, dbid, teamspeak.PermissionListOptions{})
 			},
 		},
 		{
@@ -599,7 +605,9 @@ func batchHolders(t *testing.T, c *serverquery.Client, join, subscribe teamspeak
 				return c.AddServerGroupPermissions(ctx, sgid, e, o)
 			},
 			remove: func() error { return c.DeleteServerGroupPermissions(ctx, sgid, names, flag) },
-			list:   func() ([]teamspeak.PermissionEntry, error) { return c.ListServerGroupPermissions(ctx, sgid) },
+			list: func() ([]teamspeak.PermissionEntry, error) {
+				return c.ListServerGroupPermissions(ctx, sgid, teamspeak.PermissionListOptions{})
+			},
 		},
 	}
 }

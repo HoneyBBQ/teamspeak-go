@@ -314,7 +314,8 @@ func TestQueryAdmin_CustomProperties(t *testing.T) {
 func TestQueryAdmin_OwnPermission(t *testing.T) {
 	forEachTransport(t, 1, func(t *testing.T, c *serverquery.Client, _ teamspeak.ServerFamily, _ string) {
 		ctx := adminCtx(t)
-		byName, err := c.GetOwnPermission(ctx, teamspeak.PermissionByName(perm.ClientBanList))
+		byName, err := c.GetOwnPermission(
+			ctx, teamspeak.PermissionByName(perm.ClientBanList), teamspeak.OwnPermissionOptions{})
 		skipUnlessAllowed(t, err, "GetOwnPermission")
 		if err != nil {
 			t.Fatalf("GetOwnPermission: %v", err)
@@ -323,12 +324,14 @@ func TestQueryAdmin_OwnPermission(t *testing.T) {
 			t.Errorf("the query admin's %s = %+v, want its name, its id and at least 1", perm.ClientBanList, byName)
 		}
 
-		byID, err := c.GetOwnPermission(ctx, teamspeak.PermissionByID(byName.ID))
+		byID, err := c.GetOwnPermission(
+			ctx, teamspeak.PermissionByID(byName.ID), teamspeak.OwnPermissionOptions{})
 		if err != nil || byID != byName {
 			t.Errorf("by id %d = %+v, %v, want %+v as by name", byName.ID, byID, err, byName)
 		}
 
-		_, err = c.GetOwnPermission(ctx, teamspeak.PermissionByName("b_no_such_permission"))
+		_, err = c.GetOwnPermission(
+			ctx, teamspeak.PermissionByName("b_no_such_permission"), teamspeak.OwnPermissionOptions{})
 		if code := serverCode(err); code != 2562 {
 			t.Errorf("an unknown permission: %v, want code 2562", err)
 		}
@@ -346,7 +349,7 @@ func TestQueryAdmin_OwnPermissions(t *testing.T) {
 		for i, name := range names {
 			asked[i] = teamspeak.PermissionByName(name)
 		}
-		got, err := c.GetOwnPermissions(ctx, asked)
+		got, err := c.GetOwnPermissions(ctx, asked, teamspeak.OwnPermissionOptions{})
 		skipUnlessAllowed(t, err, "GetOwnPermissions")
 		if err != nil {
 			t.Fatalf("GetOwnPermissions: %v", err)
@@ -355,7 +358,7 @@ func TestQueryAdmin_OwnPermissions(t *testing.T) {
 			t.Fatalf("%d rows for %d permissions: %+v", len(got), len(asked), got)
 		}
 		for i, perm := range asked {
-			single, singleErr := c.GetOwnPermission(ctx, perm)
+			single, singleErr := c.GetOwnPermission(ctx, perm, teamspeak.OwnPermissionOptions{})
 			if singleErr != nil || got[i] != single {
 				t.Errorf("row %d = %+v, want %+v as read alone (%v)", i, got[i], single, singleErr)
 			}
@@ -363,7 +366,7 @@ func TestQueryAdmin_OwnPermissions(t *testing.T) {
 
 		// Name, id, name: the mix the server's WebQuery answers wrongly in one command.
 		mixed := []teamspeak.Permission{asked[0], teamspeak.PermissionByID(got[1].ID), asked[1], asked[0]}
-		both, err := c.GetOwnPermissions(ctx, mixed)
+		both, err := c.GetOwnPermissions(ctx, mixed, teamspeak.OwnPermissionOptions{})
 		if err != nil || len(both) != len(mixed) {
 			t.Fatalf("mixed: %+v, %v", both, err)
 		}
@@ -374,7 +377,8 @@ func TestQueryAdmin_OwnPermissions(t *testing.T) {
 		}
 
 		unknown := teamspeak.PermissionByName("b_no_such_permission")
-		none, err := c.GetOwnPermissions(ctx, []teamspeak.Permission{asked[0], unknown})
+		none, err := c.GetOwnPermissions(
+			ctx, []teamspeak.Permission{asked[0], unknown}, teamspeak.OwnPermissionOptions{})
 		if code := serverCode(err); code != 2562 || none != nil {
 			t.Errorf("an unknown permission: %v, %v, want nil and code 2562", none, err)
 		}
@@ -719,18 +723,19 @@ func TestQueryAdmin_ListServersAndGlobalMessage(t *testing.T) {
 			t.Fatalf("ListServers = %+v, %v, want the server the fixture provisioned", servers, err)
 		}
 		first := servers[0]
-		if first.ID == 0 || first.Port == 0 || first.Status == "" || first.Name == "" || first.UID == "" {
+		if first.ID == 0 || first.Port == 0 || first.Status == "" ||
+			!nonEmptyStr(first.Name) || !nonEmptyStr(first.UID) {
 			t.Errorf("the first server = %+v, want every field of a full listing", first)
 		}
-		if first.MaxClients == 0 {
+		if first.MaxClients == nil || *first.MaxClients == 0 {
 			t.Errorf("the first server = %+v, want its slots", first)
 		}
 
 		short, err := c.ListServers(ctx, teamspeak.ServerListOptions{Short: true})
 		if err != nil || len(short) != len(servers) || short[0].ID != first.ID || short[0].Port != first.Port {
 			t.Errorf("a short listing = %+v, %v, want the same servers", short, err)
-		} else if short[0].Name != "" {
-			t.Errorf("a short listing names the server %q", short[0].Name)
+		} else if short[0].Name != nil {
+			t.Errorf("a short listing names the server %q", *short[0].Name)
 		}
 		offline, err := c.ListServers(ctx, teamspeak.ServerListOptions{OnlyOffline: true})
 		if err != nil {
@@ -812,7 +817,7 @@ func permissionOf(
 	if err != nil || !known {
 		t.Fatalf("no id for %s: %v", name, err)
 	}
-	entries, err := c.ListServerGroupPermissions(ctx, group)
+	entries, err := c.ListServerGroupPermissions(ctx, group, teamspeak.PermissionListOptions{})
 	if err != nil {
 		t.Fatalf("ListServerGroupPermissions: %v", err)
 	}

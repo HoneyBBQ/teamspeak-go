@@ -221,7 +221,7 @@ func TestChannelChanges_ReadsEveryRecordField(t *testing.T) {
 	v := reflect.ValueOf(got)
 	for i := range v.NumField() {
 		// seconds_empty is no property of a channel notification.
-		if v.Type().Field(i).Name == "EmptyFor" {
+		if !v.Type().Field(i).IsExported() || v.Type().Field(i).Name == "EmptyFor" {
 			continue
 		}
 		if v.Field(i).IsNil() {
@@ -234,7 +234,7 @@ func TestChannelChanges_ReadsEveryRecordField(t *testing.T) {
 	}
 	cv := reflect.ValueOf(cloned)
 	for i := range v.NumField() {
-		if v.Type().Field(i).Name == "EmptyFor" {
+		if !v.Type().Field(i).IsExported() || v.Type().Field(i).Name == "EmptyFor" {
 			continue
 		}
 		if cv.Field(i).Pointer() == v.Field(i).Pointer() {

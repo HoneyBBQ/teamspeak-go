@@ -13,7 +13,8 @@ func TestGetOwnPermission(t *testing.T) {
 	s := &script{replies: []reply{{rows: []map[string]string{
 		{"permid": "204", "permsid": "i_client_move_power", "permvalue": "100"},
 	}}}}
-	got, err := NewCommands(s).GetOwnPermission(t.Context(), PermissionByName("i_client_move_power"))
+	got, err := NewCommands(s).GetOwnPermission(
+		t.Context(), PermissionByName("i_client_move_power"), OwnPermissionOptions{})
 	if want := (OwnPermission{Name: "i_client_move_power", ID: 204, Value: 100}); err != nil || got != want {
 		t.Errorf("got %+v, %v, want %+v", got, err, want)
 	}
@@ -22,7 +23,7 @@ func TestGetOwnPermission(t *testing.T) {
 	}
 
 	line := encoded(t, func(c *Commands) error {
-		_, err := c.GetOwnPermission(t.Context(), PermissionByID(211))
+		_, err := c.GetOwnPermission(t.Context(), PermissionByID(211), OwnPermissionOptions{})
 
 		return err
 	})
@@ -31,7 +32,7 @@ func TestGetOwnPermission(t *testing.T) {
 	}
 
 	refused(t, func(c *Commands) error {
-		_, err := c.GetOwnPermission(t.Context(), Permission{})
+		_, err := c.GetOwnPermission(t.Context(), Permission{}, OwnPermissionOptions{})
 
 		return err
 	})
@@ -40,12 +41,12 @@ func TestGetOwnPermission(t *testing.T) {
 // A value of 0 is an answer, and no answer at all is not one.
 func TestGetOwnPermission_ZeroAndNothing(t *testing.T) {
 	zero := &script{replies: []reply{{rows: []map[string]string{{"permid": "221", "permvalue": "0"}}}}}
-	got, err := NewCommands(zero).GetOwnPermission(t.Context(), PermissionByID(221))
+	got, err := NewCommands(zero).GetOwnPermission(t.Context(), PermissionByID(221), OwnPermissionOptions{})
 	if want := (OwnPermission{ID: 221}); err != nil || got != want {
 		t.Errorf("zero value = %+v, %v, want %+v", got, err, want)
 	}
 
-	_, err = NewCommands(&script{}).GetOwnPermission(t.Context(), PermissionByID(1))
+	_, err = NewCommands(&script{}).GetOwnPermission(t.Context(), PermissionByID(1), OwnPermissionOptions{})
 	if !errors.Is(err, ErrNoData) {
 		t.Errorf("no answer: err = %v, want ErrNoData", err)
 	}
@@ -62,7 +63,8 @@ func TestGetOwnPermissions(t *testing.T) {
 		{"permid": "1", "permsid": "b_a", "permvalue": "1"},
 	}}}}
 	got, err := NewCommands(s).GetOwnPermissions(t.Context(),
-		[]Permission{PermissionByName("b_a"), PermissionByName("i_b"), PermissionByName("b_a")})
+		[]Permission{PermissionByName("b_a"), PermissionByName("i_b"), PermissionByName("b_a")},
+		OwnPermissionOptions{})
 	want := []OwnPermission{{Name: "b_a", ID: 1, Value: 1}, {Name: "i_b", ID: 2}, {Name: "b_a", ID: 1, Value: 1}}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, %v, want %+v", got, err, want)
@@ -74,7 +76,7 @@ func TestGetOwnPermissions(t *testing.T) {
 
 func TestGetOwnPermissions_NoneSendsNothing(t *testing.T) {
 	s := &script{}
-	got, err := NewCommands(s).GetOwnPermissions(t.Context(), nil)
+	got, err := NewCommands(s).GetOwnPermissions(t.Context(), nil, OwnPermissionOptions{})
 	if got != nil || err != nil || len(s.sent) != 0 {
 		t.Errorf("got %v, %v, sent %q", got, err, s.sent)
 	}
@@ -95,7 +97,7 @@ func TestGetOwnPermissions_MixedSplitsInTwo(t *testing.T) {
 	}}
 	got, err := NewCommands(s).GetOwnPermissions(t.Context(), []Permission{
 		PermissionByID(1), PermissionByName("i_b"), PermissionByID(3), PermissionByName("i_b"),
-	})
+	}, OwnPermissionOptions{})
 	want := []OwnPermission{
 		{Name: "b_a", ID: 1, Value: 10}, {Name: "i_b", ID: 2, Value: 20},
 		{Name: "b_c", ID: 3, Value: 30}, {Name: "i_b", ID: 2, Value: 20},
@@ -111,14 +113,16 @@ func TestGetOwnPermissions_MixedSplitsInTwo(t *testing.T) {
 func TestGetOwnPermissions_RefusalsAndErrors(t *testing.T) {
 	// Refused before anything is sent, even when the bad one comes last.
 	s := &script{}
-	_, err := NewCommands(s).GetOwnPermissions(t.Context(), []Permission{PermissionByName("b_a"), {}})
+	_, err := NewCommands(s).GetOwnPermissions(t.Context(),
+		[]Permission{PermissionByName("b_a"), {}}, OwnPermissionOptions{})
 	if !errors.Is(err, ErrInvalidCommand) || len(s.sent) != 0 {
 		t.Errorf("invalid permission: err = %v, sent %q", err, s.sent)
 	}
 
 	// 2562 refuses the command and returns nothing.
 	s = &script{replies: []reply{{err: errPermRefused}}}
-	got, err := NewCommands(s).GetOwnPermissions(t.Context(), []Permission{PermissionByName("b_no_such_permission")})
+	got, err := NewCommands(s).GetOwnPermissions(t.Context(),
+		[]Permission{PermissionByName("b_no_such_permission")}, OwnPermissionOptions{})
 	if got != nil || !errors.Is(err, errPermRefused) {
 		t.Errorf("got %v, %v, want nil and the server's error", got, err)
 	}

@@ -56,7 +56,7 @@ if err = pc.SetLocalDescription(answer); err != nil {
 	return err
 }
 // The answer goes first, then the candidates pc.OnICECandidate finds, with view.SendCandidate.
-err = view.Answer(ctx, answer.SDP)
+err = view.Answer(ctx, answer.SDP, stream.SignalOptions{})
 ```
 
 ## Publishing a stream
@@ -73,7 +73,7 @@ if err != nil {
 }
 pub.OnRequest(func(request *stream.JoinRequest) {
 	if !allowed(request.Viewer()) {
-		_ = request.Deny(ctx, "Not today")
+		_ = request.Deny(ctx, stream.DenyOptions{Reason: "Not today"})
 
 		return
 	}
@@ -85,7 +85,7 @@ pub.OnRequest(func(request *stream.JoinRequest) {
 	offer, _ := pc.CreateOffer(nil)
 	_ = pc.SetLocalDescription(offer)
 
-	viewer, err := request.Accept(ctx, offer.SDP, "welcome")
+	viewer, err := request.Accept(ctx, offer.SDP, stream.AcceptOptions{Message: "welcome"})
 	if err != nil {
 		return
 	}
@@ -99,7 +99,7 @@ pub.OnRequest(func(request *stream.JoinRequest) {
 	// Send the candidates pc.OnICECandidate finds with viewer.SendCandidate.
 })
 
-err = pub.Stop(ctx, 0)
+err = pub.Stop(ctx, stream.StopOptions{})
 ```
 
 A request that nobody has answered can end: the viewer withdraws it or goes

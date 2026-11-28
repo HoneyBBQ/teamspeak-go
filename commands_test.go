@@ -1,8 +1,11 @@
 package teamspeak
 
 import (
+	"bytes"
 	"context"
-	"reflect"
+	"fmt"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,11 +86,37 @@ func TestCreatedGroupID(t *testing.T) {
 	}
 }
 
-// Encoding is the transport's business: a Request offers callers its name and
-// nothing that renders it.
-func TestRequestHasNoPublicEncode(t *testing.T) {
-	if _, ok := reflect.TypeFor[Request]().MethodByName("Encode"); ok {
-		t.Error("Request has a public Encode method")
+// Request.Encode renders a command line for a custom Executor while String,
+// GoString and LogValue keep redacting to the command name alone.
+func TestRequest_Encode(t *testing.T) {
+	var captured Request
+	var plainLine, hashedLine string
+	exec := ExecutorFunc(func(_ context.Context, req Request) ([]map[string]string, error) {
+		captured = req
+		plainLine = req.Encode(nil)
+		hashedLine = req.Encode(func(pw string) string { return "sha1(" + pw + ")" })
+
+		return nil, nil
+	})
+	err := NewCommands(exec).MoveClient(t.Context(), 7, 42, ClientMoveOptions{Password: "hunter2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plainLine != "clientmove clid=7 cid=42 cpw=hunter2" {
+		t.Errorf("Encode(nil) = %q", plainLine)
+	}
+	if hashedLine != "clientmove clid=7 cid=42 cpw=sha1(hunter2)" {
+		t.Errorf("Encode(hash) = %q", hashedLine)
+	}
+	for _, verb := range []string{"%s", "%v", "%+v", "%#v"} {
+		if out := fmt.Sprintf(verb, captured); out != "clientmove" {
+			t.Errorf("fmt.Sprintf(%q) = %q, want %q", verb, out, "clientmove")
+		}
+	}
+	var logged bytes.Buffer
+	slog.New(slog.NewJSONHandler(&logged, nil)).Info("req", "r", captured)
+	if strings.Contains(logged.String(), "hunter2") {
+		t.Errorf("slog leaked password: %s", logged.String())
 	}
 	line := request.Encode(request.New("channelsubscribe", [][2]string{{"cid", "7"}}), nil)
 	if line != "channelsubscribe cid=7" {

@@ -51,9 +51,21 @@ func (r Request) LogValue() slog.Value {
 	return slog.StringValue(r.command)
 }
 
-// init hands the SDK's transports the two things about a Request they need and
-// callers must not: building one from parts, and encoding it. An init, because
-// the hooks must be in place before any importer of this package runs.
+// Encode renders the request as a wire command line. encodePassword encodes
+// non-empty password parameters as the transport requires (for example
+// base64(sha1(password)) on the voice protocol, or plain text on ServerQuery);
+// nil sends passwords as given.
+func (r Request) Encode(encodePassword func(password string) string) string {
+	if encodePassword == nil {
+		encodePassword = func(password string) string { return password }
+	}
+
+	return r.encode(encodePassword)
+}
+
+// init hands the SDK's transports the hooks for building a Request from parts
+// and encoding it without importing teamspeak from internal packages. An init,
+// because the hooks must be in place before any importer of this package runs.
 func init() { //nolint:gochecknoinits // see above
 	request.New = func(command string, params [][2]string) any {
 		req := Request{command: command, params: make([]param, len(params))}
@@ -80,7 +92,7 @@ func init() { //nolint:gochecknoinits // see above
 		return req
 	}
 	request.Encode = func(req any, encodePassword func(password string) string) string {
-		return req.(Request).encode(encodePassword) //nolint:forcetypeassert // only ever given a Request
+		return req.(Request).Encode(encodePassword) //nolint:forcetypeassert // only ever given a Request
 	}
 }
 

@@ -1,6 +1,7 @@
 package serverquery
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -34,10 +35,13 @@ type Client struct {
 	warned           map[string]bool
 	clients          map[teamspeak.ClientID]teamspeak.ClientEntry
 	engine           *engine.Client
+	attemptEngine    *engine.Client
+	attemptCancel    context.CancelFunc
 	reconnectOptions *teamspeak.ReconnectOptions
 	// verdict and loopAttempt belong to the reconnect loop: the policy's answer
 	// for the failure just announced, and the attempt the loop is on.
 	verdict         *retryVerdict
+	gen             uint64
 	loopAttempt     int
 	nickname        string
 	selfNickname    string

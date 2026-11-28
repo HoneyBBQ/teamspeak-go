@@ -25,41 +25,41 @@ import (
 
 // VirtualServer is a virtual server as serverlist reports one.
 type VirtualServer struct {
-	// Name is the server's name (virtualserver_name); empty with
-	// ServerListOptions.Short.
-	Name string
-	// Status is the server's state (virtualserver_status); see
-	// VirtualServerStatus, which includes "online virtual".
-	Status VirtualServerStatus
+	_ [0]func()
+
+	// Name is the server's name (virtualserver_name); nil when omitted, as
+	// under ServerListOptions.Short.
+	Name *string
 	// UID is the server's unique identifier (virtualserver_unique_identifier);
-	// empty unless ServerListOptions.UID.
-	UID string
+	// nil unless ServerListOptions.UID.
+	UID *string
 	// MachineID is the machine id of the instance the server belongs to
-	// (virtualserver_machine_id), empty when the instance has none; empty with
-	// ServerListOptions.Short.
-	MachineID string
-	// Uptime is how long the server has been running (virtualserver_uptime, in
-	// seconds); 0 for a stopped server or with ServerListOptions.Short.
-	Uptime time.Duration
-	// ID is the server's id (virtualserver_id).
-	ID ServerID
-	// ClientsOnline is how many voice clients are connected
-	// (virtualserver_clientsonline); 0 with ServerListOptions.Short.
-	ClientsOnline int32
-	// QueryClientsOnline is how many ServerQuery clients are connected
-	// (virtualserver_queryclientsonline); 0 with ServerListOptions.Short.
-	QueryClientsOnline int32
-	// MaxClients is how many clients the server accepts
-	// (virtualserver_maxclients); 0 with ServerListOptions.Short.
-	MaxClients int32
-	// Port is the server's voice port (virtualserver_port).
-	Port uint16
-	// Autostart reports a server that starts with the instance
-	// (virtualserver_autostart); false with ServerListOptions.Short.
-	Autostart bool
-	// UUID is the server's uuid (virtualserver_uuid); empty when the server
+	// (virtualserver_machine_id), "" when the instance has none, and nil when
+	// omitted, as under ServerListOptions.Short.
+	MachineID *string
+	// UUID is the server's uuid (virtualserver_uuid); nil when the server
 	// sends none: TeamSpeak 6 does, TeamSpeak 3 does not.
-	UUID string
+	UUID *string
+	// Uptime is how long the server has been running (virtualserver_uptime, in
+	// seconds); nil when omitted, as under ServerListOptions.Short, and 0 for a
+	// stopped server when reported.
+	Uptime *time.Duration
+	// ClientsOnline is how many voice clients are connected
+	// (virtualserver_clientsonline); nil when omitted, as under
+	// ServerListOptions.Short.
+	ClientsOnline *int32
+	// QueryClientsOnline is how many ServerQuery clients are connected
+	// (virtualserver_queryclientsonline); nil when omitted, as under
+	// ServerListOptions.Short.
+	QueryClientsOnline *int32
+	// MaxClients is how many clients the server accepts
+	// (virtualserver_maxclients); nil when omitted, as under
+	// ServerListOptions.Short.
+	MaxClients *int32
+	// Autostart reports a server that starts with the instance
+	// (virtualserver_autostart); nil when omitted, as under
+	// ServerListOptions.Short.
+	Autostart *bool
 	// GuestCanCreateChannels reports whether guests may create channels
 	// (guest_can_create_channels); nil when the server sends none, as
 	// TeamSpeak 3 does not.
@@ -70,6 +70,13 @@ type VirtualServer struct {
 	// WeblistEnabled reports whether the server is listed on the web server
 	// list (virtualserver_weblist_enabled); nil when the server sends none.
 	WeblistEnabled *bool
+	// Status is the server's state (virtualserver_status); see
+	// VirtualServerStatus, which includes "online virtual".
+	Status VirtualServerStatus
+	// ID is the server's id (virtualserver_id).
+	ID ServerID
+	// Port is the server's voice port (virtualserver_port).
+	Port uint16
 }
 
 func parseVirtualServer(row map[string]string) VirtualServer {
@@ -77,16 +84,16 @@ func parseVirtualServer(row map[string]string) VirtualServer {
 		ID:                 ServerID(fieldUint(row, "virtualserver_id")),
 		Port:               fieldUint16(row, "virtualserver_port"),
 		Status:             VirtualServerStatus(fieldStr(row, "virtualserver_status")),
-		Name:               fieldStr(row, "virtualserver_name"),
-		UID:                fieldStr(row, "virtualserver_unique_identifier"),
-		MachineID:          fieldStr(row, "virtualserver_machine_id"),
-		Uptime:             fieldDuration(row, "virtualserver_uptime", time.Second),
-		ClientsOnline:      fieldInt32(row, "virtualserver_clientsonline"),
-		QueryClientsOnline: fieldInt32(row, "virtualserver_queryclientsonline"),
-		MaxClients:         fieldInt32(row, "virtualserver_maxclients"),
-		Autostart:          fieldBool(row, "virtualserver_autostart"),
+		Name:               fieldOptStr[string](row, "virtualserver_name"),
+		UID:                fieldOptStr[string](row, "virtualserver_unique_identifier"),
+		MachineID:          fieldOptStr[string](row, "virtualserver_machine_id"),
+		Uptime:             fieldOptDuration(row, "virtualserver_uptime", time.Second),
+		ClientsOnline:      fieldOptInt32(row, "virtualserver_clientsonline"),
+		QueryClientsOnline: fieldOptInt32(row, "virtualserver_queryclientsonline"),
+		MaxClients:         fieldOptInt32(row, "virtualserver_maxclients"),
+		Autostart:          fieldOptBool(row, "virtualserver_autostart"),
 
-		UUID:                   fieldStr(row, "virtualserver_uuid"),
+		UUID:                   fieldOptStr[string](row, "virtualserver_uuid"),
 		GuestCanCreateChannels: fieldOptBool(row, "guest_can_create_channels"),
 		GuestCanCreateHomebase: fieldOptBool(row, "guest_can_create_homebase"),
 		WeblistEnabled:         fieldOptBool(row, "virtualserver_weblist_enabled"),
@@ -111,10 +118,8 @@ type ServerListOptions struct {
 // ListServers returns the instance's virtual servers, none when it has none.
 // It sends serverlist.
 //
-// Needs b_serverinstance_virtualserver_list. TeamSpeak 6 reports further
-// fields, such as virtualserver_uuid, that VirtualServer has no field for. A
-// voice client is answered too, with the one server it is on. Measured on
-// TeamSpeak 3 and 6.
+// Needs b_serverinstance_virtualserver_list. A voice client is answered too,
+// with the one server it is on. Measured on TeamSpeak 3 and 6.
 func (c *Commands) ListServers(ctx context.Context, opts ServerListOptions) ([]VirtualServer, error) {
 	rows, err := c.list(ctx, "serverlist", []param{
 		boolArg("-uid", opts.UID),

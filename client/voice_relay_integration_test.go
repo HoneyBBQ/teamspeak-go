@@ -466,7 +466,9 @@ func TestIntegration_VoiceRelay_FrameSize(t *testing.T) {
 	frame600 := make([]byte, 600)
 	if got := relayHeardLen(t, l, s.c.ClientID(), true, 600, func() error {
 		relaySendFrames(t, frame600, func(b []byte) error {
-			return s.c.SendWhisper(b, client.WhisperTargets{Clients: []teamspeak.ClientID{l.c.ClientID()}}, teamspeak.CodecOpusVoice)
+			return s.c.SendWhisper(
+				b, client.WhisperTargets{Clients: []teamspeak.ClientID{l.c.ClientID()}},
+				teamspeak.CodecOpusVoice, client.VoiceOptions{})
 		})
 
 		return nil
@@ -476,7 +478,9 @@ func TestIntegration_VoiceRelay_FrameSize(t *testing.T) {
 
 	if got := relayHeardLen(t, l, s.c.ClientID(), true, 600, func() error {
 		relaySendFrames(t, frame600, func(b []byte) error {
-			return s.c.SendGroupWhisper(b, client.WhisperToAllClients(client.GroupWhisperAllChannels), teamspeak.CodecOpusVoice)
+			return s.c.SendGroupWhisper(
+				b, client.WhisperToAllClients(client.GroupWhisperAllChannels),
+				teamspeak.CodecOpusVoice, client.VoiceOptions{})
 		})
 
 		return nil

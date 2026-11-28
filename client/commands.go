@@ -543,7 +543,8 @@ func (c *Client) receiveNotification(h *transport.PacketHandler, cmd *wire.Comma
 
 // handleError settles the command an error answers. A server error before the
 // handshake completed also fails the connection attempt h runs, unless a later
-// Connect has replaced h meanwhile.
+// Connect has replaced h meanwhile; a ban on a live session ends it with that
+// server error.
 func (c *Client) handleError(h *transport.PacketHandler, cmd *wire.Command) {
 	rcStr := cmd.Params["return_code"]
 
@@ -555,14 +556,6 @@ func (c *Client) handleError(h *transport.PacketHandler, cmd *wire.Command) {
 		// and logging it as well reported every refusal twice.
 		c.logger.Debug("server refused a command",
 			slog.Uint64("code", uint64(serverErr.Code)), slog.String("message", serverErr.Message))
-
-		// Only once crypto init is complete: before it, the error is sealed
-		// with the public dummy key, and a forged ban must not stop the
-		// client for good. It still fails this attempt, below.
-		if serverErr.Code == errcode.ConnectFailedBanned && h.TsCrypt.InitComplete() {
-			c.logger.Warn("banned by the server, closing the connection")
-			c.background.Go(func() { c.disconnectBanned(h) })
-		}
 	}
 
 	// An error closes the answer the rows since the previous one belong to,
@@ -576,24 +569,32 @@ func (c *Client) handleError(h *transport.PacketHandler, cmd *wire.Command) {
 		c.cmdTrack.discardBuffered()
 	}
 
-	// A server error before the handshake completed is the connection failure
-	// itself: a rejected password, or an invalid clientinit parameter.
-	// failConnection is a no-op once connected.
 	if err != nil {
-		c.failConnection(h, err)
+		c.failOrBanConnection(h, err, serverErr)
 	}
 }
 
-// disconnectBanned disconnects after the server banned the connection h ran,
-// unless a later Connect has replaced it by the time this goroutine runs.
-func (c *Client) disconnectBanned(h *transport.PacketHandler) {
-	// Detached on purpose: nobody is waiting on this goroutine and there is no
-	// caller context. It is bounded all the same: the goodbye waits
-	// disconnectTimeout at most, and joining a Disconnect already in progress
-	// waits for that one's goodbye, which has the same bound.
-	disconnectErr := c.disconnect(context.Background(), h, defaultLeaveMessage)
-	if disconnectErr != nil {
-		c.logger.Warn("disconnect after fatal error failed", slog.Any("error", disconnectErr))
+func (c *Client) failOrBanConnection(h *transport.PacketHandler, err error, serverErr *teamspeak.ServerError) {
+	c.mu.Lock()
+	if c.handler != h {
+		c.mu.Unlock()
+		c.logger.Debug("ignoring a failure of a replaced connection", slog.Any("error", err))
+
+		return
+	}
+	if c.status != StatusConnected {
+		// A server error before the handshake completed is the connection
+		// failure itself: a rejected password, a ban on clientinit, or an
+		// invalid clientinit parameter.
+		c.failConnectionLocked(err)
+
+		return
+	}
+	c.mu.Unlock()
+
+	if serverErr != nil && serverErr.Code == errcode.ConnectFailedBanned {
+		c.logger.Warn("banned by the server, closing the connection")
+		c.removedByServer(h, serverErr)
 	}
 }
 

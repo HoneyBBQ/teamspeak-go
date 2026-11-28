@@ -1282,3 +1282,178 @@ func TestNotification_MoveWithoutCfidOrInvokerComesFromTheList(t *testing.T) {
 		t.Errorf("a client never seen moved from %d, want no origin", *unknown.FromChannelID)
 	}
 }
+
+// A transport EOF while Connect reads clientlist fails Connect and leaves the
+// client disconnected, while a server permission refusal on clientlist still
+// lets the session come up.
+func TestConnect_ClientListEOFLeavesClientDisconnected(t *testing.T) {
+	d := newFakeDialer(true)
+	c := newClient(t, d, WithServer(1), WithEvents(CategoryServer))
+
+	done := make(chan error, 1)
+	go func() { done <- c.Connect(context.Background()) }()
+
+	tr := d.transport(t)
+	for {
+		line, ok := nextWithin(t, tr, eventWait)
+		if !ok {
+			t.Fatal("handshake stalled before clientlist")
+		}
+		name, _, _ := strings.Cut(line, " ")
+		switch name {
+		case "version":
+			tr.reply("version=3.13.8 build=1 platform=Linux", "error id=0 msg=ok")
+		case "whoami":
+			tr.reply("client_id=7 client_nickname=bot", "error id=0 msg=ok")
+		case "clientlist":
+			_ = tr.Close()
+		default:
+			tr.reply("error id=0 msg=ok")
+		}
+		if name == "clientlist" {
+			break
+		}
+	}
+
+	err := <-done
+	if !errors.Is(err, teamspeak.ErrNotConnected) {
+		t.Fatalf("Connect on clientlist EOF = %v, want ErrNotConnected", err)
+	}
+	if got := c.Status(); got != teamspeak.StatusDisconnected {
+		t.Errorf("status = %v, want StatusDisconnected", got)
+	}
+}
+
+// Disconnect called mid-Connect cancels the handshake, closes the opened
+// transport, and makes Connect return ErrNotConnected instead of finishing as
+// StatusConnected.
+func TestDisconnect_MidConnectAbortsTheHandshake(t *testing.T) {
+	d := newFakeDialer(true)
+	c := newClient(t, d, WithServer(1))
+
+	connected := make(chan struct{}, 1)
+	c.OnConnected(func(teamspeak.ConnectedEvent) { connected <- struct{}{} })
+
+	done := make(chan error, 1)
+	go func() { done <- c.Connect(context.Background()) }()
+
+	tr := d.transport(t)
+	// Wait until the handshake is blocked waiting for `use` to be answered.
+	line, ok := nextWithin(t, tr, eventWait)
+	if !ok || !strings.HasPrefix(line, "use") {
+		t.Fatalf("first handshake command = %q, ok=%v, want use", line, ok)
+	}
+
+	err := c.Disconnect(context.Background())
+	if err != nil {
+		t.Fatalf("Disconnect mid-Connect: %v", err)
+	}
+
+	select {
+	case connectErr := <-done:
+		if !errors.Is(connectErr, teamspeak.ErrNotConnected) {
+			t.Fatalf("Connect after Disconnect = %v, want ErrNotConnected", connectErr)
+		}
+	case <-time.After(eventWait):
+		t.Fatal("Connect did not return promptly after Disconnect")
+	}
+
+	if got := c.Status(); got != teamspeak.StatusDisconnected {
+		t.Errorf("status = %v, want StatusDisconnected", got)
+	}
+	select {
+	case <-tr.closed:
+	default:
+		t.Error("the in-flight transport was not closed by Disconnect")
+	}
+	select {
+	case <-connected:
+		t.Error("OnConnected fired for an aborted Connect")
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+func waitReconnectMidHandshake(t *testing.T, d *fakeDialer) *fakeTransport {
+	t.Helper()
+	var second *fakeTransport
+	select {
+	case second = <-d.opened:
+	case <-time.After(eventWait):
+		t.Fatal("reconnect never opened a second transport")
+	}
+	line, ok := nextWithin(t, second, eventWait)
+	if !ok || !strings.HasPrefix(line, "use") {
+		t.Fatalf("reconnect first command = %q, ok=%v, want use", line, ok)
+	}
+
+	return second
+}
+
+func waitReconnectStopped(t *testing.T, c *Client) {
+	t.Helper()
+	deadline := time.Now().Add(eventWait)
+	for time.Now().Before(deadline) {
+		c.mu.Lock()
+		busy := c.reconnecting
+		c.mu.Unlock()
+		if !busy {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("reconnect loop stayed running after Disconnect")
+}
+
+// Disconnect called while a reconnectAttempt handshake is in flight cancels it
+// immediately rather than letting the 30-second attempt finish in the
+// background.
+func TestDisconnect_MidReconnectAttemptCancelsPromptly(t *testing.T) {
+	d := newFakeDialer(true)
+	c := newClient(t, d, WithServer(1), WithReconnect(teamspeak.ReconnectOptions{
+		Backoff: teamspeak.BackoffPolicy{
+			InitialDelay: time.Millisecond,
+			MaxDelay:     5 * time.Millisecond,
+			Jitter:       -1,
+		},
+	}))
+
+	done := make(chan error, 1)
+	go func() { done <- c.Connect(context.Background()) }()
+	first := d.answer(t)
+	err := <-done
+	if err != nil {
+		t.Fatalf("initial Connect: %v", err)
+	}
+
+	reconnected := make(chan struct{}, 1)
+	c.OnConnected(func(teamspeak.ConnectedEvent) { reconnected <- struct{}{} })
+
+	// Drop the first connection so scheduleReconnect dials a second transport.
+	first.closeErr = errReset
+	_ = first.Close()
+	second := waitReconnectMidHandshake(t, d)
+
+	start := time.Now()
+	err = c.Disconnect(context.Background())
+	if err != nil {
+		t.Fatalf("Disconnect mid-reconnect: %v", err)
+	}
+	select {
+	case <-second.closed:
+	case <-time.After(eventWait):
+		t.Fatal("reconnect transport was not closed promptly by Disconnect")
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("Disconnect took %v to stop reconnect attempt", took)
+	}
+
+	waitReconnectStopped(t, c)
+	if got := c.Status(); got != teamspeak.StatusDisconnected {
+		t.Errorf("status = %v, want StatusDisconnected", got)
+	}
+	select {
+	case <-reconnected:
+		t.Error("OnConnected fired after Disconnect cancelled reconnect")
+	default:
+	}
+}

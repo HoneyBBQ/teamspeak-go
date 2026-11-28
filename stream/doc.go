@@ -71,4 +71,6 @@
 // interoperate with the TeamSpeak 6 client.
 //
 // [streams guide]: https://github.com/honeybbq/teamspeak-go/blob/main/docs/streams.md
+//
+// Experimental: TeamSpeak does not document the stream protocol; this package may change in a minor release.
 package stream

@@ -544,6 +544,11 @@ func WithVersion(v versions.ClientVersion) Option {
 //
 // Connect does not wait for event handlers, so a handler may call it.
 func (c *Client) Connect(ctx context.Context) error {
+	err := ctx.Err()
+	if err != nil {
+		return err
+	}
+
 	return c.connect(ctx, true, 1)
 }
 
@@ -566,7 +571,7 @@ func (c *Client) Connect(ctx context.Context) error {
 //
 // Disconnect does not wait for event handlers, so a handler may call it.
 func (c *Client) Disconnect(ctx context.Context) error {
-	return c.disconnect(ctx, nil, defaultLeaveMessage)
+	return c.disconnect(ctx, defaultLeaveMessage)
 }
 
 // defaultLeaveMessage is what Disconnect tells the other clients.
@@ -579,19 +584,11 @@ const defaultLeaveMessage = "Shutdown"
 // 6 drop the message. Called while an earlier Disconnect is still saying
 // goodbye, it joins that one, and the first call's message is the one sent.
 func (c *Client) DisconnectWithMessage(ctx context.Context, message string) error {
-	return c.disconnect(ctx, nil, message)
+	return c.disconnect(ctx, message)
 }
 
-// disconnect is Disconnect. With a non-nil only, it acts only while only is
-// still the current handler, checked under the lock: a disconnect decided on
-// for one connection must not end the next.
-func (c *Client) disconnect(ctx context.Context, only *transport.PacketHandler, message string) error {
+func (c *Client) disconnect(ctx context.Context, message string) error {
 	c.mu.Lock()
-	if only != nil && c.handler != only {
-		c.mu.Unlock()
-
-		return nil
-	}
 	// Recorded before anything else: a dropped socket during the goodbye below
 	// must not be mistaken for an outage worth retrying.
 	c.setStoppedLocked(true)

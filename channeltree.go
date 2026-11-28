@@ -52,6 +52,8 @@ type ChannelTree struct {
 // predecessor that is not one — are placed at the end of their parent, or
 // under the top level for a parent that is missing, and make Consistent report
 // false. A record with the id 0 is dropped.
+//
+// Experimental: this may change in a minor release.
 func NewChannelTree(channels []Channel) ChannelTree {
 	t := ChannelTree{
 		nodes: make(map[ChannelID]Channel, len(channels)),

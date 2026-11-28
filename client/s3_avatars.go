@@ -44,6 +44,13 @@ func (c *Client) ownAvatarPath() string {
 	return "/" + name
 }
 
+// S3RemoveOptions are RemoveS3Avatar's and RemoveS3Icon's optional parameters.
+// It has no fields yet: a delete goes through the server rather than directly
+// to the storage, and the type is reserved for later extensions.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
+type S3RemoveOptions struct{}
+
 // UploadS3Avatar uploads data as this client's avatar over S3 and sets
 // client_flag_avatar to its MD5, so that other clients see the change in a
 // ClientUpdatedEvent. It returns the MD5, lower-case hex.
@@ -56,6 +63,8 @@ func (c *Client) ownAvatarPath() string {
 // by default; over it, the signing is refused with 2049 (invalid file
 // permissions) and nothing is sent or changed. A file of exactly the limit
 // passes.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) UploadS3Avatar(ctx context.Context, data []byte, opts S3TransferOptions) (string, error) {
 	sum := md5.Sum(data) //nolint:gosec // see the import
 	digest := hex.EncodeToString(sum[:])
@@ -74,6 +83,8 @@ func (c *Client) UploadS3Avatar(ctx context.Context, data []byte, opts S3Transfe
 // DownloadS3Avatar returns the S3 avatar of the client with this unique
 // identifier. The bool is false when the storage has none for it (a download of
 // /<teamspeak.AvatarFileName(uid)> in channel 0, answered 404).
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) DownloadS3Avatar(
 	ctx context.Context, uid teamspeak.UID, opts S3TransferOptions,
 ) ([]byte, bool, error) {
@@ -89,9 +100,10 @@ func (c *Client) DownloadS3Avatar(
 // /<teamspeak.AvatarFileName(uid)> in channel 0, then empties
 // client_flag_avatar, which the delete leaves as it was. A client may delete
 // its own avatar only: another's is refused with 2568. It succeeds whether or
-// not there was an avatar, as the storage's delete does. It takes no transfer
-// options: a delete goes through the server, not to the storage.
-func (c *Client) RemoveS3Avatar(ctx context.Context) error {
+// not there was an avatar, as the storage's delete does.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
+func (c *Client) RemoveS3Avatar(ctx context.Context, _ S3RemoveOptions) error {
 	err := c.DeleteS3File(ctx, 0, c.ownAvatarPath(), S3FileOptions{})
 	if err != nil {
 		return err
@@ -110,6 +122,8 @@ func (c *Client) RemoveS3Avatar(ctx context.Context) error {
 // Needs b_icon_manage, and the size limit is i_max_icon_filesize, 8192 bytes
 // for a Server Admin: without the one, or over the other, the signing is
 // refused with 2049 (invalid file permissions).
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) UploadS3Icon(ctx context.Context, data []byte, opts S3TransferOptions) (teamspeak.IconID, error) {
 	id := teamspeak.IconIDOf(data)
 	err := c.UploadS3File(ctx, 0, teamspeak.IconFileName(id), data, UploadS3FileOptions{Transfer: opts})
@@ -122,16 +136,19 @@ func (c *Client) UploadS3Icon(ctx context.Context, data []byte, opts S3TransferO
 
 // DownloadS3Icon returns an S3 icon's bytes. The bool is false when the storage
 // has no file for the id.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
 func (c *Client) DownloadS3Icon(
 	ctx context.Context, id teamspeak.IconID, opts S3TransferOptions,
 ) ([]byte, bool, error) {
 	return c.s3Download(ctx, teamspeak.IconFileName(id), opts)
 }
 
-// DeleteS3Icon deletes an S3 icon's file (/icon_<id> in channel 0). Needs
+// RemoveS3Icon deletes an S3 icon's file (/icon_<id> in channel 0). Needs
 // b_icon_manage (2568 without it). A channel, group or client that still names
-// the icon keeps the id; deleting a file that is not there succeeds. It takes
-// no transfer options, as RemoveS3Avatar.
-func (c *Client) DeleteS3Icon(ctx context.Context, id teamspeak.IconID) error {
+// the icon keeps the id; deleting a file that is not there succeeds.
+//
+// Experimental: TeamSpeak does not document S3 file transfer; this may change in a minor release.
+func (c *Client) RemoveS3Icon(ctx context.Context, id teamspeak.IconID, _ S3RemoveOptions) error {
 	return c.DeleteS3File(ctx, 0, teamspeak.IconFileName(id), S3FileOptions{})
 }

@@ -366,10 +366,10 @@ func (c *Commands) DeleteQueryLogin(ctx context.Context, clientDBID ClientDBID) 
 // sends clientsetserverquerylogin.
 //
 // The answer carries only the password, so the result's Name is name and its
-// other fields are empty. Needs b_client_create_modify_serverquery_login. The
-// connection must be a client of a selected server, not the instance: without
-// one the server answers 512, "invalid clientID". Both TeamSpeak 3 and 6
-// answer it over ServerQuery, and over the voice protocol too.
+// other fields are empty. Needs b_client_create_modify_serverquery_login.
+// TeamSpeak 3 and 6 answer it over the voice protocol, where the connection is
+// a client of the server, and refuse a ServerQuery connection with 512,
+// "invalid clientID".
 func (c *Commands) SetQueryLogin(ctx context.Context, name string) (QueryLoginCreated, error) {
 	row, err := c.queryRow(ctx, "clientsetserverquerylogin", "client_login_password", []param{
 		strArg("client_login_name", name),

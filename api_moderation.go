@@ -12,6 +12,8 @@ import (
 
 // BanEntry is a ban as banlist reports it.
 type BanEntry struct {
+	_ [0]func()
+
 	// Created is when the ban was made.
 	Created time.Time
 	// IP is the regular expression the ban matches addresses with (ip); "" if it

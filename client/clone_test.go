@@ -38,6 +38,9 @@ func fill(t *testing.T, v reflect.Value, n int) {
 			return
 		}
 		for i := range v.NumField() {
+			if !v.Type().Field(i).IsExported() {
+				continue
+			}
 			fill(t, v.Field(i), n+i)
 		}
 	default:
@@ -50,6 +53,9 @@ func filled[T any](t *testing.T) T {
 	var v T
 	rv := reflect.ValueOf(&v).Elem()
 	for i := range rv.NumField() {
+		if !rv.Type().Field(i).IsExported() {
+			continue
+		}
 		fill(t, rv.Field(i), i)
 	}
 
@@ -78,6 +84,9 @@ func addrs(f reflect.Value) []uintptr {
 func sharedField(a, b any) string {
 	av, bv := reflect.ValueOf(a), reflect.ValueOf(b)
 	for i := range av.NumField() {
+		if !av.Type().Field(i).IsExported() {
+			continue
+		}
 		for _, x := range addrs(av.Field(i)) {
 			if slices.Contains(addrs(bv.Field(i)), x) {
 				return av.Type().Field(i).Name

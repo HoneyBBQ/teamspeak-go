@@ -7,6 +7,17 @@ import (
 	"time"
 )
 
+func exportedFields(t reflect.Type) int {
+	n := 0
+	for field := range t.Fields() {
+		if field.IsExported() {
+			n++
+		}
+	}
+
+	return n
+}
+
 // The changes struct of a record has a field for each of the record's, under the
 // same name, as a pointer to the value, so a property cannot be added to one
 // and forgotten in the other.
@@ -18,6 +29,9 @@ func TestChangesMirrorTheirRecords(t *testing.T) {
 		{reflect.TypeFor[Channel](), reflect.TypeFor[ChannelChanges]()},
 	} {
 		for field := range c.record.Fields() {
+			if !field.IsExported() {
+				continue
+			}
 			if field.Name == "ID" {
 				if _, ok := c.changes.FieldByName("ID"); ok {
 					t.Errorf("%s has an ID", c.changes)
@@ -35,8 +49,8 @@ func TestChangesMirrorTheirRecords(t *testing.T) {
 				t.Errorf("%s.%s is %s, want %s", c.changes, field.Name, got.Type, want)
 			}
 		}
-		if got, want := c.changes.NumField(), c.record.NumField()-1; got != want {
-			t.Errorf("%s has %d fields, want %d", c.changes, got, want)
+		if got, want := exportedFields(c.changes), exportedFields(c.record)-1; got != want {
+			t.Errorf("%s has %d exported fields, want %d", c.changes, got, want)
 		}
 	}
 }

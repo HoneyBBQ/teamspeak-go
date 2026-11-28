@@ -12,7 +12,6 @@ var ErrDial error
 var ErrHostKey error
 var ErrInvalidConfig error
 var ErrLineTooLong error
-var ErrMissingDependency error
 var ErrNoGuestAccess error
 func ByID(id teamspeak.ServerID) ServerSelector
 func ByPort(port uint16) ServerSelector
@@ -136,10 +135,10 @@ method (Client) GetFileInfo(ctx context.Context, channelID teamspeak.ChannelID, 
 method (Client) GetHostInfo(ctx context.Context) (teamspeak.Properties, error)
 method (Client) GetInstanceInfo(ctx context.Context) (teamspeak.Properties, error)
 method (Client) GetMessage(ctx context.Context, messageID teamspeak.MessageID) (teamspeak.OfflineMessage, error)
-method (Client) GetOwnPermission(ctx context.Context, perm teamspeak.Permission) (teamspeak.OwnPermission, error)
-method (Client) GetOwnPermissions(ctx context.Context, perms []teamspeak.Permission) ([]teamspeak.OwnPermission, error)
+method (Client) GetOwnPermission(ctx context.Context, perm teamspeak.Permission, _ teamspeak.OwnPermissionOptions) (teamspeak.OwnPermission, error)
+method (Client) GetOwnPermissions(ctx context.Context, perms []teamspeak.Permission, _ teamspeak.OwnPermissionOptions) ([]teamspeak.OwnPermission, error)
 method (Client) GetPermissionIDByName(ctx context.Context, name string) (teamspeak.PermissionID, bool, error)
-method (Client) GetPermissionOverview(ctx context.Context, channelID teamspeak.ChannelID, clientDBID teamspeak.ClientDBID) ([]teamspeak.PermissionOverviewEntry, error)
+method (Client) GetPermissionOverview(ctx context.Context, channelID teamspeak.ChannelID, clientDBID teamspeak.ClientDBID, _ teamspeak.PermissionOverviewOptions) ([]teamspeak.PermissionOverviewEntry, error)
 method (Client) GetServerGroupsByClient(ctx context.Context, clientDBID teamspeak.ClientDBID) ([]teamspeak.ServerGroupRef, error)
 method (Client) GetServerIDByPort(ctx context.Context, port uint16) (teamspeak.ServerID, error)
 method (Client) GetServerInfo(ctx context.Context) (teamspeak.Properties, error)
@@ -154,14 +153,14 @@ method (Client) ListAPIKeys(ctx context.Context, opts teamspeak.APIKeyListOption
 method (Client) ListActiveTransfers(ctx context.Context) ([]teamspeak.ActiveTransfer, error)
 method (Client) ListBans(ctx context.Context, opts teamspeak.BanListOptions) ([]teamspeak.BanEntry, error)
 method (Client) ListBindings(ctx context.Context, opts teamspeak.BindingListOptions) ([]teamspeak.Binding, error)
-method (Client) ListChannelClientPermissions(ctx context.Context, cid teamspeak.ChannelID, clientDBID teamspeak.ClientDBID) ([]teamspeak.PermissionEntry, error)
+method (Client) ListChannelClientPermissions(ctx context.Context, cid teamspeak.ChannelID, clientDBID teamspeak.ClientDBID, _ teamspeak.PermissionListOptions) ([]teamspeak.PermissionEntry, error)
 method (Client) ListChannelGroupClients(ctx context.Context, opts teamspeak.ChannelGroupClientListOptions) ([]teamspeak.ChannelGroupMembership, error)
-method (Client) ListChannelGroupPermissions(ctx context.Context, channelGroupID teamspeak.ChannelGroupID) ([]teamspeak.PermissionEntry, error)
+method (Client) ListChannelGroupPermissions(ctx context.Context, channelGroupID teamspeak.ChannelGroupID, _ teamspeak.PermissionListOptions) ([]teamspeak.PermissionEntry, error)
 method (Client) ListChannelGroups(ctx context.Context, _ teamspeak.ChannelGroupListOptions) ([]teamspeak.ChannelGroup, error)
-method (Client) ListChannelPermissions(ctx context.Context, cid teamspeak.ChannelID) ([]teamspeak.PermissionEntry, error)
+method (Client) ListChannelPermissions(ctx context.Context, cid teamspeak.ChannelID, _ teamspeak.PermissionListOptions) ([]teamspeak.PermissionEntry, error)
 method (Client) ListChannels(ctx context.Context, _ teamspeak.ChannelListOptions) ([]teamspeak.Channel, error)
 method (Client) ListClientDatabase(ctx context.Context, opts teamspeak.ClientDatabasePageOptions) ([]teamspeak.ClientDatabaseEntry, error)
-method (Client) ListClientPermissions(ctx context.Context, clientDBID teamspeak.ClientDBID) ([]teamspeak.PermissionEntry, error)
+method (Client) ListClientPermissions(ctx context.Context, clientDBID teamspeak.ClientDBID, _ teamspeak.PermissionListOptions) ([]teamspeak.PermissionEntry, error)
 method (Client) ListClients(ctx context.Context, options teamspeak.ClientListOptions) ([]teamspeak.ClientEntry, error)
 method (Client) ListComplaints(ctx context.Context, opts teamspeak.ComplaintListOptions) ([]teamspeak.Complaint, error)
 method (Client) ListCustomProperties(ctx context.Context, clientDBID teamspeak.ClientDBID) ([]teamspeak.CustomProperty, error)
@@ -172,7 +171,7 @@ method (Client) ListPermissions(ctx context.Context) ([]teamspeak.PermissionInfo
 method (Client) ListPrivilegeKeys(ctx context.Context) ([]teamspeak.PrivilegeKey, error)
 method (Client) ListQueryLogins(ctx context.Context, opts teamspeak.QueryLoginListOptions) ([]teamspeak.QueryLogin, error)
 method (Client) ListServerGroupClients(ctx context.Context, serverGroupID teamspeak.ServerGroupID, opts teamspeak.ServerGroupClientListOptions) ([]teamspeak.ServerGroupMember, error)
-method (Client) ListServerGroupPermissions(ctx context.Context, serverGroupID teamspeak.ServerGroupID) ([]teamspeak.PermissionEntry, error)
+method (Client) ListServerGroupPermissions(ctx context.Context, serverGroupID teamspeak.ServerGroupID, _ teamspeak.PermissionListOptions) ([]teamspeak.PermissionEntry, error)
 method (Client) ListServerGroups(ctx context.Context, _ teamspeak.ServerGroupListOptions) ([]teamspeak.ServerGroup, error)
 method (Client) ListServers(ctx context.Context, opts teamspeak.ServerListOptions) ([]teamspeak.VirtualServer, error)
 method (Client) ListTempPasswords(ctx context.Context) ([]teamspeak.TempPassword, error)

@@ -223,11 +223,22 @@ func (c *Client) reconnectLoop(cause error, options teamspeak.ReconnectOptions) 
 }
 
 // reconnectAttempt runs one connection attempt on the reconnect loop's behalf.
-// It is bounded by reconnectAttemptTimeout and by nothing else: the caller's
-// Disconnect set the stop, which ends it.
+// It ends when reconnectAttemptTimeout elapses or when Disconnect stops the
+// client, whichever comes first.
 func (c *Client) reconnectAttempt() error {
 	ctx, cancel := context.WithTimeout(context.Background(), reconnectAttemptTimeout)
 	defer cancel()
+
+	stop := c.stopChan()
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-done:
+		}
+	}()
 
 	return c.connect(ctx, connectKind{})
 }

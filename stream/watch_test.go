@@ -292,11 +292,12 @@ func TestWatch_KeepsWhatArrivesWithTheOfferForTheFirstHandler(t *testing.T) {
 func TestWatch_SendsTheAnswerAndCandidatesToThePublisher(t *testing.T) {
 	run(t, func(t *testing.T, e *env) {
 		v := e.watchAccepted()
-		err := v.Answer(t.Context(), "v=0\r\nanswer")
+		err := v.Answer(t.Context(), "v=0\r\nanswer", SignalOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = v.SendCandidate(t.Context(), IceCandidate{Candidate: "c1", SDPMid: new("0"), SDPMLineIndex: new(uint16(0))})
+		err = v.SendCandidate(
+			t.Context(), IceCandidate{Candidate: "c1", SDPMid: new("0"), SDPMLineIndex: new(uint16(0))}, SignalOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -648,7 +649,7 @@ func TestCleanup_ClearsTheRememberedDenialsOnClose(t *testing.T) {
 		e.h.see(9, nil)
 		e.ask(p, 9, "")
 		e.settle()
-		err := reqs.all()[0].Deny(t.Context(), "")
+		err := reqs.all()[0].Deny(t.Context(), DenyOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -32,8 +32,12 @@ var ErrClosed error
 var ErrInvalidOptions error
 var ErrNotPending error
 func New(c *client.Client, opts Options) *Streams
+type AcceptOptions struct
+field AcceptOptions.Message string
 type Accessibility uint32
 method (Accessibility) String() string
+type DenyOptions struct
+field DenyOptions.Reason string
 type EndCause uint8
 method (EndCause) String() string
 type EndedError struct
@@ -64,8 +68,8 @@ field JoinDeniedError.StreamID ID
 field JoinDeniedError.Message string
 method (*JoinDeniedError) Error() string
 type JoinRequest struct
-method (*JoinRequest) Accept(ctx context.Context, offer string, message string) (*ViewerPeer, error)
-method (*JoinRequest) Deny(ctx context.Context, reason string) error
+method (*JoinRequest) Accept(ctx context.Context, offer string, opts AcceptOptions) (*ViewerPeer, error)
+method (*JoinRequest) Deny(ctx context.Context, opts DenyOptions) error
 method (*JoinRequest) Message() string
 method (*JoinRequest) OnClosed(handler func(RequestState)) func()
 method (*JoinRequest) State() RequestState
@@ -88,8 +92,8 @@ method (*Peer) OnCandidate(handler func(IceCandidate)) func()
 method (*Peer) OnClosed(handler func(PeerClosedEvent)) func()
 method (*Peer) OnOffer(handler func(sdp string)) func()
 method (*Peer) OnSignal(handler func(RawSignal)) func()
-method (*Peer) SendCandidate(ctx context.Context, c IceCandidate) error
-method (*Peer) SendSignal(ctx context.Context, cmd string, args any) error
+method (*Peer) SendCandidate(ctx context.Context, c IceCandidate, _ SignalOptions) error
+method (*Peer) SendSignal(ctx context.Context, cmd string, args any, _ SignalOptions) error
 method (*Peer) StreamID() ID
 type PeerCause uint8
 method (PeerCause) String() string
@@ -109,7 +113,7 @@ method (*Published) ID() ID
 method (*Published) Info() Info
 method (*Published) OnEnded(handler func(EndedEvent)) func()
 method (*Published) OnRequest(handler func(*JoinRequest)) func()
-method (*Published) Stop(ctx context.Context, reason uint32) error
+method (*Published) Stop(ctx context.Context, opts StopOptions) error
 method (*Published) Viewers() []*ViewerPeer
 type RawSignal struct
 field RawSignal.Cmd string
@@ -117,8 +121,11 @@ field RawSignal.JSON string
 field RawSignal.Args json.RawMessage
 type RequestState uint8
 method (RequestState) String() string
+type SignalOptions struct
 type Source uint32
 method (Source) String() string
+type StopOptions struct
+field StopOptions.Reason uint32
 type StoppedEvent struct
 field StoppedEvent.Info Info
 field StoppedEvent.Cause EndCause
@@ -150,7 +157,7 @@ field UnsupportedError.Extensions []string
 method (*UnsupportedError) Error() string
 type View struct
 embed View *Peer
-method (*View) Answer(ctx context.Context, sdp string) error
+method (*View) Answer(ctx context.Context, sdp string, _ SignalOptions) error
 method (View) ClientID() teamspeak.ClientID
 method (View) Close(ctx context.Context) error
 method (View) Closed() bool
@@ -161,8 +168,8 @@ method (View) OnCandidate(handler func(IceCandidate)) func()
 method (View) OnClosed(handler func(PeerClosedEvent)) func()
 method (View) OnOffer(handler func(sdp string)) func()
 method (View) OnSignal(handler func(RawSignal)) func()
-method (View) SendCandidate(ctx context.Context, c IceCandidate) error
-method (View) SendSignal(ctx context.Context, cmd string, args any) error
+method (View) SendCandidate(ctx context.Context, c IceCandidate, _ SignalOptions) error
+method (View) SendSignal(ctx context.Context, cmd string, args any, _ SignalOptions) error
 method (View) StreamID() ID
 type Viewer struct
 field Viewer.UID teamspeak.UID
@@ -181,9 +188,9 @@ method (ViewerPeer) OnCandidate(handler func(IceCandidate)) func()
 method (ViewerPeer) OnClosed(handler func(PeerClosedEvent)) func()
 method (ViewerPeer) OnOffer(handler func(sdp string)) func()
 method (ViewerPeer) OnSignal(handler func(RawSignal)) func()
-method (ViewerPeer) SendCandidate(ctx context.Context, c IceCandidate) error
-method (*ViewerPeer) SendOffer(ctx context.Context, sdp string) error
-method (ViewerPeer) SendSignal(ctx context.Context, cmd string, args any) error
+method (ViewerPeer) SendCandidate(ctx context.Context, c IceCandidate, _ SignalOptions) error
+method (*ViewerPeer) SendOffer(ctx context.Context, sdp string, _ SignalOptions) error
+method (ViewerPeer) SendSignal(ctx context.Context, cmd string, args any, _ SignalOptions) error
 method (ViewerPeer) StreamID() ID
 type WarningCode string
 type WarningEvent struct

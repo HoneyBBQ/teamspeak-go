@@ -65,7 +65,7 @@ func ExampleStreams_Watch() { //nolint:testableexamples // needs a server, so it
 
 	fmt.Println("offer:", len(view.Offer()), "bytes")
 	// Create the answer with the peer connection, then:
-	err = view.Answer(ctx, "v=0 ...")
+	err = view.Answer(ctx, "v=0 ...", stream.SignalOptions{})
 	if err != nil {
 		fatal(err)
 	}
@@ -89,7 +89,7 @@ func ExampleStreams_Publish() { //nolint:testableexamples // needs a server, so 
 		// section, even for a screen share: the TeamSpeak 6 client does not
 		// answer an offer without one.
 		offer := "v=0 ..."
-		viewer, err := request.Accept(ctx, offer, "welcome")
+		viewer, err := request.Accept(ctx, offer, stream.AcceptOptions{Message: "welcome"})
 		if err != nil {
 			log.Print(err)
 
@@ -99,5 +99,5 @@ func ExampleStreams_Publish() { //nolint:testableexamples // needs a server, so 
 		viewer.OnCandidate(func(candidate stream.IceCandidate) { fmt.Println("candidate:", candidate.Candidate) })
 	})
 	published.OnEnded(func(ended stream.EndedEvent) { fmt.Println("ended:", ended.Cause) })
-	defer func() { _ = published.Stop(context.WithoutCancel(ctx), 0) }()
+	defer func() { _ = published.Stop(context.WithoutCancel(ctx), stream.StopOptions{}) }()
 }

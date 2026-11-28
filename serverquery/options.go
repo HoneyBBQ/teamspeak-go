@@ -17,24 +17,38 @@ type Category string
 // connect against a TS3 server.
 const (
 	// CategoryServer is "server": virtual server events.
+	//
+	// Experimental: this package may change in a minor release.
 	CategoryServer Category = "server"
 	// CategoryChannel is "channel": channel events, for one channel or, with
 	// id 0, all of them. Registering it takes no channel here.
+	//
+	// Experimental: this package may change in a minor release.
 	CategoryChannel Category = "channel"
 	// CategoryTextServer is "textserver": text messages to the server.
+	//
+	// Experimental: this package may change in a minor release.
 	CategoryTextServer Category = "textserver"
 	// CategoryTextChannel is "textchannel": text messages to a channel.
+	//
+	// Experimental: this package may change in a minor release.
 	CategoryTextChannel Category = "textchannel"
 	// CategoryTextPrivate is "textprivate": text messages to this client.
+	//
+	// Experimental: this package may change in a minor release.
 	CategoryTextPrivate Category = "textprivate"
 	// CategoryBans is "bans": ban events. Accepted on TeamSpeak 6 and refused
 	// on TeamSpeak 3, so it is opt-in.
+	//
+	// Experimental: this package may change in a minor release.
 	CategoryBans Category = "bans"
 	// CategoryTokenUsed is "tokenused": a client redeemed a privilege key. Both
 	// TeamSpeak 3.13.8 and 6.0.0-beta13.1 accept it and then send
 	// notifytokenused with the client, the key and its two ids. The key is a
 	// credential, so the notification stays a NotificationEvent and the category
 	// is never registered by default: name it in WithEvents to receive it.
+	//
+	// Experimental: this package may change in a minor release.
 	CategoryTokenUsed Category = "tokenused"
 )
 

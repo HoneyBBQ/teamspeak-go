@@ -317,12 +317,12 @@ func TestWhoAmIAndServerList_ReadTheTS6Fields(t *testing.T) {
 		t.Fatalf("ListServers = %v, %v", servers, err)
 	}
 	ts6, ts3 := servers[0], servers[1]
-	if ts6.UUID == "" || ts6.GuestCanCreateChannels == nil || !*ts6.GuestCanCreateChannels ||
+	if ts6.UUID == nil || *ts6.UUID == "" || ts6.GuestCanCreateChannels == nil || !*ts6.GuestCanCreateChannels ||
 		ts6.GuestCanCreateHomebase == nil || *ts6.GuestCanCreateHomebase ||
 		ts6.WeblistEnabled == nil || *ts6.WeblistEnabled {
 		t.Errorf("TS6 row = %+v", ts6)
 	}
-	if ts3.UUID != "" || ts3.GuestCanCreateChannels != nil || ts3.GuestCanCreateHomebase != nil ||
+	if ts3.UUID != nil || ts3.GuestCanCreateChannels != nil || ts3.GuestCanCreateHomebase != nil ||
 		ts3.WeblistEnabled != nil {
 		t.Errorf("a row with none of them = %+v, want them unset", ts3)
 	}

@@ -479,6 +479,8 @@ func (c *Commands) SetClientChannelGroup(
 
 // ClientDatabaseEntry is a persistent client record.
 type ClientDatabaseEntry struct {
+	_ [0]func()
+
 	// Created is when the client first connected.
 	Created time.Time
 	// LastConnected is when the client last connected.
@@ -818,9 +820,14 @@ type PacketLoss struct {
 // zeros. ConnectedTime, IdleTime and ClientToServerLoss come from the server,
 // which ignores a client's own report of the loss.
 type ClientConnectionInfo struct {
-	// IP is the client's address (connection_client_ip); empty when the server
-	// does not send it.
-	IP string
+	_ [0]func()
+
+	// IP is the client's address (connection_client_ip); nil when the server
+	// does not send it, such as without b_client_remoteaddress_view.
+	IP *string
+	// Port is the client's port (connection_client_port); nil when the server
+	// does not send it, such as without b_client_remoteaddress_view.
+	Port *uint16
 	// Sent is what the client sent.
 	Sent ConnectionTrafficByClass
 	// Received is what the client received.
@@ -850,9 +857,6 @@ type ClientConnectionInfo struct {
 	FileTransferBandwidthReceived uint64
 	// ID is the client the figures are about (clid).
 	ID ClientID
-	// Port is the client's port (connection_client_port); 0 when the server
-	// does not send it.
-	Port uint16
 }
 
 func parseConnectionTraffic(row map[string]string, direction string) ConnectionTrafficByClass {
@@ -893,8 +897,8 @@ func (c *Commands) GetClientConnectionInfo(ctx context.Context, clid ClientID) (
 		PingDeviation:                 fieldMillis(row, "connection_ping_deviation"),
 		ConnectedTime:                 fieldDuration(row, "connection_connected_time", time.Millisecond),
 		IdleTime:                      fieldDuration(row, "connection_idle_time", time.Millisecond),
-		IP:                            fieldStr(row, "connection_client_ip"),
-		Port:                          fieldUint16(row, "connection_client_port"),
+		IP:                            fieldOptStr[string](row, "connection_client_ip"),
+		Port:                          fieldOptUint16(row, "connection_client_port"),
 		Sent:                          parseConnectionTraffic(row, "sent"),
 		Received:                      parseConnectionTraffic(row, "received"),
 		ServerToClientLoss:            parsePacketLoss(row, "server2client"),
@@ -1081,7 +1085,9 @@ func (c *Commands) GetClientNameByUID(ctx context.Context, uid UID) (ClientDatab
 
 // ListClientPermissions returns the permissions granted to a client from the
 // database.
-func (c *Commands) ListClientPermissions(ctx context.Context, clientDBID ClientDBID) ([]PermissionEntry, error) {
+func (c *Commands) ListClientPermissions(
+	ctx context.Context, clientDBID ClientDBID, _ PermissionListOptions,
+) ([]PermissionEntry, error) {
 	rows, err := c.list(ctx, "clientpermlist", []param{idArg("cldbid", clientDBID)})
 	if err != nil {
 		return nil, err

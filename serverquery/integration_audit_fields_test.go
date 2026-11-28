@@ -24,6 +24,13 @@ func idText(id *teamspeak.ChannelID) string {
 
 func stamp() string { return strconv.FormatInt(time.Now().UnixNano(), 36) }
 
+func nonEmptyStr(s *string) bool { return s != nil && *s != "" }
+
+func hasTransferTotals(info teamspeak.ClientDatabaseEntry) bool {
+	return info.TotalBytesUploaded != nil && info.TotalBytesDownloaded != nil &&
+		info.MonthBytesUploaded != nil && info.MonthBytesDownloaded != nil
+}
+
 // What the database lookups, whoami and serverlist carry beyond what they
 // used to be read for.
 func TestQueryAdmin_LookupFields(t *testing.T) {
@@ -41,8 +48,7 @@ func TestQueryAdmin_LookupFields(t *testing.T) {
 		}
 		t.Logf("%s: dbinfo avatar=%q total up/down=%v/%v month up/down=%v/%v", transport, info.AvatarHash,
 			info.TotalBytesUploaded, info.TotalBytesDownloaded, info.MonthBytesUploaded, info.MonthBytesDownloaded)
-		if info.TotalBytesUploaded == nil || info.TotalBytesDownloaded == nil ||
-			info.MonthBytesUploaded == nil || info.MonthBytesDownloaded == nil {
+		if !hasTransferTotals(info) {
 			t.Errorf("clientdbinfo left a byte count unset: %+v", info)
 		}
 
@@ -63,12 +69,12 @@ func TestQueryAdmin_LookupFields(t *testing.T) {
 		if err != nil || len(servers) == 0 {
 			t.Fatalf("ListServers = %v, %v", servers, err)
 		}
-		t.Logf("%s: whoami uuid=%q origin=%d; serverlist uuid=%q guest channels=%v homebase=%v weblist=%v", transport,
+		t.Logf("%s: whoami uuid=%q origin=%d; serverlist uuid=%v guest channels=%v homebase=%v weblist=%v", transport,
 			who.ServerUUID, who.OriginServerID, servers[0].UUID, servers[0].GuestCanCreateChannels,
 			servers[0].GuestCanCreateHomebase, servers[0].WeblistEnabled)
 		isTS6 := family == teamspeak.ServerFamilyTS6
-		if isTS6 != (who.ServerUUID != "") || isTS6 != (servers[0].UUID != "") {
-			t.Errorf("uuid on %v: whoami %q, serverlist %q", family, who.ServerUUID, servers[0].UUID)
+		if isTS6 != (who.ServerUUID != "") || isTS6 != nonEmptyStr(servers[0].UUID) {
+			t.Errorf("uuid on %v: whoami %q, serverlist %v", family, who.ServerUUID, servers[0].UUID)
 		}
 		if isTS6 != (servers[0].GuestCanCreateChannels != nil) || isTS6 != (servers[0].WeblistEnabled != nil) {
 			t.Errorf("the TeamSpeak 6 server fields on %v: %+v", family, servers[0])

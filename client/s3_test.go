@@ -159,7 +159,9 @@ func TestS3_RefusesAServerWithoutTheExtensionBeforeSending(t *testing.T) {
 
 			return err
 		},
-		"CompleteS3FileUpload": func() error { return c.CompleteS3FileUpload(ctx, info, S3FileOptions{}) },
+		"CompleteS3FileUpload": func() error {
+			return c.CompleteS3FileUpload(ctx, info, CompleteS3UploadOptions{})
+		},
 		"ListS3Files": func() error {
 			_, err := c.ListS3Files(ctx, 2, S3FileOptions{})
 
@@ -289,7 +291,7 @@ func TestCompleteS3FileUpload(t *testing.T) {
 		return []map[string]string{{"success": success}}, nil
 	})
 	info := &S3FileUploadInfo{ChannelID: 9, Path: "/a"}
-	err := c.CompleteS3FileUpload(t.Context(), info, S3FileOptions{})
+	err := c.CompleteS3FileUpload(t.Context(), info, CompleteS3UploadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +300,7 @@ func TestCompleteS3FileUpload(t *testing.T) {
 	}
 
 	success = "0"
-	err = c.CompleteS3FileUpload(t.Context(), info, S3FileOptions{})
+	err = c.CompleteS3FileUpload(t.Context(), info, CompleteS3UploadOptions{})
 	var failed *S3TransferError
 	if !errors.As(err, &failed) || failed.Status != 0 || !errors.Is(err, teamspeak.ErrFileTransfer) ||
 		err.Error() != "the server could not read the file list of channel 9 from its storage" {
@@ -308,7 +310,7 @@ func TestCompleteS3FileUpload(t *testing.T) {
 
 func TestCompleteS3FileUpload_NoSuccessIsNoData(t *testing.T) {
 	c, _ := newS3Client(t, []string{"s3"}, noAnswer)
-	err := c.CompleteS3FileUpload(t.Context(), &S3FileUploadInfo{ChannelID: 9}, S3FileOptions{})
+	err := c.CompleteS3FileUpload(t.Context(), &S3FileUploadInfo{ChannelID: 9}, CompleteS3UploadOptions{})
 	if !errors.Is(err, teamspeak.ErrNoData) {
 		t.Errorf("err = %v, want ErrNoData", err)
 	}
@@ -402,15 +404,25 @@ func (s *s3Storage) upload(t *testing.T, size uint64, data io.Reader) error {
 	info := &S3FileUploadInfo{
 		ChannelID: 1, Path: "/dir/a.txt", Size: size, URL: s.URL + "/bucket/dir/a.txt?X-Amz-Signature=secret",
 	}
+	_, err := UploadS3FileData(t.Context(), info, data, s.transfer())
 
-	return UploadS3FileData(t.Context(), info, data, s.transfer())
+	return err
 }
 
 func TestUploadS3FileData_PutsExactlyTheSignedLength(t *testing.T) {
-	s := newS3Storage(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	err := s.upload(t, 5, strings.NewReader("hello"))
+	s := newS3Storage(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("ETag", `"etag-123"`)
+		w.WriteHeader(http.StatusOK)
+	})
+	info := &S3FileUploadInfo{
+		ChannelID: 1, Path: "/dir/a.txt", Size: 5, URL: s.URL + "/bucket/dir/a.txt?X-Amz-Signature=secret",
+	}
+	res, err := UploadS3FileData(t.Context(), info, strings.NewReader("hello"), s.transfer())
 	if err != nil {
 		t.Fatal(err)
+	}
+	if res.ETag != `"etag-123"` {
+		t.Errorf("ETag = %q, want %q", res.ETag, `"etag-123"`)
 	}
 	r := s.requests[0]
 	if r.Method != http.MethodPut || r.ContentLength != 5 || string(s.bodies[0]) != "hello" {
@@ -511,7 +523,7 @@ func TestUploadS3FileData_NoAnswerNeverNamesTheURL(t *testing.T) {
 	s := newS3Storage(t, func(http.ResponseWriter, *http.Request) {})
 	info := &S3FileUploadInfo{Path: "/dir/a.txt", Size: 1, URL: s.URL + "/bucket/k?X-Amz-Signature=secret"}
 	s.Close()
-	err := UploadS3FileData(t.Context(), info, strings.NewReader("a"), s.transfer())
+	_, err := UploadS3FileData(t.Context(), info, strings.NewReader("a"), s.transfer())
 	var transfer *S3TransferError
 	if !errors.As(err, &transfer) || transfer.Status != 0 || transfer.Err == nil ||
 		!errors.Is(err, teamspeak.ErrFileTransfer) {
@@ -534,7 +546,7 @@ func TestUploadS3FileData_ACanceledContextIsTheContextsError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 	info := &S3FileUploadInfo{Path: "/a", Size: 1, URL: s.URL + "/k?sig=secret"}
-	err := UploadS3FileData(ctx, info, strings.NewReader("a"), s.transfer())
+	_, err := UploadS3FileData(ctx, info, strings.NewReader("a"), s.transfer())
 	if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, teamspeak.ErrFileTransfer) {
 		t.Errorf("err = %v, want ErrFileTransfer and the context's error", err)
 	}
